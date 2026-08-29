@@ -1,0 +1,6 @@
+{
+  "name": "My Singghara",
+  "description": "Aplikasi produktivitas lengkap: manajemen jadwal harian, data karyawan & murid dengan generator ID Card & presensi QR, Al-Qur'an, pembukuan usaha, mindmap AI, pemutar musik, dan aneka mini games.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
