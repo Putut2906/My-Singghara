@@ -1550,6 +1550,15 @@ fun ManualAbsensiDialog(
     var manualStatusAnggota by remember { mutableStateOf("Karyawan") }
     var selectedStatusPresensi by remember { mutableStateOf("Hadir") }
 
+    var isNameDropdownExpanded by remember { mutableStateOf(false) }
+    val filteredAnggotaByName = remember(manualNama, allAnggota) {
+        if (manualNama.trim().isEmpty()) emptyList()
+        else allAnggota.filter {
+            it.nama.contains(manualNama.trim(), ignoreCase = true) ||
+            it.nomorInduk.contains(manualNama.trim(), ignoreCase = true)
+        }
+    }
+
     val sdfTime = remember { SimpleDateFormat("HH:mm", Locale.getDefault()) }
     val currentTime = remember { sdfTime.format(Date()) }
 
@@ -1560,12 +1569,19 @@ fun ManualAbsensiDialog(
     var inputWaktuPulang by remember { mutableStateOf(defaultBatasPulang) }
     var inputBatasPulang by remember { mutableStateOf(defaultBatasPulang) }
 
-    var expandedAnggotaDropdown by remember { mutableStateOf(false) }
-
     AlertDialog(
         onDismissRequest = onDismiss,
         title = {
-            Text("Input Absensi & Waktu Pulang", fontWeight = FontWeight.Bold, fontSize = 17.sp)
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text("Input Absensi & Waktu Pulang", fontWeight = FontWeight.Bold, fontSize = 17.sp)
+                IconButton(onClick = onDismiss, modifier = Modifier.size(24.dp)) {
+                    Icon(Icons.Default.Close, contentDescription = "Tutup")
+                }
+            }
         },
         text = {
             LazyColumn(
@@ -1574,58 +1590,154 @@ fun ManualAbsensiDialog(
                     .padding(vertical = 4.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
+                // Input Nama Anggota dengan Autocomplete Menu List & Auto-fill Data
                 item {
-                    // Pilih Anggota Terdaftar (Opsional)
-                    if (allAnggota.isNotEmpty()) {
+                    Column(modifier = Modifier.fillMaxWidth()) {
                         ExposedDropdownMenuBox(
-                            expanded = expandedAnggotaDropdown,
-                            onExpandedChange = { expandedAnggotaDropdown = !expandedAnggotaDropdown }
+                            expanded = isNameDropdownExpanded && filteredAnggotaByName.isNotEmpty(),
+                            onExpandedChange = { isNameDropdownExpanded = it }
                         ) {
                             OutlinedTextField(
-                                value = selectedAnggota?.nama ?: "Pilih dari Daftar Anggota...",
-                                onValueChange = {},
-                                readOnly = true,
-                                label = { Text("Pilih Anggota Terdaftar") },
-                                trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expandedAnggotaDropdown) },
+                                value = manualNama,
+                                onValueChange = {
+                                    manualNama = it
+                                    isNameDropdownExpanded = it.isNotBlank()
+                                    if (selectedAnggota != null && !it.equals(selectedAnggota?.nama, ignoreCase = true)) {
+                                        selectedAnggota = null
+                                    }
+                                },
+                                label = { Text("Nama Anggota *") },
+                                placeholder = { Text("Ketik nama / NIP anggota...") },
+                                leadingIcon = {
+                                    Icon(
+                                        imageVector = Icons.Default.Person,
+                                        contentDescription = null,
+                                        tint = if (selectedAnggota != null) Color(0xFF10B981) else MaterialTheme.colorScheme.primary
+                                    )
+                                },
+                                trailingIcon = {
+                                    if (selectedAnggota != null) {
+                                        IconButton(onClick = {
+                                            selectedAnggota = null
+                                            manualNama = ""
+                                            manualNip = ""
+                                            manualDivisi = ""
+                                        }) {
+                                            Icon(Icons.Default.CheckCircle, contentDescription = "Terhubung", tint = Color(0xFF10B981))
+                                        }
+                                    } else if (manualNama.isNotBlank()) {
+                                        IconButton(onClick = {
+                                            manualNama = ""
+                                            isNameDropdownExpanded = false
+                                        }) {
+                                            Icon(Icons.Default.Clear, contentDescription = "Hapus")
+                                        }
+                                    }
+                                },
+                                singleLine = true,
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .menuAnchor()
                             )
-                            ExposedDropdownMenu(
-                                expanded = expandedAnggotaDropdown,
-                                onDismissRequest = { expandedAnggotaDropdown = false }
-                            ) {
-                                allAnggota.forEach { member ->
-                                    DropdownMenuItem(
-                                        text = {
-                                            Column {
-                                                Text(member.nama, fontWeight = FontWeight.Bold, fontSize = 13.sp)
-                                                Text("${member.nomorInduk} • ${member.status}", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+
+                            if (filteredAnggotaByName.isNotEmpty()) {
+                                ExposedDropdownMenu(
+                                    expanded = isNameDropdownExpanded,
+                                    onDismissRequest = { isNameDropdownExpanded = false },
+                                    modifier = Modifier.heightIn(max = 240.dp)
+                                ) {
+                                    Text(
+                                        text = "Anggota Terdaftar Ditemukan (${filteredAnggotaByName.size}):",
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                                    )
+                                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                                    filteredAnggotaByName.forEach { member ->
+                                        DropdownMenuItem(
+                                            text = {
+                                                Row(
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    modifier = Modifier.fillMaxWidth()
+                                                ) {
+                                                    Surface(
+                                                        shape = CircleShape,
+                                                        color = MaterialTheme.colorScheme.primaryContainer,
+                                                        modifier = Modifier.size(32.dp)
+                                                    ) {
+                                                        Box(contentAlignment = Alignment.Center) {
+                                                            Text(
+                                                                text = member.nama.take(1).uppercase(Locale.getDefault()),
+                                                                fontWeight = FontWeight.Bold,
+                                                                fontSize = 13.sp,
+                                                                color = MaterialTheme.colorScheme.onPrimaryContainer
+                                                            )
+                                                        }
+                                                    }
+                                                    Spacer(modifier = Modifier.width(10.dp))
+                                                    Column(modifier = Modifier.weight(1f)) {
+                                                        Text(member.nama, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                                        Text(
+                                                            text = "${member.nomorInduk} • ${member.divisiOrJurusan.ifBlank { "Umum" }}",
+                                                            fontSize = 11.sp,
+                                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                        )
+                                                    }
+                                                    Spacer(modifier = Modifier.width(6.dp))
+                                                    Surface(
+                                                        shape = RoundedCornerShape(6.dp),
+                                                        color = Color(0xFF0F766E).copy(alpha = 0.12f)
+                                                    ) {
+                                                        Text(
+                                                            text = member.status,
+                                                            fontSize = 10.sp,
+                                                            fontWeight = FontWeight.SemiBold,
+                                                            color = Color(0xFF0F766E),
+                                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                                        )
+                                                    }
+                                                }
+                                            },
+                                            onClick = {
+                                                selectedAnggota = member
+                                                manualNama = member.nama
+                                                manualNip = member.nomorInduk
+                                                manualDivisi = member.divisiOrJurusan
+                                                manualStatusAnggota = member.status
+                                                isNameDropdownExpanded = false
                                             }
-                                        },
-                                        onClick = {
-                                            selectedAnggota = member
-                                            manualNama = member.nama
-                                            manualNip = member.nomorInduk
-                                            manualDivisi = member.divisiOrJurusan
-                                            manualStatusAnggota = member.status
-                                            expandedAnggotaDropdown = false
-                                        }
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
+                        // Auto-fill success indicator badge
+                        if (selectedAnggota != null) {
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = Color(0xFF10B981).copy(alpha = 0.1f),
+                                border = BorderStroke(1.dp, Color(0xFF10B981).copy(alpha = 0.3f)),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(Icons.Default.CheckCircle, contentDescription = null, tint = Color(0xFF10B981), modifier = Modifier.size(16.dp))
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = "✓ Data terisi otomatis: ${selectedAnggota?.nama} (${selectedAnggota?.nomorInduk})",
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = Color(0xFF065F46)
                                     )
                                 }
                             }
                         }
                     }
-                }
-
-                item {
-                    OutlinedTextField(
-                        value = manualNama,
-                        onValueChange = { manualNama = it },
-                        label = { Text("Nama Anggota *") },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
-                    )
                 }
 
                 item {
@@ -2011,6 +2123,7 @@ fun PengaturanBatasWaktuDialog(
 // -------------------------------------------------------------
 // COMPONENT: QR SCANNER DIALOG (SUPPORT MASUK & PULANG)
 // -------------------------------------------------------------
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun AttendanceQrScannerDialog(
     allAnggota: List<AnggotaItem>,
@@ -2025,6 +2138,35 @@ fun AttendanceQrScannerDialog(
     var qrInputText by remember { mutableStateOf("") }
     var selectedMemberForQuickScan by remember { mutableStateOf<AnggotaItem?>(null) }
     var scanStatusChoice by remember { mutableStateOf("Hadir") }
+    var showCameraScanner by remember { mutableStateOf(false) }
+
+    var isScannerDropdownExpanded by remember { mutableStateOf(false) }
+    val filteredMembersForScanner = remember(qrInputText, allAnggota) {
+        if (qrInputText.trim().isEmpty()) emptyList()
+        else allAnggota.filter {
+            it.nama.contains(qrInputText.trim(), ignoreCase = true) ||
+            it.nomorInduk.contains(qrInputText.trim(), ignoreCase = true)
+        }
+    }
+
+    if (showCameraScanner) {
+        BarcodeScannerDialog(
+            onDismissRequest = { showCameraScanner = false },
+            onBarcodeScanned = { scannedCode ->
+                val trimmed = scannedCode.trim()
+                qrInputText = trimmed
+                val member = allAnggota.find {
+                    it.nomorInduk.equals(trimmed, ignoreCase = true) ||
+                    it.nama.equals(trimmed, ignoreCase = true) ||
+                    it.qrCodeData.equals(trimmed, ignoreCase = true)
+                }
+                if (member != null) {
+                    selectedMemberForQuickScan = member
+                }
+                showCameraScanner = false
+            }
+        )
+    }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -2097,15 +2239,159 @@ fun AttendanceQrScannerDialog(
                     )
                 }
 
-                // INPUT MANUAL QR PAYLOAD / SCANNER TEXT
-                OutlinedTextField(
-                    value = qrInputText,
-                    onValueChange = { qrInputText = it },
-                    label = { Text("Ketik / Scan QR Anggota (NIM/NIP)") },
-                    placeholder = { Text("Contoh: KRY-001 atau scan QR") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
+                // INPUT MANUAL QR PAYLOAD / SCANNER TEXT DENGAN AUTOCOMPLETE LIST
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    ExposedDropdownMenuBox(
+                        expanded = isScannerDropdownExpanded && filteredMembersForScanner.isNotEmpty(),
+                        onExpandedChange = { isScannerDropdownExpanded = it }
+                    ) {
+                        OutlinedTextField(
+                            value = qrInputText,
+                            onValueChange = {
+                                qrInputText = it
+                                isScannerDropdownExpanded = it.isNotBlank()
+                                if (selectedMemberForQuickScan != null &&
+                                    !it.equals(selectedMemberForQuickScan?.nomorInduk, ignoreCase = true) &&
+                                    !it.equals(selectedMemberForQuickScan?.nama, ignoreCase = true)) {
+                                    selectedMemberForQuickScan = null
+                                }
+                            },
+                            label = { Text("Ketik / Scan QR Anggota (NIM/NIP)") },
+                            placeholder = { Text("Ketik nama atau NIM/NIP...") },
+                            leadingIcon = {
+                                Icon(
+                                    imageVector = if (selectedMemberForQuickScan != null) Icons.Default.CheckCircle else Icons.Default.Person,
+                                    contentDescription = null,
+                                    tint = if (selectedMemberForQuickScan != null) Color(0xFF10B981) else if (!isModePulang) Color(0xFF0F766E) else Color(0xFFD97706)
+                                )
+                            },
+                            trailingIcon = {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    if (qrInputText.isNotBlank()) {
+                                        IconButton(
+                                            onClick = {
+                                                qrInputText = ""
+                                                selectedMemberForQuickScan = null
+                                                isScannerDropdownExpanded = false
+                                            },
+                                            modifier = Modifier.size(28.dp)
+                                        ) {
+                                            Icon(Icons.Default.Clear, contentDescription = "Hapus", modifier = Modifier.size(16.dp))
+                                        }
+                                    }
+                                    IconButton(
+                                        onClick = { showCameraScanner = true },
+                                        modifier = Modifier.testTag("scan_id_card_button")
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.QrCodeScanner,
+                                            contentDescription = "Pindai Barcode / QR ID Card",
+                                            tint = if (!isModePulang) Color(0xFF0F766E) else Color(0xFFD97706)
+                                        )
+                                    }
+                                }
+                            },
+                            singleLine = true,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .menuAnchor()
+                        )
+
+                        if (filteredMembersForScanner.isNotEmpty()) {
+                            ExposedDropdownMenu(
+                                expanded = isScannerDropdownExpanded,
+                                onDismissRequest = { isScannerDropdownExpanded = false },
+                                modifier = Modifier.heightIn(max = 240.dp)
+                            ) {
+                                Text(
+                                    text = "Anggota Ditemukan (${filteredMembersForScanner.size}):",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (!isModePulang) Color(0xFF0F766E) else Color(0xFFD97706),
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                                )
+                                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                                filteredMembersForScanner.forEach { member ->
+                                    DropdownMenuItem(
+                                        text = {
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                modifier = Modifier.fillMaxWidth()
+                                            ) {
+                                                Surface(
+                                                    shape = CircleShape,
+                                                    color = if (!isModePulang) Color(0xFF0F766E).copy(alpha = 0.15f) else Color(0xFFD97706).copy(alpha = 0.15f),
+                                                    modifier = Modifier.size(32.dp)
+                                                ) {
+                                                    Box(contentAlignment = Alignment.Center) {
+                                                        Text(
+                                                            text = member.nama.take(1).uppercase(Locale.getDefault()),
+                                                            fontWeight = FontWeight.Bold,
+                                                            fontSize = 13.sp,
+                                                            color = if (!isModePulang) Color(0xFF0F766E) else Color(0xFFD97706)
+                                                        )
+                                                    }
+                                                }
+                                                Spacer(modifier = Modifier.width(10.dp))
+                                                Column(modifier = Modifier.weight(1f)) {
+                                                    Text(member.nama, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                                                    Text(
+                                                        text = "NIM/NIP: ${member.nomorInduk} • ${member.divisiOrJurusan.ifBlank { "Umum" }}",
+                                                        fontSize = 11.sp,
+                                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                    )
+                                                }
+                                                Spacer(modifier = Modifier.width(6.dp))
+                                                Surface(
+                                                    shape = RoundedCornerShape(6.dp),
+                                                    color = Color(0xFF0F766E).copy(alpha = 0.12f)
+                                                ) {
+                                                    Text(
+                                                        text = member.status,
+                                                        fontSize = 10.sp,
+                                                        fontWeight = FontWeight.SemiBold,
+                                                        color = Color(0xFF0F766E),
+                                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                                    )
+                                                }
+                                            }
+                                        },
+                                        onClick = {
+                                            selectedMemberForQuickScan = member
+                                            qrInputText = member.nomorInduk
+                                            isScannerDropdownExpanded = false
+                                        }
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    // Auto-fill member indicator badge
+                    if (selectedMemberForQuickScan != null) {
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = Color(0xFF10B981).copy(alpha = 0.1f),
+                            border = BorderStroke(1.dp, Color(0xFF10B981).copy(alpha = 0.3f)),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(Icons.Default.CheckCircle, contentDescription = null, tint = Color(0xFF10B981), modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = "✓ Anggota Terhubung: ${selectedMemberForQuickScan?.nama} (${selectedMemberForQuickScan?.nomorInduk})",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = Color(0xFF065F46)
+                                )
+                            }
+                        }
+                    }
+                }
 
                 // PILIH CEPAT DARI DAFTAR ANGGOTA
                 if (allAnggota.isNotEmpty()) {

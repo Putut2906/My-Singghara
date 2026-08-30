@@ -3,6 +3,7 @@ package com.example.ui.screens
 
 import com.example.ui.models.AppRegistry
 
+import kotlinx.coroutines.launch
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.togetherWith
@@ -117,6 +118,10 @@ import androidx.compose.ui.window.Dialog
 import coil.compose.AsyncImage
 import com.example.data.AgendaItem
 import com.example.ui.MainViewModel
+import androidx.compose.foundation.border
+import androidx.compose.foundation.isSystemInDarkTheme
+import com.example.network.HolidayClient
+import com.example.util.CalendarExportHelper
 import com.example.ui.components.PrayerTimesHelper
 import java.util.*
 import java.text.SimpleDateFormat
@@ -130,6 +135,7 @@ private data class CalendarCellData(
     val pasaran: String,
     val isToday: Boolean,
     val holidayName: String?,
+    val observanceName: String?,
     val hasAgenda: Boolean,
     val isSunday: Boolean
 )
@@ -142,6 +148,7 @@ private data class DayAgendaDetail(
     val jDate: JawaDate,
     val hDate: String,
     val holiday: String?,
+    val observance: String?,
     val dayAgendas: List<AgendaItem>
 )
 
@@ -425,6 +432,16 @@ fun HomeScreen(viewModel: MainViewModel) {
         }
     }
     var showMonthEventsPopup by remember { mutableStateOf(false) }
+    var showMonthAddAgendaForm by remember { mutableStateOf(false) }
+    var monthAgendaSelectedDay by remember { mutableIntStateOf(1) }
+    var monthAgendaTitle by remember { mutableStateOf("") }
+    var monthAgendaDesc by remember { mutableStateOf("") }
+    var monthAgendaType by remember { mutableStateOf("agenda") }
+    var selectedExportScope by remember { mutableStateOf("12_MONTHS") }
+    var selectedExportFormat by remember { mutableStateOf("PDF") }
+    var selectedPaperType by remember { mutableStateOf("Art Paper (120–150 gsm)") }
+    var isExportingCalendar by remember { mutableStateOf(false) }
+    val coroutineScope = rememberCoroutineScope()
     var agendaToDelete by remember { mutableStateOf<AgendaItem?>(null) }
     var feedbackBannerMessage by remember { mutableStateOf<String?>(null) }
     var feedbackBannerIcon by remember { mutableStateOf<androidx.compose.ui.graphics.vector.ImageVector?>(null) }
@@ -1852,13 +1869,6 @@ fun HomeScreen(viewModel: MainViewModel) {
                                 fontWeight = FontWeight.Black,
                                 color = MaterialTheme.colorScheme.primary
                             )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Icon(
-                                imageVector = Icons.Default.CalendarMonth,
-                                contentDescription = "Daftar Acara & Hari Penting",
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(18.dp)
-                            )
                         }
 
                         IconButton(onClick = {
@@ -1917,6 +1927,7 @@ fun HomeScreen(viewModel: MainViewModel) {
                             val jDate = JavaneseCalendarHelper.calculateJawa(mYear, mMonth, mDay)
                             val isToday = mYear == todayYear && mMonth == todayMonth && mDay == todayDay
                             val holidayName = apiHolidays[dateKey]
+                            val observanceName = HolidayClient.getObservanceForDate(mMonth, mDay)
                             val hasAgenda = agendaItems.any { it.tanggal == dateKey }
                             val dayOfWeekIdx = (firstDayDayOfWeek + day - 1) % 7
 
@@ -1927,6 +1938,7 @@ fun HomeScreen(viewModel: MainViewModel) {
                                     pasaran = jDate.pasaran,
                                     isToday = isToday,
                                     holidayName = holidayName,
+                                    observanceName = observanceName,
                                     hasAgenda = hasAgenda,
                                     isSunday = (dayOfWeekIdx == 0)
                                 )
@@ -1934,6 +1946,8 @@ fun HomeScreen(viewModel: MainViewModel) {
                         }
                         cellList.chunked(7)
                     }
+
+                    val isDarkTheme = isSystemInDarkTheme()
 
                     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         calendarGridRows.forEach { weekRow ->
@@ -1946,15 +1960,28 @@ fun HomeScreen(viewModel: MainViewModel) {
                                     if (cell == null) {
                                         Box(modifier = Modifier.weight(1f))
                                     } else {
+                                        val cellBorderColor = when {
+                                            cell.isToday -> MaterialTheme.colorScheme.primary
+                                            cell.holidayName != null -> Color(0xFFEF4444).copy(alpha = if (isDarkTheme) 0.55f else 0.35f)
+                                            cell.observanceName != null -> Color(0xFF10B981).copy(alpha = if (isDarkTheme) 0.55f else 0.35f)
+                                            else -> MaterialTheme.colorScheme.outlineVariant.copy(alpha = if (isDarkTheme) 0.3f else 0.55f)
+                                        }
+
                                         Box(
                                             modifier = Modifier
                                                 .weight(1f)
                                                 .aspectRatio(1.0f)
-                                                .clip(RoundedCornerShape(12.dp))
+                                                .clip(RoundedCornerShape(10.dp))
+                                                .border(
+                                                    width = if (cell.isToday) 1.5.dp else 1.dp,
+                                                    color = cellBorderColor,
+                                                    shape = RoundedCornerShape(10.dp)
+                                                )
                                                 .background(
                                                     when {
-                                                        cell.isToday -> MaterialTheme.colorScheme.primaryContainer
+                                                        cell.isToday -> MaterialTheme.colorScheme.primaryContainer.copy(alpha = if (isDarkTheme) 0.45f else 0.35f)
                                                         cell.holidayName != null -> Color(0xFFEF4444).copy(alpha = 0.08f)
+                                                        cell.observanceName != null -> Color(0xFF10B981).copy(alpha = 0.08f)
                                                         else -> Color.Transparent
                                                     }
                                                 )
@@ -1970,6 +1997,7 @@ fun HomeScreen(viewModel: MainViewModel) {
                                                     color = when {
                                                         cell.holidayName != null -> Color(0xFFEF4444)
                                                         cell.isSunday -> Color(0xFFEF4444)
+                                                        cell.observanceName != null -> Color(0xFF10B981) // Teks hijau hari peringatan
                                                         cell.isToday -> MaterialTheme.colorScheme.primary
                                                         else -> MaterialTheme.colorScheme.onSurface
                                                     }
@@ -1978,16 +2006,44 @@ fun HomeScreen(viewModel: MainViewModel) {
                                                     text = cell.pasaran,
                                                     fontSize = 8.sp,
                                                     fontWeight = FontWeight.Medium,
-                                                    color = if (cell.isToday) MaterialTheme.colorScheme.primary.copy(alpha = 0.8f) else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f)
+                                                    color = when {
+                                                        cell.isToday -> MaterialTheme.colorScheme.primary.copy(alpha = 0.85f)
+                                                        cell.holidayName != null -> Color(0xFFEF4444).copy(alpha = 0.7f)
+                                                        cell.observanceName != null -> Color(0xFF10B981).copy(alpha = 0.7f)
+                                                        else -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.45f)
+                                                    }
                                                 )
-                                                if (cell.hasAgenda || cell.holidayName != null) {
+                                                if (cell.hasAgenda || cell.holidayName != null || cell.observanceName != null) {
                                                     Spacer(modifier = Modifier.height(2.dp))
-                                                    Box(
-                                                        modifier = Modifier
-                                                            .size(4.dp)
-                                                            .clip(CircleShape)
-                                                            .background(if (cell.holidayName != null) Color(0xFFEF4444) else MaterialTheme.colorScheme.secondary)
-                                                    )
+                                                    Row(
+                                                        horizontalArrangement = Arrangement.spacedBy(2.dp),
+                                                        verticalAlignment = Alignment.CenterVertically
+                                                    ) {
+                                                        if (cell.holidayName != null) {
+                                                            Box(
+                                                                modifier = Modifier
+                                                                    .size(4.dp)
+                                                                    .clip(CircleShape)
+                                                                    .background(Color(0xFFEF4444))
+                                                            )
+                                                        }
+                                                        if (cell.observanceName != null) {
+                                                            Box(
+                                                                modifier = Modifier
+                                                                    .size(4.dp)
+                                                                    .clip(CircleShape)
+                                                                    .background(Color(0xFF10B981))
+                                                            )
+                                                        }
+                                                        if (cell.hasAgenda) {
+                                                            Box(
+                                                                modifier = Modifier
+                                                                    .size(4.dp)
+                                                                    .clip(CircleShape)
+                                                                    .background(MaterialTheme.colorScheme.secondary)
+                                                            )
+                                                        }
+                                                    }
                                                 }
                                             }
                                         }
@@ -2033,16 +2089,12 @@ fun HomeScreen(viewModel: MainViewModel) {
                 jDate = JavaneseCalendarHelper.calculateJawa(mYear, mMonth, mDay),
                 hDate = HijriCalendarHelper.getHijriDate(mYear, mMonth, mDay, viewModel.hijriOffset),
                 holiday = apiHolidays[dateKey],
+                observance = HolidayClient.getObservanceForDate(mMonth, mDay),
                 dayAgendas = agendaItems.filter { it.tanggal == dateKey }
             )
         }
 
-        Dialog(onDismissRequest = {
-            selectedDayAgenda = null
-            showAddAgendaPopup = false
-            popupAgendaTitle = ""
-            popupAgendaDesc = ""
-        }) {
+        Dialog(onDismissRequest = { selectedDayAgenda = null }) {
             Surface(
                 shape = RoundedCornerShape(24.dp),
                 color = MaterialTheme.colorScheme.surface,
@@ -2072,10 +2124,12 @@ fun HomeScreen(viewModel: MainViewModel) {
 
                     HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
 
-                    if (dayDetail.holiday == null && dayDetail.dayAgendas.isEmpty() && !showAddAgendaPopup) {
+                    if (dayDetail.holiday == null && dayDetail.observance == null && dayDetail.dayAgendas.isEmpty()) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp)
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 12.dp)
                         ) {
                             Icon(
                                 imageVector = Icons.Default.Info,
@@ -2085,7 +2139,7 @@ fun HomeScreen(viewModel: MainViewModel) {
                             )
                             Spacer(modifier = Modifier.width(10.dp))
                             Text(
-                                "Tidak ada",
+                                "Tidak ada hari libur, peringatan, atau kegiatan pada tanggal ini.",
                                 fontSize = 13.sp,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -2093,13 +2147,15 @@ fun HomeScreen(viewModel: MainViewModel) {
                     } else {
                         dayDetail.holiday?.let {
                             Card(
-                                colors = CardDefaults.cardColors(containerColor = Color(0xFFEF4444).copy(alpha = 0.05f)),
+                                colors = CardDefaults.cardColors(containerColor = Color(0xFFEF4444).copy(alpha = 0.06f)),
                                 modifier = Modifier.padding(bottom = 10.dp),
-                                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFEF4444).copy(alpha = 0.15f)),
+                                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFEF4444).copy(alpha = 0.2f)),
                                 shape = RoundedCornerShape(12.dp)
                             ) {
                                 Row(
-                                    modifier = Modifier.padding(12.dp).fillMaxWidth(),
+                                    modifier = Modifier
+                                        .padding(12.dp)
+                                        .fillMaxWidth(),
                                     verticalAlignment = Alignment.CenterVertically
                                 ) {
                                     Icon(
@@ -2112,6 +2168,36 @@ fun HomeScreen(viewModel: MainViewModel) {
                                     Text(
                                         "Libur Resmi: $it",
                                         color = Color(0xFFEF4444),
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 13.sp
+                                    )
+                                }
+                            }
+                        }
+
+                        dayDetail.observance?.let {
+                            Card(
+                                colors = CardDefaults.cardColors(containerColor = Color(0xFF10B981).copy(alpha = 0.06f)),
+                                modifier = Modifier.padding(bottom = 10.dp),
+                                border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF10B981).copy(alpha = 0.2f)),
+                                shape = RoundedCornerShape(12.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .padding(12.dp)
+                                        .fillMaxWidth(),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Star,
+                                        contentDescription = "Hari Peringatan",
+                                        tint = Color(0xFF10B981),
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(
+                                        "Hari Peringatan: $it",
+                                        color = Color(0xFF10B981),
                                         fontWeight = FontWeight.Bold,
                                         fontSize = 13.sp
                                     )
@@ -2177,129 +2263,17 @@ fun HomeScreen(viewModel: MainViewModel) {
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(12.dp))
+                    Spacer(modifier = Modifier.height(16.dp))
 
-                    AnimatedContent(
-                        targetState = showAddAgendaPopup,
-                        transitionSpec = {
-                            (fadeIn(animationSpec = tween(200)) + expandVertically(animationSpec = tween(200)))
-                                .togetherWith(fadeOut(animationSpec = tween(150)) + shrinkVertically(animationSpec = tween(150)))
-                        },
-                        label = "add_agenda_transition"
-                    ) { isFormVisible ->
-                        if (isFormVisible) {
-                            Column(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clip(RoundedCornerShape(16.dp))
-                                    .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.25f))
-                                    .padding(14.dp)
-                            ) {
-                                Text(
-                                    text = "Tambah Kegiatan",
-                                    fontSize = 15.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.padding(bottom = 10.dp)
-                                )
-                                OutlinedTextField(
-                                    value = popupAgendaTitle,
-                                    onValueChange = { popupAgendaTitle = it },
-                                    label = { Text("Nama kegiatan") },
-                                    modifier = Modifier.fillMaxWidth().testTag("add_agenda_title_input"),
-                                    singleLine = true,
-                                    shape = RoundedCornerShape(12.dp)
-                                )
-                                Spacer(modifier = Modifier.height(8.dp))
-                                OutlinedTextField(
-                                    value = popupAgendaDesc,
-                                    onValueChange = { popupAgendaDesc = it },
-                                    label = { Text("detail kegiatan") },
-                                    modifier = Modifier.fillMaxWidth().testTag("add_agenda_detail_input"),
-                                    shape = RoundedCornerShape(12.dp)
-                                )
-                                Spacer(modifier = Modifier.height(14.dp))
-
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.End,
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    TextButton(
-                                        onClick = {
-                                            showAddAgendaPopup = false
-                                            popupAgendaTitle = ""
-                                            popupAgendaDesc = ""
-                                        },
-                                        modifier = Modifier.testTag("cancel_add_agenda_button")
-                                    ) {
-                                        Text("Batal")
-                                    }
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                    Button(
-                                        onClick = {
-                                            if (popupAgendaTitle.isNotEmpty()) {
-                                                val savedTitle = popupAgendaTitle
-                                                viewModel.addAgendaItem(
-                                                    AgendaItem(
-                                                        tanggal = dayDetail.dateKey,
-                                                        judul = popupAgendaTitle,
-                                                        detail = popupAgendaDesc,
-                                                        tipe = popupAgendaType
-                                                    )
-                                                )
-                                                popupToastMessage = "Kegiatan \"$savedTitle\" berhasil disimpan!"
-                                                feedbackBannerMessage = "Kegiatan \"$savedTitle\" berhasil disimpan!"
-                                                feedbackBannerIcon = Icons.Default.CheckCircle
-                                                feedbackBannerColor = Color(0xFF10B981)
-                                                popupAgendaTitle = ""
-                                                popupAgendaDesc = ""
-                                                showAddAgendaPopup = false
-                                            }
-                                        },
-                                        shape = RoundedCornerShape(12.dp),
-                                        modifier = Modifier.testTag("save_agenda_button")
-                                    ) {
-                                        Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(16.dp))
-                                        Spacer(modifier = Modifier.width(6.dp))
-                                        Text("Simpan", fontWeight = FontWeight.Bold)
-                                    }
-                                }
-                            }
-                        } else {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Button(
-                                    onClick = {
-                                        if (viewModel.safFolderUriStr.isEmpty()) {
-                                            showSafWarningDialog = true
-                                        } else {
-                                            showAddAgendaPopup = true
-                                        }
-                                    },
-                                    shape = RoundedCornerShape(12.dp),
-                                    modifier = Modifier.testTag("open_add_agenda_button")
-                                ) {
-                                    Icon(
-                                        Icons.Default.Add,
-                                        null,
-                                        modifier = Modifier.size(18.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    Text("Tambah Kegiatan", fontSize = 13.sp, fontWeight = FontWeight.Bold)
-                                }
-                                TextButton(onClick = {
-                                    selectedDayAgenda = null
-                                    showAddAgendaPopup = false
-                                    popupAgendaTitle = ""
-                                    popupAgendaDesc = ""
-                                }) {
-                                    Text("Tutup")
-                                }
-                            }
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.End
+                    ) {
+                        Button(
+                            onClick = { selectedDayAgenda = null },
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Text("Tutup", fontWeight = FontWeight.Bold)
                         }
                     }
                 }
@@ -2342,30 +2316,40 @@ fun HomeScreen(viewModel: MainViewModel) {
         )
     }
 
-    // DIALOG: MONTH EVENT POPUP (Redesigned with Material 3 & Zero Emojis)
+    // DIALOG: MONTH EVENT & CALENDAR DOWNLOAD POPUP (With + Icon and PDF/PNG/JPG Art Paper/Art Carton Export)
     if (showMonthEventsPopup) {
         val calendarMonthName = viewCalendar.getDisplayName(
             Calendar.MONTH, Calendar.LONG, Locale("id", "ID")
         ) ?: ""
         val calendarYear = viewCalendar.get(Calendar.YEAR)
+        val currentMonthNumber = viewCalendar.get(Calendar.MONTH) + 1
+        val totalDaysInCurrentMonth = viewCalendar.getActualMaximum(Calendar.DAY_OF_MONTH)
 
         val activeMonthAgendas = agendaItems.filter {
             val dateParts = it.tanggal.split("-")
             if (dateParts.size == 3) {
-                dateParts[0].toInt() == viewCalendar.get(Calendar.YEAR) &&
-                        dateParts[1].toInt() == (viewCalendar.get(Calendar.MONTH) + 1)
+                dateParts[0].toInt() == calendarYear && dateParts[1].toInt() == currentMonthNumber
             } else false
         }
 
         val activeMonthHolidays = apiHolidays.filter { (key, _) ->
             val dateParts = key.split("-")
             if (dateParts.size == 3) {
-                dateParts[0].toInt() == viewCalendar.get(Calendar.YEAR) &&
-                        dateParts[1].toInt() == (viewCalendar.get(Calendar.MONTH) + 1)
+                dateParts[0].toInt() == calendarYear && dateParts[1].toInt() == currentMonthNumber
             } else false
         }.toList()
 
-        Dialog(onDismissRequest = { showMonthEventsPopup = false }) {
+        val activeMonthObservances = (1..totalDaysInCurrentMonth).mapNotNull { d ->
+            val obs = HolidayClient.getObservanceForDate(currentMonthNumber, d)
+            if (obs != null) Pair(d, obs) else null
+        }
+
+        val context = LocalContext.current
+
+        Dialog(onDismissRequest = {
+            showMonthEventsPopup = false
+            showMonthAddAgendaForm = false
+        }) {
             Surface(
                 shape = RoundedCornerShape(24.dp),
                 color = MaterialTheme.colorScheme.surface,
@@ -2377,61 +2361,461 @@ fun HomeScreen(viewModel: MainViewModel) {
             ) {
                 Column(
                     modifier = Modifier
-                        .padding(24.dp)
+                        .padding(20.dp)
                         .fillMaxWidth()
                 ) {
+                    // Header with Month Title and '+' Icon Button
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Column(modifier = Modifier.fillMaxWidth()) {
+                        Column(modifier = Modifier.weight(1f)) {
                             Text(
-                                text = "Acara & Hari Penting",
+                                text = "Kalender $calendarMonthName $calendarYear",
                                 fontWeight = FontWeight.Black,
                                 fontSize = 18.sp,
                                 color = MaterialTheme.colorScheme.primary
                             )
                             Spacer(modifier = Modifier.height(2.dp))
                             Text(
-                                text = "Bulan: $calendarMonthName $calendarYear",
-                                fontSize = 12.sp,
+                                text = "Acara, Hari Libur & Unduh Kalender",
+                                fontSize = 11.sp,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+
+                        // '+' Icon button (without title text) as requested
+                        IconButton(
+                            onClick = {
+                                if (viewModel.safFolderUriStr.isEmpty()) {
+                                    showSafWarningDialog = true
+                                } else {
+                                    showMonthAddAgendaForm = !showMonthAddAgendaForm
+                                }
+                            },
+                            modifier = Modifier
+                                .clip(CircleShape)
+                                .background(MaterialTheme.colorScheme.primaryContainer)
+                                .size(36.dp)
+                                .testTag("month_add_agenda_icon_button")
+                        ) {
+                            Icon(
+                                imageVector = if (showMonthAddAgendaForm) Icons.Default.Close else Icons.Default.Add,
+                                contentDescription = "Tambah Agenda",
+                                tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                                modifier = Modifier.size(20.dp)
                             )
                         }
                     }
 
-                    HorizontalDivider(modifier = Modifier.padding(vertical = 12.dp))
+                    HorizontalDivider(modifier = Modifier.padding(vertical = 10.dp))
 
+                    // Expandable Form Tambah Kegiatan
+                    AnimatedVisibility(
+                        visible = showMonthAddAgendaForm,
+                        enter = fadeIn() + expandVertically(),
+                        exit = fadeOut() + shrinkVertically()
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(bottom = 12.dp)
+                                .clip(RoundedCornerShape(16.dp))
+                                .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.2f))
+                                .border(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.3f), RoundedCornerShape(16.dp))
+                                .padding(12.dp)
+                        ) {
+                            Text(
+                                text = "Tambah Kegiatan Bulan $calendarMonthName",
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+
+                            // Day Selector
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text(
+                                    text = "Tanggal:",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                                OutlinedTextField(
+                                    value = monthAgendaSelectedDay.toString(),
+                                    onValueChange = { str ->
+                                        val v = str.filter { it.isDigit() }.toIntOrNull()
+                                        if (v != null && v in 1..totalDaysInCurrentMonth) {
+                                            monthAgendaSelectedDay = v
+                                        } else if (str.isEmpty()) {
+                                            monthAgendaSelectedDay = 1
+                                        }
+                                    },
+                                    singleLine = true,
+                                    modifier = Modifier.width(80.dp),
+                                    shape = RoundedCornerShape(8.dp)
+                                )
+                                Text(
+                                    text = "$calendarMonthName $calendarYear",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                            }
+
+                            Spacer(modifier = Modifier.height(8.dp))
+                            OutlinedTextField(
+                                value = monthAgendaTitle,
+                                onValueChange = { monthAgendaTitle = it },
+                                label = { Text("Nama kegiatan") },
+                                modifier = Modifier.fillMaxWidth(),
+                                singleLine = true,
+                                shape = RoundedCornerShape(10.dp)
+                            )
+
+                            Spacer(modifier = Modifier.height(6.dp))
+                            OutlinedTextField(
+                                value = monthAgendaDesc,
+                                onValueChange = { monthAgendaDesc = it },
+                                label = { Text("Detail kegiatan (opsional)") },
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(10.dp)
+                            )
+
+                            Spacer(modifier = Modifier.height(10.dp))
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.End,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                TextButton(onClick = {
+                                    showMonthAddAgendaForm = false
+                                    monthAgendaTitle = ""
+                                    monthAgendaDesc = ""
+                                }) {
+                                    Text("Batal")
+                                }
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Button(
+                                    onClick = {
+                                        if (monthAgendaTitle.isNotBlank()) {
+                                            val dateKey = String.format("%04d-%02d-%02d", calendarYear, currentMonthNumber, monthAgendaSelectedDay)
+                                            val savedTitle = monthAgendaTitle
+                                            viewModel.addAgendaItem(
+                                                AgendaItem(
+                                                    tanggal = dateKey,
+                                                    judul = monthAgendaTitle,
+                                                    detail = monthAgendaDesc,
+                                                    tipe = monthAgendaType
+                                                )
+                                            )
+                                            popupToastMessage = "Kegiatan \"$savedTitle\" berhasil disimpan!"
+                                            feedbackBannerMessage = "Kegiatan \"$savedTitle\" berhasil disimpan!"
+                                            feedbackBannerIcon = Icons.Default.CheckCircle
+                                            feedbackBannerColor = Color(0xFF10B981)
+                                            monthAgendaTitle = ""
+                                            monthAgendaDesc = ""
+                                            showMonthAddAgendaForm = false
+                                        }
+                                    },
+                                    shape = RoundedCornerShape(10.dp)
+                                ) {
+                                    Icon(Icons.Default.Check, null, modifier = Modifier.size(16.dp))
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text("Simpan")
+                                }
+                            }
+                        }
+                    }
+
+                    // Section: Unduh Kalender (12 Bulan / 1 Bulan + PDF / PNG / JPG + Art Paper / Art Carton)
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 12.dp),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)),
+                        shape = RoundedCornerShape(14.dp),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+                    ) {
+                        Column(modifier = Modifier.padding(12.dp)) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.CalendarMonth,
+                                    contentDescription = "Unduh Kalender",
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text(
+                                    text = "Unduh & Cetak Kalender",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 13.sp,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                            }
+
+                            Spacer(modifier = Modifier.height(8.dp))
+
+                            // Periode Cetak (12 Bulan / 1 Bulan)
+                            Column(modifier = Modifier.fillMaxWidth()) {
+                                Text("Periode Cetak:", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Row(
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    listOf(
+                                        Pair("12_MONTHS", "12 Bulan (1 Tahun)"),
+                                        Pair("1_MONTH", "1 Bulan ($calendarMonthName)")
+                                    ).forEach { (scopeKey, label) ->
+                                        val isSelected = selectedExportScope == scopeKey
+                                        Surface(
+                                            shape = RoundedCornerShape(8.dp),
+                                            color = if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface,
+                                            border = androidx.compose.foundation.BorderStroke(
+                                                1.dp,
+                                                if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant
+                                            ),
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .clip(RoundedCornerShape(8.dp))
+                                                .clickable { selectedExportScope = scopeKey }
+                                        ) {
+                                            Text(
+                                                text = label,
+                                                fontSize = 11.sp,
+                                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                                color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface,
+                                                textAlign = TextAlign.Center,
+                                                modifier = Modifier.padding(horizontal = 4.dp, vertical = 6.dp)
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(6.dp))
+
+                            // Format Options (PDF, PNG, JPG)
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text("Format:", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                listOf("PDF", "PNG", "JPG").forEach { fmt ->
+                                    val isSelected = selectedExportFormat == fmt
+                                    Surface(
+                                        shape = RoundedCornerShape(8.dp),
+                                        color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surface,
+                                        border = androidx.compose.foundation.BorderStroke(
+                                            1.dp,
+                                            if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant
+                                        ),
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .clickable { selectedExportFormat = fmt }
+                                    ) {
+                                        Text(
+                                            text = fmt,
+                                            fontSize = 11.sp,
+                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                            color = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
+                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                                        )
+                                    }
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(6.dp))
+
+                            // Paper Specifications (Art Paper / Art Carton / Kartu ATM)
+                            Column(modifier = Modifier.fillMaxWidth()) {
+                                Text("Bahan & Bentuk Cetak:", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Column(verticalArrangement = Arrangement.spacedBy(4.dp), modifier = Modifier.fillMaxWidth()) {
+                                    Row(
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        listOf("Art Paper (120–150 gsm)", "Art Carton (190–260 gsm)").forEach { paper ->
+                                            val isSelected = selectedPaperType == paper
+                                            Surface(
+                                                shape = RoundedCornerShape(8.dp),
+                                                color = if (isSelected) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surface,
+                                                border = androidx.compose.foundation.BorderStroke(
+                                                    1.dp,
+                                                    if (isSelected) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.outlineVariant
+                                                ),
+                                                modifier = Modifier
+                                                    .weight(1f)
+                                                    .clip(RoundedCornerShape(8.dp))
+                                                    .clickable { selectedPaperType = paper }
+                                            ) {
+                                                Text(
+                                                    text = paper,
+                                                    fontSize = 10.sp,
+                                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                                    color = if (isSelected) MaterialTheme.colorScheme.onSecondaryContainer else MaterialTheme.colorScheme.onSurface,
+                                                    textAlign = TextAlign.Center,
+                                                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 5.dp)
+                                                )
+                                            }
+                                        }
+                                    }
+
+                                    // Kartu ATM / IC Card (Ukuran Dompet) Option
+                                    val isAtmCard = selectedPaperType.contains("ATM", true) || selectedPaperType.contains("Dompet", true)
+                                    val atmPaperValue = "Kartu ATM / IC Card (Ukuran Dompet 85.6 x 54 mm)"
+                                    Surface(
+                                        shape = RoundedCornerShape(8.dp),
+                                        color = if (isAtmCard) Color(0xFF0F766E).copy(alpha = 0.15f) else MaterialTheme.colorScheme.surface,
+                                        border = androidx.compose.foundation.BorderStroke(
+                                            1.dp,
+                                            if (isAtmCard) Color(0xFF0F766E) else MaterialTheme.colorScheme.outlineVariant
+                                        ),
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .clickable { selectedPaperType = atmPaperValue }
+                                    ) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Bookmark,
+                                                contentDescription = null,
+                                                tint = if (isAtmCard) Color(0xFF0F766E) else MaterialTheme.colorScheme.onSurfaceVariant,
+                                                modifier = Modifier.size(16.dp)
+                                            )
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                            Text(
+                                                text = "💳 Kartu ATM / IC Card (Ukuran Dompet 85.6 x 54 mm)",
+                                                fontSize = 10.5.sp,
+                                                fontWeight = if (isAtmCard) FontWeight.Bold else FontWeight.Medium,
+                                                color = if (isAtmCard) Color(0xFF0F766E) else MaterialTheme.colorScheme.onSurface
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(8.dp))
+
+                            // Format description badge
+                            val isAtmSelected = selectedPaperType.contains("ATM", true) || selectedPaperType.contains("Dompet", true)
+                            val scopeDesc = when {
+                                isAtmSelected && selectedExportScope == "12_MONTHS" ->
+                                    "Format Kartu ATM Dompet (85.6 x 54 mm) • Muka Depan (Semester I) & Belakang (Semester II)"
+                                isAtmSelected ->
+                                    "Format Kartu ATM Dompet (85.6 x 54 mm) • Bulan $calendarMonthName $calendarYear Lengkap Chip IC"
+                                selectedExportScope == "12_MONTHS" && selectedExportFormat.equals("PDF", true) ->
+                                    "12 Halaman Dokumen A4 (Januari – Desember) Lengkap"
+                                selectedExportScope == "12_MONTHS" ->
+                                    "Poster Dinding 12 Bulan Resolusi Tinggi (300 DPI)"
+                                else ->
+                                    "1 Lembar Kalender $calendarMonthName $calendarYear"
+                            }
+                            Text(
+                                text = "Keterangan: $scopeDesc",
+                                fontSize = 10.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.85f),
+                                fontStyle = androidx.compose.ui.text.font.FontStyle.Italic
+                            )
+
+                            Spacer(modifier = Modifier.height(10.dp))
+
+                            Button(
+                                onClick = {
+                                    if (!isExportingCalendar) {
+                                        isExportingCalendar = true
+                                        coroutineScope.launch {
+                                            val result = CalendarExportHelper.exportCalendar(
+                                                context = context,
+                                                year = calendarYear,
+                                                month = currentMonthNumber,
+                                                hijriOffset = viewModel.hijriOffset,
+                                                holidays = apiHolidays,
+                                                agendas = agendaItems,
+                                                format = selectedExportFormat,
+                                                paperType = selectedPaperType,
+                                                scope = selectedExportScope
+                                            )
+                                            isExportingCalendar = false
+                                            result.onSuccess { exportedFile ->
+                                                val mime = if (selectedExportFormat.equals("PDF", true)) "application/pdf"
+                                                else if (selectedExportFormat.equals("PNG", true)) "image/png" else "image/jpeg"
+                                                val scopeLabel = if (selectedExportScope == "12_MONTHS") "12 Bulan $calendarYear" else "$calendarMonthName $calendarYear"
+                                                CalendarExportHelper.shareCalendarFile(
+                                                    context = context,
+                                                    file = exportedFile,
+                                                    mimeType = mime,
+                                                    title = "Unduh Kalender $scopeLabel"
+                                                )
+                                                popupToastMessage = "Kalender $scopeLabel ($selectedExportFormat) berhasil dibuat!"
+                                            }.onFailure { err ->
+                                                popupToastMessage = "Gagal membuat kalender: ${err.message}"
+                                            }
+                                        }
+                                    }
+                                },
+                                enabled = !isExportingCalendar,
+                                shape = RoundedCornerShape(10.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                if (isExportingCalendar) {
+                                    CircularProgressIndicator(modifier = Modifier.size(16.dp), color = MaterialTheme.colorScheme.onPrimary, strokeWidth = 2.dp)
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text("Memproses...", fontSize = 12.sp)
+                                } else {
+                                    Icon(Icons.Default.CalendarMonth, null, modifier = Modifier.size(16.dp))
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    val btnLabel = if (selectedExportScope == "12_MONTHS") "Unduh Kalender 12 Bulan ($selectedExportFormat)" else "Unduh Kalender 1 Bulan ($selectedExportFormat)"
+                                    Text(btnLabel, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                }
+                            }
+                        }
+                    }
+
+                    // Content: Holidays, Observances, and Agendas list
                     Box(
                         modifier = Modifier
                             .weight(1f, fill = false)
-                            .heightIn(max = 400.dp)
+                            .heightIn(max = 280.dp)
                     ) {
-                        if (activeMonthAgendas.isEmpty() && activeMonthHolidays.isEmpty()) {
+                        if (activeMonthAgendas.isEmpty() && activeMonthHolidays.isEmpty() && activeMonthObservances.isEmpty()) {
                             Column(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .padding(vertical = 32.dp),
+                                    .padding(vertical = 20.dp),
                                 horizontalAlignment = Alignment.CenterHorizontally
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.CalendarMonth,
                                     contentDescription = null,
                                     tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
-                                    modifier = Modifier.size(48.dp)
+                                    modifier = Modifier.size(36.dp)
                                 )
-                                Spacer(modifier = Modifier.height(12.dp))
+                                Spacer(modifier = Modifier.height(8.dp))
                                 Text(
-                                    text = "Tidak ada acara khusus di bulan ini.",
-                                    fontSize = 13.sp,
+                                    text = "Tidak ada acara atau hari besar di bulan ini.",
+                                    fontSize = 12.sp,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     textAlign = TextAlign.Center
                                 )
                             }
                         } else {
                             LazyColumn(
-                                verticalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp),
                                 modifier = Modifier.fillMaxWidth()
                             ) {
                                 items(activeMonthHolidays) { (date, name) ->
@@ -2440,19 +2824,19 @@ fun HomeScreen(viewModel: MainViewModel) {
                                     Card(
                                         modifier = Modifier.fillMaxWidth(),
                                         colors = CardDefaults.cardColors(containerColor = Color(0xFFEF4444).copy(alpha = 0.05f)),
-                                        shape = RoundedCornerShape(12.dp),
-                                        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFEF4444).copy(alpha = 0.1f))
+                                        shape = RoundedCornerShape(10.dp),
+                                        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFFEF4444).copy(alpha = 0.15f))
                                     ) {
                                         Row(
                                             modifier = Modifier
                                                 .fillMaxWidth()
-                                                .padding(10.dp),
+                                                .padding(8.dp),
                                             verticalAlignment = Alignment.CenterVertically
                                         ) {
                                             Box(
                                                 modifier = Modifier
-                                                    .size(32.dp)
-                                                    .clip(RoundedCornerShape(8.dp))
+                                                    .size(28.dp)
+                                                    .clip(RoundedCornerShape(6.dp))
                                                     .background(Color(0xFFEF4444).copy(alpha = 0.15f)),
                                                 contentAlignment = Alignment.Center
                                             ) {
@@ -2460,10 +2844,10 @@ fun HomeScreen(viewModel: MainViewModel) {
                                                     text = d.toString(),
                                                     fontWeight = FontWeight.Bold,
                                                     color = Color(0xFFEF4444),
-                                                    fontSize = 14.sp
+                                                    fontSize = 13.sp
                                                 )
                                             }
-                                            Spacer(modifier = Modifier.width(10.dp))
+                                            Spacer(modifier = Modifier.width(8.dp))
                                             Column(modifier = Modifier.weight(1f)) {
                                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                                     Icon(
@@ -2475,15 +2859,69 @@ fun HomeScreen(viewModel: MainViewModel) {
                                                     Spacer(modifier = Modifier.width(4.dp))
                                                     Text(
                                                         text = name,
-                                                        fontSize = 13.sp,
+                                                        fontSize = 12.sp,
                                                         fontWeight = FontWeight.Bold,
                                                         color = Color(0xFFEF4444)
                                                     )
                                                 }
                                                 Text(
-                                                    text = "Hari Libur Nasional",
+                                                    text = "Hari Libur Nasional (SKB 3 Menteri)",
                                                     fontSize = 10.sp,
                                                     color = Color(0xFFEF4444).copy(alpha = 0.7f)
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+
+                                items(activeMonthObservances) { (d, name) ->
+                                    Card(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        colors = CardDefaults.cardColors(containerColor = Color(0xFF10B981).copy(alpha = 0.05f)),
+                                        shape = RoundedCornerShape(10.dp),
+                                        border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF10B981).copy(alpha = 0.15f))
+                                    ) {
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(8.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(28.dp)
+                                                    .clip(RoundedCornerShape(6.dp))
+                                                    .background(Color(0xFF10B981).copy(alpha = 0.15f)),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Text(
+                                                    text = d.toString(),
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = Color(0xFF10B981),
+                                                    fontSize = 13.sp
+                                                )
+                                            }
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Column(modifier = Modifier.weight(1f)) {
+                                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                                    Icon(
+                                                        imageVector = Icons.Default.Star,
+                                                        contentDescription = null,
+                                                        tint = Color(0xFF10B981),
+                                                        modifier = Modifier.size(12.dp)
+                                                    )
+                                                    Spacer(modifier = Modifier.width(4.dp))
+                                                    Text(
+                                                        text = name,
+                                                        fontSize = 12.sp,
+                                                        fontWeight = FontWeight.Bold,
+                                                        color = Color(0xFF10B981)
+                                                    )
+                                                }
+                                                Text(
+                                                    text = "Hari Peringatan / Hari Besar",
+                                                    fontSize = 10.sp,
+                                                    color = Color(0xFF10B981).copy(alpha = 0.7f)
                                                 )
                                             }
                                         }
@@ -2496,18 +2934,18 @@ fun HomeScreen(viewModel: MainViewModel) {
                                     Card(
                                         modifier = Modifier.fillMaxWidth(),
                                         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
-                                        shape = RoundedCornerShape(12.dp)
+                                        shape = RoundedCornerShape(10.dp)
                                     ) {
                                         Row(
                                             modifier = Modifier
                                                 .fillMaxWidth()
-                                                .padding(10.dp),
+                                                .padding(8.dp),
                                             verticalAlignment = Alignment.CenterVertically
                                         ) {
                                             Box(
                                                 modifier = Modifier
-                                                    .size(32.dp)
-                                                    .clip(RoundedCornerShape(8.dp))
+                                                    .size(28.dp)
+                                                    .clip(RoundedCornerShape(6.dp))
                                                     .background(MaterialTheme.colorScheme.primaryContainer),
                                                 contentAlignment = Alignment.Center
                                             ) {
@@ -2515,10 +2953,10 @@ fun HomeScreen(viewModel: MainViewModel) {
                                                     text = d.toString(),
                                                     fontWeight = FontWeight.Bold,
                                                     color = MaterialTheme.colorScheme.primary,
-                                                    fontSize = 14.sp
+                                                    fontSize = 13.sp
                                                 )
                                             }
-                                            Spacer(modifier = Modifier.width(10.dp))
+                                            Spacer(modifier = Modifier.width(8.dp))
                                             Column(modifier = Modifier.weight(1f)) {
                                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                                     Icon(
@@ -2530,7 +2968,7 @@ fun HomeScreen(viewModel: MainViewModel) {
                                                     Spacer(modifier = Modifier.width(4.dp))
                                                     Text(
                                                         text = agenda.judul,
-                                                        fontSize = 13.sp,
+                                                        fontSize = 12.sp,
                                                         fontWeight = FontWeight.Bold,
                                                         color = MaterialTheme.colorScheme.onSurface
                                                     )
@@ -2538,7 +2976,7 @@ fun HomeScreen(viewModel: MainViewModel) {
                                                 if (agenda.detail.isNotEmpty()) {
                                                     Text(
                                                         text = agenda.detail,
-                                                        fontSize = 11.sp,
+                                                        fontSize = 10.sp,
                                                         color = MaterialTheme.colorScheme.onSurfaceVariant
                                                     )
                                                 }
@@ -2561,13 +2999,16 @@ fun HomeScreen(viewModel: MainViewModel) {
                         }
                     }
 
-                    Spacer(modifier = Modifier.height(16.dp))
+                    Spacer(modifier = Modifier.height(12.dp))
 
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.End
                     ) {
-                        TextButton(onClick = { showMonthEventsPopup = false }) {
+                        TextButton(onClick = {
+                            showMonthEventsPopup = false
+                            showMonthAddAgendaForm = false
+                        }) {
                             Text("Tutup", fontWeight = FontWeight.Bold)
                         }
                     }

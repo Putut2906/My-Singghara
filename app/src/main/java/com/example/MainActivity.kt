@@ -79,6 +79,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.activity.compose.BackHandler
@@ -125,6 +126,7 @@ import androidx.compose.ui.window.DialogProperties
 import com.example.ui.MainViewModel
 import com.example.ui.components.BottomNavBar
 import com.example.NotificationScheduler
+import com.example.network.HolidayClient
 import com.example.ui.screens.*
 import com.example.ui.theme.MyApplicationTheme
 import androidx.compose.material.icons.filled.Notifications
@@ -1663,7 +1665,7 @@ fun MainAppContent(viewModel: MainViewModel) {
         Scaffold(
             modifier = Modifier.fillMaxSize(),
             topBar = {
-                if (viewModel.currentRoute != "semua_transaksi_belanja" && viewModel.currentRoute != "semua_catatan_tabungan" && viewModel.currentRoute != "preview_catatan" && viewModel.currentRoute != "immersive_file_viewer" && viewModel.currentRoute != "quran" && viewModel.currentRoute != "web_connect" && !viewModel.hideGlobalTopAppBar) {
+                if (viewModel.currentRoute != "semua_transaksi_belanja" && viewModel.currentRoute != "semua_catatan_tabungan" && viewModel.currentRoute != "preview_catatan" && viewModel.currentRoute != "immersive_file_viewer" && viewModel.currentRoute != "quran" && !viewModel.hideGlobalTopAppBar) {
                     Box(
                         modifier = Modifier
                             .statusBarsPadding()
@@ -1695,6 +1697,10 @@ fun MainAppContent(viewModel: MainViewModel) {
                                 val jadwalList by viewModel.jadwalList.collectAsState()
                                 val liveHijri by viewModel.apiHijriDate.collectAsState()
                                 var showTodayNotificationsDialog by remember { mutableStateOf(false) }
+                                var showAllHolidaysInDialog by remember { mutableStateOf(false) }
+                                var holidaySearchQuery by remember { mutableStateOf("") }
+                                var selectedHolidayCategory by remember { mutableStateOf("Semua") }
+
                                 val todayStr = remember { SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date()) }
                                 val todayAgendas = remember(agendaItems) { agendaItems.filter { it.tanggal == todayStr } }
                                 val isDismissed = viewModel.agendaNotificationDismissedDate == todayStr
@@ -1703,6 +1709,15 @@ fun MainAppContent(viewModel: MainViewModel) {
                                 }
 
                                 val todayCal = remember { Calendar.getInstance() }
+                                val todayYear = todayCal.get(Calendar.YEAR)
+                                val todayMonth = todayCal.get(Calendar.MONTH) + 1
+                                val todayDay = todayCal.get(Calendar.DAY_OF_MONTH)
+                                val todayDateKey = remember { String.format("%04d-%02d-%02d", todayYear, todayMonth, todayDay) }
+                                val fallbackHolidays = remember(todayYear) { HolidayClient.getFallbackHolidays(todayYear) }
+                                val todayHolidayName = remember(todayDateKey, fallbackHolidays) { fallbackHolidays[todayDateKey] }
+                                val todayObservanceName = remember(todayMonth, todayDay) { HolidayClient.getObservanceForDate(todayMonth, todayDay) }
+                                val hasHolidayOrObservanceToday = todayHolidayName != null || todayObservanceName != null
+
                                 val currentJawa = remember {
                                     JavaneseCalendarHelper.calculateJawa(
                                         todayCal.get(Calendar.YEAR),
@@ -1745,14 +1760,14 @@ fun MainAppContent(viewModel: MainViewModel) {
                                     }
                                 }
 
-                                val totalNotificationsCount = activeAgendas.size + (if (ongoingJadwal != null) 1 else 0)
+                                val totalNotificationsCount = activeAgendas.size + (if (ongoingJadwal != null) 1 else 0) + (if (hasHolidayOrObservanceToday) 1 else 0)
 
                                 BadgedBox(
                                     badge = {
                                         if (totalNotificationsCount > 0) {
                                             Badge(
-                                                containerColor = if (ongoingJadwal != null) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
-                                                contentColor = if (ongoingJadwal != null) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onError
+                                                containerColor = if (todayHolidayName != null) Color(0xFFDC2626) else if (ongoingJadwal != null) MaterialTheme.colorScheme.primary else if (todayObservanceName != null) Color(0xFF0F766E) else MaterialTheme.colorScheme.error,
+                                                contentColor = Color.White
                                             ) {
                                                 Text(totalNotificationsCount.toString())
                                             }
@@ -1761,12 +1776,19 @@ fun MainAppContent(viewModel: MainViewModel) {
                                     modifier = Modifier.padding(end = 8.dp)
                                 ) {
                                     IconButton(
-                                        onClick = { showTodayNotificationsDialog = true }
+                                        onClick = { showTodayNotificationsDialog = true },
+                                        modifier = Modifier.testTag("top_notification_button")
                                     ) {
                                         Icon(
                                             imageVector = if (totalNotificationsCount > 0) Icons.Default.NotificationsActive else Icons.Default.Notifications,
-                                            contentDescription = "Notifikasi Agenda",
-                                            tint = if (ongoingJadwal != null) MaterialTheme.colorScheme.primary else if (activeAgendas.isNotEmpty()) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f)
+                                            contentDescription = "Notifikasi Agenda & Hari Libur",
+                                            tint = when {
+                                                todayHolidayName != null -> Color(0xFFDC2626)
+                                                ongoingJadwal != null -> MaterialTheme.colorScheme.primary
+                                                todayObservanceName != null -> Color(0xFF0F766E)
+                                                activeAgendas.isNotEmpty() -> MaterialTheme.colorScheme.error
+                                                else -> MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f)
+                                            }
                                         )
                                     }
                                 }
@@ -1779,7 +1801,7 @@ fun MainAppContent(viewModel: MainViewModel) {
                                                 Icon(
                                                     imageVector = Icons.Default.NotificationsActive,
                                                     contentDescription = null,
-                                                    tint = MaterialTheme.colorScheme.primary,
+                                                    tint = if (todayHolidayName != null) Color(0xFFDC2626) else MaterialTheme.colorScheme.primary,
                                                     modifier = Modifier.size(24.dp)
                                                 )
                                                 Spacer(modifier = Modifier.width(8.dp))
@@ -1791,13 +1813,254 @@ fun MainAppContent(viewModel: MainViewModel) {
                                             }
                                         },
                                         text = {
-                                            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                            Column(
+                                                verticalArrangement = Arrangement.spacedBy(12.dp),
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .verticalScroll(rememberScrollState())
+                                            ) {
                                                 Text(
                                                     text = "Kalender: $resolvedHijri • ${currentJawa.dina} ${currentJawa.pasaran}, Wuku ${currentJawa.wuku}",
                                                     fontSize = 12.sp,
                                                     fontWeight = FontWeight.Medium,
                                                     color = MaterialTheme.colorScheme.secondary
                                                 )
+
+                                                // HARI LIBUR & PERINGATAN NASIONAL HARI INI
+                                                if (todayHolidayName != null || todayObservanceName != null) {
+                                                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                                                    Text(
+                                                        text = "Hari Libur & Peringatan Hari Ini",
+                                                        fontWeight = FontWeight.Bold,
+                                                        fontSize = 14.sp,
+                                                        color = MaterialTheme.colorScheme.onSurface
+                                                    )
+
+                                                    if (todayHolidayName != null) {
+                                                        Card(
+                                                            colors = CardDefaults.cardColors(containerColor = Color(0xFFDC2626).copy(alpha = 0.1f)),
+                                                            border = BorderStroke(1.dp, Color(0xFFDC2626).copy(alpha = 0.4f)),
+                                                            modifier = Modifier.fillMaxWidth()
+                                                        ) {
+                                                            Row(
+                                                                modifier = Modifier.padding(12.dp),
+                                                                verticalAlignment = Alignment.CenterVertically
+                                                            ) {
+                                                                Surface(
+                                                                    shape = CircleShape,
+                                                                    color = Color(0xFFDC2626),
+                                                                    modifier = Modifier.size(36.dp)
+                                                                ) {
+                                                                    Box(contentAlignment = Alignment.Center) {
+                                                                        Text("🔴", fontSize = 16.sp)
+                                                                    }
+                                                                }
+                                                                Spacer(modifier = Modifier.width(10.dp))
+                                                                Column {
+                                                                    Text(
+                                                                        text = "HARI LIBUR NASIONAL",
+                                                                        fontSize = 10.sp,
+                                                                        fontWeight = FontWeight.Bold,
+                                                                        color = Color(0xFFDC2626)
+                                                                    )
+                                                                    Text(
+                                                                        text = todayHolidayName,
+                                                                        fontWeight = FontWeight.Bold,
+                                                                        fontSize = 14.sp,
+                                                                        color = MaterialTheme.colorScheme.onSurface
+                                                                    )
+                                                                    Text(
+                                                                        text = "Selamat menikmati hari libur!",
+                                                                        fontSize = 11.sp,
+                                                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                                    )
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+
+                                                    if (todayObservanceName != null) {
+                                                        Card(
+                                                            colors = CardDefaults.cardColors(containerColor = Color(0xFF0F766E).copy(alpha = 0.1f)),
+                                                            border = BorderStroke(1.dp, Color(0xFF0F766E).copy(alpha = 0.4f)),
+                                                            modifier = Modifier.fillMaxWidth()
+                                                        ) {
+                                                            Row(
+                                                                modifier = Modifier.padding(12.dp),
+                                                                verticalAlignment = Alignment.CenterVertically
+                                                            ) {
+                                                                Surface(
+                                                                    shape = CircleShape,
+                                                                    color = Color(0xFF0F766E),
+                                                                    modifier = Modifier.size(36.dp)
+                                                                ) {
+                                                                    Box(contentAlignment = Alignment.Center) {
+                                                                        Icon(
+                                                                            imageVector = Icons.Default.Star,
+                                                                            contentDescription = null,
+                                                                            tint = Color.White,
+                                                                            modifier = Modifier.size(20.dp)
+                                                                        )
+                                                                    }
+                                                                }
+                                                                Spacer(modifier = Modifier.width(10.dp))
+                                                                Column {
+                                                                    Text(
+                                                                        text = "HARI BESAR / PERINGATAN NASIONAL",
+                                                                        fontSize = 10.sp,
+                                                                        fontWeight = FontWeight.Bold,
+                                                                        color = Color(0xFF0F766E)
+                                                                    )
+                                                                    Text(
+                                                                        text = todayObservanceName,
+                                                                        fontWeight = FontWeight.Bold,
+                                                                        fontSize = 14.sp,
+                                                                        color = MaterialTheme.colorScheme.onSurface
+                                                                    )
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                }
+
+                                                // EXPANDABLE DAFTAR HARI LIBUR & PERINGATAN TAHUN INI
+                                                Card(
+                                                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)),
+                                                    modifier = Modifier.fillMaxWidth()
+                                                ) {
+                                                    Column(modifier = Modifier.padding(10.dp)) {
+                                                        Row(
+                                                            modifier = Modifier
+                                                                .fillMaxWidth()
+                                                                .clickable { showAllHolidaysInDialog = !showAllHolidaysInDialog },
+                                                            verticalAlignment = Alignment.CenterVertically,
+                                                            horizontalArrangement = Arrangement.SpaceBetween
+                                                        ) {
+                                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                                                Icon(
+                                                                    imageVector = Icons.Default.DateRange,
+                                                                    contentDescription = null,
+                                                                    tint = MaterialTheme.colorScheme.primary,
+                                                                    modifier = Modifier.size(18.dp)
+                                                                )
+                                                                Spacer(modifier = Modifier.width(8.dp))
+                                                                Text(
+                                                                    text = "Daftar Hari Libur & Hari Besar ($todayYear)",
+                                                                    fontWeight = FontWeight.SemiBold,
+                                                                    fontSize = 13.sp,
+                                                                    color = MaterialTheme.colorScheme.onSurface
+                                                                )
+                                                            }
+                                                            Icon(
+                                                                imageVector = if (showAllHolidaysInDialog) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                                                                contentDescription = null,
+                                                                tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                                            )
+                                                        }
+
+                                                        if (showAllHolidaysInDialog) {
+                                                            Spacer(modifier = Modifier.height(8.dp))
+                                                            OutlinedTextField(
+                                                                value = holidaySearchQuery,
+                                                                onValueChange = { holidaySearchQuery = it },
+                                                                placeholder = { Text("Cari hari libur / peringatan (mis: Buruh, Ibu, Guru)...", fontSize = 12.sp) },
+                                                                leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(16.dp)) },
+                                                                singleLine = true,
+                                                                modifier = Modifier.fillMaxWidth()
+                                                            )
+
+                                                            Spacer(modifier = Modifier.height(6.dp))
+                                                            Row(
+                                                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                                                modifier = Modifier.horizontalScroll(rememberScrollState())
+                                                            ) {
+                                                                listOf("Semua", "Libur Nasional", "Hari Besar").forEach { category ->
+                                                                    FilterChip(
+                                                                        selected = selectedHolidayCategory == category,
+                                                                        onClick = { selectedHolidayCategory = category },
+                                                                        label = { Text(category, fontSize = 11.sp) }
+                                                                    )
+                                                                }
+                                                            }
+
+                                                            Spacer(modifier = Modifier.height(8.dp))
+                                                            val allHolidaysList = remember(todayYear, fallbackHolidays) {
+                                                                val list = mutableListOf<Pair<String, Pair<String, String>>>() // date, type, name
+                                                                fallbackHolidays.forEach { (d, n) ->
+                                                                    list.add(d to ("Libur Nasional" to n))
+                                                                }
+                                                                HolidayClient.getAllObservances().forEach { (md, n) ->
+                                                                    val fullDate = "$todayYear-$md"
+                                                                    if (fallbackHolidays[fullDate] == null) {
+                                                                        list.add(fullDate to ("Hari Besar" to n))
+                                                                    }
+                                                                }
+                                                                list.sortedBy { it.first }
+                                                            }
+
+                                                            val filteredHolidays = allHolidaysList.filter { item ->
+                                                                val matchesCategory = when (selectedHolidayCategory) {
+                                                                    "Libur Nasional" -> item.second.first == "Libur Nasional"
+                                                                    "Hari Besar" -> item.second.first == "Hari Besar"
+                                                                    else -> true
+                                                                }
+                                                                val matchesQuery = holidaySearchQuery.isBlank() ||
+                                                                        item.second.second.contains(holidaySearchQuery, ignoreCase = true) ||
+                                                                        item.first.contains(holidaySearchQuery, ignoreCase = true)
+                                                                matchesCategory && matchesQuery
+                                                            }
+
+                                                            Column(
+                                                                verticalArrangement = Arrangement.spacedBy(6.dp),
+                                                                modifier = Modifier
+                                                                    .fillMaxWidth()
+                                                                    .heightIn(max = 200.dp)
+                                                                    .verticalScroll(rememberScrollState())
+                                                            ) {
+                                                                if (filteredHolidays.isEmpty()) {
+                                                                    Text("Tidak ada hari libur / peringatan yang cocok.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                                                } else {
+                                                                    filteredHolidays.forEach { (date, typeAndName) ->
+                                                                        val isLibur = typeAndName.first == "Libur Nasional"
+                                                                        Surface(
+                                                                            shape = RoundedCornerShape(8.dp),
+                                                                            color = if (isLibur) Color(0xFFDC2626).copy(alpha = 0.08f) else Color(0xFF0F766E).copy(alpha = 0.08f),
+                                                                            border = BorderStroke(0.5.dp, if (isLibur) Color(0xFFDC2626).copy(alpha = 0.3f) else Color(0xFF0F766E).copy(alpha = 0.3f)),
+                                                                            modifier = Modifier.fillMaxWidth()
+                                                                        ) {
+                                                                            Row(
+                                                                                modifier = Modifier.padding(8.dp),
+                                                                                verticalAlignment = Alignment.CenterVertically
+                                                                            ) {
+                                                                                Text(
+                                                                                    text = date,
+                                                                                    fontSize = 11.sp,
+                                                                                    fontWeight = FontWeight.Bold,
+                                                                                    color = if (isLibur) Color(0xFFDC2626) else Color(0xFF0F766E),
+                                                                                    modifier = Modifier.width(80.dp)
+                                                                                )
+                                                                                Spacer(modifier = Modifier.width(6.dp))
+                                                                                Column {
+                                                                                    Text(
+                                                                                        text = typeAndName.second,
+                                                                                        fontSize = 12.sp,
+                                                                                        fontWeight = FontWeight.SemiBold,
+                                                                                        color = MaterialTheme.colorScheme.onSurface
+                                                                                    )
+                                                                                    Text(
+                                                                                        text = typeAndName.first,
+                                                                                        fontSize = 10.sp,
+                                                                                        color = if (isLibur) Color(0xFFDC2626) else Color(0xFF0F766E)
+                                                                                    )
+                                                                                }
+                                                                            }
+                                                                        }
+                                                                    }
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                }
 
                                                 if (ongoingJadwal != null) {
                                                     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
@@ -1925,7 +2188,7 @@ fun MainAppContent(viewModel: MainViewModel) {
                 }
             },
             bottomBar = {
-                val hideBottomBarRoutes = listOf("jurnal_umum", "buku_besar", "neraca_saldo", "jurnal_penyesuaian", "neraca_saldo_disesuaikan", "laba_rugi", "jurnal_penutup", "neraca_saldo_setelah_tutup", "pemutar_musik", "pembukuan_usaha", "semua_transaksi_belanja", "semua_catatan_tabungan", "preview_catatan", "immersive_file_viewer", "quran", "web_connect")
+                val hideBottomBarRoutes = listOf("jurnal_umum", "buku_besar", "neraca_saldo", "jurnal_penyesuaian", "neraca_saldo_disesuaikan", "laba_rugi", "jurnal_penutup", "neraca_saldo_setelah_tutup", "pemutar_musik", "pembukuan_usaha", "semua_transaksi_belanja", "semua_catatan_tabungan", "preview_catatan", "immersive_file_viewer", "quran")
                 val isEditingNote = viewModel.currentRoute == "catatan" && viewModel.selectedNote != null
                 if (viewModel.isBottomBarVisible && !hideBottomBarRoutes.contains(viewModel.currentRoute) && !isEditingNote) {
                     BottomNavBar(viewModel = viewModel)

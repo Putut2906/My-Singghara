@@ -27,6 +27,7 @@ class AlarmReceiver : BroadcastReceiver() {
                 CoroutineScope(Dispatchers.IO).launch {
                     try {
                         NotificationScheduler.checkAndShowDailyAgenda(context)
+                        NotificationScheduler.checkAndShowDailyHolidayAndObservance(context)
                     } catch (e: Exception) {
                         Log.e("AlarmReceiver", "Error checking daily agenda: ${e.message}")
                     } finally {

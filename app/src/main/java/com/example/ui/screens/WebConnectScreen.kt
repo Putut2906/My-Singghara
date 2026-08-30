@@ -94,7 +94,6 @@ fun WebConnectScreen(
     var isServerActive by remember { mutableStateOf(viewModel.webServer?.isServerRunning() == true) }
     var serverUrl by remember { mutableStateOf(viewModel.webServerUrl) }
     var showScannerDialog by remember { mutableStateOf(false) }
-    var showKasirScannerDialog by remember { mutableStateOf(false) }
     var showPinDialog by remember { mutableStateOf(false) }
     var showHelpDialog by remember { mutableStateOf(false) }
 
@@ -163,8 +162,8 @@ fun WebConnectScreen(
                     InstructionStep(
                         number = "4",
                         icon = Icons.Default.Devices,
-                        title = "Koneksi Kabel USB Debugging & Barcode Gun",
-                        description = "Gunakan perintah 'adb forward tcp:8080 tcp:8080' untuk akses kabel USB tanpa Wi-Fi, dan gunakan tombol 'HP Scanner Kasir PC' untuk memindai barang belanjaan kasir secara nirkabel!"
+                        title = "Koneksi Kabel USB & Scanner Kasir HP",
+                        description = "Gunakan perintah 'adb forward tcp:8080 tcp:8080' untuk akses kabel USB tanpa Wi-Fi. Untuk menggunakan HP sebagai Scanner Barcode Kasir PC, buka menu titik 3 di halaman Kasir lalu pilih 'Scanner HP'."
                     )
                 }
             },
@@ -194,17 +193,6 @@ fun WebConnectScreen(
                 }
                 viewModel.approveWebSession(tokenOrPin)
                 Toast.makeText(context, "Verifikasi Sukses! Browser PC Terbuka.", Toast.LENGTH_LONG).show()
-            }
-        )
-    }
-
-    // Kasir Remote Barcode Scanner Dialog (HP Barcode Gun for Web PC)
-    if (showKasirScannerDialog) {
-        KasirRemoteBarcodeScannerDialog(
-            onDismissRequest = { showKasirScannerDialog = false },
-            onBarcodeScanned = { barcode ->
-                viewModel.pushKasirBarcodeScan(barcode)
-                Toast.makeText(context, "Barcode terkirim ke Kasir PC: $barcode", Toast.LENGTH_SHORT).show()
             }
         )
     }
@@ -268,9 +256,7 @@ fun WebConnectScreen(
     }
 
     Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .statusBarsPadding()
+        modifier = Modifier.fillMaxSize()
     ) {
         Column(
             modifier = Modifier
@@ -566,98 +552,6 @@ fun WebConnectScreen(
                             Icon(imageVector = Icons.Default.PowerSettingsNew, contentDescription = null, modifier = Modifier.size(14.dp), tint = MaterialTheme.colorScheme.error)
                             Spacer(modifier = Modifier.width(4.dp))
                             Text("Kunci & Putuskan Sesi PC", fontSize = 11.sp, color = MaterialTheme.colorScheme.error)
-                        }
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(16.dp))
-
-                // HP BARCODE GUN / SCANNER KASIR PC CARD
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(16.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                    border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF22C55E).copy(alpha = 0.5f))
-                ) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(18.dp)
-                    ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(38.dp)
-                                    .clip(CircleShape)
-                                    .background(Color(0xFF22C55E).copy(alpha = 0.15f)),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.QrCodeScanner,
-                                    contentDescription = null,
-                                    tint = Color(0xFF16A34A),
-                                    modifier = Modifier.size(20.dp)
-                                )
-                            }
-                            Spacer(modifier = Modifier.width(10.dp))
-                            Column {
-                                Text(
-                                    text = "HP Scanner Kasir PC (Barcode Gun)",
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 14.sp,
-                                    color = MaterialTheme.colorScheme.onSurface
-                                )
-                                Text(
-                                    text = "Scan barcode barang di HP, otomatis masuk keranjang Kasir Web di PC",
-                                    fontSize = 11.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
-                        }
-
-                        Spacer(modifier = Modifier.height(14.dp))
-
-                        Button(
-                            onClick = { showKasirScannerDialog = true },
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF16A34A)),
-                            shape = RoundedCornerShape(12.dp),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(46.dp)
-                        ) {
-                            Icon(imageVector = Icons.Default.QrCodeScanner, contentDescription = null, modifier = Modifier.size(18.dp))
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text("Buka HP Scanner Kasir PC", fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                        }
-
-                        Spacer(modifier = Modifier.height(8.dp))
-
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
-                                .padding(horizontal = 10.dp, vertical = 8.dp)
-                        ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Security,
-                                    contentDescription = null,
-                                    tint = Color(0xFF16A34A),
-                                    modifier = Modifier.size(16.dp)
-                                )
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Text(
-                                    text = "Mendukung koneksi Wi-Fi & Kabel USB (USB Debugging dengan port forward 8080).",
-                                    fontSize = 11.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                            }
                         }
                     }
                 }

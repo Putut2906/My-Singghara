@@ -110,6 +110,7 @@ fun MyKasirScreen(viewModel: MainViewModel) {
     var selectedEditStockItem by remember { mutableStateOf<StockItem?>(null) }
     var showCashierDialog by remember { mutableStateOf(false) }
     var showBarcodeCashierDialog by remember { mutableStateOf(false) }
+    var showKasirHpScannerDialog by remember { mutableStateOf(false) }
     var showRestockBarcodeDialog by remember { mutableStateOf(false) }
     var showUnduhBelanjaDialog by remember { mutableStateOf(false) }
     var showEditNamaUsahaDialog by remember { mutableStateOf(false) }
@@ -242,6 +243,7 @@ fun MyKasirScreen(viewModel: MainViewModel) {
                                     searchQueryStock = ""
                                     selectedCategoryStock = "Semua"
                                 },
+                                onHpScannerClick = { showKasirHpScannerDialog = true },
                                 onPrinterSettingsClick = { showPrinterSettingsDialog = true }
                             )
                         }
@@ -2590,6 +2592,17 @@ fun MyKasirScreen(viewModel: MainViewModel) {
                     }
                 }
             }
+        }
+
+        // Dialog: Scanner HP Kasir (Remote Barcode Gun untuk Kasir Web PC)
+        if (showKasirHpScannerDialog) {
+            KasirRemoteBarcodeScannerDialog(
+                onDismissRequest = { showKasirHpScannerDialog = false },
+                onBarcodeScanned = { barcode ->
+                    viewModel.pushKasirBarcodeScan(barcode)
+                    Toast.makeText(context, "Barcode terkirim ke Kasir PC: $barcode", Toast.LENGTH_SHORT).show()
+                }
+            )
         }
 
         // Dialog 1: Input Stok Barang
@@ -5322,6 +5335,7 @@ fun CashierDashboardHeader(
     onBarcodeScanClick: () -> Unit = {},
     activeTab: Int,
     onTabChange: (Int) -> Unit,
+    onHpScannerClick: () -> Unit = {},
     onPrinterSettingsClick: () -> Unit = {}
 ) {
     Card(
@@ -5433,6 +5447,14 @@ fun CashierDashboardHeader(
                                 }
                             )
                             HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+                            DropdownMenuItem(
+                                leadingIcon = { Icon(Icons.Default.QrCodeScanner, contentDescription = null, modifier = Modifier.size(18.dp), tint = Color(0xFF16A34A)) },
+                                text = { Text("Scanner HP", fontWeight = FontWeight.SemiBold) },
+                                onClick = {
+                                    onHpScannerClick()
+                                    menuExpanded = false
+                                }
+                            )
                             DropdownMenuItem(
                                 leadingIcon = { Icon(Icons.Default.Print, contentDescription = null, modifier = Modifier.size(18.dp), tint = Color(0xFF2E7D32)) },
                                 text = { Text("Pengaturan Printer", fontWeight = FontWeight.Bold) },

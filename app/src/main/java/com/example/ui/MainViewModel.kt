@@ -1198,13 +1198,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     }
                 }
                 val currentMap = _apiHolidays.value.toMutableMap()
+                // Always populate accurate Indonesian national holidays first as base
+                currentMap.putAll(HolidayClient.getFallbackHolidays(year))
                 if (holidayMap.isNotEmpty()) {
                     currentMap.putAll(holidayMap)
-                    _apiHolidays.value = currentMap
-                } else {
-                    currentMap.putAll(HolidayClient.getFallbackHolidays(year))
-                    _apiHolidays.value = currentMap
                 }
+                _apiHolidays.value = currentMap
             } catch (e: Exception) {
                 // Gunakan mapping static/fallback jika gagal request (misal offline)
                 val currentMap = _apiHolidays.value.toMutableMap()

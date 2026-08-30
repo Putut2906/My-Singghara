@@ -12,6 +12,7 @@ import android.os.Build
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.example.data.AppDatabase
+import com.example.network.HolidayClient
 import com.example.ui.components.PrayerTimesHelper
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -24,10 +25,12 @@ object NotificationScheduler {
     const val CHANNEL_PRAYER = "prayer_times_channel"
     const val CHANNEL_AGENDA = "agenda_channel"
     const val CHANNEL_WEB_SECURITY = "web_security_channel"
+    const val CHANNEL_HOLIDAY = "holiday_channel"
 
     const val NOTIFICATION_ID_AGENDA = 8888
     const val NOTIFICATION_ID_PRAYER = 9999
     const val NOTIFICATION_ID_WEB_SECURITY = 7777
+    const val NOTIFICATION_ID_HOLIDAY = 6666
 
     const val ACTION_DAILY_AGENDA_CHECK = "com.example.ACTION_DAILY_AGENDA_CHECK"
     const val ACTION_PRAYER_NOTIFICATION = "com.example.ACTION_PRAYER_NOTIFICATION"
@@ -197,7 +200,22 @@ object NotificationScheduler {
                     .build()
                 )
             }
-            notificationManager.createNotificationChannel(webSecurityChannel)
+            // 4. Holiday & Observance Channel
+            val holidayChannel = NotificationChannel(
+                CHANNEL_HOLIDAY,
+                "Hari Libur & Peringatan Nasional",
+                NotificationManager.IMPORTANCE_HIGH
+            ).apply {
+                description = "Notifikasi hari libur nasional, hari besar, dan hari peringatan nasional"
+                enableVibration(true)
+                val soundUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
+                setSound(soundUri, android.media.AudioAttributes.Builder()
+                    .setUsage(android.media.AudioAttributes.USAGE_NOTIFICATION)
+                    .setContentType(android.media.AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                    .build()
+                )
+            }
+            notificationManager.createNotificationChannel(holidayChannel)
         }
     }
 
@@ -277,8 +295,9 @@ object NotificationScheduler {
         CoroutineScope(Dispatchers.IO).launch {
             try {
                 checkAndShowDailyAgenda(context)
+                checkAndShowDailyHolidayAndObservance(context)
             } catch (e: Exception) {
-                Log.e("NotificationScheduler", "Failed to check agenda on schedule: ${e.message}")
+                Log.e("NotificationScheduler", "Failed to check notifications on schedule: ${e.message}")
             }
         }
     }
@@ -594,5 +613,79 @@ object NotificationScheduler {
         val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         notificationManager.cancel(NOTIFICATION_ID_AGENDA)
         Log.d("NotificationScheduler", "Ongoing agenda notification cancelled successfully.")
+    }
+
+    @SuppressLint("NotificationPermission")
+    fun checkAndShowDailyHolidayAndObservance(context: Context) {
+        try {
+            createNotificationChannels(context)
+            val cal = Calendar.getInstance()
+            val year = cal.get(Calendar.YEAR)
+            val month = cal.get(Calendar.MONTH) + 1
+            val day = cal.get(Calendar.DAY_OF_MONTH)
+            val dateKey = String.format("%04d-%02d-%02d", year, month, day)
+
+            val holidays = HolidayClient.getFallbackHolidays(year)
+            val holidayName = holidays[dateKey]
+            val observanceName = HolidayClient.getObservanceForDate(month, day)
+
+            if (holidayName == null && observanceName == null) {
+                return
+            }
+
+            val title: String
+            val text: String
+            val bigText: String
+
+            when {
+                holidayName != null && observanceName != null -> {
+                    title = "🎉 Hari Libur & Peringatan Nasional"
+                    text = "$holidayName • $observanceName"
+                    bigText = "Hari ini adalah Hari Libur Nasional: $holidayName\nSerta diperingati sebagai: $observanceName.\nSelamat memperingati dan beraktivitas!"
+                }
+                holidayName != null -> {
+                    title = "🔴 Hari Libur Nasional: $holidayName"
+                    text = "Hari ini adalah hari libur nasional ($holidayName)"
+                    bigText = "Hari ini ($dateKey) adalah Hari Libur Nasional: $holidayName.\nSelamat berlibur dan beristirahat!"
+                }
+                else -> {
+                    title = "⭐ Hari Peringatan Nasional"
+                    text = "$observanceName"
+                    bigText = "Hari ini diperingati sebagai Hari Besar / Peringatan Nasional: $observanceName."
+                }
+            }
+
+            val intent = Intent(context, MainActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+            }
+            val pendingIntent = PendingIntent.getActivity(
+                context,
+                6666,
+                intent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+
+            val soundUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
+            val builder = NotificationCompat.Builder(context, CHANNEL_HOLIDAY)
+                .setSmallIcon(R.mipmap.ic_launcher)
+                .setContentTitle(title)
+                .setContentText(text)
+                .setStyle(NotificationCompat.BigTextStyle().bigText(bigText))
+                .setPriority(NotificationCompat.PRIORITY_HIGH)
+                .setAutoCancel(true)
+                .setContentIntent(pendingIntent)
+                .setSound(soundUri)
+
+            val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            notificationManager.notify(NOTIFICATION_ID_HOLIDAY, builder.build())
+            Log.d("NotificationScheduler", "Holiday & Observance notification posted: $title")
+        } catch (e: Exception) {
+            Log.e("NotificationScheduler", "Failed to show holiday notification: ${e.message}")
+        }
+    }
+
+    fun cancelHolidayNotification(context: Context) {
+        val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        notificationManager.cancel(NOTIFICATION_ID_HOLIDAY)
     }
 }
