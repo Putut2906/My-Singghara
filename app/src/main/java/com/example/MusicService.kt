@@ -299,7 +299,7 @@ class MusicService : Service() {
             1001,
             builder.setContentTitle("My Singghara")
                 .setContentText("Menyiapkan pemutar musik...")
-                .setSmallIcon(android.R.drawable.ic_media_play)
+                .setSmallIcon(R.drawable.ic_stat_singghara)
                 .setContentIntent(contentIntent)
                 .setOngoing(true)
                 .build()
@@ -706,7 +706,7 @@ class MusicService : Service() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && albumArt != null) {
             builder.setSmallIcon(android.graphics.drawable.Icon.createWithBitmap(albumArt))
         } else {
-            builder.setSmallIcon(android.R.drawable.ic_media_play)
+            builder.setSmallIcon(R.drawable.ic_stat_singghara)
         }
 
         if (albumArt != null) {

@@ -361,7 +361,7 @@ object NotificationScheduler {
         val soundUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
 
         val notification = NotificationCompat.Builder(context, CHANNEL_FCM)
-            .setSmallIcon(R.drawable.ic_launcher_foreground)
+            .setSmallIcon(R.drawable.ic_stat_singghara)
             .setContentTitle(title)
             .setContentText(body)
             .setStyle(NotificationCompat.BigTextStyle().bigText(body))
@@ -413,7 +413,7 @@ object NotificationScheduler {
         val isForeground = MainActivity.isAppInForeground
 
         val notificationBuilder = NotificationCompat.Builder(context, CHANNEL_WEB_SECURITY)
-            .setSmallIcon(R.drawable.ic_launcher_foreground)
+            .setSmallIcon(R.drawable.ic_stat_singghara)
             .setContentTitle("🚨 Permintaan Akses Web PC Terdeteksi")
             .setContentText("Perangkat ($clientIp) meminta akses ke Web PC. Apakah anda akses web PC?")
             .setStyle(NotificationCompat.BigTextStyle().bigText(
@@ -775,7 +775,7 @@ object NotificationScheduler {
         val soundUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
 
         val builder = NotificationCompat.Builder(context, CHANNEL_AGENDA)
-            .setSmallIcon(R.mipmap.ic_launcher)
+            .setSmallIcon(R.drawable.ic_stat_singghara)
             .setContentTitle(title)
             .setContentText(content.split("\n").firstOrNull() ?: "")
             .setStyle(NotificationCompat.BigTextStyle().bigText(content))
@@ -820,7 +820,7 @@ object NotificationScheduler {
 
         val notificationId = NOTIFICATION_ID_PRAYER + name.hashCode()
         val builder = NotificationCompat.Builder(context, channelId)
-            .setSmallIcon(R.mipmap.ic_launcher)
+            .setSmallIcon(R.drawable.ic_stat_singghara)
             .setContentTitle("Waktunya Sholat $name")
             .setContentText("Waktu sholat $name telah tiba ($time). Mari laksanakan ibadah.")
             .setStyle(NotificationCompat.BigTextStyle().bigText("Waktu sholat $name telah tiba ($time). Mari laksanakan ibadah."))
@@ -944,7 +944,7 @@ object NotificationScheduler {
 
             val soundUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
             val builder = NotificationCompat.Builder(context, CHANNEL_HOLIDAY)
-                .setSmallIcon(R.mipmap.ic_launcher)
+                .setSmallIcon(R.drawable.ic_stat_singghara)
                 .setContentTitle(title)
                 .setContentText(text)
                 .setStyle(NotificationCompat.BigTextStyle().bigText(bigText))

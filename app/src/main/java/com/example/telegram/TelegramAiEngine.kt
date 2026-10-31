@@ -1679,7 +1679,7 @@ Halo $senderName, saya siap membantu mengedit data database Anda! Silakan sebutk
         try {
             val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as android.app.NotificationManager
             val builder = androidx.core.app.NotificationCompat.Builder(context, "agenda_channel")
-                .setSmallIcon(com.example.R.mipmap.ic_launcher)
+                .setSmallIcon(com.example.R.drawable.ic_stat_singghara)
                 .setContentTitle(title)
                 .setContentText(message)
                 .setStyle(androidx.core.app.NotificationCompat.BigTextStyle().bigText(message))

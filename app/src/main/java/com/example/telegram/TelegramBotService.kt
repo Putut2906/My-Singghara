@@ -65,7 +65,7 @@ class TelegramBotService : Service() {
         val notification: Notification = NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("My Singghara Telegram Bot AI Aktif")
             .setContentText("Siap menjawab pertanyaan hari libur, agenda, tabungan & database.")
-            .setSmallIcon(R.mipmap.ic_launcher)
+            .setSmallIcon(R.drawable.ic_stat_singghara)
             .setContentIntent(pendingIntent)
             .addAction(0, "Hentikan", stopIntent)
             .setOngoing(true)
