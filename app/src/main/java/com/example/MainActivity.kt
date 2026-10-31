@@ -1966,8 +1966,22 @@ fun MainAppContent(viewModel: MainViewModel) {
                         }
                     }
 
-                    // Menu Utama Bawah: Arisan Keluarga (di luar grup Manajemen Mandiri)
-                    Column(modifier = Modifier.fillMaxWidth()) {
+                    // Menu Utama: Arisan Keluarga (Boxed Group Card, seragam dengan Beranda)
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 14.dp, vertical = 6.dp)
+                            .border(
+                                width = 1.dp,
+                                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
+                                shape = RoundedCornerShape(12.dp)
+                            )
+                            .background(
+                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.1f),
+                                shape = RoundedCornerShape(12.dp)
+                            )
+                            .padding(vertical = 8.dp)
+                    ) {
                         val isArisanKeluargaSelected = viewModel.currentRoute == "arisan_keluarga"
                         NavigationDrawerItem(
                             icon = {
@@ -1983,7 +1997,7 @@ fun MainAppContent(viewModel: MainViewModel) {
                                 scope.launch { drawerState.close() }
                             },
                             shape = RoundedCornerShape(8.dp),
-                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 2.dp),
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
                             colors = NavigationDrawerItemDefaults.colors(
                                 selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
                                 selectedTextColor = MaterialTheme.colorScheme.onPrimaryContainer,
