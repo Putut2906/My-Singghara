@@ -12,14 +12,18 @@ android {
         applicationId = "com.aistudio.mysingghara.lxqpbr"
         minSdk = 24
         targetSdk = 36
-        versionCode = 1
-        versionName = "1.0"
+        // CI passes 1.0.<run_number> so BuildConfig matches the release tag.
+        versionCode = (providers.gradleProperty("appVersionCode").orNull ?: "1").toIntOrNull() ?: 1
+        versionName = providers.gradleProperty("appVersionName").orNull ?: "1.0.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("String", "GEMINI_API_KEY", "\"\"")
     }
 
     signingConfigs {
+        // debug.keystore is committed on purpose: every CI run must sign with the
+        // same key, otherwise Android rejects the update as "app not installed"
+        // (INSTALL_FAILED_UPDATE_INCOMPATIBLE) because the signatures differ.
         create("debugConfig") {
             storeFile = file("${rootDir}/debug.keystore")
             storePassword = "android"
@@ -31,19 +35,14 @@ android {
     buildTypes {
         release {
             isMinifyEnabled = false
+            signingConfig = signingConfigs.getByName("debugConfig")
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
         }
         debug {
-            // debug.keystore is git-ignored, so CI builds must fall back to the
-            // auto-generated debug keystore instead of failing on a missing file.
-            signingConfig = if (file("${rootDir}/debug.keystore").exists()) {
-                signingConfigs.getByName("debugConfig")
-            } else {
-                signingConfigs.getByName("debug")
-            }
+            signingConfig = signingConfigs.getByName("debugConfig")
         }
     }
     compileOptions {

@@ -2,6 +2,7 @@ package com.example.ui.components
 
 import android.content.Intent
 import android.net.Uri
+import android.provider.Settings
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -30,6 +31,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.example.BuildConfig
+import com.example.update.ApkSignatureChecker
 import com.example.update.DownloadState
 import com.example.update.DriveApkItem
 import com.example.update.GoogleDriveUpdateManager
@@ -46,6 +48,7 @@ fun DriveUpdateAvailableDialog(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var downloadState by remember { mutableStateOf<DownloadState>(DownloadState.Idle) }
+    var signatureConflict by remember { mutableStateOf(false) }
 
     fun startDownloadAndInstall() {
         scope.launch {
@@ -56,6 +59,20 @@ fun DriveUpdateAvailableDialog(
                     fileItem = latestApk
                 ) { progress, downloaded, total ->
                     downloadState = DownloadState.Downloading(progress, downloaded, total)
+                }
+
+                val verdict = ApkSignatureChecker.prepareForInstall(
+                    context = context,
+                    apkFile = downloadedFile,
+                    displayName = ApkSignatureChecker.normalizeFileName(latestApk.name)
+                )
+                if (verdict is ApkSignatureChecker.InstallVerdict.Conflict) {
+                    signatureConflict = true
+                    val savedInfo = verdict.savedFileName?.let { "APK sudah disimpan di folder Download: $it. " }.orEmpty()
+                    downloadState = DownloadState.Failed(
+                        savedInfo + "APK memakai kunci tanda tangan berbeda dari aplikasi terpasang, jadi Android menolaknya sebagai pembaruan. Hapus aplikasi lama, lalu pasang APK tersebut dari folder Download."
+                    )
+                    return@launch
                 }
 
                 downloadState = DownloadState.Installing(downloadedFile)
@@ -378,6 +395,43 @@ fun DriveUpdateAvailableDialog(
                         fontWeight = FontWeight.Bold,
                         fontSize = 13.sp
                     )
+                }
+
+                if (signatureConflict) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedButton(
+                        onClick = {
+                            try {
+                                context.startActivity(
+                                    Intent(
+                                        Intent.ACTION_DELETE,
+                                        Uri.parse("package:${context.packageName}")
+                                    ).apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) }
+                                )
+                            } catch (_: Exception) {
+                                try {
+                                    context.startActivity(
+                                        Intent(
+                                            Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                                            Uri.parse("package:${context.packageName}")
+                                        ).apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) }
+                                    )
+                                } catch (_: Exception) {}
+                            }
+                        },
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                        modifier = Modifier.fillMaxWidth(),
+                        contentPadding = PaddingValues(vertical = 8.dp)
+                    ) {
+                        Icon(Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            "Hapus Aplikasi Lama (Data Lokal Ikut Terhapus)",
+                            fontSize = 11.5.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
                 }
 
                 Spacer(modifier = Modifier.height(8.dp))

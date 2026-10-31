@@ -4,6 +4,7 @@ import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
+import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
@@ -50,6 +51,12 @@ import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.*
 
+private data class InstallConflict(
+    val apkName: String,
+    val savedFileName: String?,
+    val differentPackage: Boolean
+)
+
 sealed class DriveDownloadProgressState {
     object Idle : DriveDownloadProgressState()
     data class Downloading(
@@ -88,6 +95,7 @@ fun TentangAplikasiScreen(
     var isSavingApk by remember { mutableStateOf(false) }
     var saveProgress by remember { mutableStateOf(0f) }
     var pendingSaveApk by remember { mutableStateOf<DriveApkItem?>(null) }
+    var installConflict by remember { mutableStateOf<InstallConflict?>(null) }
     var customApkName by remember { mutableStateOf("MySingghara-v${BuildConfig.VERSION_NAME}.apk") }
     var showFirestoreRulesDialog by remember { mutableStateOf(false) }
 
@@ -109,6 +117,23 @@ fun TentangAplikasiScreen(
                     fileItem = apkItem
                 ) { progress, downloaded, total ->
                     inlineDownloadState = DriveDownloadProgressState.Downloading(apkItem.name, progress, downloaded, total)
+                }
+
+                // A differently signed APK can never replace the installed app;
+                // keep a copy in Download and explain what to do instead.
+                val verdict = ApkSignatureChecker.prepareForInstall(
+                    context = context,
+                    apkFile = downloadedFile,
+                    displayName = ApkSignatureChecker.normalizeFileName(apkItem.name)
+                )
+                if (verdict is ApkSignatureChecker.InstallVerdict.Conflict) {
+                    inlineDownloadState = DriveDownloadProgressState.Idle
+                    installConflict = InstallConflict(
+                        apkName = apkItem.name,
+                        savedFileName = verdict.savedFileName,
+                        differentPackage = verdict.differentPackage
+                    )
+                    return@launch
                 }
 
                 inlineDownloadState = DriveDownloadProgressState.Installing(apkItem.name)
@@ -192,6 +217,25 @@ fun TentangAplikasiScreen(
         }
     }
 
+    fun uninstallOldApp() {
+        try {
+            val deleteIntent = Intent(
+                Intent.ACTION_DELETE,
+                Uri.parse("package:${context.packageName}")
+            ).apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) }
+            context.startActivity(deleteIntent)
+        } catch (_: Exception) {
+            try {
+                context.startActivity(
+                    Intent(
+                        Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                        Uri.parse("package:${context.packageName}")
+                    ).apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) }
+                )
+            } catch (_: Exception) {}
+        }
+    }
+
     // Function to perform Google Drive Apps Script update check
     fun triggerDriveCheck() {
         scope.launch {
@@ -227,6 +271,73 @@ fun TentangAplikasiScreen(
                     executeShareApk(normalized)
                 } else {
                     viewModel.showToastPopup("Nama file APK diatur menjadi: $normalized")
+                }
+            }
+        )
+    }
+
+    // Dialog shown when the update APK cannot replace the installed app (different signing key)
+    installConflict?.let { conflict ->
+        AlertDialog(
+            onDismissRequest = { installConflict = null },
+            icon = {
+                Icon(
+                    imageVector = Icons.Default.Warning,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.error
+                )
+            },
+            title = {
+                Text(
+                    text = if (conflict.differentPackage) "APK Bukan untuk Aplikasi Ini" else "Pembaruan Tidak Bisa Dipasang",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 17.sp
+                )
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        text = if (conflict.differentPackage) {
+                            "Berkas ${conflict.apkName} memiliki nama paket yang berbeda dari aplikasi yang terpasang, sehingga tidak dapat dipasang sebagai pembaruan."
+                        } else {
+                            "APK pembaruan ditandatangani dengan kunci berbeda dari aplikasi yang sedang terpasang. Android menolak menimpanya karena alasan keamanan (aplikasi bentrok)."
+                        },
+                        fontSize = 12.5.sp,
+                        lineHeight = 18.sp
+                    )
+                    Text(
+                        text = conflict.savedFileName?.let { "APK sudah disimpan di folder Download:\n$it" }
+                            ?: "Penyimpanan APK ke folder Download gagal.",
+                        fontSize = 12.5.sp,
+                        lineHeight = 18.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Text(
+                        text = "Hapus aplikasi lama terlebih dahulu, lalu buka folder Download dan pasang file APK tersebut. Mulai versi ini semua pembaruan memakai kunci yang sama, sehingga pembaruan berikutnya tidak akan bentrok lagi.",
+                        fontSize = 12.sp,
+                        lineHeight = 17.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Text(
+                        text = "Perhatian: menghapus aplikasi lama juga menghapus data lokal di dalam aplikasi. Ekspor catatan penting terlebih dahulu.",
+                        fontSize = 11.5.sp,
+                        lineHeight = 16.sp,
+                        color = MaterialTheme.colorScheme.error
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    installConflict = null
+                    uninstallOldApp()
+                }) {
+                    Text("Hapus Aplikasi Lama", color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { installConflict = null }) {
+                    Text("Tutup")
                 }
             }
         )
