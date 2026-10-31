@@ -60,7 +60,8 @@ private data class InstallConflict(
 private data class UpdateStatusPopup(
     val isUpToDate: Boolean,
     val latestReleaseLabel: String,
-    val detail: String? = null
+    val detail: String? = null,
+    val isChecking: Boolean = false
 )
 
 sealed class DriveDownloadProgressState {
@@ -98,11 +99,14 @@ fun TentangAplikasiScreen(
 
     var showShareNameDialog by remember { mutableStateOf(false) }
     var isSharingApk by remember { mutableStateOf(false) }
-    var isSavingApk by remember { mutableStateOf(false) }
-    var saveProgress by remember { mutableStateOf(0f) }
-    var lastSavedApkName by remember { mutableStateOf<String?>(null) }
+    // The check + download runs in a foreground service, so it survives leaving the app.
+    val githubTask by GithubApkUpdateService.state.collectAsState()
+    val isGithubChecking = githubTask is GithubUpdateTask.Checking
+    val isSavingApk = githubTask is GithubUpdateTask.Downloading
+    val saveProgress = (githubTask as? GithubUpdateTask.Downloading)?.progress ?: 0f
+    val lastSavedApkName = (githubTask as? GithubUpdateTask.Completed)?.fileName
     var updateStatusPopup by remember { mutableStateOf<UpdateStatusPopup?>(null) }
-    var isGithubChecking by remember { mutableStateOf(false) }
+    var taskStartedHere by remember { mutableStateOf(false) }
     var pendingSaveAction by remember { mutableStateOf<(() -> Unit)?>(null) }
     var installConflict by remember { mutableStateOf<InstallConflict?>(null) }
     var customApkName by remember { mutableStateOf("MySingghara-v${BuildConfig.VERSION_NAME}.apk") }
@@ -197,36 +201,6 @@ fun TentangAplikasiScreen(
         }
     }
 
-    // Downloads the APK from GitHub Releases and keeps a copy in the public Download folder
-    // without opening the package installer.
-    fun saveGithubApkToDownloads(asset: GitHubAsset, releaseLabel: String) {
-        if (isSavingApk) return
-        scope.launch {
-            try {
-                isSavingApk = true
-                saveProgress = 0f
-                val config = GitHubUpdateManager.loadConfig(context)
-                val downloadedFile = GitHubUpdateManager.downloadApk(
-                    context = context,
-                    downloadUrl = asset.browserDownloadUrl,
-                    fileName = asset.name,
-                    token = config.token
-                ) { progress, _, _ ->
-                    saveProgress = progress
-                }
-                val fileName = releaseApkFileName(context, downloadedFile, asset.name)
-                ApkDownloadsSaver.saveToDownloads(context, downloadedFile, fileName)
-                lastSavedApkName = fileName
-                viewModel.showToastPopup("APK $releaseLabel disimpan di folder Download: $fileName")
-            } catch (e: Exception) {
-                viewModel.showToastPopup("Gagal menyimpan APK: ${e.localizedMessage ?: "Coba lagi"}")
-            } finally {
-                isSavingApk = false
-                saveProgress = 0f
-            }
-        }
-    }
-
     fun uninstallOldApp() {
         try {
             val deleteIntent = Intent(
@@ -260,49 +234,53 @@ fun TentangAplikasiScreen(
         }
     }
 
-    // Checks the latest GitHub release, reports the status in a popup, and stores the
-    // release APK in the public Download folder without opening the installer.
+    // Starts the foreground-service check. The service skips the download entirely when the
+    // installed version is already the newest release, and keeps running in the background.
     fun refreshCheckAndSaveApk() {
-        if (isSavingApk || isGithubChecking) return
-        scope.launch {
-            lastSavedApkName = null
-            isGithubChecking = true
-            val result = try {
-                GitHubUpdateManager.checkForUpdate(context)
-            } catch (e: Exception) {
-                UpdateCheckState.Error(e.localizedMessage ?: "Gagal menghubungi GitHub.")
-            }
-            isGithubChecking = false
-            when (result) {
-                is UpdateCheckState.UpdateAvailable -> {
-                    updateStatusPopup = UpdateStatusPopup(
-                        isUpToDate = false,
-                        latestReleaseLabel = result.release.tagName.ifBlank { result.release.name }
-                    )
-                    runWithStoragePermission {
-                        saveGithubApkToDownloads(result.apkAsset, result.release.tagName)
-                    }
-                }
-                is UpdateCheckState.UpToDate -> {
-                    val release = result.latestRelease
-                    val asset = release?.primaryApkAsset
-                    val releaseTag = release?.tagName ?: ""
-                    val newerWithoutApk = asset == null && release != null &&
-                        GitHubUpdateManager.isRemoteVersionNewer(BuildConfig.VERSION_NAME, releaseTag)
-                    updateStatusPopup = UpdateStatusPopup(
-                        isUpToDate = !newerWithoutApk,
-                        latestReleaseLabel = releaseTag,
-                        detail = result.customMessage
-                    )
-                    if (asset != null) {
-                        runWithStoragePermission { saveGithubApkToDownloads(asset, releaseTag) }
-                    }
-                }
-                is UpdateCheckState.Error -> viewModel.showToastPopup("Gagal memeriksa GitHub Releases: ${result.errorMessage}")
-                else -> Unit
-            }
+        if (isGithubChecking || isSavingApk) return
+        taskStartedHere = true
+        updateStatusPopup = UpdateStatusPopup(
+            isUpToDate = false,
+            latestReleaseLabel = "",
+            isChecking = true
+        )
+        runWithStoragePermission {
+            GithubApkUpdateService.start(context)
         }
     }
+
+    // Mirrors the background task into the status popup. Progress ticks share a phase so a
+    // dismissed popup is not re-opened until the task reaches a final state.
+    val githubTaskPhase = when (githubTask) {
+        is GithubUpdateTask.Idle -> "idle"
+        is GithubUpdateTask.Checking -> "checking"
+        is GithubUpdateTask.UpToDate -> "uptodate"
+        is GithubUpdateTask.Downloading -> "downloading"
+        is GithubUpdateTask.Completed -> "completed"
+        is GithubUpdateTask.Failed -> "failed"
+    }
+    LaunchedEffect(githubTaskPhase) {
+        val shouldShow = taskStartedHere || updateStatusPopup != null
+        when (val task = githubTask) {
+            is GithubUpdateTask.UpToDate -> if (shouldShow) {
+                updateStatusPopup = UpdateStatusPopup(true, task.releaseLabel, task.detail)
+            }
+            is GithubUpdateTask.Downloading -> if (shouldShow) {
+                updateStatusPopup = UpdateStatusPopup(false, task.releaseLabel)
+            }
+            is GithubUpdateTask.Completed -> if (shouldShow) {
+                updateStatusPopup = UpdateStatusPopup(false, task.releaseLabel)
+            }
+            is GithubUpdateTask.Failed -> {
+                if (shouldShow) {
+                    updateStatusPopup = null
+                    viewModel.showToastPopup("Pembaruan GitHub gagal: ${task.message}")
+                }
+            }
+            else -> Unit
+        }
+    }
+
 
     // Automatically check Google Drive on entry if idle
     LaunchedEffect(Unit) {
@@ -410,7 +388,11 @@ fun TentangAplikasiScreen(
             },
             title = {
                 Text(
-                    text = if (popup.isUpToDate) "Aplikasi Sudah Terbaru" else "Pembaruan Tersedia",
+                    text = when {
+                        popup.isChecking -> "Memeriksa Pembaruan"
+                        popup.isUpToDate -> "Aplikasi Sudah Terbaru"
+                        else -> "Pembaruan Tersedia"
+                    },
                     fontWeight = FontWeight.Bold,
                     fontSize = 17.sp
                 )
@@ -418,10 +400,11 @@ fun TentangAplikasiScreen(
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(
-                        text = if (popup.isUpToDate) {
-                            "Versi terpasang v${BuildConfig.VERSION_NAME} sudah merupakan versi terbaru di GitHub Releases."
-                        } else {
-                            "Versi terpasang v${BuildConfig.VERSION_NAME}. Rilis terbaru di GitHub Releases: ${popup.latestReleaseLabel}."
+                        text = when {
+                            popup.isChecking -> "Memeriksa rilis terbaru di GitHub Releases dan membandingkannya dengan versi terpasang v${BuildConfig.VERSION_NAME}. Pemeriksaan tetap berjalan meski aplikasi ditutup atau perangkat terkunci."
+                            popup.isUpToDate -> "Versi terpasang v${BuildConfig.VERSION_NAME} sudah merupakan versi terbaru di GitHub Releases." +
+                                if (popup.latestReleaseLabel.isNotBlank()) " Tidak ada pengunduhan karena aplikasi sudah terbaru (rilis ${popup.latestReleaseLabel})." else ""
+                            else -> "Versi terpasang v${BuildConfig.VERSION_NAME}. Rilis terbaru di GitHub Releases: ${popup.latestReleaseLabel}."
                         },
                         fontSize = 12.5.sp,
                         lineHeight = 18.sp
@@ -435,6 +418,20 @@ fun TentangAplikasiScreen(
                         )
                     }
                     when {
+                        popup.isChecking || isGithubChecking -> {
+                            LinearProgressIndicator(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(6.dp)
+                                    .clip(RoundedCornerShape(3.dp)),
+                                color = Color(0xFF0284C7)
+                            )
+                            Text(
+                                text = "Menghubungi GitHub Releases...",
+                                fontSize = 11.5.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
                         isSavingApk -> {
                             LinearProgressIndicator(
                                 progress = { saveProgress },
@@ -1909,20 +1906,4 @@ fun DriveScriptConfigDialog(
             }
         }
     }
-}
-
-// Names the saved APK like the published release (MySingghara-v<versionName>.apk)
-// instead of whatever the Drive upload happened to be called.
-private fun releaseApkFileName(context: android.content.Context, apkFile: java.io.File, fallbackName: String): String {
-    val versionName = try {
-        @Suppress("DEPRECATION")
-        context.packageManager.getPackageArchiveInfo(apkFile.absolutePath, 0)?.versionName
-    } catch (_: Exception) {
-        null
-    }
-    if (!versionName.isNullOrBlank()) {
-        return "MySingghara-v${versionName.trim()}.apk"
-    }
-    val normalized = ApkSignatureChecker.normalizeFileName(fallbackName)
-    return if (normalized.endsWith(".apk", ignoreCase = true)) normalized else "$normalized.apk"
 }

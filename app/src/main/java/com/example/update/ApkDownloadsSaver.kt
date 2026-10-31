@@ -24,6 +24,20 @@ object ApkDownloadsSaver {
     // Android 10+ writes through MediaStore; older versions need WRITE_EXTERNAL_STORAGE.
     fun requiresLegacyWritePermission(): Boolean = Build.VERSION.SDK_INT < Build.VERSION_CODES.Q
 
+    // Names the saved file after the APK's own version so the Download folder shows which
+    // release it is, falling back to the release asset name when the version is unreadable.
+    fun releaseFileName(context: Context, apkFile: File, fallbackName: String): String {
+        val versionName = try {
+            @Suppress("DEPRECATION")
+            context.packageManager.getPackageArchiveInfo(apkFile.absolutePath, 0)?.versionName
+        } catch (_: Exception) {
+            null
+        }
+        if (!versionName.isNullOrBlank()) return "MySingghara-v${versionName.trim()}.apk"
+        val normalized = ApkSignatureChecker.normalizeFileName(fallbackName)
+        return if (normalized.endsWith(".apk", ignoreCase = true)) normalized else "$normalized.apk"
+    }
+
     suspend fun saveToDownloads(context: Context, sourceFile: File, fileName: String): Uri =
         withContext(Dispatchers.IO) {
             val safeName = if (fileName.endsWith(".apk", ignoreCase = true)) fileName else "$fileName.apk"

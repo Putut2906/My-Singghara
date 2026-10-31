@@ -80,6 +80,11 @@
             android:foregroundServiceType="dataSync" />
 
         <service
+            android:name=".update.GithubApkUpdateService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
+
+        <service
             android:name=".service.MyFirebaseMessagingService"
             android:exported="false">
             <intent-filter>

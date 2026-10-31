@@ -161,7 +161,12 @@ fun FirebaseAuthDialog(
                     photoUrl = user.photoUrl?.toString()
                 )
             }.onFailure { err ->
-                errorMessage = err.message ?: "Gagal masuk dengan Google melalui browser."
+                val raw = err.message ?: ""
+                errorMessage = if (isInvalidAppIdError(raw)) {
+                    invalidAppIdGuidance(context)
+                } else {
+                    raw.ifBlank { "Gagal masuk dengan Google melalui browser." }
+                }
             }
         }
     }
@@ -206,6 +211,16 @@ fun FirebaseAuthDialog(
                                 linkErrorMessage = null
                                 showLinkGoogleDialog = true
                                 errorMessage = null
+                            } else if (isInvalidAppIdError(msg) && !browserFallbackAttempted) {
+                                // Identity Toolkit rejected this device's Google token; the browser
+                                // flow signs in against the project's registered web client instead.
+                                browserFallbackAttempted = true
+                                android.util.Log.e(
+                                    "FirebaseAuthDialog",
+                                    "Firebase rejected Google token (invalid app id). aud=${googleIdTokenAudience(account.idToken)}"
+                                )
+                                errorMessage = "Firebase menolak token Google (invalid app id). Mencoba masuk melalui browser..."
+                                startBrowserGoogleSignIn()
                             } else {
                                 errorMessage = err.message ?: "Gagal masuk dengan akun Google."
                             }
@@ -1856,4 +1871,31 @@ private fun Context.findActivity(): android.app.Activity? {
         current = current.baseContext
     }
     return null
+}
+
+private fun isInvalidAppIdError(message: String): Boolean =
+    message.contains("invalid app id", ignoreCase = true) ||
+        message.contains("INVALID_APP_ID", ignoreCase = true)
+
+// Reads the OAuth client the Google ID token was issued for, so a mismatched client is visible.
+private fun googleIdTokenAudience(idToken: String?): String? = try {
+    val payload = idToken?.split(".")?.getOrNull(1) ?: return null
+    val json = String(
+        android.util.Base64.decode(payload, android.util.Base64.URL_SAFE or android.util.Base64.NO_WRAP)
+    )
+    org.json.JSONObject(json).optString("aud").takeIf { it.isNotBlank() }
+} catch (_: Exception) {
+    null
+}
+
+private fun invalidAppIdGuidance(context: android.content.Context): String = buildString {
+    append("Login Google ditolak Firebase dengan pesan 'invalid app id'.\n\n")
+    append("Paket aplikasi: ${context.packageName}\n")
+    append("SHA-1: ${installedAppSha1(context)}\n")
+    append("App ID yang dipakai: 1:194078759561:android:b39d13cb8202ff43cfc458\n\n")
+    append("Yang perlu dilakukan di Firebase Console (project mobile-d08aa):\n")
+    append("1. Project Settings → Your apps → tambahkan aplikasi Android dengan paket dan SHA-1 di atas.\n")
+    append("2. Salin App ID (mobilesdk_app_id) aplikasi Android tersebut.\n")
+    append("3. Authentication → Sign-in method → pastikan Google aktif.\n")
+    append("4. Project Settings → unduh google-services.json terbaru lalu kirimkan berkasnya agar App ID di aplikasi diperbarui.")
 }
