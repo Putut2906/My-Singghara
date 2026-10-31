@@ -57,6 +57,11 @@ private data class InstallConflict(
     val differentPackage: Boolean
 )
 
+private data class UpdateStatusPopup(
+    val isUpToDate: Boolean,
+    val latestFileName: String
+)
+
 sealed class DriveDownloadProgressState {
     object Idle : DriveDownloadProgressState()
     data class Downloading(
@@ -94,6 +99,8 @@ fun TentangAplikasiScreen(
     var isSharingApk by remember { mutableStateOf(false) }
     var isSavingApk by remember { mutableStateOf(false) }
     var saveProgress by remember { mutableStateOf(0f) }
+    var lastSavedApkName by remember { mutableStateOf<String?>(null) }
+    var updateStatusPopup by remember { mutableStateOf<UpdateStatusPopup?>(null) }
     var pendingSaveApk by remember { mutableStateOf<DriveApkItem?>(null) }
     var installConflict by remember { mutableStateOf<InstallConflict?>(null) }
     var customApkName by remember { mutableStateOf("MySingghara-v${BuildConfig.VERSION_NAME}.apk") }
@@ -175,12 +182,9 @@ fun TentangAplikasiScreen(
                 ) { progress, _, _ ->
                     saveProgress = progress
                 }
-                val fileName = if (apkItem.name.endsWith(".apk", ignoreCase = true)) {
-                    apkItem.name
-                } else {
-                    "${apkItem.name}.apk"
-                }
+                val fileName = releaseApkFileName(context, downloadedFile, apkItem.name)
                 ApkDownloadsSaver.saveToDownloads(context, downloadedFile, fileName)
+                lastSavedApkName = fileName
                 viewModel.showToastPopup("APK disimpan di folder Download: $fileName")
             } catch (e: Exception) {
                 viewModel.showToastPopup("Gagal menyimpan APK: ${e.localizedMessage ?: "Coba lagi"}")
@@ -250,24 +254,34 @@ fun TentangAplikasiScreen(
         }
     }
 
-    // Refreshes the update check and stores the resulting APK in the public Download folder
-    // without opening the package installer.
+    // Refreshes the update check, reports the status in a popup, and stores the
+    // resulting APK in the public Download folder without opening the installer.
     fun refreshCheckAndSaveApk() {
         if (isSavingApk) return
         scope.launch {
+            lastSavedApkName = null
             driveUpdateState = DriveUpdateCheckState.Loading()
             val result = GoogleDriveUpdateManager.checkForDriveUpdate(context)
             driveUpdateState = result
-            val apkItem = when (result) {
-                is DriveUpdateCheckState.UpdateAvailable -> result.latestApk
-                is DriveUpdateCheckState.UpToDate -> result.latestApk
-                else -> null
+            when (result) {
+                is DriveUpdateCheckState.UpdateAvailable -> {
+                    updateStatusPopup = UpdateStatusPopup(isUpToDate = false, latestFileName = result.latestApk.name)
+                    requestSaveApkToDownloads(result.latestApk)
+                }
+                is DriveUpdateCheckState.UpToDate -> {
+                    val latestApk = result.latestApk
+                    updateStatusPopup = UpdateStatusPopup(
+                        isUpToDate = true,
+                        latestFileName = latestApk?.name.orEmpty()
+                    )
+                    if (latestApk != null) {
+                        requestSaveApkToDownloads(latestApk)
+                    }
+                }
+                is DriveUpdateCheckState.NoApkFound -> viewModel.showToastPopup(result.message)
+                is DriveUpdateCheckState.Error -> viewModel.showToastPopup("Gagal memeriksa pembaruan: ${result.errorMessage}")
+                else -> Unit
             }
-            if (apkItem == null) {
-                viewModel.showToastPopup("Pemeriksaan selesai, tetapi tidak ada berkas APK yang bisa disimpan.")
-                return@launch
-            }
-            requestSaveApkToDownloads(apkItem)
         }
     }
 
@@ -358,6 +372,74 @@ fun TentangAplikasiScreen(
             },
             dismissButton = {
                 TextButton(onClick = { installConflict = null }) {
+                    Text("Tutup")
+                }
+            }
+        )
+    }
+
+    // Popup status hasil "Periksa Ulang Pembaruan + Simpan APK"
+    updateStatusPopup?.let { popup ->
+        AlertDialog(
+            onDismissRequest = { updateStatusPopup = null },
+            icon = {
+                Icon(
+                    imageVector = if (popup.isUpToDate) Icons.Default.CheckCircle else Icons.Default.SystemUpdate,
+                    contentDescription = null,
+                    tint = if (popup.isUpToDate) Color(0xFF16A34A) else Color(0xFF0284C7)
+                )
+            },
+            title = {
+                Text(
+                    text = if (popup.isUpToDate) "Aplikasi Sudah Terbaru" else "Pembaruan Tersedia",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 17.sp
+                )
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        text = if (popup.isUpToDate) {
+                            "Versi terpasang v${BuildConfig.VERSION_NAME} sudah merupakan versi terbaru di Google Drive."
+                        } else {
+                            "Versi terpasang v${BuildConfig.VERSION_NAME}. Berkas ${popup.latestFileName} di Google Drive lebih baru."
+                        },
+                        fontSize = 12.5.sp,
+                        lineHeight = 18.sp
+                    )
+                    when {
+                        isSavingApk -> {
+                            LinearProgressIndicator(
+                                progress = { saveProgress },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(6.dp)
+                                    .clip(RoundedCornerShape(3.dp)),
+                                color = Color(0xFF0284C7)
+                            )
+                            Text(
+                                text = "Menyimpan APK ke folder Download (${(saveProgress * 100).toInt()}%)...",
+                                fontSize = 11.5.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        lastSavedApkName != null -> Text(
+                            text = "APK tersimpan di folder Download:\n${lastSavedApkName}",
+                            fontSize = 12.5.sp,
+                            lineHeight = 18.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        popup.latestFileName.isBlank() -> Text(
+                            text = "Belum ada berkas APK yang bisa disimpan ke folder Download.",
+                            fontSize = 11.5.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { updateStatusPopup = null }) {
                     Text("Tutup")
                 }
             }
@@ -1801,4 +1883,20 @@ fun DriveScriptConfigDialog(
             }
         }
     }
+}
+
+// Names the saved APK like the published release (MySingghara-v<versionName>.apk)
+// instead of whatever the Drive upload happened to be called.
+private fun releaseApkFileName(context: android.content.Context, apkFile: java.io.File, fallbackName: String): String {
+    val versionName = try {
+        @Suppress("DEPRECATION")
+        context.packageManager.getPackageArchiveInfo(apkFile.absolutePath, 0)?.versionName
+    } catch (_: Exception) {
+        null
+    }
+    if (!versionName.isNullOrBlank()) {
+        return "MySingghara-v${versionName.trim()}.apk"
+    }
+    val normalized = ApkSignatureChecker.normalizeFileName(fallbackName)
+    return if (normalized.endsWith(".apk", ignoreCase = true)) normalized else "$normalized.apk"
 }
