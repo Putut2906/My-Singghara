@@ -242,6 +242,7 @@ fun ArisanKeluargaScreen(
 
     var currentSection by remember { mutableStateOf(ArisanSection.RINGKASAN) }
     var showMenuDropdown by remember { mutableStateOf(false) }
+    var showSectionMenu by remember { mutableStateOf(false) }
     var showConfigDialog by remember { mutableStateOf(false) }
 
     // Dialogs state
@@ -333,7 +334,7 @@ fun ArisanKeluargaScreen(
                             }
                         }
 
-                        // Right action buttons: Settings and 3-dots overflow menu
+                        // Right action buttons: pengaturan, menu list halaman, dan aksi lainnya
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(2.dp)
@@ -352,12 +353,80 @@ fun ArisanKeluargaScreen(
 
                             Box {
                                 IconButton(
+                                    onClick = { showSectionMenu = true },
+                                    modifier = Modifier.size(34.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.FilterList,
+                                        contentDescription = "Menu Halaman Arisan",
+                                        tint = Color.White.copy(alpha = 0.85f),
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+
+                                DropdownMenu(
+                                    expanded = showSectionMenu,
+                                    onDismissRequest = { showSectionMenu = false },
+                                    modifier = Modifier.background(MaterialTheme.colorScheme.surface)
+                                ) {
+                                    val sectionEntries = listOf(
+                                        ArisanSection.RINGKASAN to "Kocokan",
+                                        ArisanSection.ATURAN to "Aturan",
+                                        ArisanSection.IURAN to "Iuran",
+                                        ArisanSection.KAS_SOSIAL to "Kas Sosial",
+                                        ArisanSection.PESERTA to "Peserta (${dataState.anggotaList.size})",
+                                        ArisanSection.RIWAYAT to "Riwayat"
+                                    )
+                                    sectionEntries.forEach { (section, label) ->
+                                        val isSelected = currentSection == section
+                                        DropdownMenuItem(
+                                            text = {
+                                                Text(
+                                                    text = label,
+                                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                                    color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                                                )
+                                            },
+                                            onClick = {
+                                                currentSection = section
+                                                showSectionMenu = false
+                                            },
+                                            leadingIcon = {
+                                                Icon(
+                                                    imageVector = when (section) {
+                                                        ArisanSection.RINGKASAN -> Icons.Default.Casino
+                                                        ArisanSection.ATURAN -> Icons.Default.MenuBook
+                                                        ArisanSection.IURAN -> Icons.Default.CreditCard
+                                                        ArisanSection.KAS_SOSIAL -> Icons.Default.AccountBalanceWallet
+                                                        ArisanSection.PESERTA -> Icons.Default.People
+                                                        ArisanSection.RIWAYAT -> Icons.Default.ReceiptLong
+                                                    },
+                                                    contentDescription = null,
+                                                    tint = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
+                                                )
+                                            },
+                                            trailingIcon = {
+                                                if (isSelected) {
+                                                    Icon(
+                                                        imageVector = Icons.Default.Check,
+                                                        contentDescription = "Aktif",
+                                                        tint = MaterialTheme.colorScheme.primary
+                                                    )
+                                                }
+                                            }
+                                        )
+                                    }
+                                }
+                            }
+
+                            Box {
+                                IconButton(
                                     onClick = { showMenuDropdown = true },
                                     modifier = Modifier.size(34.dp)
                                 ) {
                                     Icon(
                                         imageVector = Icons.Default.MoreVert,
-                                        contentDescription = "Menu Arisan",
+                                        contentDescription = "Aksi Arisan",
                                         tint = Color.White,
                                         modifier = Modifier.size(20.dp)
                                     )
@@ -369,56 +438,7 @@ fun ArisanKeluargaScreen(
                                     modifier = Modifier.background(MaterialTheme.colorScheme.surface)
                                 ) {
                                     DropdownMenuItem(
-                                        text = { Text("📊 Ringkasan & Kocokan", fontWeight = if (currentSection == ArisanSection.RINGKASAN) FontWeight.Bold else FontWeight.Normal) },
-                                        onClick = {
-                                            currentSection = ArisanSection.RINGKASAN
-                                            showMenuDropdown = false
-                                        },
-                                        leadingIcon = { Icon(Icons.Default.Casino, contentDescription = null, tint = MaterialTheme.colorScheme.primary) }
-                                    )
-                                    DropdownMenuItem(
-                                        text = { Text("📋 Aturan & Kesepakatan", fontWeight = if (currentSection == ArisanSection.ATURAN) FontWeight.Bold else FontWeight.Normal) },
-                                        onClick = {
-                                            currentSection = ArisanSection.ATURAN
-                                            showMenuDropdown = false
-                                        },
-                                        leadingIcon = { Icon(Icons.Default.MenuBook, contentDescription = null, tint = MaterialTheme.colorScheme.primary) }
-                                    )
-                                    DropdownMenuItem(
-                                        text = { Text("💰 Iuran & Pembayaran", fontWeight = if (currentSection == ArisanSection.IURAN) FontWeight.Bold else FontWeight.Normal) },
-                                        onClick = {
-                                            currentSection = ArisanSection.IURAN
-                                            showMenuDropdown = false
-                                        },
-                                        leadingIcon = { Icon(Icons.Default.CreditCard, contentDescription = null, tint = MaterialTheme.colorScheme.primary) }
-                                    )
-                                    DropdownMenuItem(
-                                        text = { Text("📖 Buku Catatan Kas Sosial", fontWeight = if (currentSection == ArisanSection.KAS_SOSIAL) FontWeight.Bold else FontWeight.Normal) },
-                                        onClick = {
-                                            currentSection = ArisanSection.KAS_SOSIAL
-                                            showMenuDropdown = false
-                                        },
-                                        leadingIcon = { Icon(Icons.Default.AccountBalanceWallet, contentDescription = null, tint = MaterialTheme.colorScheme.primary) }
-                                    )
-                                    DropdownMenuItem(
-                                        text = { Text("👥 Daftar Peserta (${dataState.anggotaList.size})", fontWeight = if (currentSection == ArisanSection.PESERTA) FontWeight.Bold else FontWeight.Normal) },
-                                        onClick = {
-                                            currentSection = ArisanSection.PESERTA
-                                            showMenuDropdown = false
-                                        },
-                                        leadingIcon = { Icon(Icons.Default.People, contentDescription = null, tint = MaterialTheme.colorScheme.primary) }
-                                    )
-                                    DropdownMenuItem(
-                                        text = { Text("📜 Riwayat Pemenang & Kuitansi", fontWeight = if (currentSection == ArisanSection.RIWAYAT) FontWeight.Bold else FontWeight.Normal) },
-                                        onClick = {
-                                            currentSection = ArisanSection.RIWAYAT
-                                            showMenuDropdown = false
-                                        },
-                                        leadingIcon = { Icon(Icons.Default.ReceiptLong, contentDescription = null, tint = MaterialTheme.colorScheme.primary) }
-                                    )
-                                    HorizontalDivider()
-                                    DropdownMenuItem(
-                                        text = { Text("⚙️ Pengaturan Arisan") },
+                                        text = { Text("Pengaturan Arisan") },
                                         onClick = {
                                             showMenuDropdown = false
                                             showConfigDialog = true
@@ -426,7 +446,7 @@ fun ArisanKeluargaScreen(
                                         leadingIcon = { Icon(Icons.Default.Tune, contentDescription = null, tint = MaterialTheme.colorScheme.primary) }
                                     )
                                     DropdownMenuItem(
-                                        text = { Text("🗑️ Reset / Kosongkan Data", color = MaterialTheme.colorScheme.error) },
+                                        text = { Text("Reset / Kosongkan Data", color = MaterialTheme.colorScheme.error) },
                                         onClick = {
                                             showMenuDropdown = false
                                             showClearDataConfirmDialog = true
@@ -531,53 +551,6 @@ fun ArisanKeluargaScreen(
                             }
                         }
                     }
-                }
-            }
-        }
-
-        // ----------------------------------------------------
-        // QUICK CATEGORY NAVIGATION PILLS (MODERN LUXURY SWITCHER)
-        // ----------------------------------------------------
-        val navItems = listOf(
-            ArisanSection.RINGKASAN to "🎲 Kocokan",
-            ArisanSection.ATURAN to "📋 Aturan",
-            ArisanSection.IURAN to "💳 Iuran",
-            ArisanSection.KAS_SOSIAL to "📖 Kas Sosial",
-            ArisanSection.PESERTA to "👥 Peserta (${dataState.anggotaList.size})",
-            ArisanSection.RIWAYAT to "📜 Riwayat"
-        )
-
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .horizontalScroll(rememberScrollState())
-                .padding(horizontal = 16.dp, vertical = 6.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            navItems.forEach { (section, label) ->
-                val isSelected = currentSection == section
-                Surface(
-                    onClick = { currentSection = section },
-                    shape = RoundedCornerShape(20.dp),
-                    color = if (isSelected) Color(0xFF1E3A8A) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
-                    border = BorderStroke(
-                        width = 1.dp,
-                        color = if (isSelected) Color(0xFF3B82F6) else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
-                    ),
-                    modifier = if (isSelected) {
-                        Modifier.background(
-                            Brush.linearGradient(listOf(Color(0xFF1E3A8A), Color(0xFF2563EB))),
-                            RoundedCornerShape(20.dp)
-                        )
-                    } else Modifier
-                ) {
-                    Text(
-                        text = label,
-                        fontSize = 12.sp,
-                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                        color = if (isSelected) Color.White else MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 7.dp)
-                    )
                 }
             }
         }
@@ -826,12 +799,12 @@ fun ArisanKeluargaScreen(
                         FilterChip(
                             selected = selectedMethod == "Tunai",
                             onClick = { selectedMethod = "Tunai" },
-                            label = { Text("💵 Tunai") }
+                            label = { Text("Tunai") }
                         )
                         FilterChip(
                             selected = selectedMethod == "Transfer Bank",
                             onClick = { selectedMethod = "Transfer Bank" },
-                            label = { Text("🏦 Transfer") }
+                            label = { Text("Transfer") }
                         )
                     }
                 }
@@ -1200,7 +1173,7 @@ private fun TabRingkasanDanKocokan(
                             Icon(Icons.Default.EmojiEvents, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(40.dp))
                             Spacer(modifier = Modifier.height(6.dp))
                             Text(
-                                text = "Semua Anggota Telah Menang! 🎉",
+                                text = "Semua Anggota Telah Menang!",
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 14.sp,
                                 color = MaterialTheme.colorScheme.onSurface,
@@ -1242,7 +1215,7 @@ private fun TabRingkasanDanKocokan(
                         ) {
                             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                 Text(
-                                    text = if (isSpinning) "⚡ SEDANG MENGOCOK NAMA PESERTA..." else "KANDIDAT PUTARAN KE-${dataState.config.periodeAktif}",
+                                    text = if (isSpinning) "SEDANG MENGOCOK NAMA PESERTA..." else "KANDIDAT PUTARAN KE-${dataState.config.periodeAktif}",
                                     fontSize = 10.sp,
                                     fontWeight = FontWeight.Bold,
                                     color = Color(0xFF38BDF8),
@@ -1378,7 +1351,7 @@ private fun TabRingkasanDanKocokan(
                     if (dataState.config.catatanPertemuan.isNotBlank()) {
                         Spacer(modifier = Modifier.height(6.dp))
                         Text(
-                            text = "💡 Catatan: ${dataState.config.catatanPertemuan}",
+                            text = "Catatan: ${dataState.config.catatanPertemuan}",
                             fontSize = 11.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -1434,7 +1407,7 @@ private fun TabRingkasanDanKocokan(
                     Spacer(modifier = Modifier.height(12.dp))
 
                     Text(
-                        text = "🎉 SELAMAT KEPADA PEMENANG! 🎉",
+                        text = "SELAMAT KEPADA PEMENANG!",
                         fontWeight = FontWeight.ExtraBold,
                         fontSize = 15.sp,
                         color = MaterialTheme.colorScheme.primary,
@@ -2254,7 +2227,7 @@ private fun PaymentItemCard(
                             modifier = Modifier.height(30.dp),
                             contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp)
                         ) {
-                            Text("💵 Tunai", fontSize = 10.sp)
+                            Text("Tunai", fontSize = 10.sp)
                         }
                         Button(
                             onClick = { onStatusToggle(true, "Transfer Bank") },
@@ -2262,7 +2235,7 @@ private fun PaymentItemCard(
                             modifier = Modifier.height(30.dp),
                             contentPadding = PaddingValues(horizontal = 10.dp, vertical = 2.dp)
                         ) {
-                            Text("🏦 Transfer", fontSize = 10.sp)
+                            Text("Transfer", fontSize = 10.sp)
                         }
                     }
 
@@ -2663,7 +2636,7 @@ private fun MemberItemCard(
                             color = MaterialTheme.colorScheme.primaryContainer
                         ) {
                             Text(
-                                text = "🏆 Menang Putaran ${member.periodeMenang ?: 1} (${member.tanggalMenang ?: ""})",
+                                text = "Menang Putaran ${member.periodeMenang ?: 1} (${member.tanggalMenang ?: ""})",
                                 fontSize = 9.sp,
                                 fontWeight = FontWeight.Bold,
                                 color = MaterialTheme.colorScheme.onPrimaryContainer,
@@ -2676,7 +2649,7 @@ private fun MemberItemCard(
                             color = MaterialTheme.colorScheme.surfaceVariant
                         ) {
                             Text(
-                                text = "⏳ Belum Menang",
+                                text = "Belum Menang",
                                 fontSize = 9.sp,
                                 fontWeight = FontWeight.SemiBold,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -3228,7 +3201,7 @@ private fun AddKasEntryDialog(
                             jenis = "Masuk"
                             kategori = "Iuran Kas Anggota"
                         },
-                        label = { Text("🟢 Kas Masuk") }
+                        label = { Text("Kas Masuk") }
                     )
                     FilterChip(
                         selected = jenis == "Keluar",
@@ -3236,7 +3209,7 @@ private fun AddKasEntryDialog(
                             jenis = "Keluar"
                             kategori = "Konsumsi Pertemuan"
                         },
-                        label = { Text("🔴 Kas Keluar") }
+                        label = { Text("Kas Keluar") }
                     )
                 }
 
