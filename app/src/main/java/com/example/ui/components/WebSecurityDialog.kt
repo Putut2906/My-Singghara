@@ -144,7 +144,7 @@ fun WebSecurityDialog(viewModel: MainViewModel) {
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
-                            // OPSI TIDAK (Tolak Akses -> Web PC menampilkan animasi bergerak ditolak)
+                            // OPSI BUKAN (Tolak Akses -> Web PC menampilkan animasi bergerak ditolak)
                             Button(
                                 onClick = { viewModel.onRejectWebAccess() },
                                 modifier = Modifier
@@ -162,14 +162,14 @@ fun WebSecurityDialog(viewModel: MainViewModel) {
                                     modifier = Modifier.size(18.dp)
                                 )
                                 Spacer(modifier = Modifier.width(6.dp))
-                                Text("Tidak", fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                                Text("Bukan", fontWeight = FontWeight.Bold, fontSize = 15.sp)
                             }
 
-                            // OPSI YA (Buka PIN dan Pemindai QR Code)
+                            // OPSI YA, INI SAYA (Buka PIN dan Pemindai QR Code)
                             Button(
                                 onClick = { viewModel.onApproveWebAccessPrompt() },
                                 modifier = Modifier
-                                    .weight(1f)
+                                    .weight(1.4f)
                                     .height(48.dp),
                                 shape = RoundedCornerShape(14.dp),
                                 colors = ButtonDefaults.buttonColors(
@@ -183,7 +183,7 @@ fun WebSecurityDialog(viewModel: MainViewModel) {
                                     modifier = Modifier.size(18.dp)
                                 )
                                 Spacer(modifier = Modifier.width(6.dp))
-                                Text("Ya", fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                                Text("Ya, ini saya", fontWeight = FontWeight.Bold, fontSize = 13.sp)
                             }
                         }
 

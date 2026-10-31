@@ -92,9 +92,26 @@ class AlarmReceiver : BroadcastReceiver() {
                 NotificationScheduler.cancelAgendaNotification(context)
             }
 
+            NotificationScheduler.ACTION_APPROVE_WEB_ACCESS -> {
+                NotificationScheduler.cancelWebAccessNotification(context)
+                val vmInstance = com.example.ui.MainViewModel.instance
+                if (vmInstance != null) {
+                    vmInstance.onDirectApproveWebAccess()
+                } else {
+                    com.example.web.LocalHttpServer.activeInstance?.approveAllPending()
+                }
+                NotificationScheduler.showWebAccessResultNotification(context, approved = true)
+            }
+
             NotificationScheduler.ACTION_REJECT_WEB_ACCESS -> {
                 NotificationScheduler.cancelWebAccessNotification(context)
-                com.example.ui.MainViewModel.instance?.onRejectWebAccess()
+                val vmInstance = com.example.ui.MainViewModel.instance
+                if (vmInstance != null) {
+                    vmInstance.onRejectWebAccess()
+                } else {
+                    com.example.web.LocalHttpServer.activeInstance?.rejectPendingAccess()
+                }
+                NotificationScheduler.showWebAccessResultNotification(context, approved = false)
             }
         }
     }

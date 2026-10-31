@@ -26,12 +26,14 @@ object NotificationScheduler {
     const val CHANNEL_PRAYER = "prayer_times_channel"
     const val CHANNEL_AGENDA = "agenda_channel"
     const val CHANNEL_WEB_SECURITY = "web_security_channel"
+    const val CHANNEL_WEB_SECURITY_RESULT = "web_security_result_channel"
     const val CHANNEL_HOLIDAY = "holiday_channel"
     const val CHANNEL_FCM = "fcm_cloud_messaging_channel"
 
     const val NOTIFICATION_ID_AGENDA = 8888
     const val NOTIFICATION_ID_PRAYER = 9999
     const val NOTIFICATION_ID_WEB_SECURITY = 7777
+    const val NOTIFICATION_ID_WEB_SECURITY_RESULT = 7778
     const val NOTIFICATION_ID_HOLIDAY = 6666
     const val NOTIFICATION_ID_FCM = 5555
 
@@ -41,6 +43,7 @@ object NotificationScheduler {
     const val ACTION_CANCEL_AGENDA_NOTIFICATION = "com.example.ACTION_CANCEL_AGENDA_NOTIFICATION"
     const val ACTION_STOP_AZAN = "com.example.ACTION_STOP_AZAN"
     const val ACTION_REJECT_WEB_ACCESS = "com.example.ACTION_REJECT_WEB_ACCESS"
+    const val ACTION_APPROVE_WEB_ACCESS = "com.example.ACTION_APPROVE_WEB_ACCESS"
 
     const val EXTRA_PRAYER_NAME = "extra_prayer_name"
     const val EXTRA_PRAYER_TIME = "extra_prayer_time"
@@ -284,7 +287,7 @@ object NotificationScheduler {
             }
             notificationManager.createNotificationChannel(agendaChannel)
 
-            // 3. Web PC Access Security Channel (High Priority Heads-Up Notification)
+            // 3. Web PC Access Security Channel (High Priority Heads-Up + Lock Screen)
             val webSecurityChannel = NotificationChannel(
                 CHANNEL_WEB_SECURITY,
                 "Keamanan Akses Web PC",
@@ -292,8 +295,10 @@ object NotificationScheduler {
             ).apply {
                 description = "Notifikasi verifikasi keamanan saat ada perangkat PC mengakses Web Singghara"
                 enableVibration(true)
+                vibrationPattern = longArrayOf(0, 400, 200, 400)
                 enableLights(true)
                 lightColor = android.graphics.Color.YELLOW
+                lockscreenVisibility = android.app.Notification.VISIBILITY_PUBLIC
                 val soundUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
                 setSound(soundUri, android.media.AudioAttributes.Builder()
                     .setUsage(android.media.AudioAttributes.USAGE_NOTIFICATION)
@@ -301,6 +306,20 @@ object NotificationScheduler {
                     .build()
                 )
             }
+            notificationManager.createNotificationChannel(webSecurityChannel)
+
+            // 3b. Result Channel for Web PC access (silent confirmation)
+            val webSecurityResultChannel = NotificationChannel(
+                CHANNEL_WEB_SECURITY_RESULT,
+                "Hasil Keamanan Akses Web PC",
+                NotificationManager.IMPORTANCE_LOW
+            ).apply {
+                description = "Konfirmasi senyap setelah permintaan akses Web PC diizinkan atau ditolak"
+                enableVibration(false)
+                setSound(null, null)
+                lockscreenVisibility = android.app.Notification.VISIBILITY_PUBLIC
+            }
+            notificationManager.createNotificationChannel(webSecurityResultChannel)
             // 4. Holiday & Observance Channel
             val holidayChannel = NotificationChannel(
                 CHANNEL_HOLIDAY,
@@ -394,7 +413,19 @@ object NotificationScheduler {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        // Action Intent "Tolak" langsung dari notifikasi
+        // Aksi "Ya, ini saya" langsung mengizinkan sesi PC (gaya Google Prompt)
+        val approveIntent = Intent(context, AlarmReceiver::class.java).apply {
+            action = ACTION_APPROVE_WEB_ACCESS
+            putExtra("WEB_AUTH_CLIENT_IP", clientIp)
+        }
+        val pendingApproveIntent = PendingIntent.getBroadcast(
+            context,
+            7703,
+            approveIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        // Aksi "Bukan" langsung menolak sesi PC
         val rejectIntent = Intent(context, AlarmReceiver::class.java).apply {
             action = ACTION_REJECT_WEB_ACCESS
             putExtra("WEB_AUTH_CLIENT_IP", clientIp)
@@ -411,25 +442,30 @@ object NotificationScheduler {
         val keyguardManager = context.getSystemService(Context.KEYGUARD_SERVICE) as? KeyguardManager
         val isScreenLocked = keyguardManager?.isKeyguardLocked == true || keyguardManager?.isDeviceLocked == true
         val isForeground = MainActivity.isAppInForeground
+        val shouldInterrupt = isScreenLocked || !isForeground
 
         val notificationBuilder = NotificationCompat.Builder(context, CHANNEL_WEB_SECURITY)
             .setSmallIcon(R.drawable.ic_stat_singghara)
-            .setContentTitle("🚨 Permintaan Akses Web PC Terdeteksi")
-            .setContentText("Perangkat ($clientIp) meminta akses ke Web PC. Apakah anda akses web PC?")
+            .setContentTitle("Apakah anda akses web pc?")
+            .setContentText("Perangkat PC ($clientIp) meminta akses. Ketuk \"Ya, ini saya\" jika itu Anda.")
             .setStyle(NotificationCompat.BigTextStyle().bigText(
-                "Perangkat lokal dengan IP $clientIp mencoba membuka My Singghara PC pada pukul $timeStr.\n\n" +
-                "Ketuk untuk memilih izin ('Ya' untuk PIN & QR Code, atau 'Tidak' untuk tolak akses)."
+                "Perangkat dengan IP $clientIp meminta akses ke Web PC My Singghara pada pukul $timeStr.\n\n" +
+                "Ketuk \"Ya, ini saya\" jika Anda yang membuka Web PC, atau \"Bukan\" untuk menolak permintaan ini. " +
+                "Notifikasi ini tetap muncul saat Anda sedang membuka aplikasi lain maupun saat layar perangkat terkunci."
             ))
             .setPriority(NotificationCompat.PRIORITY_MAX)
-            .setCategory(NotificationCompat.CATEGORY_ALARM)
+            .setCategory(NotificationCompat.CATEGORY_CALL)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .setWhen(timestamp)
+            .setShowWhen(true)
             .setAutoCancel(true)
             .setOngoing(false)
             .setContentIntent(pendingOpenIntent)
-            .addAction(android.R.drawable.ic_menu_close_clear_cancel, "Tolak Akses", pendingRejectIntent)
-            .addAction(android.R.drawable.ic_menu_send, "Verifikasi / Buka", pendingOpenIntent)
+            .addAction(0, "Ya, ini saya", pendingApproveIntent)
+            .addAction(0, "Bukan", pendingRejectIntent)
 
-        // Hanya sertakan fullScreenIntent jika layar HP terkunci atau aplikasi sedang tidak di foreground
-        if (isScreenLocked || !isForeground) {
+        // Full-screen intent: bangunkan layar, tampilkan di atas aplikasi lain dan di lock screen
+        if (shouldInterrupt) {
             notificationBuilder.setFullScreenIntent(pendingOpenIntent, true)
         }
 
@@ -440,7 +476,7 @@ object NotificationScheduler {
         // 2. Pengguna sedang membuka aplikasi lain (seperti YouTube, TikTok, dll - !isForeground).
         // Jika aplikasi My Singghara sedang aktif di latar depan (isForeground && !isScreenLocked),
         // JANGAN buka WebAuthPromptActivity agar tidak muncul pop-up ganda, cukup dialog internal aplikasi (WebSecurityDialog).
-        if (isScreenLocked || !isForeground) {
+        if (shouldInterrupt) {
             try {
                 val powerManager = context.getSystemService(Context.POWER_SERVICE) as? android.os.PowerManager
                 val isScreenOn = powerManager?.isInteractive ?: true
@@ -448,9 +484,29 @@ object NotificationScheduler {
                     context.startActivity(openIntent)
                 }
             } catch (e: Exception) {
-                Log.e("NotificationScheduler", "Failed to launch WebAuthPromptActivity: ${e.message}")
+                Log.d("NotificationScheduler", "Popup langsung dilewati, mengandalkan full-screen intent: ${e.message}")
             }
         }
+    }
+
+    fun showWebAccessResultNotification(context: Context, approved: Boolean) {
+        createNotificationChannels(context)
+        val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+
+        val notification = NotificationCompat.Builder(context, CHANNEL_WEB_SECURITY_RESULT)
+            .setSmallIcon(R.drawable.ic_stat_singghara)
+            .setContentTitle(if (approved) "Akses Web PC diizinkan" else "Akses Web PC ditolak")
+            .setContentText(
+                if (approved) "Anda menyetujui permintaan akses Web PC (\"Ya, ini saya\")."
+                else "Anda menolak permintaan akses Web PC (\"Bukan\")."
+            )
+            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .setAutoCancel(true)
+            .setTimeoutAfter(6000L)
+            .build()
+
+        notificationManager.notify(NOTIFICATION_ID_WEB_SECURITY_RESULT, notification)
     }
 
     fun cancelWebAccessNotification(context: Context) {

@@ -76,6 +76,11 @@ class WebAuthPromptActivity : ComponentActivity() {
 
         setContent {
             MyApplicationTheme {
+                val currentState = MainViewModel.instance?.webAccessSecurityState
+                LaunchedEffect(currentState) {
+                    // Prompt sudah dijawab lewat notifikasi / dialog lain: tutup layar ini.
+                    if (currentState == MainViewModel.WebAccessSecurityState.NONE) finish()
+                }
                 Box(modifier = Modifier.fillMaxSize()) {
                     WebAuthPromptScreen(
                         clientIp = clientIp,
@@ -302,7 +307,7 @@ fun WebAuthPromptScreen(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.spacedBy(12.dp)
                             ) {
-                                // TOMBOL TIDAK (Tolak Akses PC)
+                                // TOMBOL BUKAN (Tolak Akses PC)
                                 Button(
                                     onClick = onReject,
                                     modifier = Modifier
@@ -320,14 +325,14 @@ fun WebAuthPromptScreen(
                                         modifier = Modifier.size(18.dp)
                                     )
                                     Spacer(modifier = Modifier.width(6.dp))
-                                    Text("Tidak", fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                                    Text("Bukan", fontWeight = FontWeight.Bold, fontSize = 15.sp)
                                 }
 
-                                // TOMBOL YA (Buka Verifikasi PIN / QR)
+                                // TOMBOL YA, INI SAYA (Buka Verifikasi PIN / QR)
                                 Button(
                                     onClick = { isVerificationStep = true },
                                     modifier = Modifier
-                                        .weight(1f)
+                                        .weight(1.4f)
                                         .height(50.dp),
                                     shape = RoundedCornerShape(16.dp),
                                     colors = ButtonDefaults.buttonColors(
@@ -341,7 +346,7 @@ fun WebAuthPromptScreen(
                                         modifier = Modifier.size(18.dp)
                                     )
                                     Spacer(modifier = Modifier.width(6.dp))
-                                    Text("Ya", fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                                    Text("Ya, ini saya", fontWeight = FontWeight.Bold, fontSize = 14.sp)
                                 }
                             }
                         }
