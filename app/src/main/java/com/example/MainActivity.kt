@@ -1608,47 +1608,6 @@ fun MainAppContent(viewModel: MainViewModel) {
                             )
                         )
 
-                        // Item 1.2: Arisan Keluarga (Menu Utama Drawer)
-                        val isArisanKeluargaMainSelected = viewModel.currentRoute == "arisan_keluarga"
-                        NavigationDrawerItem(
-                            icon = {
-                                Icon(
-                                    imageVector = if (isArisanKeluargaMainSelected) Icons.Default.Groups else Icons.Outlined.Groups,
-                                    contentDescription = "Arisan Keluarga",
-                                    tint = if (isArisanKeluargaMainSelected) MaterialTheme.colorScheme.primary else Color(0xFFF59E0B)
-                                )
-                            },
-                            label = { Text(text = "Arisan Keluarga", fontWeight = FontWeight.SemiBold, fontSize = 13.sp) },
-                            badge = {
-                                Surface(
-                                    shape = RoundedCornerShape(10.dp),
-                                    color = Color(0xFFF59E0B).copy(alpha = 0.15f)
-                                ) {
-                                    Text(
-                                        text = "Baru",
-                                        fontSize = 10.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = Color(0xFFD97706),
-                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                                    )
-                                }
-                            },
-                            selected = isArisanKeluargaMainSelected,
-                            onClick = {
-                                viewModel.currentRoute = "arisan_keluarga"
-                                scope.launch { drawerState.close() }
-                            },
-                            shape = RoundedCornerShape(8.dp),
-                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
-                            colors = NavigationDrawerItemDefaults.colors(
-                                selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
-                                selectedTextColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                                selectedIconColor = MaterialTheme.colorScheme.primary,
-                                unselectedContainerColor = Color.Transparent,
-                                unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                                unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
-                            )
-                        )
                     }
 
                     // Group: COMPANY (Boxed Group Card)
@@ -2003,49 +1962,66 @@ fun MainAppContent(viewModel: MainViewModel) {
                                     )
                                 )
 
-                                // Sub-item 5: Arisan Keluarga (Manajemen, Aturan & Pengocokan)
-                                val isArisanKeluargaSelected = viewModel.currentRoute == "arisan_keluarga"
-                                NavigationDrawerItem(
-                                    icon = {
-                                        Icon(
-                                            imageVector = if (isArisanKeluargaSelected) Icons.Default.Groups else Icons.Outlined.Groups,
-                                            contentDescription = "Arisan Keluarga",
-                                            tint = Color(0xFFF59E0B)
-                                        )
-                                    },
-                                    label = { Text(text = "Arisan Keluarga", fontWeight = FontWeight.Medium, fontSize = 13.sp) },
-                                    badge = {
-                                        Surface(
-                                            shape = RoundedCornerShape(10.dp),
-                                            color = Color(0xFFF59E0B).copy(alpha = 0.15f)
-                                        ) {
-                                            Text(
-                                                text = "Baru",
-                                                fontSize = 10.sp,
-                                                fontWeight = FontWeight.Bold,
-                                                color = Color(0xFFD97706),
-                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                                            )
-                                        }
-                                    },
-                                    selected = isArisanKeluargaSelected,
-                                    onClick = {
-                                        viewModel.currentRoute = "arisan_keluarga"
-                                        scope.launch { drawerState.close() }
-                                    },
-                                    shape = RoundedCornerShape(8.dp),
-                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 2.dp),
-                                    colors = NavigationDrawerItemDefaults.colors(
-                                        selectedContainerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.8f),
-                                        selectedTextColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                                        selectedIconColor = MaterialTheme.colorScheme.primary,
-                                        unselectedContainerColor = Color.Transparent,
-                                        unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-                                    )
-                                )
                             }
                         }
+                    }
+
+                    // Menu Utama Bawah: Arisan Keluarga (di luar grup Manajemen Mandiri)
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 14.dp, vertical = 6.dp)
+                            .border(
+                                width = 1.dp,
+                                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
+                                shape = RoundedCornerShape(12.dp)
+                            )
+                            .background(
+                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.1f),
+                                shape = RoundedCornerShape(12.dp)
+                            )
+                            .padding(vertical = 8.dp)
+                    ) {
+                        val isArisanKeluargaSelected = viewModel.currentRoute == "arisan_keluarga"
+                        NavigationDrawerItem(
+                            icon = {
+                                Icon(
+                                    imageVector = if (isArisanKeluargaSelected) Icons.Default.Groups else Icons.Outlined.Groups,
+                                    contentDescription = "Arisan Keluarga",
+                                    tint = if (isArisanKeluargaSelected) MaterialTheme.colorScheme.primary else Color(0xFFF59E0B)
+                                )
+                            },
+                            label = { Text(text = "Arisan Keluarga", fontWeight = FontWeight.SemiBold, fontSize = 13.sp) },
+                            badge = {
+                                Surface(
+                                    shape = RoundedCornerShape(10.dp),
+                                    color = Color(0xFFF59E0B).copy(alpha = 0.15f)
+                                ) {
+                                    Text(
+                                        text = "Baru",
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color(0xFFD97706),
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                    )
+                                }
+                            },
+                            selected = isArisanKeluargaSelected,
+                            onClick = {
+                                viewModel.currentRoute = "arisan_keluarga"
+                                scope.launch { drawerState.close() }
+                            },
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                            colors = NavigationDrawerItemDefaults.colors(
+                                selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                                selectedTextColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                                selectedIconColor = MaterialTheme.colorScheme.primary,
+                                unselectedContainerColor = Color.Transparent,
+                                unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
+                            )
+                        )
                     }
 
                     // Group 3: AKUNTANSI & KEUANGAN (Boxed Group Card)
