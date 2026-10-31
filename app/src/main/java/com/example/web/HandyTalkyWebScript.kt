@@ -140,10 +140,16 @@ object HandyTalkyWebScript {
             } catch (_) {}
         }
 
+        function htIsDarkTheme() {
+            return document.documentElement.getAttribute('data-theme') === 'dark' ||
+                document.body.classList.contains('dark');
+        }
+
         function updateHtUi(data) {
             if (!data) return;
             const prevTransmitting = window.htState.isTransmitting;
             const prevReceiving = window.htState.isReceiving;
+            const isDarkTheme = htIsDarkTheme();
 
             Object.assign(window.htState, data);
 
@@ -159,11 +165,11 @@ object HandyTalkyWebScript {
                     freqElem.style.color = '#EF4444';
                     freqElem.style.textShadow = '0 0 14px rgba(239, 68, 68, 0.5)';
                 } else if (window.htState.isReceiving) {
-                    freqElem.style.color = '#10B981';
-                    freqElem.style.textShadow = '0 0 14px rgba(16, 185, 129, 0.5)';
+                    freqElem.style.color = isDarkTheme ? '#10B981' : '#059669';
+                    freqElem.style.textShadow = isDarkTheme ? '0 0 14px rgba(16, 185, 129, 0.5)' : 'none';
                 } else {
-                    freqElem.style.color = '#38BDF8';
-                    freqElem.style.textShadow = '0 0 14px rgba(56, 189, 248, 0.4)';
+                    freqElem.style.color = isDarkTheme ? '#38BDF8' : '#0284C7';
+                    freqElem.style.textShadow = isDarkTheme ? '0 0 14px rgba(56, 189, 248, 0.4)' : 'none';
                 }
             }
 
@@ -500,37 +506,94 @@ object HandyTalkyWebScript {
             generateCallsignModalHtml() +
             
             '<style>' +
-                '.ht-tactical-console { background: var(--bs-card-bg, #181E24); border-color: rgba(148, 163, 184, 0.25); transition: border-color 0.2s ease, box-shadow 0.2s ease; }' +
-                '.ht-lcd-screen { background: #070B0E; border-color: #1E293B !important; box-shadow: inset 0 2px 8px rgba(0,0,0,0.5); transition: border-color 0.2s ease; }' +
-                '[data-bs-theme="light"] .ht-lcd-screen { background: #F1F5F9; border-color: #CBD5E1 !important; box-shadow: inset 0 1px 4px rgba(0,0,0,0.1); }' +
-                '.ht-freq-digits { font-size: 2.6rem; letter-spacing: 2px; color: #38BDF8; text-shadow: 0 0 14px rgba(56, 189, 248, 0.4); transition: color 0.15s ease; }' +
-                '[data-bs-theme="light"] .ht-freq-digits { color: #0284C7; text-shadow: none; }' +
-                '.ht-quick-shortcuts { background: rgba(30, 41, 59, 0.7); border: 1px solid rgba(148, 163, 184, 0.15); }' +
-                '[data-bs-theme="light"] .ht-quick-shortcuts { background: rgba(226, 232, 240, 0.8); border: 1px solid rgba(203, 213, 225, 0.8); }' +
+                '/* --- SINKRONISASI WARNA HANDY TALKY DENGAN MODE TERANG / GELAP --- */' +
+                '.ht-container, .ht-modal {' +
+                    '--ht-surface: var(--card-bg, #181E24);' +
+                    '--ht-surface-alt: var(--bg-hover, #1E293B);' +
+                    '--ht-border: var(--border-color, rgba(148, 163, 184, 0.25));' +
+                    '--ht-lcd-bg: #070B0E;' +
+                    '--ht-lcd-border: #1E293B;' +
+                    '--ht-lcd-shadow: inset 0 2px 8px rgba(0, 0, 0, 0.5);' +
+                    '--ht-lcd-digits: #38BDF8;' +
+                    '--ht-lcd-digits-shadow: 0 0 14px rgba(56, 189, 248, 0.4);' +
+                    '--ht-ptt-border: #334155;' +
+                    '--ht-ptt-bg: radial-gradient(circle, #1E293B 0%, #0F172A 100%);' +
+                    '--ht-ptt-text: #ffffff;' +
+                    '--ht-led-idle: #334155;' +
+                    '--ht-led-text: #94A3B8;' +
+                    '--ht-track: #1E293B;' +
+                    '--ht-chip-bg: rgba(30, 41, 59, 0.7);' +
+                    '--ht-chip-border: rgba(148, 163, 184, 0.15);' +
+                    '--ht-shortcut-hover: rgba(255, 255, 255, 0.1);' +
+                    '--ht-teal: #14B8A6;' +
+                    '--ht-ptt-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);' +
+                '}' +
+                '[data-theme="light"] .ht-container, [data-theme="light"] .ht-modal {' +
+                    '--ht-surface: var(--card-bg, #FFFFFF);' +
+                    '--ht-border: var(--border-color, #E2E8F0);' +
+                    '--ht-lcd-bg: #F1F5F9;' +
+                    '--ht-lcd-border: #CBD5E1;' +
+                    '--ht-lcd-shadow: inset 0 1px 4px rgba(15, 23, 42, 0.08);' +
+                    '--ht-lcd-digits: #0284C7;' +
+                    '--ht-lcd-digits-shadow: none;' +
+                    '--ht-ptt-border: #CBD5E1;' +
+                    '--ht-ptt-bg: radial-gradient(circle, #FFFFFF 0%, #E2E8F0 100%);' +
+                    '--ht-ptt-text: #0F172A;' +
+                    '--ht-led-idle: #CBD5E1;' +
+                    '--ht-led-text: #64748B;' +
+                    '--ht-track: #E2E8F0;' +
+                    '--ht-chip-bg: rgba(226, 232, 240, 0.85);' +
+                    '--ht-chip-border: rgba(203, 213, 225, 0.9);' +
+                    '--ht-shortcut-hover: rgba(15, 23, 42, 0.08);' +
+                    '--ht-teal: #0F766E;' +
+                    '--ht-ptt-shadow: 0 10px 25px rgba(15, 23, 42, 0.12);' +
+                '}' +
+                '.ht-container .card, .ht-modal .modal-content {' +
+                    'background-color: var(--ht-surface);' +
+                    'border-color: var(--ht-border);' +
+                    'color: var(--text-main, inherit);' +
+                '}' +
+                '.ht-tactical-console { background: var(--ht-surface); border-color: var(--ht-border); transition: border-color 0.2s ease, box-shadow 0.2s ease; }' +
+                '.ht-lcd-screen { background: var(--ht-lcd-bg); border-color: var(--ht-lcd-border); box-shadow: var(--ht-lcd-shadow); transition: border-color 0.2s ease, background-color 0.25s ease; }' +
+                '.ht-freq-digits { font-size: 2.6rem; letter-spacing: 2px; color: var(--ht-lcd-digits); text-shadow: var(--ht-lcd-digits-shadow); transition: color 0.15s ease; }' +
+                '.ht-quick-shortcuts { background: var(--ht-chip-bg); border: 1px solid var(--ht-chip-border); }' +
                 '.ht-shortcut-btn { padding: 6px 12px; border-radius: 8px; transition: transform 0.1s, background-color 0.15s; }' +
-                '.ht-shortcut-btn:hover { transform: scale(1.12); background: rgba(255, 255, 255, 0.1); }' +
+                '.ht-shortcut-btn:hover { transform: scale(1.12); background: var(--ht-shortcut-hover); }' +
                 '.ht-led-item { display: flex; align-items: center; gap: 4px; }' +
-                '.ht-led-bulb { width: 9px; height: 9px; border-radius: 50%; background: #334155; display: inline-block; transition: all 0.15s ease; }' +
-                '.ht-led-text { font-size: 10px; font-weight: bold; color: #94A3B8; }' +
+                '.ht-led-bulb { width: 9px; height: 9px; border-radius: 50%; background: var(--ht-led-idle); display: inline-block; transition: all 0.15s ease; }' +
+                '.ht-led-text { font-size: 10px; font-weight: bold; color: var(--ht-led-text); }' +
                 '.ht-led-active-tx { background: #EF4444 !important; box-shadow: 0 0 10px #EF4444; }' +
                 '.ht-led-active-rx { background: #10B981 !important; box-shadow: 0 0 10px #10B981; }' +
                 '.ht-led-active-stby { background: #0284C7 !important; box-shadow: 0 0 10px #0284C7; }' +
-                '.ht-vu-progress-track { background: #1E293B; border-radius: 3px; }' +
-                '[data-bs-theme="light"] .ht-vu-progress-track { background: #E2E8F0; }' +
+                '.ht-vu-progress-track { background: var(--ht-track); border-radius: 3px; }' +
                 '.ht-vu-bar { transition: width 0.08s ease; }' +
-                '.ht-channel-card { min-width: 140px; padding: 10px 12px; border-radius: 10px; border: 1px solid rgba(148, 163, 184, 0.25); cursor: pointer; background: var(--bs-card-bg, #1E293B); transition: all 0.15s ease; user-select: none; }' +
-                '.ht-channel-card:hover { border-color: #38BDF8; transform: translateY(-2px); }' +
-                '.ht-card-active { border-color: #0284C7 !important; background: rgba(2, 132, 199, 0.18) !important; box-shadow: 0 0 12px rgba(2, 132, 199, 0.3); }' +
-                '.ht-big-ptt { width: 145px; height: 145px; border-radius: 50%; border: 5px solid #334155; background: radial-gradient(circle, #1E293B 0%, #0F172A 100%); box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5); cursor: pointer; outline: none; user-select: none; transition: transform 0.1s ease, box-shadow 0.2s ease, border-color 0.2s ease; display: flex; align-items: center; justify-content: center; }' +
+                '.ht-channel-card { min-width: 140px; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--ht-border); cursor: pointer; background: var(--ht-surface); color: var(--text-main, inherit); transition: all 0.15s ease; user-select: none; }' +
+                '.ht-channel-card:hover { border-color: var(--brand-green, #38BDF8); transform: translateY(-2px); }' +
+                '.ht-card-active { border-color: var(--brand-green, #0284C7) !important; background: var(--badge-bg, rgba(2, 132, 199, 0.18)) !important; box-shadow: 0 0 12px rgba(59, 130, 246, 0.25); }' +
+                '.ht-big-ptt { width: 145px; height: 145px; border-radius: 50%; border: 5px solid var(--ht-ptt-border); background: var(--ht-ptt-bg); box-shadow: var(--ht-ptt-shadow); cursor: pointer; outline: none; user-select: none; transition: transform 0.1s ease, box-shadow 0.2s ease, border-color 0.2s ease, background 0.2s ease; display: flex; align-items: center; justify-content: center; }' +
                 '.ht-big-ptt:active, .ht-ptt-transmitting { transform: scale(0.96); border-color: #EF4444 !important; background: radial-gradient(circle, #DC2626 0%, #991B1B 100%) !important; box-shadow: 0 0 35px rgba(239, 68, 68, 0.7) !important; }' +
                 '.ht-ptt-receiving { border-color: #10B981 !important; background: radial-gradient(circle, #059669 0%, #065F46 100%) !important; box-shadow: 0 0 30px rgba(16, 185, 129, 0.6) !important; }' +
-                '.ht-ptt-inner { display: flex; flex-direction: column; align-items: center; justify-content: center; color: white; }' +
+                '.ht-ptt-inner { display: flex; flex-direction: column; align-items: center; justify-content: center; color: var(--ht-ptt-text); }' +
+                '[data-theme="light"] .ht-container .ht-ptt-transmitting .ht-ptt-inner, [data-theme="light"] .ht-container .ht-ptt-receiving .ht-ptt-inner {' +
+                    'color: #ffffff;' +
+                '}' +
                 '.ht-ptt-icon { font-size: 2.3rem; }' +
                 '.ht-ptt-label { font-size: 14px; font-weight: 800; letter-spacing: 1.5px; margin-top: 2px; }' +
                 '.ht-keypad-btn { height: 54px; font-size: 1.35rem; font-weight: bold; border-radius: 10px; }' +
                 '.ht-blink { animation: htBlinkAnim 1s infinite alternate; }' +
                 '@keyframes htBlinkAnim { 0% { opacity: 1; } 100% { opacity: 0.3; } }' +
-                '.text-teal { color: #14B8A6 !important; }' +
+                '.text-teal { color: var(--ht-teal, #14B8A6) !important; }' +
+                '[data-theme="light"] .ht-container .text-info, [data-theme="light"] .ht-modal .text-info { color: #0369A1 !important; }' +
+                '[data-theme="light"] .ht-container .text-warning, [data-theme="light"] .ht-modal .text-warning { color: #B45309 !important; }' +
+                '[data-theme="dark"] .ht-container .text-success, [data-theme="dark"] .ht-modal .text-success { color: #34D399 !important; }' +
+                '[data-theme="dark"] .ht-container .text-primary, [data-theme="dark"] .ht-modal .text-primary { color: #60A5FA !important; }' +
+                '.ht-modal .bg-body-tertiary { background-color: var(--ht-surface-alt) !important; border-color: var(--ht-border) !important; color: var(--text-main, inherit); }' +
+                '.ht-modal .list-group-item { background-color: transparent; color: var(--text-main, inherit); border-color: var(--ht-border); }' +
+                '.ht-container .alert, .ht-modal .alert { border-style: solid; border-width: 1px; color: var(--text-main, inherit); }' +
+                '.ht-container .alert-success, .ht-modal .alert-success { background-color: rgba(16, 185, 129, 0.12); border-color: rgba(16, 185, 129, 0.4); }' +
+                '.ht-container .alert-info, .ht-modal .alert-info { background-color: rgba(56, 189, 248, 0.10); border-color: rgba(56, 189, 248, 0.35); }' +
+                '[data-theme="light"] .ht-container .alert-success, [data-theme="light"] .ht-modal .alert-success { background-color: #ECFDF5; border-color: #A7F3D0; }' +
+                '[data-theme="light"] .ht-container .alert-info, [data-theme="light"] .ht-modal .alert-info { background-color: #F0F9FF; border-color: #BAE6FD; }' +
             '</style>';
         }
 
@@ -555,7 +618,7 @@ object HandyTalkyWebScript {
         // MODAL 1: TACTICAL NUMERIC KEYPAD BAWAAN
         // ==========================================
         function generateKeypadModalHtml() {
-            return '<div class="modal fade" id="htNumericKeypadModal" tabindex="-1" aria-hidden="true">' +
+            return '<div class="modal fade ht-modal" id="htNumericKeypadModal" tabindex="-1" aria-hidden="true">' +
                 '<div class="modal-dialog modal-dialog-centered" style="max-width: 360px;">' +
                     '<div class="modal-content rounded-4 border shadow">' +
                         '<div class="modal-header py-2 px-3 border-0">' +
@@ -597,7 +660,7 @@ object HandyTalkyWebScript {
         // MODAL 2: PANDUAN & MODE HT FISIK (RoIP)
         // ==========================================
         function generatePhysicalHtModalHtml() {
-            return '<div class="modal fade" id="htPhysicalHtModal" tabindex="-1" aria-hidden="true">' +
+            return '<div class="modal fade ht-modal" id="htPhysicalHtModal" tabindex="-1" aria-hidden="true">' +
                 '<div class="modal-dialog modal-dialog-centered modal-lg">' +
                     '<div class="modal-content rounded-4 border shadow">' +
                         '<div class="modal-header py-2 px-3 border-0">' +
@@ -653,7 +716,7 @@ object HandyTalkyWebScript {
         // MODAL 3: RADAR PERANGKAT SEKITAR
         // ==========================================
         function generateRadarModalHtml() {
-            return '<div class="modal fade" id="htRadarModal" tabindex="-1" aria-hidden="true">' +
+            return '<div class="modal fade ht-modal" id="htRadarModal" tabindex="-1" aria-hidden="true">' +
                 '<div class="modal-dialog modal-dialog-centered">' +
                     '<div class="modal-content rounded-4 border shadow">' +
                         '<div class="modal-header py-2 px-3 border-0">' +
@@ -676,7 +739,7 @@ object HandyTalkyWebScript {
         // MODAL 4: RIWAYAT LOG TRANSMISI
         // ==========================================
         function generateLogsModalHtml() {
-            return '<div class="modal fade" id="htLogsModal" tabindex="-1" aria-hidden="true">' +
+            return '<div class="modal fade ht-modal" id="htLogsModal" tabindex="-1" aria-hidden="true">' +
                 '<div class="modal-dialog modal-dialog-centered modal-lg">' +
                     '<div class="modal-content rounded-4 border shadow">' +
                         '<div class="modal-header py-2 px-3 border-0 d-flex align-items-center justify-content-between">' +
@@ -701,7 +764,7 @@ object HandyTalkyWebScript {
         // MODAL 5: PENGATURAN AUDIO & BOOSTER HT
         // ==========================================
         function generateSettingsModalHtml() {
-            return '<div class="modal fade" id="htSettingsModal" tabindex="-1" aria-hidden="true">' +
+            return '<div class="modal fade ht-modal" id="htSettingsModal" tabindex="-1" aria-hidden="true">' +
                 '<div class="modal-dialog modal-dialog-centered">' +
                     '<div class="modal-content rounded-4 border shadow">' +
                         '<div class="modal-header py-2 px-3 border-0">' +
@@ -771,7 +834,7 @@ object HandyTalkyWebScript {
         // MODAL 6: CALLSIGN DIALOG
         // ==========================================
         function generateCallsignModalHtml() {
-            return '<div class="modal fade" id="htCallsignModal" tabindex="-1" aria-hidden="true">' +
+            return '<div class="modal fade ht-modal" id="htCallsignModal" tabindex="-1" aria-hidden="true">' +
                 '<div class="modal-dialog modal-dialog-centered" style="max-width: 380px;">' +
                     '<div class="modal-content rounded-4 border shadow">' +
                         '<div class="modal-header py-2 px-3 border-0">' +
