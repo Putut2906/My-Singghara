@@ -250,6 +250,27 @@ fun TentangAplikasiScreen(
         }
     }
 
+    // Refreshes the update check and stores the resulting APK in the public Download folder
+    // without opening the package installer.
+    fun refreshCheckAndSaveApk() {
+        if (isSavingApk) return
+        scope.launch {
+            driveUpdateState = DriveUpdateCheckState.Loading()
+            val result = GoogleDriveUpdateManager.checkForDriveUpdate(context)
+            driveUpdateState = result
+            val apkItem = when (result) {
+                is DriveUpdateCheckState.UpdateAvailable -> result.latestApk
+                is DriveUpdateCheckState.UpToDate -> result.latestApk
+                else -> null
+            }
+            if (apkItem == null) {
+                viewModel.showToastPopup("Pemeriksaan selesai, tetapi tidak ada berkas APK yang bisa disimpan.")
+                return@launch
+            }
+            requestSaveApkToDownloads(apkItem)
+        }
+    }
+
     // Automatically check Google Drive on entry if idle
     LaunchedEffect(Unit) {
         if (driveUpdateState is DriveUpdateCheckState.Idle) {
@@ -1006,7 +1027,7 @@ fun TentangAplikasiScreen(
                             }
                         }
 
-                        // Row aksi: Icon Unduh & Pasang APK Sekarang (kiri) & Icon Periksa Pembaruan Google Drive Sekarang (kanan)
+                        // Row aksi: Icon Unduh & Pasang APK (kiri) & Icon Periksa Ulang Pembaruan + Simpan APK ke Download (kanan)
                         val latestApkFromDrive: DriveApkItem? = when (val s = driveUpdateState) {
                             is DriveUpdateCheckState.UpdateAvailable -> s.latestApk
                             is DriveUpdateCheckState.UpToDate -> s.latestApk
@@ -1044,12 +1065,10 @@ fun TentangAplikasiScreen(
 
                             Spacer(modifier = Modifier.width(16.dp))
 
-                            // Icon Simpan APK ke folder Download (tanpa memasang)
+                            // Icon Periksa Ulang Pembaruan & Simpan APK ke folder Download
                             FilledIconButton(
-                                onClick = {
-                                    latestApkFromDrive?.let { requestSaveApkToDownloads(it) }
-                                },
-                                enabled = canDownload,
+                                onClick = { refreshCheckAndSaveApk() },
+                                enabled = !isDriveLoading && !isSavingApk,
                                 shape = RoundedCornerShape(12.dp),
                                 colors = IconButtonDefaults.filledIconButtonColors(
                                     containerColor = Color(0xFF0284C7),
@@ -1057,41 +1076,25 @@ fun TentangAplikasiScreen(
                                 ),
                                 modifier = Modifier.size(48.dp).testTag("save_apk_to_downloads_button")
                             ) {
-                                if (isSavingApk) {
-                                    CircularProgressIndicator(
+                                when {
+                                    isSavingApk -> CircularProgressIndicator(
                                         modifier = Modifier.size(20.dp),
                                         strokeWidth = 2.dp,
                                         color = Color.White
                                     )
-                                } else {
-                                    Icon(
-                                        imageVector = Icons.Default.SaveAlt,
-                                        contentDescription = "Simpan APK ke folder Download",
-                                        tint = if (canDownload) Color.White else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
+                                    isDriveLoading -> Icon(
+                                        imageVector = Icons.Default.HourglassTop,
+                                        contentDescription = "Memeriksa pembaruan...",
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
+                                        modifier = Modifier.size(24.dp)
+                                    )
+                                    else -> Icon(
+                                        imageVector = Icons.Default.Refresh,
+                                        contentDescription = "Periksa Ulang Pembaruan & Simpan APK ke folder Download",
+                                        tint = Color.White,
                                         modifier = Modifier.size(24.dp)
                                     )
                                 }
-                            }
-
-                            Spacer(modifier = Modifier.width(16.dp))
-
-                            // Icon Periksa Pembaruan Google Drive Sekarang tanpa title (sebelah kanan)
-                            FilledIconButton(
-                                onClick = { triggerDriveCheck() },
-                                enabled = !isDriveLoading,
-                                shape = RoundedCornerShape(12.dp),
-                                colors = IconButtonDefaults.filledIconButtonColors(
-                                    containerColor = Color(0xFF0F766E),
-                                    disabledContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
-                                ),
-                                modifier = Modifier.size(48.dp)
-                            ) {
-                                Icon(
-                                    imageVector = if (isDriveLoading) Icons.Default.HourglassTop else Icons.Default.Refresh,
-                                    contentDescription = "Periksa Pembaruan Google Drive Sekarang",
-                                    tint = if (!isDriveLoading) Color.White else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
-                                    modifier = Modifier.size(24.dp)
-                                )
                             }
                         }
 
