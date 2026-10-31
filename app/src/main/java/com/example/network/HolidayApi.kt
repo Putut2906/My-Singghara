@@ -34,7 +34,7 @@ object HolidayClient {
     private val retrofit = Retrofit.Builder()
         .baseUrl(BASE_URL)
         .client(okHttpClient)
-        .addConverterFactory(MoshiConverterFactory.create())
+        .addConverterFactory(MoshiConverterFactory.create(networkMoshi))
         .build()
 
     val service: HolidayService = retrofit.create(HolidayService::class.java)

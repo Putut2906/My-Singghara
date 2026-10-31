@@ -17,7 +17,6 @@ android {
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         buildConfigField("String", "GEMINI_API_KEY", "\"\"")
-        buildConfigField("String", "OPENWEATHER_API_KEY", "\"\"")
     }
 
     signingConfigs {

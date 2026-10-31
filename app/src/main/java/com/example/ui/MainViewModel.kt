@@ -2134,42 +2134,29 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             try {
                 val lat = userLatitude ?: -6.2088
                 val lon = userLongitude ?: 106.8456
-                val key = com.example.BuildConfig.OPENWEATHER_API_KEY
-                val apiKey = if (key.isNotEmpty() && key != "MY_OPENWEATHER_API_KEY") key else "372412b80fd742017cb552b78ca79807"
-                
-                val response = com.example.network.WeatherClient.service.getCurrentWeather(
+                val fallbackName = if (userLatitude != null) "Lokasi Anda" else "Jakarta"
+
+                val response = com.example.network.WeatherClient.getWeather(
                     lat = lat,
                     lon = lon,
-                    apiKey = apiKey
+                    locationName = userLocationName ?: fallbackName
                 )
-                
+
                 // Cache successful weather response
-                try {
-                    val moshi = com.squareup.moshi.Moshi.Builder().build()
-                    val adapter = moshi.adapter(com.example.network.WeatherResponse::class.java)
-                    val json = adapter.toJson(response)
+                com.example.network.WeatherClient.toJson(response)?.let { json ->
                     sharedPrefs.edit().putString("cached_weather_response", json).apply()
-                } catch (ex: Exception) {
-                    ex.printStackTrace()
                 }
 
                 lastFetchTime = System.currentTimeMillis()
                 _weatherState.value = WeatherUIState.Success(response)
             } catch (e: Exception) {
                 // Try to load cached weather when network is offline
-                val cachedJson = sharedPrefs.getString("cached_weather_response", null)
-                if (cachedJson != null) {
-                    try {
-                        val moshi = com.squareup.moshi.Moshi.Builder().build()
-                        val adapter = moshi.adapter(com.example.network.WeatherResponse::class.java)
-                        val cachedResponse = adapter.fromJson(cachedJson)
-                        if (cachedResponse != null) {
-                            _weatherState.value = WeatherUIState.Success(cachedResponse)
-                            return@launch
-                        }
-                    } catch (ex: Exception) {
-                        ex.printStackTrace()
-                    }
+                val cachedResponse = com.example.network.WeatherClient.fromJson(
+                    sharedPrefs.getString("cached_weather_response", null)
+                )
+                if (cachedResponse != null) {
+                    _weatherState.value = WeatherUIState.Success(cachedResponse)
+                    return@launch
                 }
                 _weatherState.value = WeatherUIState.Error(e.message ?: "Gagal memuat cuaca")
             }

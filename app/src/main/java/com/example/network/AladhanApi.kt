@@ -40,7 +40,7 @@ object AladhanClient {
 
     private val retrofit = Retrofit.Builder()
         .baseUrl(BASE_URL)
-        .addConverterFactory(MoshiConverterFactory.create())
+        .addConverterFactory(MoshiConverterFactory.create(networkMoshi))
         .build()
 
     val service: AladhanService = retrofit.create(AladhanService::class.java)

@@ -1932,9 +1932,11 @@ Halo $senderName, saya siap membantu mengedit data database Anda! Silakan sebutk
             try {
                 val lat = prefs.getFloat("user_location_lat", -6.2088f).toDouble()
                 val lon = prefs.getFloat("user_location_lng", 106.8456f).toDouble()
-                val key = BuildConfig.OPENWEATHER_API_KEY
-                val apiKey = if (key.isNotEmpty() && key != "MY_OPENWEATHER_API_KEY") key else "372412b80fd742017cb552b78ca79807"
-                val liveResp = WeatherClient.service.getCurrentWeather(lat, lon, apiKey)
+                val liveResp = WeatherClient.getWeather(
+                    lat = lat,
+                    lon = lon,
+                    locationName = prefs.getString("user_location_name", null) ?: "Lokasi Anda"
+                )
                 cityName = liveResp.name ?: "Lokasi Anda"
                 tempC = liveResp.main?.temp ?: 29.0
                 feelsLikeC = liveResp.main?.feels_like ?: 33.0
