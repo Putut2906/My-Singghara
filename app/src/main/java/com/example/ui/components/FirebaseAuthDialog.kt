@@ -1,5 +1,7 @@
 package com.example.ui.components
 
+import android.content.pm.PackageManager
+import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
@@ -39,6 +41,7 @@ import com.google.android.gms.auth.api.signin.GoogleSignInAccount
 import com.google.android.gms.auth.api.signin.GoogleSignInOptions
 import com.google.android.gms.common.api.ApiException
 import kotlinx.coroutines.launch
+import java.security.MessageDigest
 
 enum class AuthMode {
     LOGIN,
@@ -108,11 +111,18 @@ fun FirebaseAuthDialog(
     val googleSignInLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult()
     ) { result ->
-        if (result.resultCode == android.app.Activity.RESULT_OK) {
-            val task = GoogleSignIn.getSignedInAccountFromIntent(result.data)
+        // Google reports failures (e.g. DEVELOPER_ERROR for an unregistered signing
+        // key) as a failed task, usually with RESULT_CANCELED. Parsing the task only
+        // when RESULT_OK made every failure silently disappear.
+        val task = result.data?.let { GoogleSignIn.getSignedInAccountFromIntent(it) }
+        if (task == null) {
+            errorMessage = null
+        } else {
             try {
                 val account = task.getResult(ApiException::class.java)
-                if (account != null) {
+                if (account == null) {
+                    errorMessage = "Akun Google tidak dapat dibaca. Silakan coba kembali."
+                } else {
                     val displayName = account.displayName ?: account.email ?: ""
                     val accountEmail = account.email ?: ""
                     isLoading = true
@@ -160,17 +170,10 @@ fun FirebaseAuthDialog(
                             }
                         }
                     }
-                } else {
-                    errorMessage = "Akun Google tidak dapat dibaca. Silakan coba kembali."
                 }
             } catch (e: ApiException) {
                 if (e.statusCode != 12501 && e.statusCode != 16) {
-                    val detail = when (e.statusCode) {
-                        10 -> "Kode 10 (DEVELOPER_ERROR): Pastikan SHA-1 fingerprint sudah terdaftar di Firebase Console (Project Settings > Your apps) dan Authentication > Google provider telah diaktifkan."
-                        12500 -> "Kode 12500 (SIGN_IN_FAILED): Akun Google Play Services pada perangkat memerlukan pembaruan atau verifikasi."
-                        else -> "Kode ${e.statusCode}: ${e.localizedMessage ?: "Silakan periksa koneksi."}"
-                    }
-                    errorMessage = "Gagal memproses akun Google: $detail"
+                    errorMessage = describeGoogleSignInFailure(e, context)
                 }
             } catch (e: Exception) {
                 errorMessage = "Terjadi kesalahan saat masuk dengan Google: ${e.localizedMessage ?: e.message}"
@@ -1761,4 +1764,40 @@ private fun handleFacebookSignIn(
     } catch (e: Exception) {
         onResult(false, "Facebook Sign-In: ${e.localizedMessage ?: e.message}", false)
     }
+}
+
+private fun describeGoogleSignInFailure(e: ApiException, context: android.content.Context): String {
+    android.util.Log.e("FirebaseAuthDialog", "Google sign-in failed with status ${e.statusCode}", e)
+    return when (e.statusCode) {
+        10 -> buildString {
+            append("Gagal masuk dengan Google (kode 10 / DEVELOPER_ERROR).\n")
+            append("Sidik jari aplikasi ini belum terdaftar untuk paket berikut:\n\n")
+            append("Paket: ${context.packageName}\n")
+            append("SHA-1: ${installedAppSha1(context)}\n\n")
+            append("Buka Firebase Console (project mobile-d08aa) → Project Settings → Your apps → tambahkan aplikasi Android dengan paket di atas beserta SHA-1 tersebut, lalu aktifkan Authentication → Sign-in method → Google. Tidak perlu memasang ulang aplikasi setelah mendaftarkannya.")
+        }
+        12500 -> "Gagal masuk dengan Google (kode 12500 / SIGN_IN_FAILED). Perbarui Google Play Services di perangkat, lalu coba lagi."
+        12502 -> "Proses masuk Google masih berjalan. Tunggu beberapa saat lalu coba lagi."
+        7 -> "Gagal masuk dengan Google: tidak ada koneksi internet. Periksa jaringan Anda."
+        8 -> "Gagal masuk dengan Google: layanan Google Play Services bermasalah (kode 8). Coba lagi nanti."
+        else -> "Gagal masuk dengan Google (kode ${e.statusCode}): ${e.localizedMessage ?: "Silakan coba lagi."}"
+    }
+}
+
+@Suppress("DEPRECATION")
+private fun installedAppSha1(context: android.content.Context): String = try {
+    val pm = context.packageManager
+    val signatures = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+        pm.getPackageInfo(context.packageName, PackageManager.GET_SIGNING_CERTIFICATES).signingInfo?.apkContentsSigners
+    } else {
+        pm.getPackageInfo(context.packageName, PackageManager.GET_SIGNATURES).signatures
+    }
+    val der = signatures?.firstOrNull()?.toByteArray()
+    if (der == null) {
+        "tidak diketahui"
+    } else {
+        MessageDigest.getInstance("SHA-1").digest(der).joinToString(":") { "%02X".format(it) }
+    }
+} catch (_: Exception) {
+    "tidak diketahui"
 }
