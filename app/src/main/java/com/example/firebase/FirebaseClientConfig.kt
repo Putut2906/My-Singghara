@@ -13,8 +13,9 @@ data class FirebaseClientConfig(
     val projectId: String,
     val storageBucket: String,
     val webClientId: String,
-    // Package/certificate the bundled google-services.json was registered for.
-    val registeredPackage: String = "",
+    // Packages the bundled google-services.json was registered for, plus the certificate of
+    // the Android OAuth client when one exists for this package.
+    val registeredPackages: List<String> = emptyList(),
     val registeredCertHash: String = ""
 ) {
     companion object {
@@ -47,27 +48,33 @@ data class FirebaseClientConfig(
             val clients = root.optJSONArray("client") ?: return null
             if (clients.length() == 0) return null
 
-            // Prefer the client registered for this package; older files only carry another one.
+            val registeredPackages = mutableListOf<String>()
             var matched: JSONObject? = null
-            var first: JSONObject? = null
             for (i in 0 until clients.length()) {
                 val client = clients.optJSONObject(i) ?: continue
-                if (first == null) first = client
                 val packageName = client.optJSONObject("client_info")
                     ?.optJSONObject("android_client_info")
                     ?.optString("package_name")
-                if (packageName == context.packageName) {
-                    matched = client
-                    break
-                }
+                    .orEmpty()
+                if (packageName.isNotBlank()) registeredPackages.add(packageName)
+                if (packageName == context.packageName) matched = client
             }
-            val client = matched ?: first ?: return null
+
+            val projectId = projectInfo?.optString("project_id").orEmpty()
+            val storageBucket = projectInfo?.optString("storage_bucket").orEmpty()
+
+            // The file usually carries clients for other packages too; their app id is not
+            // this app's, so only a client registered for this package may replace ours.
+            val client = matched ?: return FirebaseClientConfig(
+                appId = fallback.appId,
+                apiKey = fallback.apiKey,
+                projectId = projectId.ifBlank { fallback.projectId },
+                storageBucket = storageBucket.ifBlank { fallback.storageBucket },
+                webClientId = webClientIdOf(clients).ifBlank { fallback.webClientId },
+                registeredPackages = registeredPackages
+            )
 
             val appId = client.optJSONObject("client_info")?.optString("mobilesdk_app_id").orEmpty()
-            val registeredPackage = client.optJSONObject("client_info")
-                ?.optJSONObject("android_client_info")
-                ?.optString("package_name")
-                .orEmpty()
             val apiKey = client.optJSONArray("api_key")?.optJSONObject(0)?.optString("current_key").orEmpty()
             if (appId.isBlank() || apiKey.isBlank()) return null
 
@@ -91,12 +98,23 @@ data class FirebaseClientConfig(
             return FirebaseClientConfig(
                 appId = appId,
                 apiKey = apiKey,
-                projectId = projectInfo?.optString("project_id").orEmpty(),
-                storageBucket = projectInfo?.optString("storage_bucket").orEmpty(),
-                webClientId = webClientId.ifBlank { fallback.webClientId },
-                registeredPackage = registeredPackage,
+                projectId = projectId.ifBlank { fallback.projectId },
+                storageBucket = storageBucket.ifBlank { fallback.storageBucket },
+                webClientId = webClientId.ifBlank { webClientIdOf(clients) }.ifBlank { fallback.webClientId },
+                registeredPackages = registeredPackages,
                 registeredCertHash = certHash
             )
+        }
+
+        private fun webClientIdOf(clients: org.json.JSONArray): String {
+            for (i in 0 until clients.length()) {
+                val oauthClients = clients.optJSONObject(i)?.optJSONArray("oauth_client") ?: continue
+                for (j in 0 until oauthClients.length()) {
+                    val oauth = oauthClients.optJSONObject(j) ?: continue
+                    if (oauth.optInt("client_type") == 3) return oauth.optString("client_id")
+                }
+            }
+            return ""
         }
     }
 }

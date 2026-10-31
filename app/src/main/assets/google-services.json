@@ -7,6 +7,35 @@
   "client": [
     {
       "client_info": {
+        "mobilesdk_app_id": "1:194078759561:android:e4a098a6809c91e6cfc458",
+        "android_client_info": {
+          "package_name": "MySingghara.com"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "194078759561-1b27n44qm8r8r8j3bhj032d50faq4109.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyC-1wqeoghlBosva2liyNCEEbb4IK6yvYs"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "194078759561-1b27n44qm8r8r8j3bhj032d50faq4109.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    },
+    {
+      "client_info": {
         "mobilesdk_app_id": "1:194078759561:android:b39d13cb8202ff43cfc458",
         "android_client_info": {
           "package_name": "com.aistudio.mysingghara.q8wpa1"

@@ -1906,10 +1906,16 @@ private fun invalidAppIdGuidance(context: android.content.Context): String {
         append("Paket aplikasi: ${context.packageName}\n")
         append("SHA-1: ${installedAppSha1(context)}\n")
         append("App ID yang dipakai: ${config.appId}\n")
-        if (config.registeredPackage.isNotBlank()) {
-            append("google-services.json terdaftar untuk paket: ${config.registeredPackage}")
-            if (config.registeredCertHash.isNotBlank()) append(" (sertifikat ${config.registeredCertHash.uppercase()})")
-            append("\n")
+        if (config.registeredPackages.isNotEmpty()) {
+            append("Paket di google-services.json: ${config.registeredPackages.joinToString(", ")}\n")
+            if (config.registeredPackages.none { it == context.packageName }) {
+                append("Paket aplikasi ini belum terdaftar di berkas tersebut.\n")
+            }
+            if (config.registeredCertHash.isBlank()) {
+                append("Belum ada OAuth client Android (client_type 1) untuk paket ini.\n")
+            } else {
+                append("Sertifikat OAuth client: ${config.registeredCertHash.uppercase()}\n")
+            }
         }
         append("\nYang perlu dilakukan di Firebase Console (project ${config.projectId.ifBlank { "mobile-d08aa" }}):\n")
         append("1. Project Settings → Your apps → tambahkan aplikasi Android dengan paket dan SHA-1 di atas.\n")
