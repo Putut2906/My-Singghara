@@ -71,6 +71,14 @@ android {
     }
 }
 
+kotlin {
+    compilerOptions {
+        // firebase-auth 25.0.0 (BoM 35.1.0) is compiled with Kotlin 2.4 while this project
+        // uses 2.2; its metadata is otherwise rejected as "incompatible version".
+        freeCompilerArgs.add("-Xskip-metadata-version-check")
+    }
+}
+
 dependencies {
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
