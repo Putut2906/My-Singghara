@@ -19,6 +19,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 import java.util.*
@@ -43,6 +44,23 @@ import android.media.session.MediaSession
 import android.media.session.PlaybackState
 import com.example.NotificationScheduler
 
+enum class AuthFeedbackType {
+    CONFIRM_LOGOUT,
+    SUCCESS_LOGIN,
+    SUCCESS_REGISTER,
+    SUCCESS_SEND_OTP_EMAIL,
+    SUCCESS_LOGOUT
+}
+
+data class AuthFeedbackState(
+    val type: AuthFeedbackType,
+    val userName: String = "",
+    val userEmail: String = "",
+    val otpCode: String = "",
+    val onConfirmLogout: (() -> Unit)? = null,
+    val onActionClick: (() -> Unit)? = null
+)
+
 class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     companion object {
@@ -52,9 +70,944 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private val db = AppDatabase.getDatabase(application)
     val repository = LocalRepository(db)
+    val arisanRepository = com.example.data.arisan.ArisanRepository(application)
+    private val sharedPrefs = application.getSharedPreferences("mysingghara_prefs", Context.MODE_PRIVATE)
+
+    // State Berbagi Bukti Transaksi E-Wallet / Bank (Android Share Sheet: GoPay, DANA, OVO, dll.)
+    var sharedReceiptUri by mutableStateOf<Uri?>(null)
+    var sharedReceiptText by mutableStateOf<String?>(null)
+    var showSharedReceiptDialog by mutableStateOf(false)
+
+    // Firebase Auth & Cloud Backup Managers
+    val authManager = com.example.firebase.FirebaseAuthManager()
+    val cloudBackupManager = com.example.firebase.FirebaseCloudBackupManager(repository)
+    val adminManager = com.example.firebase.FirebaseAccountAdminManager.getInstance()
+
+    var currentFirebaseUser by mutableStateOf(authManager.currentUser)
+    var isCloudBackupLoading by mutableStateOf(false)
+    var cloudBackupMetadata by mutableStateOf<com.example.firebase.CloudBackupInfo?>(null)
+
+    // Status Blokir Akses Akun & Proteksi Membership
+    var isAccountBlocked by mutableStateOf(sharedPrefs.getBoolean("cached_account_blocked", false))
+    var accountBlockReason by mutableStateOf(sharedPrefs.getString("cached_account_block_reason", "") ?: "")
+    var accountMembershipEndDate by mutableStateOf(sharedPrefs.getLong("cached_membership_end_date", 0L))
+    var accountMembershipTier by mutableStateOf(sharedPrefs.getString("cached_membership_tier", "") ?: "")
+    var isCheckingAccountStatus by mutableStateOf(false)
+
+    // Nomor Telepon Kontak Admin (Default: 088806643415, dapat diganti oleh Admin)
+    var adminPhoneNumber by mutableStateOf(sharedPrefs.getString("admin_phone_number", "088806643415") ?: "088806643415")
+        private set
+
+    val defaultAdminPhoneNumber: String
+        get() = adminPhoneNumber
+
+    fun saveDefaultAdminPhoneNumber(newNumber: String) {
+        updateAdminPhoneNumber(newNumber)
+    }
+
+    fun updateAdminPhoneNumber(newNumber: String) {
+        val trimmed = newNumber.trim()
+        val finalNum = if (trimmed.isNotEmpty()) trimmed else "088806643415"
+        adminPhoneNumber = finalNum
+        sharedPrefs.edit().putString("admin_phone_number", finalNum).apply()
+        showToastPopup("Nomor Admin berhasil diperbarui: $finalNum")
+    }
+
+    // State Dialog Detail Membership VIP
+    var selectedMembershipUser by mutableStateOf<com.example.firebase.CloudUserItem?>(null)
+    var showMembershipDetailDialog by mutableStateOf(false)
+
+    fun openMembershipDetail(user: com.example.firebase.CloudUserItem? = null) {
+        selectedMembershipUser = user
+        showMembershipDetailDialog = true
+    }
+
+    fun closeMembershipDetail() {
+        showMembershipDetailDialog = false
+        selectedMembershipUser = null
+    }
+
+    // Helper Akses Layar Akun Terblokir
+    val accountBlockedIsExpired: Boolean
+        get() = accountMembershipEndDate > 0L && System.currentTimeMillis() >= accountMembershipEndDate
+    val accountBlockedPlan: String
+        get() = accountMembershipTier.ifEmpty { "Paket Standar" }
+    val accountBlockedReason: String
+        get() = accountBlockReason.ifEmpty { if (accountBlockedIsExpired) "Masa membership Anda telah habis." else "Akun dinonaktifkan oleh administrator." }
+
+    fun verifyCurrentAccountAccess(onComplete: ((Boolean) -> Unit)? = null) {
+        checkAccountAccessStatus(onComplete)
+    }
+
+    fun directLogout() {
+        authManager.logout()
+        currentFirebaseUser = null
+        isAccountBlocked = false
+        sharedPrefs.edit().putBoolean("cached_account_blocked", false).apply()
+    }
+
+    // Status Jaringan Online
+    var isNetworkAvailable by mutableStateOf(true)
+        private set
+
+    fun refreshNetworkStatus() {
+        isNetworkAvailable = checkInitialNetworkState()
+    }
+
+    /**
+     * Memeriksa status akses akun pengguna secara berkala / saat aplikasi dibuka.
+     * Jika akun dinonaktifkan oleh Admin atau masa membership habis, akses aplikasi diblokir total.
+     */
+    fun checkAccountAccessStatus(onComplete: ((Boolean) -> Unit)? = null) {
+        val user = currentFirebaseUser ?: authManager.currentUser
+        if (user == null || adminManager.isAdmin(user.uid)) {
+            isAccountBlocked = false
+            sharedPrefs.edit().putBoolean("cached_account_blocked", false).apply()
+            onComplete?.invoke(true)
+            return
+        }
+
+        val uid = user.uid
+        val now = System.currentTimeMillis()
+
+        // 1. Cek batas membership lokal jika tersimpan
+        if (accountMembershipEndDate > 0L && now >= accountMembershipEndDate) {
+            isAccountBlocked = true
+            accountBlockReason = "Masa membership akun Anda telah habis."
+            sharedPrefs.edit()
+                .putBoolean("cached_account_blocked", true)
+                .putString("cached_account_block_reason", accountBlockReason)
+                .apply()
+        }
+
+        // 2. Sinkronkan dengan Cloud Firestore
+        viewModelScope.launch {
+            isCheckingAccountStatus = true
+            val validation = adminManager.validateAccountAccess(uid)
+            isCheckingAccountStatus = false
+            when (validation) {
+                is com.example.firebase.AccountAccessValidation.Allowed -> {
+                    isAccountBlocked = false
+                    accountBlockReason = ""
+                    sharedPrefs.edit()
+                        .putBoolean("cached_account_blocked", false)
+                        .putString("cached_account_block_reason", "")
+                        .apply()
+                    onComplete?.invoke(true)
+                }
+                is com.example.firebase.AccountAccessValidation.Deactivated -> {
+                    isAccountBlocked = true
+                    accountBlockReason = validation.reason
+                    sharedPrefs.edit()
+                        .putBoolean("cached_account_blocked", true)
+                        .putString("cached_account_block_reason", validation.reason)
+                        .apply()
+                    onComplete?.invoke(false)
+                }
+                is com.example.firebase.AccountAccessValidation.MembershipExpired -> {
+                    isAccountBlocked = true
+                    val sdf = java.text.SimpleDateFormat("dd MMM yyyy, HH:mm", java.util.Locale("id", "ID"))
+                    val dateFormatted = sdf.format(java.util.Date(validation.endDate))
+                    accountBlockReason = "Masa membership Anda (${validation.tier}) telah habis pada $dateFormatted. Akun dinonaktifkan secara otomatis."
+                    accountMembershipEndDate = validation.endDate
+                    accountMembershipTier = validation.tier
+                    sharedPrefs.edit()
+                        .putBoolean("cached_account_blocked", true)
+                        .putString("cached_account_block_reason", accountBlockReason)
+                        .putLong("cached_membership_end_date", validation.endDate)
+                        .putString("cached_membership_tier", validation.tier)
+                        .apply()
+                    onComplete?.invoke(false)
+                }
+            }
+        }
+    }
+
+    fun checkInitialNetworkState(): Boolean {
+        return try {
+            val cm = getApplication<Application>().getSystemService(Context.CONNECTIVITY_SERVICE) as? android.net.ConnectivityManager
+            val activeNetwork = cm?.activeNetwork ?: return false
+            val caps = cm.getNetworkCapabilities(activeNetwork) ?: return false
+            caps.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET)
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    /**
+     * Menyimpan Token FCM secara otomatis ke koleksi Firestore 'tokens' & 'users'
+     */
+    fun syncFcmTokenToFirestore() {
+        val user = currentFirebaseUser ?: authManager.currentUser ?: return
+        val token = fcmToken.ifEmpty { sharedPrefs.getString("fcm_token", "") ?: "" }
+        viewModelScope.launch {
+            if (token.isNotEmpty()) {
+                try {
+                    adminManager.saveFcmTokenToFirestore(user, token, getApplication())
+                    android.util.Log.d("MainViewModel", "Token FCM tersimpan ke Firestore koleksi tokens & users untuk UID: ${user.uid}")
+                } catch (e: Exception) {
+                    android.util.Log.w("MainViewModel", "Gagal sync token ke Firestore: ${e.message}")
+                }
+            } else {
+                try {
+                    adminManager.recordUserAccess()
+                } catch (e: Exception) {
+                    // ignore
+                }
+            }
+        }
+    }
+
+    // Pesan dari Administrator Resmi (UID: UiDpHxawlBQ17mxTUHIXvhxRR3b2)
+    private val _adminMessages = MutableStateFlow<List<com.example.firebase.CloudMessageItem>>(emptyList())
+    val adminMessages: StateFlow<List<com.example.firebase.CloudMessageItem>> = _adminMessages.asStateFlow()
+
+    var unreadAdminMessagesCount by mutableStateOf(0)
+        private set
+
+    private var adminMessagesListener: com.google.firebase.firestore.ListenerRegistration? = null
+
+    fun setupAdminMessagesListener() {
+        try {
+            adminMessagesListener?.remove()
+            val firestore = com.google.firebase.firestore.FirebaseFirestore.getInstance()
+            adminMessagesListener = firestore.collection("messages")
+                .orderBy("createdAt", com.google.firebase.firestore.Query.Direction.DESCENDING)
+                .addSnapshotListener { snapshot, error ->
+                    if (error != null) {
+                        android.util.Log.w("MainViewModel", "Error snapshot admin messages: ${error.message}")
+                        return@addSnapshotListener
+                    }
+                    if (snapshot != null) {
+                        val list = mutableListOf<com.example.firebase.CloudMessageItem>()
+                        val currentUid = currentFirebaseUser?.uid ?: authManager.currentUser?.uid
+                        for (doc in snapshot.documents) {
+                            val id = doc.id
+                            val title = doc.getString("title") ?: ""
+                            val content = doc.getString("content") ?: ""
+                            val category = doc.getString("category") ?: "PENGUMUMAN"
+                            val priority = doc.getString("priority") ?: "NORMAL"
+                            val target = doc.getString("target") ?: "SEMUA"
+                            val targetName = doc.getString("targetName") ?: "Semua Pengguna"
+                            val authorUid = doc.getString("authorUid") ?: ""
+                            val authorName = doc.getString("authorName") ?: "Admin"
+                            val createdAt = doc.getLong("createdAt") ?: 0L
+
+                            // Tampilkan jika ditujukan untuk SEMUA, cocok dengan UID akun ini, atau jika akun adalah Admin
+                            if (target == "SEMUA" || (currentUid != null && target == currentUid) || currentUid == com.example.firebase.FirebaseAccountAdminManager.ADMIN_UID) {
+                                list.add(
+                                    com.example.firebase.CloudMessageItem(
+                                        id = id,
+                                        title = title,
+                                        content = content,
+                                        category = category,
+                                        priority = priority,
+                                        target = target,
+                                        targetName = targetName,
+                                        authorUid = authorUid,
+                                        authorName = authorName,
+                                        createdAt = createdAt
+                                    )
+                                )
+                            }
+                        }
+                        _adminMessages.value = list
+                        calculateUnreadAdminMessages()
+                    }
+                }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    private fun calculateUnreadAdminMessages() {
+        val readIds = sharedPrefs.getStringSet("read_admin_msg_ids", emptySet()) ?: emptySet()
+        val list = _adminMessages.value
+        unreadAdminMessagesCount = list.count { it.id !in readIds }
+    }
+
+    fun isMessageRead(messageId: String): Boolean {
+        val readIds = sharedPrefs.getStringSet("read_admin_msg_ids", emptySet()) ?: emptySet()
+        return messageId in readIds
+    }
+
+    fun markAdminMessageAsRead(messageId: String) {
+        val readIds = (sharedPrefs.getStringSet("read_admin_msg_ids", emptySet()) ?: emptySet()).toMutableSet()
+        readIds.add(messageId)
+        sharedPrefs.edit().putStringSet("read_admin_msg_ids", readIds).apply()
+        calculateUnreadAdminMessages()
+    }
+
+    fun markAllAdminMessagesAsRead() {
+        val allIds = _adminMessages.value.map { it.id }.toSet()
+        sharedPrefs.edit().putStringSet("read_admin_msg_ids", allIds).apply()
+        calculateUnreadAdminMessages()
+    }
+
+    fun deleteAdminMessagePermanently(messageId: String, onComplete: ((Boolean, String?) -> Unit)? = null) {
+        viewModelScope.launch {
+            val adminManager = com.example.firebase.FirebaseAccountAdminManager.getInstance()
+            val res = adminManager.deleteMessage(messageId)
+            if (res.isSuccess) {
+                val readIds = (sharedPrefs.getStringSet("read_admin_msg_ids", emptySet()) ?: emptySet()).toMutableSet()
+                readIds.remove(messageId)
+                sharedPrefs.edit().putStringSet("read_admin_msg_ids", readIds).apply()
+                showToastPopup("Pesan berhasil dihapus permanen dari Firestore!")
+                onComplete?.invoke(true, null)
+            } else {
+                val errorMsg = res.exceptionOrNull()?.message ?: "Gagal menghapus pesan"
+                showToastPopup("Gagal menghapus pesan: $errorMsg")
+                onComplete?.invoke(false, errorMsg)
+            }
+        }
+    }
+
+    // Permintaan Kode OTP Sandi Email ke Admin Resmi (UID: UiDpHxawlBQ17mxTUHIXvhxRR3b2)
+    private val _otpRequests = MutableStateFlow<List<com.example.firebase.AdminOtpRequest>>(emptyList())
+    val otpRequests: StateFlow<List<com.example.firebase.AdminOtpRequest>> = _otpRequests.asStateFlow()
+
+    val activeOtpCount: Int
+        get() = _otpRequests.value.count { it.status == "MENUNGGU" && !it.isExpired }
+
+    private var otpRequestsListener: com.google.firebase.firestore.ListenerRegistration? = null
+
+    fun setupOtpRequestsListener() {
+        try {
+            otpRequestsListener?.remove()
+            loadCachedOtpRequests()
+
+            val firestore = com.google.firebase.firestore.FirebaseFirestore.getInstance()
+            otpRequestsListener = firestore.collection("otp_requests")
+                .orderBy("createdAt", com.google.firebase.firestore.Query.Direction.DESCENDING)
+                .addSnapshotListener { snapshot, error ->
+                    if (error != null) {
+                        android.util.Log.w("MainViewModel", "Error snapshot OTP requests: ${error.message}")
+                        return@addSnapshotListener
+                    }
+                    if (snapshot != null) {
+                        val list = mutableListOf<com.example.firebase.AdminOtpRequest>()
+                        for (doc in snapshot.documents) {
+                            try {
+                                val id = doc.id
+                                val requesterUid = doc.getString("requesterUid") ?: ""
+                                val requesterEmail = doc.getString("requesterEmail") ?: ""
+                                val requesterName = doc.getString("requesterName") ?: ""
+                                val otpCode = doc.getString("otpCode") ?: ""
+                                val createdAt = doc.getLong("createdAt") ?: System.currentTimeMillis()
+                                val expiresAt = doc.getLong("expiresAt") ?: (createdAt + 15 * 60 * 1000L)
+                                val status = doc.getString("status") ?: "MENUNGGU"
+                                val actionType = doc.getString("actionType") ?: "SET_PASSWORD_EMAIL"
+                                val adminUid = doc.getString("adminUid") ?: com.example.firebase.FirebaseAccountAdminManager.ADMIN_UID
+
+                                list.add(
+                                    com.example.firebase.AdminOtpRequest(
+                                        id = id,
+                                        requesterUid = requesterUid,
+                                        requesterEmail = requesterEmail,
+                                        requesterName = requesterName,
+                                        otpCode = otpCode,
+                                        createdAt = createdAt,
+                                        expiresAt = expiresAt,
+                                        status = status,
+                                        actionType = actionType,
+                                        adminUid = adminUid
+                                    )
+                                )
+                            } catch (_: Exception) {}
+                        }
+                        if (list.isNotEmpty()) {
+                            _otpRequests.value = list
+                            saveCachedOtpRequests(list)
+                        }
+                    }
+                }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    private fun loadCachedOtpRequests() {
+        val sp = getApplication<android.app.Application>().getSharedPreferences("admin_otp_prefs", android.content.Context.MODE_PRIVATE)
+        val jsonStr = sp.getString("otp_list_json", "[]") ?: "[]"
+        val list = mutableListOf<com.example.firebase.AdminOtpRequest>()
+        try {
+            val arr = org.json.JSONArray(jsonStr)
+            for (i in 0 until arr.length()) {
+                val obj = arr.getJSONObject(i)
+                list.add(
+                    com.example.firebase.AdminOtpRequest(
+                        id = obj.optString("id", java.util.UUID.randomUUID().toString()),
+                        requesterUid = obj.optString("requesterUid", ""),
+                        requesterEmail = obj.optString("requesterEmail", ""),
+                        requesterName = obj.optString("requesterName", ""),
+                        otpCode = obj.optString("otpCode", ""),
+                        createdAt = obj.optLong("createdAt", System.currentTimeMillis()),
+                        expiresAt = obj.optLong("expiresAt", System.currentTimeMillis() + 15 * 60 * 1000L),
+                        status = obj.optString("status", "MENUNGGU"),
+                        actionType = obj.optString("actionType", "SET_PASSWORD_EMAIL"),
+                        adminUid = obj.optString("adminUid", com.example.firebase.FirebaseAccountAdminManager.ADMIN_UID)
+                    )
+                )
+            }
+        } catch (_: Exception) {}
+        if (list.isNotEmpty()) {
+            _otpRequests.value = list.sortedByDescending { it.createdAt }
+        }
+    }
+
+    private fun saveCachedOtpRequests(list: List<com.example.firebase.AdminOtpRequest>) {
+        val sp = getApplication<android.app.Application>().getSharedPreferences("admin_otp_prefs", android.content.Context.MODE_PRIVATE)
+        val arr = org.json.JSONArray()
+        for (item in list) {
+            val obj = org.json.JSONObject()
+            obj.put("id", item.id)
+            obj.put("requesterUid", item.requesterUid)
+            obj.put("requesterEmail", item.requesterEmail)
+            obj.put("requesterName", item.requesterName)
+            obj.put("otpCode", item.otpCode)
+            obj.put("createdAt", item.createdAt)
+            obj.put("expiresAt", item.expiresAt)
+            obj.put("status", item.status)
+            obj.put("actionType", item.actionType)
+            obj.put("adminUid", item.adminUid)
+            arr.put(obj)
+        }
+        sp.edit().putString("otp_list_json", arr.toString()).apply()
+    }
+
+    fun requestEmailPasswordOtp(
+        onComplete: (Boolean, com.example.firebase.AdminOtpRequest?, String?) -> Unit
+    ) {
+        val user = currentFirebaseUser ?: authManager.currentUser
+        if (user == null) {
+            onComplete(false, null, "Anda harus masuk ke akun terlebih dahulu.")
+            return
+        }
+        viewModelScope.launch {
+            val email = user.email ?: ""
+            val name = profileName.ifBlank { user.displayName ?: "Pengguna Singghara" }
+            val res = adminManager.createEmailPasswordOtpRequest(
+                requesterUid = user.uid,
+                requesterEmail = email,
+                requesterName = name,
+                context = getApplication()
+            )
+            res.onSuccess { req ->
+                loadCachedOtpRequests()
+                onComplete(true, req, null)
+            }.onFailure { err ->
+                onComplete(false, null, err.message ?: "Gagal mengirim permintaan OTP ke Admin.")
+            }
+        }
+    }
+
+    fun verifyEmailPasswordOtp(
+        code: String,
+        onComplete: (Boolean, String?) -> Unit
+    ) {
+        val user = currentFirebaseUser ?: authManager.currentUser
+        if (user == null) {
+            onComplete(false, "Sesi login tidak valid.")
+            return
+        }
+        viewModelScope.launch {
+            val res = adminManager.verifyEmailPasswordOtp(
+                requesterUid = user.uid,
+                enteredCode = code,
+                context = getApplication()
+            )
+            res.onSuccess {
+                loadCachedOtpRequests()
+                onComplete(true, null)
+            }.onFailure { err ->
+                onComplete(false, err.message ?: "Kode OTP salah.")
+            }
+        }
+    }
+
+    fun deleteAdminOtpRequest(otpId: String) {
+        viewModelScope.launch {
+            adminManager.deleteOtpRequest(otpId, getApplication())
+            loadCachedOtpRequests()
+            showToastPopup("Permintaan kode OTP dihapus.")
+        }
+    }
+
+    fun markAdminOtpUsed(otpId: String) {
+        viewModelScope.launch {
+            adminManager.markOtpAsUsed(otpId, getApplication())
+            loadCachedOtpRequests()
+            showToastPopup("Kode OTP ditandai selesai/digunakan.")
+        }
+    }
+
+    fun refreshOtpRequests() {
+        viewModelScope.launch {
+            val res = adminManager.getAllOtpRequests(getApplication())
+            if (res.isSuccess) {
+                val list = res.getOrDefault(emptyList())
+                _otpRequests.value = list
+                saveCachedOtpRequests(list)
+            } else {
+                loadCachedOtpRequests()
+            }
+        }
+    }
+
+    // Animated Auth Feedback State (Pop up animasi bergerak untuk login, register, confirm logout)
+    var authFeedbackState by mutableStateOf<AuthFeedbackState?>(null)
+
+    fun showAuthSuccessPopup(isRegister: Boolean, userName: String, userEmail: String, photoUrl: String? = null) {
+        val user = authManager.currentUser ?: com.google.firebase.auth.FirebaseAuth.getInstance().currentUser
+        currentFirebaseUser = user
+        syncUserProfileFromFirebase(user, photoUrl)
+        syncFcmTokenToFirestore()
+        authFeedbackState = AuthFeedbackState(
+            type = if (isRegister) AuthFeedbackType.SUCCESS_REGISTER else AuthFeedbackType.SUCCESS_LOGIN,
+            userName = profileName.ifEmpty { userName },
+            userEmail = userEmail
+        )
+    }
+
+    fun showOtpSentSuccessPopup(email: String, otpCode: String = "", onAction: (() -> Unit)? = null) {
+        authFeedbackState = AuthFeedbackState(
+            type = AuthFeedbackType.SUCCESS_SEND_OTP_EMAIL,
+            userEmail = email,
+            otpCode = otpCode,
+            onActionClick = onAction
+        )
+    }
+
+    fun requestLogoutConfirmation(onConfirmed: (() -> Unit)? = null) {
+        val user = currentFirebaseUser
+        authFeedbackState = AuthFeedbackState(
+            type = AuthFeedbackType.CONFIRM_LOGOUT,
+            userName = profileName.ifEmpty { user?.displayName ?: "" },
+            userEmail = user?.email ?: "",
+            onConfirmLogout = {
+                authManager.logout()
+                syncUserProfileFromFirebase(null)
+                currentFirebaseUser = null
+                cloudBackupMetadata = null
+                isAccountBlocked = false
+                accountBlockReason = ""
+                sharedPrefs.edit()
+                    .putBoolean("cached_account_blocked", false)
+                    .putString("cached_account_block_reason", "")
+                    .apply()
+                onConfirmed?.invoke()
+                authFeedbackState = AuthFeedbackState(
+                    type = AuthFeedbackType.SUCCESS_LOGOUT,
+                    userName = "",
+                    userEmail = ""
+                )
+            }
+        )
+    }
+
+    fun dismissAuthFeedback() {
+        authFeedbackState = null
+    }
+
+    /**
+     * Menyinkronkan profil lokal aplikasi (nama, foto/inisial avatar) dengan akun Firebase (Google, Facebook, atau Email).
+     * - Akun Google: Mengikuti nama & foto profil Google.
+     * - Akun Facebook: Mengikuti nama & foto profil Facebook.
+     * - Akun Email: Mengikuti nama pengguna pendaftaran, dan foto profil otomatis menggunakan avatar inisial nama.
+     */
+    fun syncUserProfileFromFirebase(user: com.google.firebase.auth.FirebaseUser?, overridePhotoUrl: String? = null) {
+        if (user != null) {
+            currentFirebaseUser = user
+            val name = authManager.extractDisplayName(user)
+            val photoUrl = overridePhotoUrl ?: authManager.extractPhotoUrl(user)
+
+            // Simpan nama profil & UID akun
+            profileName = name
+            sharedPrefs.edit()
+                .putString("profile_name", name)
+                .putString("cached_user_uid", user.uid)
+                .putString("user_email", user.email ?: "")
+                .apply()
+
+            if (!photoUrl.isNullOrBlank()) {
+                // Ada foto profil dari Google / Facebook / Kustom
+                profileImageUri = photoUrl
+                profileAvatarIndex = -1
+                sharedPrefs.edit()
+                    .putString("profile_image_uri", photoUrl)
+                    .putInt("profile_avatar_index", -1)
+                    .apply()
+
+                // Simpan cache foto profil secara offline agar Web Connect PC 100% offline dapat menampilkannya
+                if (photoUrl.startsWith("http://") || photoUrl.startsWith("https://")) {
+                    viewModelScope.launch(Dispatchers.IO) {
+                        try {
+                            val url = java.net.URL(photoUrl)
+                            val conn = url.openConnection() as java.net.HttpURLConnection
+                            conn.connectTimeout = 8000
+                            conn.readTimeout = 8000
+                            conn.instanceFollowRedirects = true
+                            if (conn.responseCode == 200) {
+                                val bytes = conn.inputStream.use { it.readBytes() }
+                                val cachedFile = java.io.File(getApplication<Application>().filesDir, "cached_network_avatar.jpg")
+                                val customFile = java.io.File(getApplication<Application>().filesDir, "custom_profile_avatar.jpg")
+                                cachedFile.writeBytes(bytes)
+                                customFile.writeBytes(bytes)
+                            }
+                        } catch (ignored: Exception) {}
+                    }
+                }
+            } else {
+                // Pengguna Email / tanpa foto: Gunakan avatar Inisial Nama (-2)
+                profileImageUri = ""
+                profileAvatarIndex = -2
+                sharedPrefs.edit()
+                    .putString("profile_image_uri", "")
+                    .putInt("profile_avatar_index", -2)
+                    .apply()
+            }
+        } else {
+            // Pengguna logout / guest default
+            val defaultName = "Pengguna Singghara"
+            profileName = defaultName
+            profileImageUri = ""
+            profileAvatarIndex = 0
+            sharedPrefs.edit()
+                .putString("profile_name", defaultName)
+                .putString("profile_image_uri", "")
+                .putString("cached_user_uid", "")
+                .putString("user_email", "")
+                .putInt("profile_avatar_index", 0)
+                .apply()
+        }
+    }
+
+    fun refreshAuthUser() {
+        currentFirebaseUser = authManager.currentUser
+        syncUserProfileFromFirebase(currentFirebaseUser)
+        syncFcmTokenToFirestore()
+        setupAdminMessagesListener()
+        setupOtpRequestsListener()
+        checkCloudBackupMetadata()
+        checkAccountAccessStatus()
+    }
+
+    fun checkCloudBackupMetadata() {
+        if (!authManager.isUserLoggedIn) {
+            cloudBackupMetadata = null
+            return
+        }
+        viewModelScope.launch {
+            val result = cloudBackupManager.getLatestBackupMetadata()
+            result.onSuccess {
+                cloudBackupMetadata = it
+            }
+        }
+    }
+
+    fun backupToFirebaseCloud(context: Context, onResult: (String, Boolean) -> Unit) {
+        if (!authManager.isUserLoggedIn) {
+            onResult("Silakan masuk (login) terlebih dahulu untuk mencadangkan ke Firebase Cloud.", false)
+            return
+        }
+        isCloudBackupLoading = true
+        preventAutoLock = true
+        viewModelScope.launch {
+            try {
+                val result = cloudBackupManager.backupToCloud(context)
+                result.onSuccess { msg ->
+                    checkCloudBackupMetadata()
+                    onResult(msg, true)
+                }.onFailure { err ->
+                    onResult(err.message ?: "Gagal mencadangkan ke cloud.", false)
+                }
+            } catch (e: Exception) {
+                onResult("Terjadi kesalahan: ${e.message}", false)
+            } finally {
+                isCloudBackupLoading = false
+                preventAutoLock = false
+            }
+        }
+    }
+
+    fun restoreFromFirebaseCloud(context: Context, onResult: (String, Boolean) -> Unit) {
+        if (!authManager.isUserLoggedIn) {
+            onResult("Silakan masuk (login) terlebih dahulu untuk memulihkan data dari Firebase Cloud.", false)
+            return
+        }
+        isCloudBackupLoading = true
+        preventAutoLock = true
+        viewModelScope.launch {
+            try {
+                val result = cloudBackupManager.restoreFromCloud(context)
+                result.onSuccess { msg ->
+                    reloadFromSharedPrefs()
+                    checkCloudBackupMetadata()
+                    onResult(msg, true)
+                }.onFailure { err ->
+                    onResult(err.message ?: "Gagal memulihkan data dari cloud.", false)
+                }
+            } catch (e: Exception) {
+                onResult("Terjadi kesalahan: ${e.message}", false)
+            } finally {
+                isCloudBackupLoading = false
+                preventAutoLock = false
+            }
+        }
+    }
+
+    // Firebase Cloud Messaging (FCM) State
+    val fcmNotifications: StateFlow<List<FcmNotification>> = repository.allFcmNotifications
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val unreadFcmCount: StateFlow<Int> = repository.unreadFcmCount
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), 0)
+
+    var fcmToken by mutableStateOf("")
+    var isFcmConnected by mutableStateOf(false)
+    var fcmTokenError by mutableStateOf<String?>(null)
+    var isFetchingFcmToken by mutableStateOf(false)
+    var fcmTokenSource by mutableStateOf("Firebase Cloud")
+    var activeInAppMessage by mutableStateOf<FcmNotification?>(null)
+
+    fun showInAppMessage(notification: FcmNotification) {
+        viewModelScope.launch {
+            activeInAppMessage = notification
+        }
+    }
+
+    fun dismissInAppMessage() {
+        val current = activeInAppMessage
+        if (current != null) {
+            viewModelScope.launch {
+                repository.markFcmAsRead(current.id)
+            }
+        }
+        activeInAppMessage = null
+    }
+
+    fun openInboxFromInAppMessage() {
+        val current = activeInAppMessage
+        if (current != null) {
+            viewModelScope.launch {
+                repository.markFcmAsRead(current.id)
+            }
+        }
+        activeInAppMessage = null
+        showFcmNotificationsDialog = true
+    }
+
+    private fun generateOrGetFallbackToken(): String {
+        val existing = sharedPrefs.getString("fcm_device_registration_token", "") ?: ""
+        if (existing.isNotEmpty()) return existing
+
+        val context = getApplication<Application>()
+        val androidId = try {
+            android.provider.Settings.Secure.getString(
+                context.contentResolver,
+                android.provider.Settings.Secure.ANDROID_ID
+            ) ?: ""
+        } catch (e: Exception) { "" }
+
+        val uniqueSeed = (androidId.ifEmpty { "singghara_device" }) + "_" + context.packageName
+        val hash = try {
+            val md = java.security.MessageDigest.getInstance("SHA-256")
+            val bytes = md.digest(uniqueSeed.toByteArray())
+            bytes.joinToString("") { "%02x".format(it) }
+        } catch (e: Exception) {
+            UUID.randomUUID().toString().replace("-", "")
+        }
+        val generatedToken = "d_${hash.take(32)}:${UUID.randomUUID().toString().replace("-", "").take(22)}"
+        sharedPrefs.edit().putString("fcm_device_registration_token", generatedToken).apply()
+        return generatedToken
+    }
+
+    fun fetchFcmToken(forceRefresh: Boolean = false) {
+        viewModelScope.launch {
+            try {
+                isFetchingFcmToken = true
+                fcmTokenError = null
+                val context = getApplication<Application>()
+
+                // 1. Muat token yang sudah ada agar UI tidak stuck
+                val savedReal = sharedPrefs.getString("fcm_real_token", "") ?: ""
+                val saved = sharedPrefs.getString("fcm_token", "") ?: ""
+                if (savedReal.isNotEmpty()) {
+                    fcmToken = savedReal
+                    isFcmConnected = true
+                    fcmTokenSource = "Google Play Services"
+                } else if (saved.isNotEmpty()) {
+                    fcmToken = saved
+                    isFcmConnected = true
+                    fcmTokenSource = "Pendaftaran Perangkat"
+                } else {
+                    fcmToken = generateOrGetFallbackToken()
+                    fcmTokenSource = "Pendaftaran Perangkat"
+                }
+
+                // 2. Pastikan FirebaseApp terinisialisasi
+                if (com.google.firebase.FirebaseApp.getApps(context).isEmpty()) {
+                    try {
+                        com.google.firebase.FirebaseApp.initializeApp(context)
+                    } catch (e: Throwable) {
+                        android.util.Log.w("MainViewModel", "FirebaseApp init warning: ${e.message}")
+                    }
+                }
+
+                // Periksa ketersediaan Google Play Services sebelum memanggil FCM SDK
+                val gmsAvailability = try {
+                    com.google.android.gms.common.GoogleApiAvailability.getInstance().isGooglePlayServicesAvailable(context)
+                } catch (e: Throwable) {
+                    com.google.android.gms.common.ConnectionResult.SERVICE_MISSING
+                }
+
+                if (gmsAvailability != com.google.android.gms.common.ConnectionResult.SUCCESS) {
+                    isFetchingFcmToken = false
+                    fcmTokenError = "Google Play Services tidak tersedia pada perangkat/emulator ini"
+                    android.util.Log.i("MainViewModel", "GMS tidak aktif (code: $gmsAvailability), menggunakan token pendaftaran perangkat.")
+                    return@launch
+                }
+
+                val messaging = com.google.firebase.messaging.FirebaseMessaging.getInstance()
+
+                // Jika force refresh, coba bersihkan token lama terlebih dahulu
+                if (forceRefresh) {
+                    try {
+                        messaging.deleteToken()
+                    } catch (e: Throwable) {
+                        android.util.Log.w("MainViewModel", "FCM deleteToken warning: ${e.message}")
+                    }
+                }
+
+                // 3. Dapatkan Token Pendaftaran Resmi dari Firebase SDK
+                messaging.token
+                    .addOnCompleteListener { task ->
+                        isFetchingFcmToken = false
+                        if (task.isSuccessful && !task.result.isNullOrEmpty()) {
+                            val token = task.result
+                            fcmToken = token
+                            isFcmConnected = true
+                            fcmTokenError = null
+                            fcmTokenSource = "Google Play Services"
+                            sharedPrefs.edit()
+                                .putString("fcm_token", token)
+                                .putString("fcm_real_token", token)
+                                .apply()
+                            android.util.Log.d("MainViewModel", "FCM Token berhasil diambil: $token")
+                            syncFcmTokenToFirestore()
+                            if (forceRefresh) {
+                                showToastPopup("Token FCM berhasil diperbarui!")
+                            }
+                            // Berlangganan topik siaran "all" HANYA jika token pendaftaran berhasil diperoleh
+                            try {
+                                messaging.subscribeToTopic("all")
+                            } catch (e: Throwable) {
+                                android.util.Log.w("MainViewModel", "FCM subscribeToTopic note: ${e.message}")
+                            }
+                        } else {
+                            val exc = task.exception
+                            val rawMsg = exc?.localizedMessage ?: exc?.message ?: "Layanan pendaftaran Google Play tidak tersedia"
+                            android.util.Log.w("MainViewModel", "FCM Token fetch note: $rawMsg")
+                            fcmTokenError = if (rawMsg.contains("TOO_MANY_REGISTRATIONS", ignoreCase = true)) {
+                                "Batas pendaftaran Google Play tercapai pada emulator/perangkat ini. Menggunakan identitas perangkat lokal."
+                            } else {
+                                rawMsg
+                            }
+                            if (fcmToken.isEmpty()) {
+                                fcmToken = generateOrGetFallbackToken()
+                                fcmTokenSource = "Pendaftaran Perangkat"
+                            }
+                            if (forceRefresh) {
+                                showToastPopup("Info: Token pendaftaran perangkat aktif")
+                            }
+                        }
+                    }
+            } catch (e: Throwable) {
+                isFetchingFcmToken = false
+                fcmTokenError = e.localizedMessage ?: e.message ?: "Kesalahan inisialisasi Firebase"
+                android.util.Log.w("MainViewModel", "FCM fetch note: ${e.message}")
+                if (fcmToken.isEmpty()) {
+                    fcmToken = generateOrGetFallbackToken()
+                    fcmTokenSource = "Pendaftaran Perangkat"
+                }
+            }
+        }
+    }
+
+    fun refreshFcmToken() {
+        showToastPopup("Memeriksa dan memperbarui token perangkat...")
+        fetchFcmToken(forceRefresh = true)
+    }
+
+    fun markFcmAsRead(id: Long) {
+        viewModelScope.launch {
+            repository.markFcmAsRead(id)
+        }
+    }
+
+    fun markAllFcmAsRead() {
+        viewModelScope.launch {
+            repository.markAllFcmAsRead()
+            showToastPopup("Semua notifikasi Cloud Messaging ditandai telah dibaca")
+        }
+    }
+
+    fun deleteFcmNotification(id: Long) {
+        viewModelScope.launch {
+            repository.deleteFcmNotification(id)
+        }
+    }
+
+    fun clearAllFcmNotifications() {
+        viewModelScope.launch {
+            repository.clearAllFcmNotifications()
+            showToastPopup("Riwayat notifikasi Cloud Messaging telah dikosongkan")
+        }
+    }
+
+    fun simulateTestInAppMessage() {
+        viewModelScope.launch {
+            val testNotification = FcmNotification(
+                title = "In-App Messaging: Pengumuman",
+                body = "Halo! Ini adalah contoh pesan In-App Messaging yang muncul langsung sebagai pop-up di layar aplikasi My Singghara saat aplikasi sedang dibuka.",
+                timestamp = System.currentTimeMillis(),
+                isRead = false,
+                dataPayload = "source: firebase_in_app, topic: all"
+            )
+            val id = repository.insertFcmNotification(testNotification)
+            activeInAppMessage = testNotification.copy(id = id)
+            showToastPopup("Pop-up In-App Messaging ditampilkan!")
+        }
+    }
+
+    fun simulateTestFcmNotification() {
+        viewModelScope.launch {
+            val testNotification = FcmNotification(
+                title = "Pengumuman Cloud Messaging",
+                body = "Halo dari Firebase Cloud Messaging! Notifikasi push ini dikirim dari konsol pesan Firebase dan berhasil diterima di sistem OS Android.",
+                timestamp = System.currentTimeMillis(),
+                isRead = false,
+                dataPayload = "source: firebase_console, topic: all"
+            )
+            val id = repository.insertFcmNotification(testNotification)
+
+            // Kirim notifikasi langsung ke bilah status / sistem OS Android
+            try {
+                com.example.NotificationScheduler.showFcmNotification(
+                    getApplication(),
+                    testNotification.title,
+                    testNotification.body,
+                    testNotification.dataPayload
+                )
+            } catch (e: Exception) {
+                android.util.Log.e("MainViewModel", "Error posting test FCM notification to OS", e)
+            }
+
+            showToastPopup("Pesan uji coba telah dikirim ke bilah notifikasi sistem OS Android!")
+        }
+    }
 
     // Storage Access Framework (SAF) URI persistence
-    private val sharedPrefs = application.getSharedPreferences("mysingghara_prefs", Context.MODE_PRIVATE)
     var safFolderUriStr by mutableStateOf(sharedPrefs.getString("saf_folder_uri", "") ?: "")
 
     // Global popup toast message state for dialog replacements
@@ -125,9 +1078,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun saveCustomAzanSound(prayerName: String, uri: android.net.Uri, context: android.content.Context): Boolean {
         return try {
+            val prayerKey = prayerName.lowercase(Locale.getDefault())
             val contentResolver = context.contentResolver
             val inputStream = contentResolver.openInputStream(uri) ?: return false
-            val destFile = java.io.File(context.filesDir, "azan_custom_${prayerName.lowercase(Locale.getDefault())}.mp3")
+            val destFile = java.io.File(context.filesDir, "azan_custom_$prayerKey.mp3")
             if (destFile.exists()) {
                 destFile.delete()
             }
@@ -136,6 +1090,28 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     input.copyTo(outputStream)
                 }
             }
+
+            // Simpan path ke file internal yang valid dan bersihkan file yang dihilangkan
+            try {
+                sharedPrefs.edit().putString("azan_custom_path_$prayerKey", destFile.absolutePath).apply()
+                com.example.util.SinggharaFolderManager.removeDisallowedMp3Files()
+            } catch (ignored: Exception) {}
+
+            savePrayerSoundSetting(prayerName, 3)
+            true
+        } catch (e: Exception) {
+            e.printStackTrace()
+            false
+        }
+    }
+
+    fun setCustomAzanFromFile(prayerName: String, file: java.io.File, context: android.content.Context): Boolean {
+        return try {
+            val prayerKey = prayerName.lowercase(Locale.getDefault())
+            val destFile = java.io.File(context.filesDir, "azan_custom_$prayerKey.mp3")
+            if (destFile.exists()) destFile.delete()
+            file.copyTo(destFile, overwrite = true)
+            sharedPrefs.edit().putString("azan_custom_path_$prayerKey", file.absolutePath).apply()
             savePrayerSoundSetting(prayerName, 3)
             true
         } catch (e: Exception) {
@@ -146,6 +1122,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     // Notification manual delete confirmation state
     var showConfirmDeleteNotificationDialog by mutableStateOf(false)
+    var showFcmNotificationsDialog by mutableStateOf(false)
     var agendaNotificationDismissedDate by mutableStateOf(sharedPrefs.getString("dismissed_agenda_date", "") ?: "")
 
     fun setAgendaNotificationDismissedToday(dismissed: Boolean) {
@@ -225,7 +1202,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         if (uriStr.isNotEmpty()) {
             try {
                 val uri = android.net.Uri.parse(uriStr)
-                val avatarFile = java.io.File(getApplication<Application>().filesDir, "custom_profile_avatar.jpg")
+                val timestamp = System.currentTimeMillis()
+                val avatarFile = java.io.File(getApplication<Application>().filesDir, "custom_profile_avatar_${timestamp}.jpg")
+                getApplication<Application>().filesDir.listFiles { _, name ->
+                    name.startsWith("custom_profile_avatar") && name != avatarFile.name
+                }?.forEach { it.delete() }
+
                 val stream = if (uri.scheme == "file") {
                     java.io.File(uri.path ?: "").inputStream()
                 } else {
@@ -248,6 +1230,27 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         } else {
             sharedPrefs.edit().putString("profile_image_uri", "").apply()
             profileImageUri = ""
+        }
+    }
+
+    fun saveProfileImageBitmap(bitmap: android.graphics.Bitmap) {
+        try {
+            val timestamp = System.currentTimeMillis()
+            val avatarFile = java.io.File(getApplication<Application>().filesDir, "custom_profile_avatar_${timestamp}.jpg")
+            getApplication<Application>().filesDir.listFiles { _, name ->
+                name.startsWith("custom_profile_avatar") && name != avatarFile.name
+            }?.forEach { it.delete() }
+
+            java.io.FileOutputStream(avatarFile).use { out ->
+                bitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 92, out)
+            }
+            val localUriStr = android.net.Uri.fromFile(avatarFile).toString()
+            sharedPrefs.edit().putString("profile_image_uri", localUriStr).apply()
+            profileImageUri = localUriStr
+            profileAvatarIndex = -1
+            sharedPrefs.edit().putInt("profile_avatar_index", -1).apply()
+        } catch (e: Exception) {
+            e.printStackTrace()
         }
     }
 
@@ -351,30 +1354,62 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     var webServer: com.example.web.LocalHttpServer? = null
     var webServerUrl by mutableStateOf("")
+    val connectedWebDevices = mutableStateListOf<com.example.web.LocalHttpServer.ConnectedDevice>()
+
+    fun refreshConnectedWebDevices() {
+        val list = webServer?.getConnectedDevices() ?: emptyList()
+        connectedWebDevices.clear()
+        connectedWebDevices.addAll(list)
+    }
+
+    fun approveDeviceSession(sessionId: String) {
+        webServer?.approveDeviceSession(sessionId)
+        refreshConnectedWebDevices()
+        NotificationScheduler.cancelWebAccessNotification(getApplication())
+        webAccessSecurityState = WebAccessSecurityState.NONE
+        showToastPopup("Sesi perangkat berhasil diizinkan!", com.example.ui.components.ToastType.SUCCESS)
+    }
+
+    fun lockAndDisconnectDevice(sessionId: String) {
+        webServer?.rejectDeviceSession(sessionId)
+        refreshConnectedWebDevices()
+        showToastPopup("Sesi perangkat berhasil dikunci & diputuskan!", com.example.ui.components.ToastType.SUCCESS)
+    }
 
     fun startWebServer(onStarted: (String) -> Unit, onError: (String) -> Unit) {
         if (webServer == null) {
             webServer = com.example.web.LocalHttpServer(getApplication(), repository).apply {
                 onAccessRequested = { ip, _ ->
                     webAccessClientIp = ip
+                    refreshConnectedWebDevices()
                     NotificationScheduler.showWebAccessNotification(getApplication(), ip)
                     if (webAccessSecurityState == WebAccessSecurityState.NONE) {
                         webAccessSecurityState = WebAccessSecurityState.PROMPT
                     }
                 }
+                onDevicesChanged = { list ->
+                    connectedWebDevices.clear()
+                    connectedWebDevices.addAll(list)
+                }
             }
         } else {
             webServer?.onAccessRequested = { ip, _ ->
                 webAccessClientIp = ip
+                refreshConnectedWebDevices()
                 NotificationScheduler.showWebAccessNotification(getApplication(), ip)
                 if (webAccessSecurityState == WebAccessSecurityState.NONE) {
                     webAccessSecurityState = WebAccessSecurityState.PROMPT
                 }
             }
+            webServer?.onDevicesChanged = { list ->
+                connectedWebDevices.clear()
+                connectedWebDevices.addAll(list)
+            }
         }
         webServer?.start(
             onStarted = { url ->
                 webServerUrl = url
+                refreshConnectedWebDevices()
                 onStarted(url)
             },
             onError = { err ->
@@ -386,6 +1421,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun stopWebServer() {
         webServer?.stop()
         webServerUrl = ""
+        connectedWebDevices.clear()
         webAccessSecurityState = WebAccessSecurityState.NONE
         NotificationScheduler.cancelWebAccessNotification(getApplication())
     }
@@ -403,6 +1439,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun onRejectWebAccess() {
         webServer?.rejectPendingAccess()
+        refreshConnectedWebDevices()
         NotificationScheduler.cancelWebAccessNotification(getApplication())
         webAccessSecurityState = WebAccessSecurityState.NONE
         showToastPopup("Akses Web PC ditolak", com.example.ui.components.ToastType.ERROR)
@@ -419,6 +1456,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun approveWebSession(tokenOrPin: String): Boolean {
         val res = webServer?.approveSession(tokenOrPin) ?: false
         if (res) {
+            refreshConnectedWebDevices()
             NotificationScheduler.cancelWebAccessNotification(getApplication())
             webAccessSecurityState = WebAccessSecurityState.NONE
         }
@@ -428,6 +1466,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun approveAllPendingWebSessions(): Boolean {
         val res = webServer?.approveAllPending() ?: false
         if (res) {
+            refreshConnectedWebDevices()
             NotificationScheduler.cancelWebAccessNotification(getApplication())
             webAccessSecurityState = WebAccessSecurityState.NONE
         }
@@ -436,8 +1475,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun revokeWebSessions() {
         webServer?.revokeAll()
+        refreshConnectedWebDevices()
         NotificationScheduler.cancelWebAccessNotification(getApplication())
         webAccessSecurityState = WebAccessSecurityState.NONE
+        showToastPopup("Semua sesi PC berhasil dikunci & diputuskan!", com.example.ui.components.ToastType.SUCCESS)
     }
 
     fun getWebPinCode(): String {
@@ -574,6 +1615,70 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val allPresensi: StateFlow<List<RiwayatPresensi>> = repository.allPresensi
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    val allGaji: StateFlow<List<GajiItem>> = repository.allGaji
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val allBelanjaPasar: StateFlow<List<BelanjaPasarItem>> = repository.allBelanjaPasarItems
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    // Belanja Pasar Management
+    fun saveBelanjaPasar(item: BelanjaPasarItem, onComplete: (Long) -> Unit = {}) {
+        viewModelScope.launch {
+            val id = if (item.id == 0) {
+                repository.insertBelanjaPasar(item)
+            } else {
+                repository.updateBelanjaPasar(item)
+                item.id.toLong()
+            }
+            onComplete(id)
+        }
+    }
+
+    fun deleteBelanjaPasar(item: BelanjaPasarItem) {
+        viewModelScope.launch {
+            repository.deleteBelanjaPasar(item)
+        }
+    }
+
+    fun toggleBelanjaPasarStatus(id: Int, sudahDibeli: Boolean) {
+        viewModelScope.launch {
+            repository.setBelanjaPasarSudahDibeli(id, sudahDibeli)
+        }
+    }
+
+    fun clearCompletedBelanjaPasar() {
+        viewModelScope.launch {
+            repository.clearCompletedBelanjaPasar()
+        }
+    }
+
+    // Gaji Management
+    fun saveGaji(gaji: GajiItem, onComplete: (Long) -> Unit = {}) {
+        viewModelScope.launch {
+            val id = repository.insertGaji(gaji)
+            onComplete(id)
+        }
+    }
+
+    fun updateGaji(gaji: GajiItem, onComplete: () -> Unit = {}) {
+        viewModelScope.launch {
+            repository.updateGaji(gaji)
+            onComplete()
+        }
+    }
+
+    fun deleteGaji(gaji: GajiItem) {
+        viewModelScope.launch {
+            repository.deleteGaji(gaji)
+        }
+    }
+
+    fun deleteAllGaji() {
+        viewModelScope.launch {
+            repository.deleteAllGaji()
+        }
+    }
+
     // Anggota & Presensi Management
     var selectedAnggotaForIdCard by mutableStateOf<AnggotaItem?>(null)
 
@@ -593,6 +1698,32 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun deleteAnggota(anggota: AnggotaItem) {
         viewModelScope.launch {
             repository.deleteAnggota(anggota)
+        }
+    }
+
+    /**
+     * Memeriksa dan otomatis menghapus data ID Card yang masa berlakunya telah habis.
+     */
+    fun checkAndCleanupExpiredAnggota() {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val list = repository.allAnggota.first()
+                val now = System.currentTimeMillis()
+                val expired = list.filter {
+                    com.example.utils.MasaBerlakuHelper.isExpired(it.berlakuHingga, it.tanggalDibuat, now)
+                }
+                if (expired.isNotEmpty()) {
+                    expired.forEach { item ->
+                        repository.deleteAnggota(item)
+                    }
+                    withContext(Dispatchers.Main) {
+                        val names = expired.joinToString(", ") { it.nama }
+                        showToastPopup("${expired.size} data ID Card yang habis masa berlaku otomatis dihapus: $names")
+                    }
+                }
+            } catch (e: Exception) {
+                // Ignore background check failure
+            }
         }
     }
 
@@ -933,6 +2064,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                                                     putString("kemenag_cache_date", "$year-$month-$day")
                                                     apply()
                                                 }
+                                                // Sync prayer alarms immediately with updated Kemenag times
+                                                com.example.NotificationScheduler.schedulePrayerAlarmsForToday(getApplication())
                                             }
                                         }
                                     }
@@ -1045,11 +2178,26 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun setupNetworkMonitoring() {
         try {
+            isNetworkAvailable = checkInitialNetworkState()
             connectivityManager = getApplication<Application>().getSystemService(Context.CONNECTIVITY_SERVICE) as? android.net.ConnectivityManager
             networkCallback = object : android.net.ConnectivityManager.NetworkCallback() {
                 override fun onAvailable(network: android.net.Network) {
                     super.onAvailable(network)
+                    isNetworkAvailable = true
                     fetchWeather()
+                    syncFcmTokenToFirestore()
+                    setupAdminMessagesListener()
+                    setupOtpRequestsListener()
+                }
+
+                override fun onLost(network: android.net.Network) {
+                    super.onLost(network)
+                    isNetworkAvailable = checkInitialNetworkState()
+                }
+
+                override fun onCapabilitiesChanged(network: android.net.Network, networkCapabilities: android.net.NetworkCapabilities) {
+                    super.onCapabilitiesChanged(network, networkCapabilities)
+                    isNetworkAvailable = networkCapabilities.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET)
                 }
             }
             networkCallback?.let { callback ->
@@ -1462,14 +2610,38 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     init {
         instance = this
+        try {
+            com.example.util.SinggharaFolderManager.ensureFoldersExist(application)
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        val initUser = authManager.currentUser ?: com.google.firebase.auth.FirebaseAuth.getInstance().currentUser
+        if (initUser != null) {
+            currentFirebaseUser = initUser
+            syncUserProfileFromFirebase(initUser)
+        }
+        try {
+            authManager.addAuthStateListener { fbAuth ->
+                val u = fbAuth.currentUser
+                if (u != null) {
+                    currentFirebaseUser = u
+                    syncUserProfileFromFirebase(u)
+                }
+            }
+        } catch (_: Exception) {}
         loadPrayerSoundSettings()
+        fetchFcmToken()
+        syncFcmTokenToFirestore()
+        setupAdminMessagesListener()
+        setupOtpRequestsListener()
+        checkAccountAccessStatus()
         
         // Initialize Recent Apps List
         val savedRecentStr = sharedPrefs.getString("recent_app_ids", null)
         val loadedIds = if (!savedRecentStr.isNullOrEmpty()) {
             savedRecentStr.split(",").map { it.trim() }.filter { AppRegistry.allAppsMap.containsKey(it) }
         } else emptyList()
-        val combinedRecent = (loadedIds + AppRegistry.defaultOrder).distinct()
+        val combinedRecent = (listOf("sliding_puzzle") + loadedIds + AppRegistry.defaultOrder).distinct()
         recentAppIds.clear()
         recentAppIds.addAll(combinedRecent)
         
@@ -1489,6 +2661,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
         startClock()
         loadRetrofitHolidays()
+        checkAndCleanupExpiredAnggota()
         
         // Load cached Kemenag schedule if date matches today
         val cachedDate = sharedPrefs.getString("kemenag_cache_date", null)
@@ -1646,20 +2819,41 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun scanMusicFolder(context: Context) {
-        if (musicFolderUriStr.isEmpty()) {
-            musicPlaylist.clear()
-            return
-        }
         isMusicLoading = musicPlaylist.isEmpty()
         viewModelScope.launch(Dispatchers.IO) {
             try {
-                val treeUri = Uri.parse(musicFolderUriStr)
-                val folder = DocumentFile.fromTreeUri(context, treeUri)
                 val tracks = mutableListOf<MusicTrack>()
-                if (folder != null && folder.exists()) {
-                    val idCounterRef = arrayOf(1)
-                    scanDirectoryRecursively(folder, tracks, idCounterRef)
+                val idCounterRef = arrayOf(1)
+
+                // 1. Scan folder SAF jika pengguna telah memilih folder musik
+                if (musicFolderUriStr.isNotEmpty()) {
+                    val treeUri = Uri.parse(musicFolderUriStr)
+                    val folder = DocumentFile.fromTreeUri(context, treeUri)
+                    if (folder != null && folder.exists()) {
+                        scanDirectoryRecursively(folder, tracks, idCounterRef)
+                    }
                 }
+
+                // 2. Otomatis scan folder internal: /storage/emulated/0/My Singghara/Data/mp3
+                try {
+                    val mp3Folder = com.example.util.SinggharaFolderManager.getMp3Folder()
+                    if (mp3Folder.exists()) {
+                        val files = mp3Folder.listFiles { f -> f.isFile && f.name.endsWith(".mp3", ignoreCase = true) }
+                        files?.forEach { f ->
+                            val currentId = idCounterRef[0]
+                            idCounterRef[0] = currentId + 1
+                            tracks.add(
+                                MusicTrack(
+                                    id = "mysingghara_$currentId",
+                                    title = f.nameWithoutExtension,
+                                    artist = "My Singghara MP3",
+                                    uriStr = Uri.fromFile(f).toString()
+                                )
+                            )
+                        }
+                    }
+                } catch (ignored: Exception) {}
+
                 viewModelScope.launch(Dispatchers.Main) {
                     musicPlaylist.clear()
                     musicPlaylist.addAll(tracks)

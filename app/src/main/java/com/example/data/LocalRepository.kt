@@ -23,6 +23,10 @@ class LocalRepository(private val db: AppDatabase) {
     val jadwalDao = db.jadwalDao()
     val anggotaDao = db.anggotaDao()
     val presensiDao = db.presensiDao()
+    val gajiDao = db.gajiDao()
+    val belanjaPasarDao = db.belanjaPasarDao()
+    val fcmNotificationDao = db.fcmNotificationDao()
+    val arisanDao = db.arisanDao()
 
     // Flows
     val allShoppingItems: Flow<List<ShoppingItem>> = shoppingDao.getAllShoppingItems()
@@ -36,6 +40,119 @@ class LocalRepository(private val db: AppDatabase) {
     val allJadwal: Flow<List<JadwalKegiatan>> = jadwalDao.getAllJadwal()
     val allAnggota: Flow<List<AnggotaItem>> = anggotaDao.getAllAnggota()
     val allPresensi: Flow<List<RiwayatPresensi>> = presensiDao.getAllPresensi()
+    val allGaji: Flow<List<GajiItem>> = gajiDao.getAllGaji()
+    val allBelanjaPasarItems: Flow<List<BelanjaPasarItem>> = belanjaPasarDao.getAllBelanjaPasar()
+    val allFcmNotifications: Flow<List<FcmNotification>> = fcmNotificationDao.getAllNotifications()
+    val unreadFcmCount: Flow<Int> = fcmNotificationDao.getUnreadCount()
+    val allArisanKelompok: Flow<List<ArisanKelompok>> = arisanDao.getAllKelompok()
+
+    // Arisan operations
+    fun getPesertaByArisan(arisanId: Int): Flow<List<ArisanPeserta>> = arisanDao.getPesertaByArisan(arisanId)
+    suspend fun getPesertaListByArisan(arisanId: Int): List<ArisanPeserta> = withContext(Dispatchers.IO) {
+        arisanDao.getPesertaListByArisan(arisanId)
+    }
+    fun getIuranByPutaran(arisanId: Int, putaranKe: Int): Flow<List<ArisanIuran>> = arisanDao.getIuranByPutaran(arisanId, putaranKe)
+    fun getAllIuranByArisan(arisanId: Int): Flow<List<ArisanIuran>> = arisanDao.getAllIuranByArisan(arisanId)
+    fun getKasByArisan(arisanId: Int): Flow<List<ArisanKasTransaksi>> = arisanDao.getKasByArisan(arisanId)
+    fun getPemenangByArisan(arisanId: Int): Flow<List<ArisanPemenangRiwayat>> = arisanDao.getPemenangByArisan(arisanId)
+
+    suspend fun insertArisanKelompok(kelompok: ArisanKelompok): Long = withContext(Dispatchers.IO) {
+        arisanDao.insertKelompok(kelompok)
+    }
+    suspend fun updateArisanKelompok(kelompok: ArisanKelompok) = withContext(Dispatchers.IO) {
+        arisanDao.updateKelompok(kelompok)
+    }
+    suspend fun deleteArisanKelompok(kelompok: ArisanKelompok) = withContext(Dispatchers.IO) {
+        arisanDao.deleteKelompok(kelompok)
+        arisanDao.deletePesertaByArisan(kelompok.id)
+        arisanDao.deleteIuranByArisan(kelompok.id)
+        arisanDao.deleteKasByArisan(kelompok.id)
+        arisanDao.deletePemenangByArisan(kelompok.id)
+    }
+
+    suspend fun insertArisanPeserta(peserta: ArisanPeserta): Long = withContext(Dispatchers.IO) {
+        arisanDao.insertPeserta(peserta)
+    }
+    suspend fun updateArisanPeserta(peserta: ArisanPeserta) = withContext(Dispatchers.IO) {
+        arisanDao.updatePeserta(peserta)
+    }
+    suspend fun deleteArisanPeserta(peserta: ArisanPeserta) = withContext(Dispatchers.IO) {
+        arisanDao.deletePeserta(peserta)
+    }
+
+    suspend fun insertArisanIuran(iuran: ArisanIuran): Long = withContext(Dispatchers.IO) {
+        arisanDao.insertIuran(iuran)
+    }
+    suspend fun updateArisanIuran(iuran: ArisanIuran) = withContext(Dispatchers.IO) {
+        arisanDao.updateIuran(iuran)
+    }
+    suspend fun deleteArisanIuran(iuran: ArisanIuran) = withContext(Dispatchers.IO) {
+        arisanDao.deleteIuran(iuran)
+    }
+
+    suspend fun insertArisanKas(kas: ArisanKasTransaksi): Long = withContext(Dispatchers.IO) {
+        arisanDao.insertKas(kas)
+    }
+    suspend fun deleteArisanKas(kas: ArisanKasTransaksi) = withContext(Dispatchers.IO) {
+        arisanDao.deleteKas(kas)
+    }
+
+    suspend fun insertArisanPemenang(pemenang: ArisanPemenangRiwayat): Long = withContext(Dispatchers.IO) {
+        arisanDao.insertPemenang(pemenang)
+    }
+    suspend fun deleteArisanPemenang(pemenang: ArisanPemenangRiwayat) = withContext(Dispatchers.IO) {
+        arisanDao.deletePemenang(pemenang)
+    }
+
+    // Belanja Pasar operations
+    suspend fun insertBelanjaPasar(item: BelanjaPasarItem): Long = withContext(Dispatchers.IO) {
+        belanjaPasarDao.insertBelanjaPasar(item)
+    }
+
+    suspend fun updateBelanjaPasar(item: BelanjaPasarItem) = withContext(Dispatchers.IO) {
+        belanjaPasarDao.updateBelanjaPasar(item)
+    }
+
+    suspend fun deleteBelanjaPasar(item: BelanjaPasarItem) = withContext(Dispatchers.IO) {
+        belanjaPasarDao.deleteBelanjaPasar(item)
+    }
+
+    suspend fun deleteBelanjaPasarById(id: Int) = withContext(Dispatchers.IO) {
+        belanjaPasarDao.deleteById(id)
+    }
+
+    suspend fun setBelanjaPasarSudahDibeli(id: Int, sudahDibeli: Boolean) = withContext(Dispatchers.IO) {
+        belanjaPasarDao.setSudahDibeli(id, sudahDibeli)
+    }
+
+    suspend fun clearCompletedBelanjaPasar() = withContext(Dispatchers.IO) {
+        belanjaPasarDao.clearCompleted()
+    }
+
+    suspend fun getBelanjaPasarById(id: Int): BelanjaPasarItem? = withContext(Dispatchers.IO) {
+        belanjaPasarDao.getById(id)
+    }
+
+    // Gaji operations
+    suspend fun insertGaji(gaji: GajiItem): Long = withContext(Dispatchers.IO) {
+        gajiDao.insertGaji(gaji)
+    }
+
+    suspend fun updateGaji(gaji: GajiItem) = withContext(Dispatchers.IO) {
+        gajiDao.updateGaji(gaji)
+    }
+
+    suspend fun deleteGaji(gaji: GajiItem) = withContext(Dispatchers.IO) {
+        gajiDao.deleteGaji(gaji)
+    }
+
+    suspend fun deleteAllGaji() = withContext(Dispatchers.IO) {
+        gajiDao.deleteAll()
+    }
+
+    suspend fun getGajiById(id: Int): GajiItem? = withContext(Dispatchers.IO) {
+        gajiDao.getGajiById(id)
+    }
 
     // Anggota & Presensi operations
     suspend fun insertAnggota(anggota: AnggotaItem): Long = withContext(Dispatchers.IO) {
@@ -161,9 +278,19 @@ class LocalRepository(private val db: AppDatabase) {
         val jadwalKegiatan: List<JadwalKegiatan>? = null,
         val anggotaList: List<AnggotaItem>? = null,
         val presensiList: List<RiwayatPresensi>? = null,
+        val gajiList: List<GajiItem>? = null,
+        val belanjaPasarList: List<BelanjaPasarItem>? = null,
+        val arisanKelompokList: List<ArisanKelompok>? = null,
+        val arisanPesertaList: List<ArisanPeserta>? = null,
+        val arisanIuranList: List<ArisanIuran>? = null,
+        val arisanKasList: List<ArisanKasTransaksi>? = null,
+        val arisanPemenangList: List<ArisanPemenangRiwayat>? = null,
         val mySinggharaPrefs: Map<String, Any?>? = null,
         val pembukuanUsahaPrefs: Map<String, Any?>? = null,
-        val customAzanFiles: Map<String, String>? = null
+        val absensiPrefs: Map<String, Any?>? = null,
+        val idCardPrefs: Map<String, Any?>? = null,
+        val customAzanFiles: Map<String, String>? = null,
+        val internalMediaFiles: Map<String, String>? = null
     )
 
     // Moshi Instance
@@ -215,58 +342,78 @@ class LocalRepository(private val db: AppDatabase) {
             }
         }
         
-        if (oldSafUri.isNotEmpty()) {
-            editor.putString("saf_folder_uri", oldSafUri)
-        }
-        if (oldAppPin.isNotEmpty()) {
-            editor.putString("app_pin", oldAppPin)
-            editor.putBoolean("app_lock_enabled", oldAppLockEnabled)
-        } else if (oldAppLockEnabled) {
-            editor.putBoolean("app_lock_enabled", true)
-        }
-        if (oldFirstInstallCompleted) {
-            editor.putBoolean("first_install_setup_completed", true)
+        if (prefsName == "mysingghara_prefs") {
+            if (oldSafUri.isNotEmpty()) {
+                editor.putString("saf_folder_uri", oldSafUri)
+            }
+            if (oldAppPin.isNotEmpty()) {
+                editor.putString("app_pin", oldAppPin)
+                editor.putBoolean("app_lock_enabled", oldAppLockEnabled)
+            } else if (oldAppLockEnabled) {
+                editor.putBoolean("app_lock_enabled", true)
+            }
+            if (oldFirstInstallCompleted) {
+                editor.putBoolean("first_install_setup_completed", true)
+            }
         }
         
         editor.commit()
     }
 
-    private fun getCustomAzanFilesMap(context: Context): Map<String, String> {
+    private fun getInternalFilesMap(context: Context): Map<String, String> {
         val filesMap = mutableMapOf<String, String>()
         val filesDir = context.filesDir
-        val files = filesDir.listFiles { file ->
-            file.isFile && (
-                file.name.startsWith("azan_custom_") ||
-                file.name.startsWith("custom_") ||
-                file.name.endsWith(".ttf") ||
-                file.name.endsWith(".otf") ||
-                file.name.endsWith(".mp3") ||
-                file.name.endsWith(".png") ||
-                file.name.endsWith(".jpg")
-            )
-        }
-        files?.forEach { file ->
-            try {
-                val bytes = file.readBytes()
-                val base64Str = android.util.Base64.encodeToString(bytes, android.util.Base64.DEFAULT)
-                filesMap[file.name] = base64Str
-            } catch (e: Exception) {
-                e.printStackTrace()
+
+        fun collectFiles(dir: java.io.File, relativePrefix: String = "") {
+            val list = dir.listFiles() ?: return
+            for (file in list) {
+                if (file.isDirectory) {
+                    collectFiles(file, if (relativePrefix.isEmpty()) file.name else "$relativePrefix/${file.name}")
+                } else if (file.isFile) {
+                    val relPath = if (relativePrefix.isEmpty()) file.name else "$relativePrefix/${file.name}"
+                    val nameLower = file.name.lowercase(java.util.Locale.ROOT)
+                    val shouldInclude = nameLower.startsWith("azan_custom_") ||
+                            nameLower.startsWith("custom_") ||
+                            nameLower.startsWith("sig_") ||
+                            nameLower.startsWith("company_id_card_") ||
+                            nameLower.endsWith(".ttf") ||
+                            nameLower.endsWith(".otf") ||
+                            nameLower.endsWith(".mp3") ||
+                            nameLower.endsWith(".png") ||
+                            nameLower.endsWith(".jpg") ||
+                            nameLower.endsWith(".jpeg") ||
+                            nameLower.endsWith(".webp") ||
+                            relativePrefix.contains("profile_photos")
+                    if (shouldInclude) {
+                        try {
+                            val bytes = file.readBytes()
+                            val base64Str = android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP)
+                            filesMap[relPath] = base64Str
+                        } catch (e: Exception) {
+                            e.printStackTrace()
+                        }
+                    }
+                }
             }
         }
+
+        collectFiles(filesDir)
         return filesMap
     }
 
-    private fun restoreCustomAzanFilesFromMap(context: Context, filesMap: Map<String, String>) {
+    private fun restoreInternalFilesFromMap(context: Context, filesMap: Map<String, String>) {
         val filesDir = context.filesDir
-        filesMap.forEach { (filename, base64Str) ->
+        filesMap.forEach { (relPath, base64Str) ->
             try {
                 val bytes = android.util.Base64.decode(base64Str, android.util.Base64.DEFAULT)
-                val file = java.io.File(filesDir, filename)
-                if (file.exists()) {
-                    file.delete()
+                val targetFile = java.io.File(filesDir, relPath)
+                targetFile.parentFile?.let { parent ->
+                    if (!parent.exists()) parent.mkdirs()
                 }
-                file.writeBytes(bytes)
+                if (targetFile.exists()) {
+                    targetFile.delete()
+                }
+                targetFile.writeBytes(bytes)
             } catch (e: Exception) {
                 e.printStackTrace()
             }
@@ -290,6 +437,10 @@ class LocalRepository(private val db: AppDatabase) {
             val jadwalList = allJadwal.first()
             val anggotaList = allAnggota.first()
             val presensiList = allPresensi.first()
+            val gajiList = allGaji.first()
+            val belanjaPasarList = allBelanjaPasarItems.first()
+
+            val mediaFiles = getInternalFilesMap(context)
 
             val backupObj = FullBackupData(
                 shopping = shoppingList,
@@ -303,22 +454,145 @@ class LocalRepository(private val db: AppDatabase) {
                 jadwalKegiatan = jadwalList,
                 anggotaList = anggotaList,
                 presensiList = presensiList,
+                gajiList = gajiList,
+                belanjaPasarList = belanjaPasarList,
                 mySinggharaPrefs = getSharedPrefsMap(context, "mysingghara_prefs"),
                 pembukuanUsahaPrefs = getSharedPrefsMap(context, "pembukuan_usaha_prefs"),
-                customAzanFiles = getCustomAzanFilesMap(context)
+                absensiPrefs = getSharedPrefsMap(context, "mysingghara_absensi_prefs"),
+                idCardPrefs = getSharedPrefsMap(context, "singghara_idcard_prefs"),
+                customAzanFiles = mediaFiles,
+                internalMediaFiles = mediaFiles
             )
 
             val jsonString = backupAdapter.indent("  ").toJson(backupObj)
 
-            // Tentukan target file eksternal publik (Download/MySingghara_Backup.json)
+            // Simpan utama ke folder My Singghara/Back Up/mysingghara_backup.json
+            val primaryBackupFile = com.example.util.SinggharaFolderManager.getPrimaryBackupFile()
+            primaryBackupFile.writeText(jsonString, Charsets.UTF_8)
+
+            // Simpan juga ke folder Download publik untuk kompatibilitas
             val downloadDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
             if (downloadDir != null && !downloadDir.exists()) {
                 downloadDir.mkdirs()
             }
             val backupFile = File(downloadDir, "mysingghara_backup.json")
-
             backupFile.writeText(jsonString, Charsets.UTF_8)
-            Result.success("Berhasil ekspor ke ${backupFile.absolutePath}")
+
+            Result.success("Berhasil ekspor ke ${primaryBackupFile.absolutePath}")
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * Menghasilkan string JSON backup lengkap dari seluruh data aplikasi (Room & SharedPreferences).
+     */
+    suspend fun getBackupJsonString(context: Context): Result<String> = withContext(Dispatchers.IO) {
+        try {
+            val shoppingList = allShoppingItems.first()
+            val notesList = allNotes.first()
+            val target = activeSavingTarget.first()
+            val transactionsList = allSavingTransactions.first()
+            val agendasList = allAgendas.first()
+            val quranBookmarksList = allQuranBookmarks.first()
+            val quranHistoryList = allQuranHistory.first()
+            val mindMapsList = allMindMaps.first()
+            val jadwalList = allJadwal.first()
+            val anggotaList = allAnggota.first()
+            val presensiList = allPresensi.first()
+            val gajiList = allGaji.first()
+            val belanjaPasarList = allBelanjaPasarItems.first()
+
+            val mediaFiles = getInternalFilesMap(context)
+
+            val backupObj = FullBackupData(
+                shopping = shoppingList,
+                notes = notesList,
+                savingTarget = target,
+                savingTransactions = transactionsList,
+                agendas = agendasList,
+                quranBookmarks = quranBookmarksList,
+                quranHistory = quranHistoryList,
+                mindMaps = mindMapsList,
+                jadwalKegiatan = jadwalList,
+                anggotaList = anggotaList,
+                presensiList = presensiList,
+                gajiList = gajiList,
+                belanjaPasarList = belanjaPasarList,
+                mySinggharaPrefs = getSharedPrefsMap(context, "mysingghara_prefs"),
+                pembukuanUsahaPrefs = getSharedPrefsMap(context, "pembukuan_usaha_prefs"),
+                absensiPrefs = getSharedPrefsMap(context, "mysingghara_absensi_prefs"),
+                idCardPrefs = getSharedPrefsMap(context, "singghara_idcard_prefs"),
+                customAzanFiles = mediaFiles,
+                internalMediaFiles = mediaFiles
+            )
+
+            val jsonString = backupAdapter.indent("  ").toJson(backupObj)
+            Result.success(jsonString)
+        } catch (e: Exception) {
+            Result.failure(e)
+        }
+    }
+
+    /**
+     * Memulihkan data aplikasi (Room & SharedPreferences) dari string JSON backup.
+     */
+    suspend fun restoreFromJsonString(context: Context, jsonString: String): Result<String> = withContext(Dispatchers.IO) {
+        try {
+            val backupObj = backupAdapter.fromJson(jsonString)
+                ?: return@withContext Result.failure(Exception("Format data cadangan tidak valid."))
+
+            // Bersihkan data lama
+            shoppingDao.deleteAll()
+            noteDao.deleteAll()
+            savingDao.deleteAllTargets()
+            savingDao.deleteAllTransactions()
+            agendaDao.deleteAll()
+            quranDao.clearBookmarks()
+            quranDao.clearHistory()
+            mindMapDao.deleteAll()
+            jadwalDao.deleteAll()
+            anggotaDao.deleteAll()
+            presensiDao.deleteAll()
+            gajiDao.deleteAll()
+            belanjaPasarDao.deleteAll()
+            arisanDao.deleteAllKelompok()
+            arisanDao.deleteAllPeserta()
+            arisanDao.deleteAllIuran()
+            arisanDao.deleteAllKas()
+            arisanDao.deleteAllPemenang()
+
+            // Memasukkan data baru secara sekuensial
+            backupObj.shopping.forEach { shoppingDao.insertShoppingItem(it) }
+            backupObj.notes.forEach { noteDao.insertNote(it) }
+            backupObj.savingTarget?.let { savingDao.setTarget(it) }
+            backupObj.savingTransactions.forEach { savingDao.insertTransaction(it) }
+            backupObj.agendas.forEach { agendaDao.insertAgenda(it) }
+            backupObj.quranBookmarks?.forEach { quranDao.insertBookmark(it) }
+            backupObj.quranHistory?.forEach { quranDao.insertHistory(it) }
+            backupObj.mindMaps?.forEach { mindMapDao.insertMindMap(it) }
+            backupObj.jadwalKegiatan?.forEach { jadwalDao.insertJadwal(it) }
+            backupObj.anggotaList?.forEach { anggotaDao.insertAnggota(it) }
+            backupObj.presensiList?.forEach { presensiDao.insertPresensi(it) }
+            backupObj.gajiList?.forEach { gajiDao.insertGaji(it) }
+            backupObj.belanjaPasarList?.forEach { belanjaPasarDao.insertBelanjaPasar(it) }
+            backupObj.arisanKelompokList?.forEach { arisanDao.insertKelompok(it) }
+            backupObj.arisanPesertaList?.forEach { arisanDao.insertPeserta(it) }
+            backupObj.arisanIuranList?.forEach { arisanDao.insertIuran(it) }
+            backupObj.arisanKasList?.forEach { arisanDao.insertKas(it) }
+            backupObj.arisanPemenangList?.forEach { arisanDao.insertPemenang(it) }
+
+            // Pulihkan internal media files
+            val filesToRestore = backupObj.internalMediaFiles ?: backupObj.customAzanFiles
+            filesToRestore?.let { restoreInternalFilesFromMap(context, it) }
+
+            // Pulihkan preferences
+            backupObj.mySinggharaPrefs?.let { restoreSharedPrefsFromMap(context, "mysingghara_prefs", it) }
+            backupObj.pembukuanUsahaPrefs?.let { restoreSharedPrefsFromMap(context, "pembukuan_usaha_prefs", it) }
+            backupObj.absensiPrefs?.let { restoreSharedPrefsFromMap(context, "mysingghara_absensi_prefs", it) }
+            backupObj.idCardPrefs?.let { restoreSharedPrefsFromMap(context, "singghara_idcard_prefs", it) }
+
+            Result.success("Berhasil memulihkan data aplikasi!")
         } catch (e: Exception) {
             Result.failure(e)
         }
@@ -329,11 +603,16 @@ class LocalRepository(private val db: AppDatabase) {
      */
     suspend fun importDataFromPublicDownload(context: Context): Result<String> = withContext(Dispatchers.IO) {
         try {
+            val primaryBackupFile = com.example.util.SinggharaFolderManager.getPrimaryBackupFile()
             val downloadDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
-            val backupFile = File(downloadDir, "mysingghara_backup.json")
+            val downloadBackupFile = File(downloadDir, "mysingghara_backup.json")
             
-            if (!backupFile.exists()) {
-                return@withContext Result.failure(Exception("File backup 'mysingghara_backup.json' tidak ditemukan di folder Download."))
+            val backupFile = if (primaryBackupFile.exists()) {
+                primaryBackupFile
+            } else if (downloadBackupFile.exists()) {
+                downloadBackupFile
+            } else {
+                return@withContext Result.failure(Exception("File backup 'mysingghara_backup.json' tidak ditemukan di folder 'My Singghara/Back Up' maupun 'Download'."))
             }
 
             val jsonString = backupFile.readText(Charsets.UTF_8)
@@ -352,6 +631,8 @@ class LocalRepository(private val db: AppDatabase) {
             jadwalDao.deleteAll()
             anggotaDao.deleteAll()
             presensiDao.deleteAll()
+            gajiDao.deleteAll()
+            belanjaPasarDao.deleteAll()
 
             // Memasukkan data baru secara sekuensial
             backupObj.shopping.forEach { shoppingDao.insertShoppingItem(it) }
@@ -365,13 +646,18 @@ class LocalRepository(private val db: AppDatabase) {
             backupObj.jadwalKegiatan?.forEach { jadwalDao.insertJadwal(it) }
             backupObj.anggotaList?.forEach { anggotaDao.insertAnggota(it) }
             backupObj.presensiList?.forEach { presensiDao.insertPresensi(it) }
+            backupObj.gajiList?.forEach { gajiDao.insertGaji(it) }
+            backupObj.belanjaPasarList?.forEach { belanjaPasarDao.insertBelanjaPasar(it) }
 
-            // Pulihkan custom Azan files jika ada
-            backupObj.customAzanFiles?.let { restoreCustomAzanFilesFromMap(context, it) }
+            // Pulihkan internal media files (foto karyawan, audio azan, tanda tangan, avatar, font)
+            val filesToRestore = backupObj.internalMediaFiles ?: backupObj.customAzanFiles
+            filesToRestore?.let { restoreInternalFilesFromMap(context, it) }
 
             // Pulihkan preferences if present
             backupObj.mySinggharaPrefs?.let { restoreSharedPrefsFromMap(context, "mysingghara_prefs", it) }
             backupObj.pembukuanUsahaPrefs?.let { restoreSharedPrefsFromMap(context, "pembukuan_usaha_prefs", it) }
+            backupObj.absensiPrefs?.let { restoreSharedPrefsFromMap(context, "mysingghara_absensi_prefs", it) }
+            backupObj.idCardPrefs?.let { restoreSharedPrefsFromMap(context, "singghara_idcard_prefs", it) }
 
             Result.success("Berhasil mengimpor data dari ${backupFile.name}!")
         } catch (e: Exception) {
@@ -396,6 +682,10 @@ class LocalRepository(private val db: AppDatabase) {
             val jadwalList = allJadwal.first()
             val anggotaList = allAnggota.first()
             val presensiList = allPresensi.first()
+            val gajiList = allGaji.first()
+            val belanjaPasarList = allBelanjaPasarItems.first()
+
+            val mediaFiles = getInternalFilesMap(context)
 
             val backupObj = FullBackupData(
                 shopping = shoppingList,
@@ -409,9 +699,14 @@ class LocalRepository(private val db: AppDatabase) {
                 jadwalKegiatan = jadwalList,
                 anggotaList = anggotaList,
                 presensiList = presensiList,
+                gajiList = gajiList,
+                belanjaPasarList = belanjaPasarList,
                 mySinggharaPrefs = getSharedPrefsMap(context, "mysingghara_prefs"),
                 pembukuanUsahaPrefs = getSharedPrefsMap(context, "pembukuan_usaha_prefs"),
-                customAzanFiles = getCustomAzanFilesMap(context)
+                absensiPrefs = getSharedPrefsMap(context, "mysingghara_absensi_prefs"),
+                idCardPrefs = getSharedPrefsMap(context, "singghara_idcard_prefs"),
+                customAzanFiles = mediaFiles,
+                internalMediaFiles = mediaFiles
             )
 
             val jsonString = backupAdapter.indent("  ").toJson(backupObj)
@@ -439,7 +734,7 @@ class LocalRepository(private val db: AppDatabase) {
                 os.flush()
             } ?: return@withContext Result.failure(Exception("Gagal membuka output stream ke file."))
 
-            Result.success("Berhasil mengekspor cadangan data_aplikasi.json ke folder SAF terpilih!")
+            Result.success("Berhasil mengekspor cadangan data_aplikasi.json (termasuk Rekap Belanja Pasar) ke folder SAF terpilih!")
         } catch (e: Exception) {
             Result.failure(e)
         }
@@ -475,6 +770,8 @@ class LocalRepository(private val db: AppDatabase) {
             jadwalDao.deleteAll()
             anggotaDao.deleteAll()
             presensiDao.deleteAll()
+            gajiDao.deleteAll()
+            belanjaPasarDao.deleteAll()
 
             // Masukkan data baru dari backup
             backupObj.shopping.forEach { shoppingDao.insertShoppingItem(it) }
@@ -488,15 +785,20 @@ class LocalRepository(private val db: AppDatabase) {
             backupObj.jadwalKegiatan?.forEach { jadwalDao.insertJadwal(it) }
             backupObj.anggotaList?.forEach { anggotaDao.insertAnggota(it) }
             backupObj.presensiList?.forEach { presensiDao.insertPresensi(it) }
+            backupObj.gajiList?.forEach { gajiDao.insertGaji(it) }
+            backupObj.belanjaPasarList?.forEach { belanjaPasarDao.insertBelanjaPasar(it) }
 
-            // Pulihkan custom Azan files jika ada
-            backupObj.customAzanFiles?.let { restoreCustomAzanFilesFromMap(context, it) }
+            // Pulihkan internal media files (foto karyawan, audio azan, tanda tangan, avatar, font)
+            val filesToRestore = backupObj.internalMediaFiles ?: backupObj.customAzanFiles
+            filesToRestore?.let { restoreInternalFilesFromMap(context, it) }
 
             // Pulihkan preferences if present
             backupObj.mySinggharaPrefs?.let { restoreSharedPrefsFromMap(context, "mysingghara_prefs", it) }
             backupObj.pembukuanUsahaPrefs?.let { restoreSharedPrefsFromMap(context, "pembukuan_usaha_prefs", it) }
+            backupObj.absensiPrefs?.let { restoreSharedPrefsFromMap(context, "mysingghara_absensi_prefs", it) }
+            backupObj.idCardPrefs?.let { restoreSharedPrefsFromMap(context, "singghara_idcard_prefs", it) }
 
-            Result.success("Berhasil memulihkan/mengimpor data dari folder kustom Anda!")
+            Result.success("Berhasil memulihkan/mengimpor data aplikasi (termasuk Rekap Belanja Pasar) dari folder kustom Anda!")
         } catch (e: Exception) {
             Result.failure(e)
         }
@@ -647,5 +949,26 @@ class LocalRepository(private val db: AppDatabase) {
 
     suspend fun clearQuranHistory() = withContext(Dispatchers.IO) {
         quranDao.clearHistory()
+    }
+
+    // FCM Notifications
+    suspend fun insertFcmNotification(notification: FcmNotification): Long = withContext(Dispatchers.IO) {
+        fcmNotificationDao.insertNotification(notification)
+    }
+
+    suspend fun markFcmAsRead(id: Long) = withContext(Dispatchers.IO) {
+        fcmNotificationDao.markAsRead(id)
+    }
+
+    suspend fun markAllFcmAsRead() = withContext(Dispatchers.IO) {
+        fcmNotificationDao.markAllAsRead()
+    }
+
+    suspend fun deleteFcmNotification(id: Long) = withContext(Dispatchers.IO) {
+        fcmNotificationDao.deleteById(id)
+    }
+
+    suspend fun clearAllFcmNotifications() = withContext(Dispatchers.IO) {
+        fcmNotificationDao.clearAll()
     }
 }

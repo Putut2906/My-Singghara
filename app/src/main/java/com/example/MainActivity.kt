@@ -22,9 +22,18 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AdminPanelSettings
 import androidx.compose.material.icons.filled.Badge
+import androidx.compose.material.icons.filled.Groups
+import androidx.compose.material.icons.outlined.Groups
 import androidx.compose.material.icons.filled.DateRange
+import androidx.compose.material.icons.filled.DeleteForever
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.SwapHoriz
+import androidx.compose.material.icons.filled.SettingsVoice
+import androidx.compose.material.icons.filled.VerifiedUser
+import androidx.compose.material.icons.filled.WifiOff
+import androidx.compose.ui.zIndex
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Fingerprint
 import androidx.compose.material.icons.filled.Lock
@@ -43,6 +52,7 @@ import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowUp
+import androidx.compose.material.icons.filled.NearMe
 import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AccountBalance
@@ -51,8 +61,11 @@ import androidx.compose.material.icons.filled.Face
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Palette
+import androidx.compose.material.icons.filled.Brush
+import androidx.compose.material.icons.automirrored.filled.ArrowForward
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CameraAlt
+import androidx.compose.material.icons.filled.Crop
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.outlined.Home
 import androidx.compose.material.icons.outlined.Folder
@@ -129,8 +142,21 @@ import com.example.NotificationScheduler
 import com.example.network.HolidayClient
 import com.example.ui.screens.*
 import com.example.ui.theme.MyApplicationTheme
+import com.example.update.*
+import com.example.ui.components.AppUpdateAvailableDialog
+import com.example.ui.components.DriveUpdateAvailableDialog
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.NotificationsActive
+import androidx.compose.material.icons.filled.CloudQueue
+import androidx.compose.material.icons.filled.ContentCopy
+import androidx.compose.material.icons.filled.DoneAll
+import androidx.compose.material.icons.filled.DeleteOutline
+import androidx.compose.material.icons.filled.NotificationsNone
+import androidx.compose.material.icons.filled.CloudSync
+import androidx.compose.material.icons.filled.LockReset
+import androidx.compose.material.icons.filled.Logout
+import androidx.compose.material.icons.filled.Login
+import androidx.compose.material.icons.filled.PersonAdd
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -138,6 +164,11 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 class MainActivity : FragmentActivity() {
+
+    companion object {
+        @Volatile
+        var isAppInForeground: Boolean = false
+    }
 
     private val viewModel: MainViewModel by viewModels()
 
@@ -149,6 +180,7 @@ class MainActivity : FragmentActivity() {
         val writeGranted = permissions[Manifest.permission.WRITE_EXTERNAL_STORAGE] ?: false
 
         if (readGranted || writeGranted) {
+            com.example.util.SinggharaFolderManager.ensureFoldersExist(this)
             viewModel.showToastPopup("Akses file diizinkan.")
         } else {
             viewModel.showToastPopup("Izin penyimpanan ditolak.")
@@ -182,6 +214,9 @@ class MainActivity : FragmentActivity() {
         // Memicu check & request permissions secara langsung saat pertamakali dibuka
         checkAndRequestStoragePermissions()
 
+        // Otomatis buat folder My Singghara (Back Up, Data/font, Data/mp3) di penyimpanan internal
+        com.example.util.SinggharaFolderManager.ensureFoldersExist(this)
+
         // Request POST_NOTIFICATIONS permission for Android 13+ to ensure user gets sholat and agenda reminders
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
@@ -192,12 +227,89 @@ class MainActivity : FragmentActivity() {
         // Initialize notification channels and schedule daily / sholat alarms
         NotificationScheduler.scheduleAlarms(this)
 
+        // Pastikan FirebaseApp terinisialisasi dengan benar
+        try {
+            if (com.google.firebase.FirebaseApp.getApps(this).isEmpty()) {
+                try {
+                    com.google.firebase.FirebaseApp.initializeApp(this)
+                } catch (e: Exception) {
+                    val options = com.google.firebase.FirebaseOptions.Builder()
+                        .setApplicationId("1:194078759561:android:b39d13cb8202ff43cfc458")
+                        .setApiKey("AIzaSyC-1wqeoghlBosva2liyNCEEbb4IK6yvYs")
+                        .setProjectId("mobile-d08aa")
+                        .setStorageBucket("mobile-d08aa.firebasestorage.app")
+                        .build()
+                    com.google.firebase.FirebaseApp.initializeApp(this, options)
+                }
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("MainActivity", "Error initializing FirebaseApp", e)
+        }
+
+        // Tangani hasil tertunda (pending auth) dari OAuth Google / Facebook jika Activity sempat di-recreate
+        try {
+            if (com.google.firebase.FirebaseApp.getApps(this).isNotEmpty()) {
+                com.google.firebase.auth.FirebaseAuth.getInstance().pendingAuthResult
+                    ?.addOnSuccessListener { authResult ->
+                        val user = authResult.user
+                        if (user != null) {
+                            viewModel.refreshAuthUser()
+                            val isNew = authResult.additionalUserInfo?.isNewUser == true
+                            viewModel.showAuthSuccessPopup(
+                                isRegister = isNew,
+                                userName = viewModel.authManager.extractDisplayName(user),
+                                userEmail = user.email ?: "",
+                                photoUrl = viewModel.authManager.extractPhotoUrl(user)
+                            )
+                        }
+                    }
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("MainActivity", "Error checking pendingAuthResult", e)
+        }
+
+        try {
+            com.example.telegram.TelegramBotManager.init(applicationContext)
+        } catch (e: Exception) {
+            android.util.Log.e("MainActivity", "Error initializing TelegramBotManager", e)
+        }
+
         intent?.let { handleIntent(it) }
 
         setContent {
             MyApplicationTheme {
                 Box(modifier = Modifier.fillMaxSize()) {
-                    if (!viewModel.isFirstInstallSetupCompleted) {
+                    val isAccountBlocked = viewModel.isAccountBlocked &&
+                            viewModel.currentFirebaseUser != null &&
+                            !viewModel.adminManager.isAdmin(viewModel.currentFirebaseUser?.uid)
+
+                    if (isAccountBlocked) {
+                        com.example.ui.components.AccountBlockedOverlay(
+                            viewModel = viewModel,
+                            onContactAdmin = {
+                                val user = viewModel.currentFirebaseUser
+                                viewModel.authManager.launchWhatsAppAdmin(
+                                    context = this@MainActivity,
+                                    userEmail = user?.email ?: "",
+                                    userName = viewModel.profileName.ifEmpty { user?.displayName ?: "Pengguna" },
+                                    uid = user?.uid ?: "",
+                                    reason = viewModel.accountBlockReason.ifEmpty { "Akun dinonaktifkan atau masa membership telah habis" }
+                                )
+                            },
+                            onCheckStatus = {
+                                viewModel.checkAccountAccessStatus { isAllowed ->
+                                    if (isAllowed) {
+                                        viewModel.showToastPopup("Status akun telah aktif! Selamat datang kembali.")
+                                    } else {
+                                        viewModel.showToastPopup("Akun masih nonaktif / membership belum diperpanjang.")
+                                    }
+                                }
+                            },
+                            onLogout = {
+                                viewModel.requestLogoutConfirmation()
+                            }
+                        )
+                    } else if (!viewModel.isFirstInstallSetupCompleted) {
                         FirstInstallSetupScreen(
                             viewModel = viewModel,
                             onComplete = {
@@ -288,7 +400,7 @@ class MainActivity : FragmentActivity() {
                         )
                     }
 
-                    if (viewModel.isAppUnlocked && viewModel.toastPopupMessage != null) {
+                    if (viewModel.toastPopupMessage != null) {
                         com.example.ui.components.SpringToastPopup(
                             message = viewModel.toastPopupMessage,
                             onDismiss = { viewModel.toastPopupMessage = null },
@@ -323,10 +435,71 @@ class MainActivity : FragmentActivity() {
         if (intent.action == "ACTION_REJECT_WEB_ACCESS") {
             viewModel.onRejectWebAccess()
         }
+        if (intent.getBooleanExtra("open_fcm_notifications", false) || intent.hasExtra("google.message_id")) {
+            val fcmTitle = intent.getStringExtra("fcm_title") ?: intent.getStringExtra("gcm.notification.title")
+            val fcmBody = intent.getStringExtra("fcm_body") ?: intent.getStringExtra("gcm.notification.body")
+            if (!fcmTitle.isNullOrEmpty() || !fcmBody.isNullOrEmpty()) {
+                val notif = com.example.data.FcmNotification(
+                    title = fcmTitle ?: "Pesan Cloud Messaging",
+                    body = fcmBody ?: "",
+                    timestamp = System.currentTimeMillis(),
+                    isRead = false
+                )
+                kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+                    val id = viewModel.repository.insertFcmNotification(notif)
+                    val itemWithId = notif.copy(id = id)
+                    kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Main).launch {
+                        viewModel.showInAppMessage(itemWithId)
+                    }
+                }
+            }
+        }
+        if (intent.action == Intent.ACTION_SEND || intent.action == Intent.ACTION_SEND_MULTIPLE) {
+            val uri: Uri? = when {
+                intent.action == Intent.ACTION_SEND_MULTIPLE -> {
+                    val list: ArrayList<Uri>? = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                        intent.getParcelableArrayListExtra(Intent.EXTRA_STREAM, Uri::class.java)
+                    } else {
+                        @Suppress("DEPRECATION")
+                        intent.getParcelableArrayListExtra(Intent.EXTRA_STREAM)
+                    }
+                    list?.firstOrNull() ?: intent.clipData?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.uri
+                }
+                else -> {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                        intent.getParcelableExtra(Intent.EXTRA_STREAM, Uri::class.java)
+                    } else {
+                        @Suppress("DEPRECATION")
+                        intent.getParcelableExtra(Intent.EXTRA_STREAM)
+                    } ?: intent.clipData?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.uri ?: intent.data
+                }
+            }
+
+            val sharedText = intent.getStringExtra(Intent.EXTRA_TEXT)
+                ?: intent.clipData?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.text?.toString()
+
+            if (uri != null || !sharedText.isNullOrBlank()) {
+                if (uri != null) {
+                    try {
+                        contentResolver.takePersistableUriPermission(
+                            uri,
+                            Intent.FLAG_GRANT_READ_URI_PERMISSION
+                        )
+                    } catch (_: Exception) {}
+                }
+                viewModel.sharedReceiptUri = uri
+                viewModel.sharedReceiptText = sharedText
+                viewModel.showSharedReceiptDialog = true
+                viewModel.currentRoute = "tabungan"
+            }
+        }
     }
 
     override fun onDestroy() {
         super.onDestroy()
+        try {
+            com.example.ht.HandyTalkyManager.destroy()
+        } catch (_: Exception) {}
         try {
             unregisterReceiver(screenOffReceiver)
         } catch (e: Exception) {
@@ -336,11 +509,20 @@ class MainActivity : FragmentActivity() {
 
     override fun onStop() {
         super.onStop()
+        isAppInForeground = false
         viewModel.lastBackgroundTime = System.currentTimeMillis()
+    }
+
+    override fun onPause() {
+        super.onPause()
+        isAppInForeground = false
     }
 
     override fun onResume() {
         super.onResume()
+        isAppInForeground = true
+        com.example.util.SinggharaFolderManager.ensureFoldersExist(this)
+        viewModel.checkAccountAccessStatus()
         // Kunci aplikasi jika sistem OS / keyguard dalam keadaan terkunci
         val keyguardManager = getSystemService(Context.KEYGUARD_SERVICE) as? KeyguardManager
         if (keyguardManager != null && (keyguardManager.isKeyguardLocked || keyguardManager.isDeviceLocked)) {
@@ -458,17 +640,21 @@ fun MainAppContent(viewModel: MainViewModel) {
 
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val scope = rememberCoroutineScope()
+
+    // Firebase Auth State
+    var showAuthDialog by remember { mutableStateOf(false) }
+    var authDialogInitialMode by remember { mutableStateOf(com.example.ui.components.AuthMode.LOGIN) }
     
     var showProfileEditDialog by remember { mutableStateOf(false) }
     var tempProfileName by remember { mutableStateOf(viewModel.profileName) }
     var selectedAvatarIndex by remember { mutableStateOf(viewModel.profileAvatarIndex) }
+    var photoToRepositionUri by remember { mutableStateOf<android.net.Uri?>(null) }
 
     val imagePickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
     ) { uri ->
         if (uri != null) {
-            viewModel.saveProfileImageUri(uri.toString())
-            viewModel.showToastPopup("Foto kustom berhasil dipilih!")
+            photoToRepositionUri = uri
         }
     }
 
@@ -494,10 +680,31 @@ fun MainAppContent(viewModel: MainViewModel) {
 
     var showSearchDialog by remember { mutableStateOf(false) }
     var showNotificationsDialog by remember { mutableStateOf(false) }
-    var isCompanyExpanded by remember { mutableStateOf(viewModel.currentRoute == "data_karyawan_murid" || viewModel.currentRoute == "absensi_karyawan") }
-    var isManajemenExpanded by remember { mutableStateOf(viewModel.currentRoute == "tabungan" || viewModel.currentRoute == "belanja" || viewModel.currentRoute == "catatan") }
-    var isKeuanganExpanded by remember { mutableStateOf(viewModel.currentRoute in listOf("jurnal_umum", "buku_besar", "neraca_saldo", "jurnal_penyesuaian", "neraca_saldo_disesuaikan", "laba_rugi", "jurnal_penutup", "neraca_saldo_setelah_tutup")) }
-    var isKasirExpanded by remember { mutableStateOf(viewModel.currentRoute == "my_kasir" || viewModel.currentRoute == "pembukuan_usaha") }
+    var isCompanyExpanded by remember { mutableStateOf(false) }
+    var isManajemenExpanded by remember { mutableStateOf(false) }
+    var isKeuanganExpanded by remember { mutableStateOf(false) }
+    var isKasirExpanded by remember { mutableStateOf(false) }
+    var isKoneksiBerbagiExpanded by remember { mutableStateOf(false) }
+
+    // Otomatis tutup semua sub menu saat sidebar/drawer di-collapse (tertutup)
+    LaunchedEffect(drawerState.targetValue) {
+        if (drawerState.targetValue == androidx.compose.material3.DrawerValue.Closed) {
+            isCompanyExpanded = false
+            isManajemenExpanded = false
+            isKeuanganExpanded = false
+            isKasirExpanded = false
+            isKoneksiBerbagiExpanded = false
+        }
+    }
+    LaunchedEffect(drawerState.isClosed) {
+        if (drawerState.isClosed) {
+            isCompanyExpanded = false
+            isManajemenExpanded = false
+            isKeuanganExpanded = false
+            isKasirExpanded = false
+            isKoneksiBerbagiExpanded = false
+        }
+    }
     
     val notesList by viewModel.notes.collectAsState()
     val productsList by viewModel.shoppingItems.collectAsState()
@@ -513,17 +720,71 @@ fun MainAppContent(viewModel: MainViewModel) {
         deserializeAdjustmentEntries(adjustmentEntriesStr)
     }
 
+    var startupUpdateResult by remember { mutableStateOf<UpdateCheckState.UpdateAvailable?>(null) }
+    var startupDriveUpdateResult by remember { mutableStateOf<DriveUpdateCheckState.UpdateAvailable?>(null) }
+
+    LaunchedEffect(Unit) {
+        try {
+            // Cegah munculnya pop up pembaruan otomatis saat pertama kali instal membuka aplikasi
+            if (GoogleDriveUpdateManager.isFirstLaunchAfterInstall(context)) {
+                GoogleDriveUpdateManager.markFirstLaunchDone(context)
+                return@LaunchedEffect
+            }
+
+            // Check Google Drive update first (based on latest upload time via Apps Script)
+            if (GoogleDriveUpdateManager.isAutoCheckOnStartup(context)) {
+                val driveResult = GoogleDriveUpdateManager.checkForDriveUpdate(context)
+                if (driveResult is DriveUpdateCheckState.UpdateAvailable) {
+                    startupDriveUpdateResult = driveResult
+                }
+            }
+            // Fallback to GitHub update check if no Drive update detected
+            if (startupDriveUpdateResult == null) {
+                val cfg = GitHubUpdateManager.loadConfig(context)
+                if (cfg.autoCheckOnStartup) {
+                    val result = GitHubUpdateManager.checkForUpdate(context)
+                    if (result is UpdateCheckState.UpdateAvailable) {
+                        startupUpdateResult = result
+                    }
+                }
+            }
+        } catch (_: Exception) {}
+    }
+
+    startupDriveUpdateResult?.let { updateData ->
+        if (viewModel.currentRoute != "tentang_aplikasi") {
+            DriveUpdateAvailableDialog(
+                latestApk = updateData.latestApk,
+                currentVersion = updateData.currentAppVersion,
+                autoStartDownload = GoogleDriveUpdateManager.isAutoInstallLatest(context),
+                onDismiss = { startupDriveUpdateResult = null }
+            )
+        }
+    }
+
+    startupUpdateResult?.let { updateData ->
+        val cfg = remember(context) { GitHubUpdateManager.loadConfig(context) }
+        AppUpdateAvailableDialog(
+            currentVersion = updateData.currentVersion,
+            newVersion = updateData.newVersion,
+            release = updateData.release,
+            apkAsset = updateData.apkAsset,
+            token = cfg.token,
+            onDismiss = { startupUpdateResult = null }
+        )
+    }
+
     BackHandler {
         if (drawerState.isOpen) {
             scope.launch { drawerState.close() }
         } else if (viewModel.currentRoute == "preview_catatan") {
             viewModel.currentRoute = "catatan"
         } else if (viewModel.currentRoute == "catatan" && viewModel.selectedNote != null) {
-            viewModel.selectedNote = null
-        } else if (viewModel.currentRoute == "web_connect") {
+            // Handled inside CatatanScreen to allow showing the unsaved changes warning popup
+        } else if (viewModel.currentRoute == "web_connect" || viewModel.currentRoute == "tentang_aplikasi" || viewModel.currentRoute == "telegram_ai") {
             viewModel.currentRoute = "profil"
         } else if (viewModel.currentRoute != "home") {
-            val showAllApps = viewModel.currentRoute in listOf("quran", "pembukuan_usaha", "mindmap", "pemutar_musik", "jadwal_harian")
+            val showAllApps = viewModel.currentRoute in listOf("quran", "pembukuan_usaha", "mindmap", "pemutar_musik", "jadwal_harian", "handy_talky")
             viewModel.currentRoute = "home"
             if (showAllApps) {
                 viewModel.showAllAppsPage = true
@@ -1036,37 +1297,15 @@ fun MainAppContent(viewModel: MainViewModel) {
                     verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
                     // Current Avatar Preview
-                    Box(
-                        modifier = Modifier
-                            .size(80.dp)
-                            .align(Alignment.CenterHorizontally)
-                            .clip(CircleShape)
-                            .then(
-                                if (selectedAvatarIndex >= 0) {
-                                    Modifier.background(avatarGradients.getOrElse(selectedAvatarIndex) { avatarGradients[0] })
-                                } else {
-                                    Modifier.background(MaterialTheme.colorScheme.surfaceVariant)
-                                }
-                            ),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        if (selectedAvatarIndex == -1 && viewModel.profileImageUri.isNotEmpty()) {
-                            coil.compose.AsyncImage(
-                                model = viewModel.profileImageUri,
-                                contentDescription = "Foto Profil",
-                                modifier = Modifier.fillMaxSize().clip(CircleShape),
-                                contentScale = androidx.compose.ui.layout.ContentScale.Crop
-                            )
-                        } else {
-                            val selectedIcon = avatarIcons.getOrElse(selectedAvatarIndex) { avatarIcons[0] }
-                            Icon(
-                                imageVector = selectedIcon,
-                                contentDescription = null,
-                                tint = Color.White,
-                                modifier = Modifier.size(48.dp)
-                            )
-                        }
-                    }
+                    com.example.ui.components.AppUserAvatar(
+                        name = tempProfileName.ifEmpty { viewModel.profileName },
+                        imageUri = if (selectedAvatarIndex == -1) viewModel.profileImageUri else "",
+                        avatarIndex = selectedAvatarIndex,
+                        size = 80.dp,
+                        textSize = 28.sp,
+                        isLoggedIn = viewModel.currentFirebaseUser != null,
+                        modifier = Modifier.align(Alignment.CenterHorizontally)
+                    )
 
                     // Input Name
                     OutlinedTextField(
@@ -1142,6 +1381,34 @@ fun MainAppContent(viewModel: MainViewModel) {
                         Spacer(modifier = Modifier.width(8.dp))
                         Text("Pilih Foto dari Galeri")
                     }
+
+                    OutlinedButton(
+                        onClick = {
+                            selectedAvatarIndex = -2
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Icon(imageVector = Icons.Default.Person, contentDescription = null, modifier = Modifier.size(18.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Gunakan Avatar Inisial Nama")
+                    }
+
+                    if (selectedAvatarIndex == -1 && viewModel.profileImageUri.isNotEmpty()) {
+                        OutlinedButton(
+                            onClick = {
+                                try {
+                                    photoToRepositionUri = android.net.Uri.parse(viewModel.profileImageUri)
+                                } catch (e: Exception) {
+                                    viewModel.showToastPopup("Gagal membuka foto saat ini: ${e.message}")
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Icon(imageVector = Icons.Default.Crop, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Atur Ulang Posisi Foto")
+                        }
+                    }
                 }
             },
             confirmButton = {
@@ -1149,9 +1416,7 @@ fun MainAppContent(viewModel: MainViewModel) {
                     onClick = {
                         if (tempProfileName.isNotBlank()) {
                             viewModel.saveProfileName(tempProfileName.trim())
-                            if (selectedAvatarIndex >= -1) {
-                                viewModel.saveProfileAvatarIndex(selectedAvatarIndex)
-                            }
+                            viewModel.saveProfileAvatarIndex(selectedAvatarIndex)
                             showProfileEditDialog = false
                             viewModel.showToastPopup("Profil berhasil disimpan!")
                         } else {
@@ -1170,22 +1435,133 @@ fun MainAppContent(viewModel: MainViewModel) {
         )
     }
 
+    if (photoToRepositionUri != null) {
+        com.example.ui.components.PhotoRepositionDialog(
+            imageUri = photoToRepositionUri!!,
+            onDismiss = { photoToRepositionUri = null },
+            onConfirm = { croppedBitmap ->
+                viewModel.saveProfileImageBitmap(croppedBitmap)
+                selectedAvatarIndex = -1
+                photoToRepositionUri = null
+                viewModel.showToastPopup("Posisi foto berhasil disimpan!")
+            }
+        )
+    }
+
+    // Popup Detail Membership VIP (Muncul saat klik Profil User)
+    if (viewModel.showMembershipDetailDialog) {
+        val currentFbUser = viewModel.currentFirebaseUser
+        val isUserAdmin = currentFbUser?.let { viewModel.adminManager.isAdmin(it.uid) } ?: false
+        val currentCloudUser = remember(currentFbUser, viewModel.accountMembershipTier, viewModel.accountMembershipEndDate) {
+            currentFbUser?.let { fb ->
+                com.example.firebase.CloudUserItem(
+                    uid = fb.uid,
+                    email = fb.email ?: "",
+                    displayName = viewModel.profileName.ifEmpty { fb.displayName ?: "Pengguna Setia" },
+                    photoUrl = viewModel.profileImageUri.ifEmpty { fb.photoUrl?.toString() ?: "" },
+                    isActive = !viewModel.isAccountBlocked,
+                    isAdmin = isUserAdmin,
+                    membershipDurationMonths = if (viewModel.accountMembershipTier.contains("12")) 12
+                        else if (viewModel.accountMembershipTier.contains("7")) 7
+                        else if (viewModel.accountMembershipTier.contains("5")) 5
+                        else if (viewModel.accountMembershipTier.contains("3")) 3
+                        else if (viewModel.accountMembershipTier.contains("1")) 1
+                        else 0,
+                    membershipEndDate = viewModel.accountMembershipEndDate,
+                    membershipTier = viewModel.accountMembershipTier
+                )
+            }
+        }
+
+        com.example.ui.components.VipMembershipDetailDialog(
+            user = viewModel.selectedMembershipUser ?: currentCloudUser,
+            currentUserName = viewModel.profileName,
+            currentUserEmail = currentFbUser?.email ?: "",
+            adminPhoneNumber = viewModel.adminPhoneNumber,
+            isViewerAdmin = isUserAdmin,
+            onDismiss = { viewModel.closeMembershipDetail() }
+        )
+    }
+
     ModalNavigationDrawer(
         drawerState = drawerState,
+        gesturesEnabled = drawerState.isOpen || (viewModel.currentRoute != "handy_talky" && viewModel.currentRoute != "immersive_file_viewer"),
         drawerContent = {
             ModalDrawerSheet(
                 modifier = Modifier.width(300.dp),
                 drawerContainerColor = MaterialTheme.colorScheme.surface,
                 drawerShape = RoundedCornerShape(topEnd = 16.dp, bottomEnd = 16.dp)
             ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .verticalScroll(rememberScrollState())
-                ) {
-                    Spacer(modifier = Modifier.height(12.dp))
+                Box(modifier = Modifier.fillMaxSize()) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .verticalScroll(rememberScrollState())
+                            .padding(bottom = if (viewModel.currentFirebaseUser != null) 68.dp else 16.dp)
+                    ) {
+                        Spacer(modifier = Modifier.height(16.dp))
 
-                    // Group 1: BERANDA (Boxed Group Card)
+                        // Profil Header (Salinan dari halaman profil: Foto Avatar & Nama Pengguna untuk akses cepat)
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp, vertical = 8.dp)
+                                .clickable {
+                                    viewModel.currentRoute = "profil"
+                                    scope.launch { drawerState.close() }
+                                },
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            // Avatar Box
+                            com.example.ui.components.AppUserAvatar(
+                                name = viewModel.profileName,
+                                imageUri = viewModel.profileImageUri,
+                                avatarIndex = viewModel.profileAvatarIndex,
+                                size = 76.dp,
+                                textSize = 26.sp,
+                                isLoggedIn = viewModel.currentFirebaseUser != null,
+                                contentDescription = "Foto Profil",
+                                onClick = {
+                                    viewModel.openMembershipDetail()
+                                    scope.launch { drawerState.close() }
+                                }
+                            )
+
+                            Spacer(modifier = Modifier.height(8.dp))
+
+                            // Nama Pengguna
+                            Text(
+                                text = viewModel.profileName.ifEmpty { "Pengguna Setia" },
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                textAlign = TextAlign.Center,
+                                maxLines = 1,
+                                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                                modifier = Modifier.clickable {
+                                    viewModel.openMembershipDetail()
+                                    scope.launch { drawerState.close() }
+                                }
+                            )
+
+                            // Status login pengguna (jika ada akun firebase)
+                            val headerUser = viewModel.currentFirebaseUser
+                            if (headerUser != null) {
+                                Text(
+                                    text = headerUser.email ?: headerUser.displayName ?: "",
+                                    fontSize = 11.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    textAlign = TextAlign.Center,
+                                    maxLines = 1,
+                                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                                    modifier = Modifier.padding(top = 2.dp)
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(10.dp))
+
+                        // Group 1: BERANDA (Boxed Group Card)
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -1227,6 +1603,48 @@ fun MainAppContent(viewModel: MainViewModel) {
                                 unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
                             )
                         )
+
+                        // Item 1.2: Arisan Keluarga (Menu Utama Drawer)
+                        val isArisanKeluargaMainSelected = viewModel.currentRoute == "arisan_keluarga"
+                        NavigationDrawerItem(
+                            icon = {
+                                Icon(
+                                    imageVector = if (isArisanKeluargaMainSelected) Icons.Default.Groups else Icons.Outlined.Groups,
+                                    contentDescription = "Arisan Keluarga",
+                                    tint = if (isArisanKeluargaMainSelected) MaterialTheme.colorScheme.primary else Color(0xFFF59E0B)
+                                )
+                            },
+                            label = { Text(text = "Arisan Keluarga", fontWeight = FontWeight.SemiBold, fontSize = 13.sp) },
+                            badge = {
+                                Surface(
+                                    shape = RoundedCornerShape(10.dp),
+                                    color = Color(0xFFF59E0B).copy(alpha = 0.15f)
+                                ) {
+                                    Text(
+                                        text = "Baru",
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color(0xFFD97706),
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                    )
+                                }
+                            },
+                            selected = isArisanKeluargaMainSelected,
+                            onClick = {
+                                viewModel.currentRoute = "arisan_keluarga"
+                                scope.launch { drawerState.close() }
+                            },
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                            colors = NavigationDrawerItemDefaults.colors(
+                                selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                                selectedTextColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                                selectedIconColor = MaterialTheme.colorScheme.primary,
+                                unselectedContainerColor = Color.Transparent,
+                                unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
+                            )
+                        )
                     }
 
                     // Group: COMPANY (Boxed Group Card)
@@ -1254,6 +1672,7 @@ fun MainAppContent(viewModel: MainViewModel) {
                                     if (next) {
                                         isManajemenExpanded = false
                                         isKeuanganExpanded = false
+                                        isKoneksiBerbagiExpanded = false
                                     }
                                     isCompanyExpanded = next
                                 }
@@ -1293,7 +1712,7 @@ fun MainAppContent(viewModel: MainViewModel) {
                             exit = shrinkVertically() + fadeOut()
                         ) {
                             Column(modifier = Modifier.fillMaxWidth()) {
-                                val isDataKaryawanSelected = viewModel.currentRoute == "data_karyawan_murid"
+                                val isDataKaryawanSelected = viewModel.currentRoute == "data_karyawan_murid" || viewModel.currentRoute == "tabel_anggota_lengkap"
                                 NavigationDrawerItem(
                                     icon = {
                                         Icon(
@@ -1321,7 +1740,7 @@ fun MainAppContent(viewModel: MainViewModel) {
                                     )
                                 )
 
-                                val isAbsensiSelected = viewModel.currentRoute == "absensi_karyawan"
+                                val isAbsensiSelected = viewModel.currentRoute == "absensi_karyawan" || viewModel.currentRoute == "riwayat_absensi_lengkap"
                                 NavigationDrawerItem(
                                     icon = {
                                         Icon(
@@ -1335,6 +1754,34 @@ fun MainAppContent(viewModel: MainViewModel) {
                                     selected = isAbsensiSelected,
                                     onClick = {
                                         viewModel.currentRoute = "absensi_karyawan"
+                                        scope.launch { drawerState.close() }
+                                    },
+                                    shape = RoundedCornerShape(8.dp),
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 2.dp),
+                                    colors = NavigationDrawerItemDefaults.colors(
+                                        selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                                        selectedTextColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                                        selectedIconColor = MaterialTheme.colorScheme.primary,
+                                        unselectedContainerColor = Color.Transparent,
+                                        unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                                    )
+                                )
+
+                                val isGajiSelected = viewModel.currentRoute == "gaji_karyawan"
+                                NavigationDrawerItem(
+                                    icon = {
+                                        Icon(
+                                            imageVector = Icons.Default.AccountBalanceWallet,
+                                            contentDescription = "Gaji"
+                                        )
+                                    },
+                                    label = {
+                                        Text(text = "Gaji", fontWeight = FontWeight.Medium, fontSize = 13.sp)
+                                    },
+                                    selected = isGajiSelected,
+                                    onClick = {
+                                        viewModel.currentRoute = "gaji_karyawan"
                                         scope.launch { drawerState.close() }
                                     },
                                     shape = RoundedCornerShape(8.dp),
@@ -1377,6 +1824,7 @@ fun MainAppContent(viewModel: MainViewModel) {
                                     if (next) {
                                         isCompanyExpanded = false
                                         isKeuanganExpanded = false
+                                        isKoneksiBerbagiExpanded = false
                                     }
                                     isManajemenExpanded = next
                                 }
@@ -1504,35 +1952,81 @@ fun MainAppContent(viewModel: MainViewModel) {
                                             contentDescription = "Catatan"
                                         )
                                     },
-                                    label = {
-                                        Row(
-                                            modifier = Modifier.fillMaxWidth(),
-                                            horizontalArrangement = Arrangement.SpaceBetween,
-                                            verticalAlignment = Alignment.CenterVertically
-                                        ) {
-                                            Text(text = "Catatan Penting", fontWeight = FontWeight.Medium, fontSize = 13.sp)
-                                            if (notesList.isNotEmpty()) {
-                                                Box(
-                                                    modifier = Modifier
-                                                        .background(
-                                                            color = MaterialTheme.colorScheme.secondary.copy(alpha = 0.15f),
-                                                            shape = RoundedCornerShape(6.dp)
-                                                        )
-                                                        .padding(horizontal = 6.dp, vertical = 2.dp)
-                                                ) {
-                                                    Text(
-                                                        text = "${notesList.size}",
-                                                        fontSize = 10.sp,
-                                                        fontWeight = FontWeight.Bold,
-                                                        color = MaterialTheme.colorScheme.secondary
-                                                    )
-                                                }
-                                            }
-                                        }
-                                    },
+                                    label = { Text(text = "Catatan Penting", fontWeight = FontWeight.Medium, fontSize = 13.sp) },
                                     selected = isCatatanSelected,
                                     onClick = {
                                         viewModel.currentRoute = "catatan"
+                                        scope.launch { drawerState.close() }
+                                    },
+                                    shape = RoundedCornerShape(8.dp),
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 2.dp),
+                                    colors = NavigationDrawerItemDefaults.colors(
+                                        selectedContainerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.8f),
+                                        selectedTextColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                                        selectedIconColor = MaterialTheme.colorScheme.primary,
+                                        unselectedContainerColor = Color.Transparent,
+                                        unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                                    )
+                                )
+
+                                // Sub-item 4: Rekap Belanja Pasar
+                                val isRekapBelanjaSelected = viewModel.currentRoute == "rekap_belanja_pasar"
+                                val belanjaPasarNavList by viewModel.allBelanjaPasar.collectAsState()
+                                NavigationDrawerItem(
+                                    icon = {
+                                        Icon(
+                                            imageVector = if (isRekapBelanjaSelected) Icons.Default.ShoppingCart else Icons.Outlined.ShoppingCart,
+                                            contentDescription = "Rekap Belanja Pasar",
+                                            tint = Color(0xFF10B981)
+                                        )
+                                    },
+                                    label = { Text(text = "Rekap Belanja Pasar", fontWeight = FontWeight.Medium, fontSize = 13.sp) },
+                                    selected = isRekapBelanjaSelected,
+                                    onClick = {
+                                        viewModel.currentRoute = "rekap_belanja_pasar"
+                                        scope.launch { drawerState.close() }
+                                    },
+                                    shape = RoundedCornerShape(8.dp),
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 2.dp),
+                                    colors = NavigationDrawerItemDefaults.colors(
+                                        selectedContainerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.8f),
+                                        selectedTextColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                                        selectedIconColor = MaterialTheme.colorScheme.primary,
+                                        unselectedContainerColor = Color.Transparent,
+                                        unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                                    )
+                                )
+
+                                // Sub-item 5: Arisan Keluarga (Manajemen, Aturan & Pengocokan)
+                                val isArisanKeluargaSelected = viewModel.currentRoute == "arisan_keluarga"
+                                NavigationDrawerItem(
+                                    icon = {
+                                        Icon(
+                                            imageVector = if (isArisanKeluargaSelected) Icons.Default.Groups else Icons.Outlined.Groups,
+                                            contentDescription = "Arisan Keluarga",
+                                            tint = Color(0xFFF59E0B)
+                                        )
+                                    },
+                                    label = { Text(text = "Arisan Keluarga", fontWeight = FontWeight.Medium, fontSize = 13.sp) },
+                                    badge = {
+                                        Surface(
+                                            shape = RoundedCornerShape(10.dp),
+                                            color = Color(0xFFF59E0B).copy(alpha = 0.15f)
+                                        ) {
+                                            Text(
+                                                text = "Baru",
+                                                fontSize = 10.sp,
+                                                fontWeight = FontWeight.Bold,
+                                                color = Color(0xFFD97706),
+                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                            )
+                                        }
+                                    },
+                                    selected = isArisanKeluargaSelected,
+                                    onClick = {
+                                        viewModel.currentRoute = "arisan_keluarga"
                                         scope.launch { drawerState.close() }
                                     },
                                     shape = RoundedCornerShape(8.dp),
@@ -1575,6 +2069,7 @@ fun MainAppContent(viewModel: MainViewModel) {
                                     if (next) {
                                         isCompanyExpanded = false
                                         isManajemenExpanded = false
+                                        isKoneksiBerbagiExpanded = false
                                     }
                                     isKeuanganExpanded = next
                                 }
@@ -1651,13 +2146,254 @@ fun MainAppContent(viewModel: MainViewModel) {
                         }
                     }
 
+                    // Group: KONEKSI & BERBAGI (Boxed Group Card)
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 14.dp, vertical = 6.dp)
+                            .border(
+                                width = 1.dp,
+                                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
+                                shape = RoundedCornerShape(12.dp)
+                            )
+                            .background(
+                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.1f),
+                                shape = RoundedCornerShape(12.dp)
+                            )
+                            .padding(vertical = 8.dp)
+                    ) {
+                        // Header Clickable to Expand/Collapse
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    val next = !isKoneksiBerbagiExpanded
+                                    if (next) {
+                                        isCompanyExpanded = false
+                                        isManajemenExpanded = false
+                                        isKeuanganExpanded = false
+                                    }
+                                    isKoneksiBerbagiExpanded = next
+                                }
+                                .padding(horizontal = 14.dp, vertical = 6.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Icon(
+                                    imageVector = if (isKoneksiBerbagiExpanded) Icons.Default.Share else Icons.Outlined.Share,
+                                    contentDescription = "Koneksi & Berbagi",
+                                    tint = Color(0xFF0284C7),
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Text(
+                                    text = "KONEKSI & BERBAGI",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    letterSpacing = 1.sp
+                                )
+                            }
+                            Icon(
+                                imageVector = if (isKoneksiBerbagiExpanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                                contentDescription = if (isKoneksiBerbagiExpanded) "Sembunyikan" else "Tampilkan",
+                                tint = Color(0xFF0284C7),
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+
+                        AnimatedVisibility(
+                            visible = isKoneksiBerbagiExpanded,
+                            enter = expandVertically() + fadeIn(),
+                            exit = shrinkVertically() + fadeOut()
+                        ) {
+                            Column(modifier = Modifier.fillMaxWidth()) {
+                                val isShareSelected = viewModel.currentRoute == "share"
+                                NavigationDrawerItem(
+                                    icon = { Icon(imageVector = Icons.Default.Share, contentDescription = "Share Cloud") },
+                                    label = { Text(text = "Share (Google Drive)", fontWeight = FontWeight.Medium, fontSize = 13.sp) },
+                                    selected = isShareSelected,
+                                    onClick = {
+                                        viewModel.currentRoute = "share"
+                                        scope.launch { drawerState.close() }
+                                    },
+                                    shape = RoundedCornerShape(8.dp),
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 2.dp),
+                                    colors = NavigationDrawerItemDefaults.colors(
+                                        selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                                        selectedTextColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                                        selectedIconColor = MaterialTheme.colorScheme.primary,
+                                        unselectedContainerColor = Color.Transparent,
+                                        unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                                    )
+                                )
+                                val isTransferFileSelected = viewModel.currentRoute == "transfer_file"
+                                NavigationDrawerItem(
+                                    icon = { Icon(imageVector = Icons.Default.SwapHoriz, contentDescription = "Transfer File") },
+                                    label = { Text(text = "Transfer File (Offline PC)", fontWeight = FontWeight.Medium, fontSize = 13.sp) },
+                                    selected = isTransferFileSelected,
+                                    onClick = {
+                                        viewModel.currentRoute = "transfer_file"
+                                        scope.launch { drawerState.close() }
+                                    },
+                                    shape = RoundedCornerShape(8.dp),
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 2.dp),
+                                    colors = NavigationDrawerItemDefaults.colors(
+                                        selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                                        selectedTextColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                                        selectedIconColor = MaterialTheme.colorScheme.primary,
+                                        unselectedContainerColor = Color.Transparent,
+                                        unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                                    )
+                                )
+
+                                val isHtSelected = viewModel.currentRoute == "handy_talky"
+                                NavigationDrawerItem(
+                                    icon = {
+                                        Icon(
+                                            imageVector = Icons.Default.SettingsVoice,
+                                            contentDescription = "Handy Talky (HT)",
+                                            tint = if (isHtSelected) MaterialTheme.colorScheme.primary else Color(0xFF0F766E)
+                                        )
+                                    },
+                                    label = {
+                                        Text(
+                                            text = "HT (Handy Talky)",
+                                            fontWeight = FontWeight.SemiBold,
+                                            fontSize = 13.sp
+                                        )
+                                    },
+                                    selected = isHtSelected,
+                                    onClick = {
+                                        viewModel.currentRoute = "handy_talky"
+                                        scope.launch { drawerState.close() }
+                                    },
+                                    shape = RoundedCornerShape(8.dp),
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 2.dp),
+                                    colors = NavigationDrawerItemDefaults.colors(
+                                        selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                                        selectedTextColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                                        selectedIconColor = MaterialTheme.colorScheme.primary,
+                                        unselectedContainerColor = Color.Transparent,
+                                        unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                                    )
+                                )
+
+                                val isUserAdmin = viewModel.currentFirebaseUser?.uid == com.example.firebase.FirebaseAccountAdminManager.ADMIN_UID
+                                if (isUserAdmin) {
+                                    val isManajemenAkunSelected = viewModel.currentRoute == "manajemen_akun"
+                                    NavigationDrawerItem(
+                                        icon = {
+                                            Icon(
+                                                imageVector = Icons.Default.AdminPanelSettings,
+                                                contentDescription = "Manajemen Akun",
+                                                tint = Color(0xFF047857)
+                                            )
+                                        },
+                                        label = {
+                                            Text(
+                                                text = "Manajemen Akun",
+                                                fontWeight = FontWeight.SemiBold,
+                                                fontSize = 13.sp
+                                            )
+                                        },
+                                        selected = isManajemenAkunSelected,
+                                        onClick = {
+                                            viewModel.currentRoute = "manajemen_akun"
+                                            scope.launch { drawerState.close() }
+                                        },
+                                        shape = RoundedCornerShape(8.dp),
+                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 2.dp),
+                                        colors = NavigationDrawerItemDefaults.colors(
+                                            selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                                            selectedTextColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                                            selectedIconColor = MaterialTheme.colorScheme.primary,
+                                            unselectedContainerColor = Color.Transparent,
+                                            unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                                        )
+                                    )
+                                }
+                            }
+                        }
+                    }
 
 
 
 
 
 
-                    Spacer(modifier = Modifier.height(16.dp))
+
+                    }
+
+                    // Bottom Drawer: Masuk, Daftar (tanpa title) disebelah kiri tombol Keluar jika belum login
+                    val currentFirebaseUser = viewModel.currentFirebaseUser
+                    Row(
+                        modifier = Modifier
+                            .align(Alignment.BottomEnd)
+                            .padding(horizontal = 16.dp, vertical = 12.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        // Tampilkan tombol Masuk & Daftar hanya jika pengguna belum login
+                        if (currentFirebaseUser == null) {
+                            // Tombol Masuk tanpa title
+                            Button(
+                                onClick = {
+                                    authDialogInitialMode = com.example.ui.components.AuthMode.LOGIN
+                                    showAuthDialog = true
+                                    scope.launch { drawerState.close() }
+                                },
+                                shape = RoundedCornerShape(8.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                                modifier = Modifier.height(34.dp)
+                            ) {
+                                Icon(Icons.Default.Login, contentDescription = "Masuk", modifier = Modifier.size(16.dp))
+                            }
+
+                            // Tombol Daftar tanpa title
+                            Button(
+                                onClick = {
+                                    authDialogInitialMode = com.example.ui.components.AuthMode.REGISTER
+                                    showAuthDialog = true
+                                    scope.launch { drawerState.close() }
+                                },
+                                shape = RoundedCornerShape(8.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0F766E)),
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                                modifier = Modifier.height(34.dp)
+                            ) {
+                                Icon(Icons.Default.PersonAdd, contentDescription = "Daftar", modifier = Modifier.size(16.dp))
+                            }
+                        }
+
+                        // Tombol Keluar: sama seperti pada halaman profil di bawah title "my singghara"
+                        if (currentFirebaseUser != null) {
+                            OutlinedButton(
+                                onClick = {
+                                    viewModel.requestLogoutConfirmation {
+                                        scope.launch { drawerState.close() }
+                                    }
+                                },
+                                shape = RoundedCornerShape(8.dp),
+                                colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.5f)),
+                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
+                                modifier = Modifier.height(34.dp)
+                            ) {
+                                Icon(Icons.Default.Logout, null, modifier = Modifier.size(14.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("Keluar", fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -1665,7 +2401,7 @@ fun MainAppContent(viewModel: MainViewModel) {
         Scaffold(
             modifier = Modifier.fillMaxSize(),
             topBar = {
-                if (viewModel.currentRoute != "semua_transaksi_belanja" && viewModel.currentRoute != "semua_catatan_tabungan" && viewModel.currentRoute != "preview_catatan" && viewModel.currentRoute != "immersive_file_viewer" && viewModel.currentRoute != "quran" && !viewModel.hideGlobalTopAppBar) {
+                if (viewModel.currentRoute != "semua_transaksi_belanja" && viewModel.currentRoute != "semua_catatan_tabungan" && viewModel.currentRoute != "preview_catatan" && viewModel.currentRoute != "immersive_file_viewer" && viewModel.currentRoute != "quran" && viewModel.currentRoute != "transfer_file" && viewModel.currentRoute != "handy_talky" && !viewModel.hideGlobalTopAppBar) {
                     Box(
                         modifier = Modifier
                             .statusBarsPadding()
@@ -1696,10 +2432,24 @@ fun MainAppContent(viewModel: MainViewModel) {
                                 val context = LocalContext.current; val agendaItems by viewModel.agendaItems.collectAsState()
                                 val jadwalList by viewModel.jadwalList.collectAsState()
                                 val liveHijri by viewModel.apiHijriDate.collectAsState()
+                                val fcmNotifications by viewModel.fcmNotifications.collectAsState()
+                                val unreadFcmCount by viewModel.unreadFcmCount.collectAsState()
+                                val adminMessagesList by viewModel.adminMessages.collectAsState()
+                                val unreadAdminMessagesCount = viewModel.unreadAdminMessagesCount
+                                val isUserAdmin = viewModel.currentFirebaseUser?.uid == com.example.firebase.FirebaseAccountAdminManager.ADMIN_UID
+                                var selectedNotificationTab by remember { mutableIntStateOf(0) }
                                 var showTodayNotificationsDialog by remember { mutableStateOf(false) }
                                 var showAllHolidaysInDialog by remember { mutableStateOf(false) }
                                 var holidaySearchQuery by remember { mutableStateOf("") }
                                 var selectedHolidayCategory by remember { mutableStateOf("Semua") }
+
+                                LaunchedEffect(viewModel.showFcmNotificationsDialog) {
+                                    if (viewModel.showFcmNotificationsDialog) {
+                                        selectedNotificationTab = 1
+                                        showTodayNotificationsDialog = true
+                                        viewModel.showFcmNotificationsDialog = false
+                                    }
+                                }
 
                                 val todayStr = remember { SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()).format(Date()) }
                                 val todayAgendas = remember(agendaItems) { agendaItems.filter { it.tanggal == todayStr } }
@@ -1760,13 +2510,13 @@ fun MainAppContent(viewModel: MainViewModel) {
                                     }
                                 }
 
-                                val totalNotificationsCount = activeAgendas.size + (if (ongoingJadwal != null) 1 else 0) + (if (hasHolidayOrObservanceToday) 1 else 0)
+                                val totalNotificationsCount = activeAgendas.size + (if (ongoingJadwal != null) 1 else 0) + (if (hasHolidayOrObservanceToday) 1 else 0) + unreadFcmCount + unreadAdminMessagesCount
 
                                 BadgedBox(
                                     badge = {
                                         if (totalNotificationsCount > 0) {
                                             Badge(
-                                                containerColor = if (todayHolidayName != null) Color(0xFFDC2626) else if (ongoingJadwal != null) MaterialTheme.colorScheme.primary else if (todayObservanceName != null) Color(0xFF0F766E) else MaterialTheme.colorScheme.error,
+                                                containerColor = if (unreadAdminMessagesCount > 0) Color(0xFF047857) else if (unreadFcmCount > 0) MaterialTheme.colorScheme.error else if (todayHolidayName != null) Color(0xFFDC2626) else if (ongoingJadwal != null) MaterialTheme.colorScheme.primary else if (todayObservanceName != null) Color(0xFF0F766E) else MaterialTheme.colorScheme.error,
                                                 contentColor = Color.White
                                             ) {
                                                 Text(totalNotificationsCount.toString())
@@ -1776,13 +2526,22 @@ fun MainAppContent(viewModel: MainViewModel) {
                                     modifier = Modifier.padding(end = 8.dp)
                                 ) {
                                     IconButton(
-                                        onClick = { showTodayNotificationsDialog = true },
+                                        onClick = {
+                                            if (unreadAdminMessagesCount > 0) {
+                                                selectedNotificationTab = 0
+                                            } else if (unreadFcmCount > 0) {
+                                                selectedNotificationTab = 1
+                                            }
+                                            showTodayNotificationsDialog = true
+                                        },
                                         modifier = Modifier.testTag("top_notification_button")
                                     ) {
                                         Icon(
                                             imageVector = if (totalNotificationsCount > 0) Icons.Default.NotificationsActive else Icons.Default.Notifications,
-                                            contentDescription = "Notifikasi Agenda & Hari Libur",
+                                            contentDescription = "Pesan Notifikasi Admin, Cloud Messaging & Agenda",
                                             tint = when {
+                                                unreadAdminMessagesCount > 0 -> Color(0xFF047857)
+                                                unreadFcmCount > 0 -> MaterialTheme.colorScheme.error
                                                 todayHolidayName != null -> Color(0xFFDC2626)
                                                 ongoingJadwal != null -> MaterialTheme.colorScheme.primary
                                                 todayObservanceName != null -> Color(0xFF0F766E)
@@ -1793,38 +2552,616 @@ fun MainAppContent(viewModel: MainViewModel) {
                                     }
                                 }
 
+                                // Pop-up In-App Messaging saat aplikasi sedang dibuka
+                                viewModel.activeInAppMessage?.let { activeMsg ->
+                                    com.example.ui.components.InAppMessageDialog(
+                                        notification = activeMsg,
+                                        onDismiss = {
+                                            viewModel.dismissInAppMessage()
+                                        },
+                                        onOpenInbox = {
+                                            viewModel.openInboxFromInAppMessage()
+                                            selectedNotificationTab = 1
+                                            showTodayNotificationsDialog = true
+                                        }
+                                    )
+                                }
+
                                 if (showTodayNotificationsDialog) {
                                     AlertDialog(
                                         onDismissRequest = { showTodayNotificationsDialog = false },
                                         title = {
-                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                modifier = Modifier.fillMaxWidth()
+                                            ) {
                                                 Icon(
-                                                    imageVector = Icons.Default.NotificationsActive,
+                                                    imageVector = when (selectedNotificationTab) {
+                                                        0 -> Icons.Default.AdminPanelSettings
+                                                        1 -> Icons.Default.CloudQueue
+                                                        else -> Icons.Default.NotificationsActive
+                                                    },
                                                     contentDescription = null,
-                                                    tint = if (todayHolidayName != null) Color(0xFFDC2626) else MaterialTheme.colorScheme.primary,
+                                                    tint = when (selectedNotificationTab) {
+                                                        0 -> Color(0xFF047857)
+                                                        1 -> MaterialTheme.colorScheme.primary
+                                                        else -> if (todayHolidayName != null) Color(0xFFDC2626) else MaterialTheme.colorScheme.primary
+                                                    },
                                                     modifier = Modifier.size(24.dp)
                                                 )
                                                 Spacer(modifier = Modifier.width(8.dp))
                                                 Text(
-                                                    text = "Notifikasi & Pengingat",
+                                                    text = when (selectedNotificationTab) {
+                                                        0 -> "Pesan Administrator"
+                                                        1 -> "Pesan Cloud Messaging"
+                                                        else -> "Notifikasi & Pengingat"
+                                                    },
                                                     fontWeight = FontWeight.Bold,
                                                     fontSize = 18.sp
                                                 )
                                             }
                                         },
                                         text = {
+                                            val sharedDateFmt = remember { SimpleDateFormat("dd MMM yyyy, HH:mm", Locale("id", "ID")) }
+
                                             Column(
                                                 verticalArrangement = Arrangement.spacedBy(12.dp),
                                                 modifier = Modifier
                                                     .fillMaxWidth()
                                                     .verticalScroll(rememberScrollState())
                                             ) {
-                                                Text(
-                                                    text = "Kalender: $resolvedHijri • ${currentJawa.dina} ${currentJawa.pasaran}, Wuku ${currentJawa.wuku}",
-                                                    fontSize = 12.sp,
-                                                    fontWeight = FontWeight.Medium,
-                                                    color = MaterialTheme.colorScheme.secondary
-                                                )
+                                                // TAB SELECTOR: 3 TABS (Admin, Cloud FCM, Agenda & Info)
+                                                Row(
+                                                    modifier = Modifier
+                                                        .fillMaxWidth()
+                                                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f), RoundedCornerShape(12.dp))
+                                                        .padding(4.dp),
+                                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                                ) {
+                                                    // Tab 0: Pesan Admin (UID Terdaftar)
+                                                    Surface(
+                                                        onClick = { selectedNotificationTab = 0 },
+                                                        shape = RoundedCornerShape(10.dp),
+                                                        color = if (selectedNotificationTab == 0) Color(0xFF047857) else Color.Transparent,
+                                                        modifier = Modifier.weight(1f)
+                                                    ) {
+                                                        Row(
+                                                            modifier = Modifier.padding(vertical = 8.dp),
+                                                            horizontalArrangement = Arrangement.Center,
+                                                            verticalAlignment = Alignment.CenterVertically
+                                                        ) {
+                                                            Icon(
+                                                                imageVector = Icons.Default.AdminPanelSettings,
+                                                                contentDescription = null,
+                                                                modifier = Modifier.size(15.dp),
+                                                                tint = if (selectedNotificationTab == 0) Color.White else MaterialTheme.colorScheme.onSurfaceVariant
+                                                            )
+                                                            Spacer(modifier = Modifier.width(4.dp))
+                                                            Text(
+                                                                text = "Admin" + if (unreadAdminMessagesCount > 0) " ($unreadAdminMessagesCount)" else "",
+                                                                fontSize = 11.sp,
+                                                                fontWeight = if (selectedNotificationTab == 0) FontWeight.Bold else FontWeight.Medium,
+                                                                color = if (selectedNotificationTab == 0) Color.White else MaterialTheme.colorScheme.onSurfaceVariant
+                                                            )
+                                                        }
+                                                    }
+
+                                                    // Tab 1: Cloud Messaging (FCM)
+                                                    Surface(
+                                                        onClick = { selectedNotificationTab = 1 },
+                                                        shape = RoundedCornerShape(10.dp),
+                                                        color = if (selectedNotificationTab == 1) MaterialTheme.colorScheme.primary else Color.Transparent,
+                                                        modifier = Modifier.weight(1f)
+                                                    ) {
+                                                        Row(
+                                                            modifier = Modifier.padding(vertical = 8.dp),
+                                                            horizontalArrangement = Arrangement.Center,
+                                                            verticalAlignment = Alignment.CenterVertically
+                                                        ) {
+                                                            Icon(
+                                                                imageVector = Icons.Default.CloudQueue,
+                                                                contentDescription = null,
+                                                                modifier = Modifier.size(15.dp),
+                                                                tint = if (selectedNotificationTab == 1) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
+                                                            )
+                                                            Spacer(modifier = Modifier.width(4.dp))
+                                                            Text(
+                                                                text = "Cloud" + if (unreadFcmCount > 0) " ($unreadFcmCount)" else "",
+                                                                fontSize = 11.sp,
+                                                                fontWeight = if (selectedNotificationTab == 1) FontWeight.Bold else FontWeight.Medium,
+                                                                color = if (selectedNotificationTab == 1) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
+                                                            )
+                                                        }
+                                                    }
+
+                                                    // Tab 2: Agenda & Info
+                                                    Surface(
+                                                        onClick = { selectedNotificationTab = 2 },
+                                                        shape = RoundedCornerShape(10.dp),
+                                                        color = if (selectedNotificationTab == 2) MaterialTheme.colorScheme.primary else Color.Transparent,
+                                                        modifier = Modifier.weight(1f)
+                                                    ) {
+                                                        Row(
+                                                            modifier = Modifier.padding(vertical = 8.dp),
+                                                            horizontalArrangement = Arrangement.Center,
+                                                            verticalAlignment = Alignment.CenterVertically
+                                                        ) {
+                                                            Icon(
+                                                                imageVector = Icons.Default.DateRange,
+                                                                contentDescription = null,
+                                                                modifier = Modifier.size(15.dp),
+                                                                tint = if (selectedNotificationTab == 2) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
+                                                            )
+                                                            Spacer(modifier = Modifier.width(4.dp))
+                                                            val agendaBadge = activeAgendas.size + (if (ongoingJadwal != null) 1 else 0)
+                                                            Text(
+                                                                text = "Agenda" + if (agendaBadge > 0) " ($agendaBadge)" else "",
+                                                                fontSize = 11.sp,
+                                                                fontWeight = if (selectedNotificationTab == 2) FontWeight.Bold else FontWeight.Medium,
+                                                                color = if (selectedNotificationTab == 2) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
+                                                            )
+                                                        }
+                                                    }
+                                                }
+
+                                                if (selectedNotificationTab == 0) {
+                                                    // ============================================
+                                                    // DAFTAR PESAN DARI ADMIN (UID: UiDpHxawlBQ17mxTUHIXvhxRR3b2)
+                                                    // ============================================
+                                                    Card(
+                                                        colors = CardDefaults.cardColors(containerColor = Color(0xFF047857).copy(alpha = 0.09f)),
+                                                        border = BorderStroke(1.dp, Color(0xFF047857).copy(alpha = 0.3f)),
+                                                        modifier = Modifier.fillMaxWidth()
+                                                    ) {
+                                                        Column(modifier = Modifier.padding(12.dp)) {
+                                                            Row(
+                                                                verticalAlignment = Alignment.CenterVertically,
+                                                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                                            ) {
+                                                                Icon(
+                                                                    imageVector = Icons.Default.VerifiedUser,
+                                                                    contentDescription = null,
+                                                                    tint = Color(0xFF047857),
+                                                                    modifier = Modifier.size(20.dp)
+                                                                )
+                                                                Text(
+                                                                    text = "Pesan Resmi Administrator",
+                                                                    fontWeight = FontWeight.Bold,
+                                                                    fontSize = 13.sp,
+                                                                    color = Color(0xFF047857)
+                                                                )
+                                                            }
+                                                            Spacer(modifier = Modifier.height(2.dp))
+                                                            Text(
+                                                                text = "Dipublikasikan oleh Administrator terdaftar (UID: ${com.example.firebase.FirebaseAccountAdminManager.ADMIN_UID.take(12)}...)",
+                                                                fontSize = 11.sp,
+                                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                            )
+
+                                                            Row(
+                                                                modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                                                                horizontalArrangement = Arrangement.SpaceBetween,
+                                                                verticalAlignment = Alignment.CenterVertically
+                                                            ) {
+                                                                if (unreadAdminMessagesCount > 0) {
+                                                                    OutlinedButton(
+                                                                        onClick = { viewModel.markAllAdminMessagesAsRead() },
+                                                                        shape = RoundedCornerShape(8.dp),
+                                                                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                                                                        modifier = Modifier.height(30.dp)
+                                                                    ) {
+                                                                        Text("Tandai Semua Dibaca", fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
+                                                                    }
+                                                                } else {
+                                                                    Text(
+                                                                        text = "Semua pesan telah dibaca",
+                                                                        fontSize = 10.sp,
+                                                                        color = Color(0xFF047857),
+                                                                        fontWeight = FontWeight.Medium
+                                                                    )
+                                                                }
+
+                                                                if (isUserAdmin) {
+                                                                    Button(
+                                                                        onClick = {
+                                                                            showTodayNotificationsDialog = false
+                                                                            viewModel.currentRoute = "manajemen_akun"
+                                                                        },
+                                                                        shape = RoundedCornerShape(8.dp),
+                                                                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF047857)),
+                                                                        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
+                                                                        modifier = Modifier.height(30.dp)
+                                                                    ) {
+                                                                        Icon(Icons.Default.AdminPanelSettings, contentDescription = null, modifier = Modifier.size(12.dp))
+                                                                        Spacer(modifier = Modifier.width(4.dp))
+                                                                        Text("Panel Admin", fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                                                    }
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+
+                                                    if (adminMessagesList.isEmpty()) {
+                                                        Card(
+                                                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)),
+                                                            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
+                                                        ) {
+                                                            Column(
+                                                                modifier = Modifier.padding(16.dp).fillMaxWidth(),
+                                                                horizontalAlignment = Alignment.CenterHorizontally,
+                                                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                                                            ) {
+                                                                Icon(
+                                                                    imageVector = Icons.Default.AdminPanelSettings,
+                                                                    contentDescription = null,
+                                                                    tint = Color(0xFF047857).copy(alpha = 0.6f),
+                                                                    modifier = Modifier.size(36.dp)
+                                                                )
+                                                                Text(
+                                                                    text = "Belum Ada Pesan dari Administrator",
+                                                                    fontWeight = FontWeight.Bold,
+                                                                    fontSize = 13.sp,
+                                                                    color = MaterialTheme.colorScheme.onSurface
+                                                                )
+                                                                Text(
+                                                                    text = "Pesan pengumuman atau informasi resmi dari akun Admin (UID: ${com.example.firebase.FirebaseAccountAdminManager.ADMIN_UID}) akan tampil di sini.",
+                                                                    fontSize = 11.sp,
+                                                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                                                                )
+                                                            }
+                                                        }
+                                                    } else {
+                                                        Row(
+                                                            modifier = Modifier.fillMaxWidth(),
+                                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                                            verticalAlignment = Alignment.CenterVertically
+                                                        ) {
+                                                            Text(
+                                                                text = "Daftar Pesan Admin (${adminMessagesList.size})",
+                                                                fontSize = 12.sp,
+                                                                fontWeight = FontWeight.Bold,
+                                                                color = MaterialTheme.colorScheme.onSurface
+                                                            )
+                                                            if (isUserAdmin) {
+                                                                TextButton(
+                                                                    onClick = {
+                                                                        adminMessagesList.forEach { msg ->
+                                                                            viewModel.deleteAdminMessagePermanently(msg.id)
+                                                                        }
+                                                                    },
+                                                                    contentPadding = PaddingValues(0.dp)
+                                                                ) {
+                                                                    Icon(Icons.Default.DeleteForever, contentDescription = null, tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(13.dp))
+                                                                    Spacer(modifier = Modifier.width(3.dp))
+                                                                    Text("Hapus Semua (Admin)", fontSize = 11.sp, color = MaterialTheme.colorScheme.error, fontWeight = FontWeight.SemiBold)
+                                                                }
+                                                            }
+                                                        }
+
+                                                        adminMessagesList.forEach { msg ->
+                                                            val isRead = viewModel.isMessageRead(msg.id)
+                                                            val msgCategoryColor = when (msg.category) {
+                                                                "PERINGATAN" -> Color(0xFFDC2626)
+                                                                "PEMBARUAN" -> Color(0xFF0F766E)
+                                                                "INFORMASI" -> Color(0xFF2563EB)
+                                                                else -> Color(0xFF047857)
+                                                            }
+
+                                                            Card(
+                                                                colors = CardDefaults.cardColors(
+                                                                    containerColor = if (!isRead) {
+                                                                        Color(0xFF047857).copy(alpha = 0.08f)
+                                                                    } else {
+                                                                        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+                                                                    }
+                                                                ),
+                                                                border = if (!isRead) BorderStroke(1.dp, Color(0xFF047857).copy(alpha = 0.35f)) else null,
+                                                                modifier = Modifier.fillMaxWidth(),
+                                                                onClick = {
+                                                                    if (!isRead) {
+                                                                        viewModel.markAdminMessageAsRead(msg.id)
+                                                                    }
+                                                                }
+                                                            ) {
+                                                                Column(modifier = Modifier.padding(12.dp)) {
+                                                                    Row(
+                                                                        verticalAlignment = Alignment.CenterVertically,
+                                                                        modifier = Modifier.fillMaxWidth(),
+                                                                        horizontalArrangement = Arrangement.SpaceBetween
+                                                                    ) {
+                                                                        Row(
+                                                                            verticalAlignment = Alignment.CenterVertically,
+                                                                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                                                        ) {
+                                                                            Box(
+                                                                                modifier = Modifier
+                                                                                    .clip(RoundedCornerShape(4.dp))
+                                                                                    .background(msgCategoryColor.copy(alpha = 0.15f))
+                                                                                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                                                                            ) {
+                                                                                Text(
+                                                                                    text = msg.category,
+                                                                                    color = msgCategoryColor,
+                                                                                    fontSize = 9.sp,
+                                                                                    fontWeight = FontWeight.Bold
+                                                                                )
+                                                                            }
+
+                                                                            if (msg.priority != "NORMAL") {
+                                                                                Box(
+                                                                                    modifier = Modifier
+                                                                                        .clip(RoundedCornerShape(4.dp))
+                                                                                        .background(Color(0xFFFEF2F2))
+                                                                                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                                                                                ) {
+                                                                                    Text(
+                                                                                        text = msg.priority,
+                                                                                        color = Color(0xFFDC2626),
+                                                                                        fontSize = 9.sp,
+                                                                                        fontWeight = FontWeight.Bold
+                                                                                    )
+                                                                                }
+                                                                            }
+
+                                                                            if (!isRead) {
+                                                                                Surface(
+                                                                                    shape = CircleShape,
+                                                                                    color = Color(0xFF047857),
+                                                                                    modifier = Modifier.padding(horizontal = 2.dp)
+                                                                                ) {
+                                                                                    Text(
+                                                                                        text = "BARU",
+                                                                                        color = Color.White,
+                                                                                        fontSize = 8.sp,
+                                                                                        fontWeight = FontWeight.Bold,
+                                                                                        modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
+                                                                                    )
+                                                                                }
+                                                                            }
+                                                                        }
+
+                                                                        // Tombol Hapus Permanen dari Firestore (Khusus Admin UID Terdaftar)
+                                                                        if (isUserAdmin) {
+                                                                            IconButton(
+                                                                                onClick = {
+                                                                                    viewModel.deleteAdminMessagePermanently(msg.id)
+                                                                                },
+                                                                                modifier = Modifier.size(24.dp)
+                                                                            ) {
+                                                                                Icon(
+                                                                                    imageVector = Icons.Default.DeleteForever,
+                                                                                    contentDescription = "Hapus Pesan Permanen dari Firestore",
+                                                                                    tint = MaterialTheme.colorScheme.error,
+                                                                                    modifier = Modifier.size(16.dp)
+                                                                                )
+                                                                            }
+                                                                        }
+                                                                    }
+
+                                                                    Spacer(modifier = Modifier.height(6.dp))
+
+                                                                    Text(
+                                                                        text = msg.title,
+                                                                        fontWeight = FontWeight.Bold,
+                                                                        fontSize = 13.sp,
+                                                                        color = MaterialTheme.colorScheme.onSurface
+                                                                    )
+
+                                                                    Spacer(modifier = Modifier.height(4.dp))
+
+                                                                    Text(
+                                                                        text = msg.content,
+                                                                        fontSize = 12.sp,
+                                                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                                        lineHeight = 16.sp
+                                                                    )
+
+                                                                    Spacer(modifier = Modifier.height(8.dp))
+                                                                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
+                                                                    Spacer(modifier = Modifier.height(6.dp))
+
+                                                                    Row(
+                                                                        modifier = Modifier.fillMaxWidth(),
+                                                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                                                        verticalAlignment = Alignment.CenterVertically
+                                                                    ) {
+                                                                        Text(
+                                                                            text = sharedDateFmt.format(Date(msg.createdAt)),
+                                                                            fontSize = 10.sp,
+                                                                            color = MaterialTheme.colorScheme.outline
+                                                                        )
+
+                                                                        Text(
+                                                                            text = "Admin: ${msg.authorUid.take(8)}...",
+                                                                            fontSize = 10.sp,
+                                                                            color = Color(0xFF047857),
+                                                                            fontWeight = FontWeight.Medium
+                                                                        )
+                                                                    }
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                } else if (selectedNotificationTab == 1) {
+                                                    // ============================================
+                                                    // DAFTAR PESAN CLOUD MESSAGING (FIREBASE FCM)
+                                                    // ============================================
+                                                    if (fcmNotifications.isEmpty()) {
+                                                        Card(
+                                                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)),
+                                                            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
+                                                        ) {
+                                                            Column(
+                                                                modifier = Modifier.padding(16.dp).fillMaxWidth(),
+                                                                horizontalAlignment = Alignment.CenterHorizontally,
+                                                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                                                            ) {
+                                                                Icon(
+                                                                    imageVector = Icons.Default.CloudQueue,
+                                                                    contentDescription = null,
+                                                                    tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.6f),
+                                                                    modifier = Modifier.size(36.dp)
+                                                                )
+                                                                Text(
+                                                                    text = "Belum Ada Pesan Masuk",
+                                                                    fontWeight = FontWeight.Bold,
+                                                                    fontSize = 13.sp,
+                                                                    color = MaterialTheme.colorScheme.onSurface
+                                                                )
+                                                                Text(
+                                                                    text = "Pesan pengumuman atau broadcast yang dikirim melalui Firebase Console akan tampil secara otomatis di sini.",
+                                                                    fontSize = 11.sp,
+                                                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                                                                )
+                                                            }
+                                                        }
+                                                    } else {
+                                                        Row(
+                                                            modifier = Modifier.fillMaxWidth(),
+                                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                                            verticalAlignment = Alignment.CenterVertically
+                                                        ) {
+                                                            Text(
+                                                                text = "Riwayat Pesan (${fcmNotifications.size})",
+                                                                fontSize = 12.sp,
+                                                                fontWeight = FontWeight.Bold,
+                                                                color = MaterialTheme.colorScheme.onSurface
+                                                            )
+                                                            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                                                if (unreadFcmCount > 0) {
+                                                                    TextButton(
+                                                                        onClick = { viewModel.markAllFcmAsRead() },
+                                                                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp)
+                                                                    ) {
+                                                                        Icon(Icons.Default.DoneAll, contentDescription = null, modifier = Modifier.size(14.dp))
+                                                                        Spacer(modifier = Modifier.width(4.dp))
+                                                                        Text("Baca Semua", fontSize = 11.sp)
+                                                                    }
+                                                                }
+                                                                TextButton(
+                                                                    onClick = { viewModel.clearAllFcmNotifications() },
+                                                                    contentPadding = PaddingValues(horizontal = 6.dp, vertical = 2.dp)
+                                                                ) {
+                                                                    Icon(Icons.Default.DeleteOutline, contentDescription = null, modifier = Modifier.size(14.dp))
+                                                                    Spacer(modifier = Modifier.width(4.dp))
+                                                                    Text("Bersihkan", fontSize = 11.sp, color = MaterialTheme.colorScheme.error)
+                                                                }
+                                                            }
+                                                        }
+
+                                                        val dateFmt = remember { SimpleDateFormat("dd MMM yyyy, HH:mm", Locale.getDefault()) }
+                                                        fcmNotifications.forEach { notif ->
+                                                            Card(
+                                                                colors = CardDefaults.cardColors(
+                                                                    containerColor = if (!notif.isRead) {
+                                                                        MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.25f)
+                                                                    } else {
+                                                                        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+                                                                    }
+                                                                ),
+                                                                border = if (!notif.isRead) BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.4f)) else null,
+                                                                modifier = Modifier.fillMaxWidth(),
+                                                                onClick = {
+                                                                    if (!notif.isRead) {
+                                                                        viewModel.markFcmAsRead(notif.id)
+                                                                    }
+                                                                }
+                                                            ) {
+                                                                Column(modifier = Modifier.padding(12.dp)) {
+                                                                    Row(
+                                                                        verticalAlignment = Alignment.CenterVertically,
+                                                                        modifier = Modifier.fillMaxWidth()
+                                                                    ) {
+                                                                        Icon(
+                                                                            imageVector = if (!notif.isRead) Icons.Default.NotificationsActive else Icons.Default.NotificationsNone,
+                                                                            contentDescription = null,
+                                                                            tint = if (!notif.isRead) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                                                            modifier = Modifier.size(18.dp)
+                                                                        )
+                                                                        Spacer(modifier = Modifier.width(8.dp))
+                                                                        Text(
+                                                                            text = notif.title,
+                                                                            fontWeight = FontWeight.Bold,
+                                                                            fontSize = 13.sp,
+                                                                            color = MaterialTheme.colorScheme.onSurface,
+                                                                            modifier = Modifier.weight(1f)
+                                                                        )
+                                                                        if (!notif.isRead) {
+                                                                            Surface(
+                                                                                shape = CircleShape,
+                                                                                color = MaterialTheme.colorScheme.error,
+                                                                                modifier = Modifier.padding(horizontal = 4.dp)
+                                                                            ) {
+                                                                                Text(
+                                                                                    text = "BARU",
+                                                                                    color = Color.White,
+                                                                                    fontSize = 9.sp,
+                                                                                    fontWeight = FontWeight.Bold,
+                                                                                    modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
+                                                                                )
+                                                                            }
+                                                                        }
+                                                                        IconButton(
+                                                                            onClick = { viewModel.deleteFcmNotification(notif.id) },
+                                                                            modifier = Modifier.size(24.dp)
+                                                                        ) {
+                                                                            Icon(
+                                                                                imageVector = Icons.Default.Close,
+                                                                                contentDescription = "Hapus",
+                                                                                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                                                                                modifier = Modifier.size(14.dp)
+                                                                            )
+                                                                        }
+                                                                    }
+
+                                                                    if (notif.body.isNotEmpty()) {
+                                                                        Spacer(modifier = Modifier.height(4.dp))
+                                                                        Text(
+                                                                            text = notif.body,
+                                                                            fontSize = 12.sp,
+                                                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                                            lineHeight = 16.sp
+                                                                        )
+                                                                    }
+
+                                                                    if (notif.dataPayload.isNotEmpty()) {
+                                                                        Spacer(modifier = Modifier.height(4.dp))
+                                                                        Surface(
+                                                                            shape = RoundedCornerShape(6.dp),
+                                                                            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.6f),
+                                                                            modifier = Modifier.fillMaxWidth()
+                                                                        ) {
+                                                                            Text(
+                                                                                text = "Data: ${notif.dataPayload}",
+                                                                                fontSize = 10.sp,
+                                                                                color = MaterialTheme.colorScheme.outline,
+                                                                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp)
+                                                                            )
+                                                                        }
+                                                                    }
+
+                                                                    Spacer(modifier = Modifier.height(6.dp))
+                                                                    Text(
+                                                                        text = dateFmt.format(Date(notif.timestamp)),
+                                                                        fontSize = 10.sp,
+                                                                        color = MaterialTheme.colorScheme.outline
+                                                                    )
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                } else {
+                                                    // ============================================
+                                                    // PANEL AGENDA, KALENDER & HARI LIBUR
+                                                    // ============================================
+                                                    Text(
+                                                        text = "Kalender: $resolvedHijri • ${currentJawa.dina} ${currentJawa.pasaran}, Wuku ${currentJawa.wuku}",
+                                                        fontSize = 12.sp,
+                                                        fontWeight = FontWeight.Medium,
+                                                        color = MaterialTheme.colorScheme.secondary
+                                                    )
 
                                                 // HARI LIBUR & PERINGATAN NASIONAL HARI INI
                                                 if (todayHolidayName != null || todayObservanceName != null) {
@@ -2167,6 +3504,7 @@ fun MainAppContent(viewModel: MainViewModel) {
                                                         Text(if (isDismissed) "Tampilkan Kembali di Status Bar" else "Hapus dari Status Bar")
                                                     }
                                                 }
+                                                }
                                             }
                                         },
                                         confirmButton = {
@@ -2188,7 +3526,7 @@ fun MainAppContent(viewModel: MainViewModel) {
                 }
             },
             bottomBar = {
-                val hideBottomBarRoutes = listOf("jurnal_umum", "buku_besar", "neraca_saldo", "jurnal_penyesuaian", "neraca_saldo_disesuaikan", "laba_rugi", "jurnal_penutup", "neraca_saldo_setelah_tutup", "pemutar_musik", "pembukuan_usaha", "semua_transaksi_belanja", "semua_catatan_tabungan", "preview_catatan", "immersive_file_viewer", "quran")
+                val hideBottomBarRoutes = listOf("jurnal_umum", "buku_besar", "neraca_saldo", "jurnal_penyesuaian", "neraca_saldo_disesuaikan", "laba_rugi", "jurnal_penutup", "neraca_saldo_setelah_tutup", "pemutar_musik", "pembukuan_usaha", "semua_transaksi_belanja", "semua_catatan_tabungan", "preview_catatan", "immersive_file_viewer", "quran", "handy_talky", "telegram_ai")
                 val isEditingNote = viewModel.currentRoute == "catatan" && viewModel.selectedNote != null
                 if (viewModel.isBottomBarVisible && !hideBottomBarRoutes.contains(viewModel.currentRoute) && !isEditingNote) {
                     BottomNavBar(viewModel = viewModel)
@@ -2216,8 +3554,24 @@ fun MainAppContent(viewModel: MainViewModel) {
                 ) { route ->
                     when (route) {
                         "home" -> HomeScreen(viewModel = viewModel)
+                        "rekap_belanja_pasar" -> RekapBelanjaPasarScreen(
+                            viewModel = viewModel,
+                            onBack = { viewModel.currentRoute = "home" },
+                            onOpenDrawer = { scope.launch { drawerState.open() } }
+                        )
+                        "arisan_keluarga" -> ArisanKeluargaScreen(
+                            viewModel = viewModel,
+                            onNavigateBack = { viewModel.currentRoute = "home" },
+                            onOpenDrawer = { scope.launch { drawerState.open() } }
+                        )
                         "quran" -> QuranScreen(viewModel = viewModel)
                         "game_list" -> GameScreen(viewModel = viewModel)
+                        "sliding_puzzle" -> com.example.ui.screens.SlidingPuzzleGame(
+                            onBackClick = { viewModel.currentRoute = "home" }
+                        )
+                        "jigsaw_puzzle" -> com.example.ui.screens.JigsawPuzzleGame(
+                            onBackClick = { viewModel.currentRoute = "home" }
+                        )
                         "belanja" -> BelanjaScreen(viewModel = viewModel)
                         "semua_transaksi_belanja" -> SemuaTransaksiBelanjaScreen(viewModel = viewModel)
                         "tabungan" -> TabunganScreen(viewModel = viewModel)
@@ -2329,12 +3683,23 @@ fun MainAppContent(viewModel: MainViewModel) {
                         }
                         "data_karyawan_murid" -> DataKaryawanMuridScreen(
                             viewModel = viewModel,
-                            onBack = { viewModel.currentRoute = "home" }
+                            onBack = { viewModel.currentRoute = "home" },
+                            onOpenFullTable = { viewModel.currentRoute = "tabel_anggota_lengkap" }
+                        )
+                        "tabel_anggota_lengkap" -> DataKaryawanMuridScreen(
+                            viewModel = viewModel,
+                            isFullTableOnly = true,
+                            onBack = { viewModel.currentRoute = "data_karyawan_murid" }
                         )
                         "absensi_karyawan" -> AbsensiScreen(
                             viewModel = viewModel,
                             isFullPage = false,
                             onOpenFullHistory = { viewModel.currentRoute = "riwayat_absensi_lengkap" },
+                            onNavigateBack = { viewModel.currentRoute = "data_karyawan_murid" },
+                            onOpenDrawer = { scope.launch { drawerState.open() } }
+                        )
+                        "gaji_karyawan" -> GajiScreen(
+                            viewModel = viewModel,
                             onNavigateBack = { viewModel.currentRoute = "data_karyawan_murid" },
                             onOpenDrawer = { scope.launch { drawerState.open() } }
                         )
@@ -2353,6 +3718,15 @@ fun MainAppContent(viewModel: MainViewModel) {
                             }
                         )
                         "share" -> ShareScreen(viewModel = viewModel)
+                        "transfer_file" -> com.example.ui.screens.TransferFileScreen(viewModel = viewModel)
+                        "manajemen_akun" -> com.example.ui.screens.ManajemenAkunScreen(
+                            viewModel = viewModel,
+                            onBack = { viewModel.currentRoute = "profil" },
+                            onOpenAuthDialog = {
+                                authDialogInitialMode = com.example.ui.components.AuthMode.LOGIN
+                                showAuthDialog = true
+                            }
+                        )
                         "pemutar_musik" -> PemutarMusikScreen(viewModel = viewModel, onOpenDrawer = { scope.launch { drawerState.open() } })
                         "pembukuan_usaha" -> PembukuanScreen(viewModel = viewModel)
                         "my_kasir" -> MyKasirScreen(viewModel = viewModel)
@@ -2436,10 +3810,45 @@ fun MainAppContent(viewModel: MainViewModel) {
                                 viewModel.currentRoute = "profil"
                             }
                         )
+                        "tentang_aplikasi" -> TentangAplikasiScreen(
+                            viewModel = viewModel,
+                            onNavigateBack = {
+                                viewModel.currentRoute = "profil"
+                            }
+                        )
+                        "telegram_ai" -> com.example.ui.screens.TelegramAiScreen(
+                            viewModel = viewModel,
+                            onBackClick = {
+                                viewModel.currentRoute = "profil"
+                            }
+                        )
+                        "handy_talky" -> com.example.ui.screens.HandyTalkyScreen(
+                            onNavigateBack = {
+                                viewModel.currentRoute = "home"
+                            }
+                        )
                         else -> HomeScreen(viewModel = viewModel)
                     }
                 }
             }
+        }
+
+        // Firebase Auth Dialog (Login, Register, Forgot Password, OTP Verification)
+        if (showAuthDialog) {
+            com.example.ui.components.FirebaseAuthDialog(
+                viewModel = viewModel,
+                initialMode = authDialogInitialMode,
+                onDismissRequest = { showAuthDialog = false }
+            )
+        }
+
+        // Animated Auth Feedback Dialog (Masuk, Daftar, Konfirmasi Keluar, Keluar Berhasil)
+        val currentAuthFeedback = viewModel.authFeedbackState
+        if (currentAuthFeedback != null) {
+            com.example.ui.components.AuthFeedbackDialog(
+                feedbackState = currentAuthFeedback,
+                onDismiss = { viewModel.dismissAuthFeedback() }
+            )
         }
     }
 }

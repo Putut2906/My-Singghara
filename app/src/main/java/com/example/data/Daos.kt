@@ -86,8 +86,14 @@ interface AgendaDao {
     @Query("SELECT * FROM agenda_items WHERE tanggal = :tanggal")
     suspend fun getAgendasByDateList(tanggal: String): List<AgendaItem>
 
+    @Query("SELECT * FROM agenda_items WHERE id = :id LIMIT 1")
+    suspend fun getAgendaById(id: Int): AgendaItem?
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertAgenda(agenda: AgendaItem)
+
+    @Update
+    suspend fun updateAgenda(agenda: AgendaItem)
 
     @Delete
     suspend fun deleteAgenda(agenda: AgendaItem)
@@ -119,8 +125,14 @@ interface JadwalDao {
     @Query("SELECT * FROM jadwal_kegiatan ORDER BY waktu ASC")
     fun getAllJadwal(): Flow<List<JadwalKegiatan>>
 
+    @Query("SELECT * FROM jadwal_kegiatan WHERE id = :id LIMIT 1")
+    suspend fun getJadwalById(id: Int): JadwalKegiatan?
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertJadwal(jadwal: JadwalKegiatan)
+
+    @Update
+    suspend fun updateJadwal(jadwal: JadwalKegiatan)
 
     @Delete
     suspend fun deleteJadwal(jadwal: JadwalKegiatan)
@@ -170,4 +182,159 @@ interface PresensiDao {
     @Query("DELETE FROM riwayat_presensi_anggota")
     suspend fun deleteAll()
 }
+
+@Dao
+interface GajiDao {
+    @Query("SELECT * FROM gaji_items ORDER BY id DESC")
+    fun getAllGaji(): Flow<List<GajiItem>>
+
+    @Query("SELECT * FROM gaji_items WHERE id = :id LIMIT 1")
+    suspend fun getGajiById(id: Int): GajiItem?
+
+    @Query("SELECT * FROM gaji_items WHERE periode = :periode ORDER BY id DESC")
+    fun getGajiByPeriode(periode: String): Flow<List<GajiItem>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertGaji(gaji: GajiItem): Long
+
+    @Update
+    suspend fun updateGaji(gaji: GajiItem)
+
+    @Delete
+    suspend fun deleteGaji(gaji: GajiItem)
+
+    @Query("DELETE FROM gaji_items")
+    suspend fun deleteAll()
+}
+
+@Dao
+interface BelanjaPasarDao {
+    @Query("SELECT * FROM rekap_belanja_pasar ORDER BY sudahDibeli ASC, id DESC")
+    fun getAllBelanjaPasar(): Flow<List<BelanjaPasarItem>>
+
+    @Query("SELECT * FROM rekap_belanja_pasar WHERE id = :id LIMIT 1")
+    suspend fun getById(id: Int): BelanjaPasarItem?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertBelanjaPasar(item: BelanjaPasarItem): Long
+
+    @Update
+    suspend fun updateBelanjaPasar(item: BelanjaPasarItem)
+
+    @Delete
+    suspend fun deleteBelanjaPasar(item: BelanjaPasarItem)
+
+    @Query("DELETE FROM rekap_belanja_pasar WHERE id = :id")
+    suspend fun deleteById(id: Int)
+
+    @Query("UPDATE rekap_belanja_pasar SET sudahDibeli = :sudahDibeli WHERE id = :id")
+    suspend fun setSudahDibeli(id: Int, sudahDibeli: Boolean)
+
+    @Query("DELETE FROM rekap_belanja_pasar WHERE sudahDibeli = 1")
+    suspend fun clearCompleted()
+
+    @Query("DELETE FROM rekap_belanja_pasar")
+    suspend fun deleteAll()
+}
+
+@Dao
+interface ArisanDao {
+    // Kelompok
+    @Query("SELECT * FROM arisan_kelompok ORDER BY id DESC")
+    fun getAllKelompok(): Flow<List<ArisanKelompok>>
+
+    @Query("SELECT * FROM arisan_kelompok WHERE id = :id LIMIT 1")
+    suspend fun getKelompokById(id: Int): ArisanKelompok?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertKelompok(kelompok: ArisanKelompok): Long
+
+    @Update
+    suspend fun updateKelompok(kelompok: ArisanKelompok)
+
+    @Delete
+    suspend fun deleteKelompok(kelompok: ArisanKelompok)
+
+    // Peserta
+    @Query("SELECT * FROM arisan_peserta WHERE arisanId = :arisanId ORDER BY nomorUndian ASC, id ASC")
+    fun getPesertaByArisan(arisanId: Int): Flow<List<ArisanPeserta>>
+
+    @Query("SELECT * FROM arisan_peserta WHERE arisanId = :arisanId ORDER BY nomorUndian ASC, id ASC")
+    suspend fun getPesertaListByArisan(arisanId: Int): List<ArisanPeserta>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertPeserta(peserta: ArisanPeserta): Long
+
+    @Update
+    suspend fun updatePeserta(peserta: ArisanPeserta)
+
+    @Delete
+    suspend fun deletePeserta(peserta: ArisanPeserta)
+
+    @Query("DELETE FROM arisan_peserta WHERE arisanId = :arisanId")
+    suspend fun deletePesertaByArisan(arisanId: Int)
+
+    // Iuran
+    @Query("SELECT * FROM arisan_iuran WHERE arisanId = :arisanId AND putaranKe = :putaranKe")
+    fun getIuranByPutaran(arisanId: Int, putaranKe: Int): Flow<List<ArisanIuran>>
+
+    @Query("SELECT * FROM arisan_iuran WHERE arisanId = :arisanId")
+    fun getAllIuranByArisan(arisanId: Int): Flow<List<ArisanIuran>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertIuran(iuran: ArisanIuran): Long
+
+    @Update
+    suspend fun updateIuran(iuran: ArisanIuran)
+
+    @Delete
+    suspend fun deleteIuran(iuran: ArisanIuran)
+
+    @Query("DELETE FROM arisan_iuran WHERE arisanId = :arisanId")
+    suspend fun deleteIuranByArisan(arisanId: Int)
+
+    // Kas Transaksi
+    @Query("SELECT * FROM arisan_kas_transaksi WHERE arisanId = :arisanId ORDER BY tanggal DESC, id DESC")
+    fun getKasByArisan(arisanId: Int): Flow<List<ArisanKasTransaksi>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertKas(kas: ArisanKasTransaksi): Long
+
+    @Delete
+    suspend fun deleteKas(kas: ArisanKasTransaksi)
+
+    @Query("DELETE FROM arisan_kas_transaksi WHERE arisanId = :arisanId")
+    suspend fun deleteKasByArisan(arisanId: Int)
+
+    // Pemenang Riwayat
+    @Query("SELECT * FROM arisan_pemenang_riwayat WHERE arisanId = :arisanId ORDER BY putaranKe ASC")
+    fun getPemenangByArisan(arisanId: Int): Flow<List<ArisanPemenangRiwayat>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertPemenang(pemenang: ArisanPemenangRiwayat): Long
+
+    @Delete
+    suspend fun deletePemenang(pemenang: ArisanPemenangRiwayat)
+
+    @Query("DELETE FROM arisan_pemenang_riwayat WHERE arisanId = :arisanId")
+    suspend fun deletePemenangByArisan(arisanId: Int)
+
+    // Delete All
+    @Query("DELETE FROM arisan_kelompok")
+    suspend fun deleteAllKelompok()
+
+    @Query("DELETE FROM arisan_peserta")
+    suspend fun deleteAllPeserta()
+
+    @Query("DELETE FROM arisan_iuran")
+    suspend fun deleteAllIuran()
+
+    @Query("DELETE FROM arisan_kas_transaksi")
+    suspend fun deleteAllKas()
+
+    @Query("DELETE FROM arisan_pemenang_riwayat")
+    suspend fun deleteAllPemenang()
+}
+
+
 

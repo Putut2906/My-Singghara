@@ -33,6 +33,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -49,6 +50,8 @@ import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.TextRange
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -386,10 +389,13 @@ fun CatatanScreen(viewModel: MainViewModel) {
     val clipboardManager = LocalClipboardManager.current
 
     var editTitle by remember { mutableStateOf("") }
-    var editContent by remember { mutableStateOf("") }
+    var contentTextFieldValue by remember { mutableStateOf(TextFieldValue("")) }
+    val editContent = contentTextFieldValue.text
     var editCategory by remember { mutableStateOf("Umum") }
     var editColorHex by remember { mutableStateOf("#6366F1") }
     var editIsPinned by remember { mutableStateOf(false) }
+    var hasUnsavedChanges by remember { mutableStateOf(false) }
+    var showSaveWarningDialog by remember { mutableStateOf(false) }
 
     var showNotesPopup by remember { mutableStateOf(false) }
     var noteToDelete by remember { mutableStateOf<NoteItem?>(null) }
@@ -423,21 +429,59 @@ fun CatatanScreen(viewModel: MainViewModel) {
         }
     }
 
-    val undoStack = remember { mutableStateListOf<String>() }
-    val redoStack = remember { mutableStateListOf<String>() }
+    val undoStack = remember { mutableStateListOf<TextFieldValue>() }
+    val redoStack = remember { mutableStateListOf<TextFieldValue>() }
     var isUndoingOrRedoing by remember { mutableStateOf(false) }
+    var lastTypingTimestamp by remember { mutableLongStateOf(0L) }
 
-    val onContentChange = { newText: String ->
+    val onContentValueChange: (TextFieldValue) -> Unit = { newTfv ->
         if (!isUndoingOrRedoing) {
-            if (undoStack.isEmpty() || undoStack.last() != editContent) {
-                undoStack.add(editContent)
-                if (undoStack.size > 100) {
-                    undoStack.removeAt(0)
+            val prevText = contentTextFieldValue.text
+            val newText = newTfv.text
+
+            if (prevText != newText) {
+                hasUnsavedChanges = true
+                viewModel.noteAutoSaveStatus = "Belum disimpan"
+
+                val now = System.currentTimeMillis()
+                val isTimeGap = (now - lastTypingTimestamp) > 600L
+                val isBoundary = newText.isNotEmpty() && (newText.endsWith(" ") || newText.endsWith("\n") || newText.endsWith("."))
+                val isMultiChar = Math.abs(newText.length - prevText.length) > 1
+
+                if (undoStack.isEmpty() || isTimeGap || isBoundary || isMultiChar) {
+                    if (undoStack.isEmpty() || undoStack.last().text != prevText) {
+                        undoStack.add(contentTextFieldValue)
+                        if (undoStack.size > 150) undoStack.removeAt(0)
+                    }
                 }
+                lastTypingTimestamp = now
+                redoStack.clear()
             }
-            redoStack.clear()
         }
-        editContent = newText
+        contentTextFieldValue = newTfv
+    }
+
+    // Helper untuk menyisipkan teks tepat di posisi kursor
+    val insertTextAtCursor: (String, Int) -> Unit = { insertion, selectionOffset ->
+        val currentText = contentTextFieldValue.text
+        val sel = contentTextFieldValue.selection
+        val start = sel.min.coerceIn(0, currentText.length)
+        val end = sel.max.coerceIn(0, currentText.length)
+
+        if (undoStack.isEmpty() || undoStack.last().text != currentText) {
+            undoStack.add(contentTextFieldValue)
+        }
+        redoStack.clear()
+
+        val newText = currentText.substring(0, start) + insertion + currentText.substring(end)
+        val newCursor = (start + selectionOffset).coerceIn(0, newText.length)
+
+        contentTextFieldValue = TextFieldValue(
+            text = newText,
+            selection = TextRange(newCursor)
+        )
+        hasUnsavedChanges = true
+        viewModel.noteAutoSaveStatus = "Belum disimpan"
     }
 
     val canUndo = undoStack.isNotEmpty()
@@ -446,9 +490,11 @@ fun CatatanScreen(viewModel: MainViewModel) {
     val performUndo = {
         if (undoStack.isNotEmpty()) {
             isUndoingOrRedoing = true
-            val prev = undoStack.removeAt(undoStack.lastIndex)
-            redoStack.add(editContent)
-            editContent = prev
+            val target = undoStack.removeAt(undoStack.lastIndex)
+            redoStack.add(contentTextFieldValue)
+            contentTextFieldValue = target
+            hasUnsavedChanges = true
+            viewModel.noteAutoSaveStatus = "Belum disimpan"
             isUndoingOrRedoing = false
         }
     }
@@ -456,61 +502,77 @@ fun CatatanScreen(viewModel: MainViewModel) {
     val performRedo = {
         if (redoStack.isNotEmpty()) {
             isUndoingOrRedoing = true
-            val next = redoStack.removeAt(redoStack.lastIndex)
-            undoStack.add(editContent)
-            editContent = next
+            val target = redoStack.removeAt(redoStack.lastIndex)
+            undoStack.add(contentTextFieldValue)
+            contentTextFieldValue = target
+            hasUnsavedChanges = true
+            viewModel.noteAutoSaveStatus = "Belum disimpan"
             isUndoingOrRedoing = false
         }
     }
 
+    val saveCurrentNote: (() -> Unit) -> Unit = { onSuccess ->
+        val current = activeNote
+        if (current != null) {
+            val currentContent = contentTextFieldValue.text
+            val charCount = currentContent.length
+            val lineCount = currentContent.split('\n').size
+            val updatedNote = current.copy(
+                title = editTitle.ifEmpty { "Catatan Tanpa Judul" },
+                content = currentContent,
+                charCount = charCount,
+                lineCount = lineCount,
+                lastSaved = System.currentTimeMillis(),
+                category = editCategory,
+                colorHex = editColorHex,
+                isPinned = editIsPinned
+            )
+            viewModel.saveNote(updatedNote)
+            if (!updatedNote.fileUri.isNullOrEmpty()) {
+                writeToFileUri(context, updatedNote.fileUri, currentContent)
+            }
+            hasUnsavedChanges = false
+            viewModel.noteAutoSaveStatus = "Tersimpan"
+            feedbackBannerMessage = "Catatan \"${updatedNote.title}\" berhasil disimpan!"
+            feedbackBannerIcon = Icons.Default.CheckCircle
+            feedbackBannerColor = Color(0xFF10B981)
+            onSuccess()
+        }
+    }
+
+    // Intercept back OS Android saat sedang aktif membuka catatan
+    BackHandler(enabled = activeNote != null) {
+        if (hasUnsavedChanges) {
+            showSaveWarningDialog = true
+        } else {
+            viewModel.selectedNote = null
+        }
+    }
+
     // Sync input when active note changes
-    LaunchedEffect(activeNote) {
+    LaunchedEffect(activeNote?.id) {
         if (activeNote != null) {
             editTitle = activeNote.title
-            editContent = activeNote.content
+            contentTextFieldValue = TextFieldValue(
+                text = activeNote.content,
+                selection = TextRange(activeNote.content.length)
+            )
             editCategory = activeNote.category.ifEmpty { "Umum" }
             editColorHex = activeNote.colorHex.ifEmpty { "#6366F1" }
             editIsPinned = activeNote.isPinned
+            hasUnsavedChanges = false
+            undoStack.clear()
+            redoStack.clear()
+            viewModel.noteAutoSaveStatus = "Tersimpan"
         } else {
             editTitle = ""
-            editContent = ""
+            contentTextFieldValue = TextFieldValue("")
             editCategory = "Umum"
             editColorHex = "#6366F1"
             editIsPinned = false
-        }
-        undoStack.clear()
-        redoStack.clear()
-    }
-
-    // MODERN DEBOUNCED AUTO-SAVE FLOW
-    LaunchedEffect(editTitle, editContent, editCategory, editColorHex, editIsPinned) {
-        val current = activeNote
-        if (current != null) {
-            if (editTitle != current.title ||
-                editContent != current.content ||
-                editCategory != current.category ||
-                editColorHex != current.colorHex ||
-                editIsPinned != current.isPinned
-            ) {
-                viewModel.noteAutoSaveStatus = "Mengetik..."
-                delay(1200) // Debounce delay
-                val charCount = editContent.length
-                val lineCount = editContent.split('\n').size
-                val updatedNote = current.copy(
-                    title = editTitle.ifEmpty { "Catatan Tanpa Judul" },
-                    content = editContent,
-                    charCount = charCount,
-                    lineCount = lineCount,
-                    lastSaved = System.currentTimeMillis(),
-                    category = editCategory,
-                    colorHex = editColorHex,
-                    isPinned = editIsPinned
-                )
-                viewModel.saveNote(updatedNote)
-                if (!updatedNote.fileUri.isNullOrEmpty()) {
-                    writeToFileUri(context, updatedNote.fileUri, editContent)
-                }
-            }
+            hasUnsavedChanges = false
+            undoStack.clear()
+            redoStack.clear()
         }
     }
 
@@ -803,10 +865,11 @@ fun CatatanScreen(viewModel: MainViewModel) {
                                     onClick = {
                                         viewModel.selectedNote = note
                                         editTitle = note.title
-                                        editContent = note.content
+                                        contentTextFieldValue = TextFieldValue(note.content, selection = TextRange(note.content.length))
                                         editCategory = note.category
                                         editColorHex = note.colorHex
                                         editIsPinned = note.isPinned
+                                        hasUnsavedChanges = false
                                     },
                                     onPinToggle = {
                                         viewModel.togglePinNote(note)
@@ -835,10 +898,11 @@ fun CatatanScreen(viewModel: MainViewModel) {
                                     onClick = {
                                         viewModel.selectedNote = note
                                         editTitle = note.title
-                                        editContent = note.content
+                                        contentTextFieldValue = TextFieldValue(note.content, selection = TextRange(note.content.length))
                                         editCategory = note.category
                                         editColorHex = note.colorHex
                                         editIsPinned = note.isPinned
+                                        hasUnsavedChanges = false
                                     },
                                     onPinToggle = {
                                         viewModel.togglePinNote(note)
@@ -874,9 +938,33 @@ fun CatatanScreen(viewModel: MainViewModel) {
                             horizontalArrangement = Arrangement.SpaceBetween,
                             verticalAlignment = Alignment.CenterVertically
                         ) {
+                            IconButton(
+                                onClick = {
+                                    if (hasUnsavedChanges) {
+                                        showSaveWarningDialog = true
+                                    } else {
+                                        viewModel.selectedNote = null
+                                    }
+                                },
+                                modifier = Modifier.size(36.dp).testTag("catatan_editor_back_button")
+                            ) {
+                                Icon(
+                                    imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                                    contentDescription = "Kembali ke Daftar",
+                                    tint = MaterialTheme.colorScheme.onSurface,
+                                    modifier = Modifier.size(22.dp)
+                                )
+                            }
+
                             TextField(
                                 value = editTitle,
-                                onValueChange = { editTitle = it },
+                                onValueChange = {
+                                    if (editTitle != it) {
+                                        editTitle = it
+                                        hasUnsavedChanges = true
+                                        viewModel.noteAutoSaveStatus = "Belum disimpan"
+                                    }
+                                },
                                 placeholder = {
                                     Text(
                                         text = "Beri judul catatan...",
@@ -904,11 +992,22 @@ fun CatatanScreen(viewModel: MainViewModel) {
                                 modifier = Modifier.weight(1f)
                             )
 
-                            // ACTION ICONS: FILTER KATEGORI (SEBELAH KIRI ICON TITIK 3) & OVERFLOW MENU
+                            // ACTION ICONS: SIMPAN, FILTER KATEGORI (SEBELAH KIRI ICON TITIK 3) & OVERFLOW MENU
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                horizontalArrangement = Arrangement.spacedBy(2.dp)
                             ) {
+                                IconButton(
+                                    onClick = { saveCurrentNote {} },
+                                    modifier = Modifier.size(36.dp).testTag("catatan_save_button")
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Save,
+                                        contentDescription = "Simpan Catatan",
+                                        tint = if (hasUnsavedChanges) Color(0xFF0F766E) else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                                        modifier = Modifier.size(22.dp)
+                                    )
+                                }
                                 // 1. MENU LIST KATEGORI DENGAN ICON FILTER
                                 Box {
                                     IconButton(
@@ -1003,28 +1102,7 @@ fun CatatanScreen(viewModel: MainViewModel) {
                                             },
                                             onClick = {
                                                 showMoreOptionsMenu = false
-                                                val current = activeNote
-                                                if (current != null) {
-                                                    val charCount = editContent.length
-                                                    val lineCount = editContent.split('\n').size
-                                                    val updatedNote = current.copy(
-                                                        title = editTitle.ifEmpty { "Catatan Tanpa Judul" },
-                                                        content = editContent,
-                                                        charCount = charCount,
-                                                        lineCount = lineCount,
-                                                        lastSaved = System.currentTimeMillis(),
-                                                        category = editCategory,
-                                                        colorHex = editColorHex,
-                                                        isPinned = editIsPinned
-                                                    )
-                                                    viewModel.saveNote(updatedNote)
-                                                    if (!updatedNote.fileUri.isNullOrEmpty()) {
-                                                        writeToFileUri(context, updatedNote.fileUri, editContent)
-                                                    }
-                                                    feedbackBannerMessage = "Catatan \"${updatedNote.title}\" berhasil disimpan!"
-                                                    feedbackBannerIcon = Icons.Default.CheckCircle
-                                                    feedbackBannerColor = Color(0xFF10B981)
-                                                }
+                                                saveCurrentNote {}
                                             }
                                         )
 
@@ -1146,7 +1224,11 @@ fun CatatanScreen(viewModel: MainViewModel) {
                                             },
                                             onClick = {
                                                 showMoreOptionsMenu = false
-                                                viewModel.selectedNote = null
+                                                if (hasUnsavedChanges) {
+                                                    showSaveWarningDialog = true
+                                                } else {
+                                                    viewModel.selectedNote = null
+                                                }
                                             }
                                         )
 
@@ -1176,9 +1258,9 @@ fun CatatanScreen(viewModel: MainViewModel) {
 
                         // WRITING CANVAS FIELD
                         TextField(
-                            value = editContent,
-                            onValueChange = onContentChange,
-                            modifier = Modifier.fillMaxWidth().weight(1f),
+                            value = contentTextFieldValue,
+                            onValueChange = onContentValueChange,
+                            modifier = Modifier.fillMaxWidth().weight(1f).testTag("catatan_content_field"),
                             placeholder = {
                                 Text(
                                     text = "Tulis ide, draf jurnal, daftar tugas [ ], atau kode program Anda di sini...",
@@ -1215,10 +1297,10 @@ fun CatatanScreen(viewModel: MainViewModel) {
                                 horizontalArrangement = Arrangement.spacedBy(4.dp)
                             ) {
                                 Text(
-                                    text = viewModel.noteAutoSaveStatus,
+                                    text = if (hasUnsavedChanges) "● Belum disimpan" else "✓ Tersimpan",
                                     fontSize = 11.sp,
                                     fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.primary
+                                    color = if (hasUnsavedChanges) Color(0xFFD97706) else Color(0xFF059669)
                                 )
 
                                 Spacer(modifier = Modifier.width(6.dp))
@@ -1227,7 +1309,7 @@ fun CatatanScreen(viewModel: MainViewModel) {
                                 IconButton(
                                     onClick = { performUndo() },
                                     enabled = canUndo,
-                                    modifier = Modifier.size(28.dp)
+                                    modifier = Modifier.size(28.dp).testTag("catatan_undo_button")
                                 ) {
                                     Icon(
                                         imageVector = Icons.Default.Undo,
@@ -1241,7 +1323,7 @@ fun CatatanScreen(viewModel: MainViewModel) {
                                 IconButton(
                                     onClick = { performRedo() },
                                     enabled = canRedo,
-                                    modifier = Modifier.size(28.dp)
+                                    modifier = Modifier.size(28.dp).testTag("catatan_redo_button")
                                 ) {
                                     Icon(
                                         imageVector = Icons.Default.Redo,
@@ -1257,7 +1339,7 @@ fun CatatanScreen(viewModel: MainViewModel) {
                                         clipboardManager.setText(AnnotatedString(editContent))
                                         viewModel.showToastPopup("Catatan berhasil disalin!")
                                     },
-                                    modifier = Modifier.size(28.dp)
+                                    modifier = Modifier.size(28.dp).testTag("catatan_copy_button")
                                 ) {
                                     Icon(
                                         imageVector = Icons.Default.ContentCopy,
@@ -1279,13 +1361,13 @@ fun CatatanScreen(viewModel: MainViewModel) {
                                         val finalPasteText = osClipboardText ?: clipboardManager.getText()?.text
 
                                         if (!finalPasteText.isNullOrEmpty()) {
-                                            onContentChange(editContent + finalPasteText)
-                                            viewModel.showToastPopup("Teks berhasil ditempel!")
+                                            insertTextAtCursor(finalPasteText, finalPasteText.length)
+                                            viewModel.showToastPopup("Teks berhasil ditempel di posisi kursor!")
                                         } else {
                                             viewModel.showToastPopup("Clipboard kosong!")
                                         }
                                     },
-                                    modifier = Modifier.size(28.dp)
+                                    modifier = Modifier.size(28.dp).testTag("catatan_paste_button")
                                 ) {
                                     Icon(
                                         imageVector = Icons.Default.ContentPaste,
@@ -1360,16 +1442,17 @@ fun CatatanScreen(viewModel: MainViewModel) {
                                 onClick = {
                                     showFormatTextDialog = false
                                     when (symbol) {
-                                        "#" -> onContentChange("$editContent\n# ")
-                                        "B" -> onContentChange("$editContent**teks**")
-                                        "I" -> onContentChange("$editContent*teks*")
-                                        "☑️" -> onContentChange("$editContent\n[ ] ")
-                                        "•" -> onContentChange("$editContent\n• ")
-                                        "</>" -> onContentChange("$editContent\n```\n\n```")
-                                        "”" -> onContentChange("$editContent\n> ")
+                                        "#" -> insertTextAtCursor("\n# ", 3)
+                                        "B" -> insertTextAtCursor("**teks**", 6)
+                                        "I" -> insertTextAtCursor("*teks*", 5)
+                                        "☑️" -> insertTextAtCursor("\n[ ] ", 5)
+                                        "•" -> insertTextAtCursor("\n• ", 3)
+                                        "</>" -> insertTextAtCursor("\n```\n\n```\n", 5)
+                                        "”" -> insertTextAtCursor("\n> ", 3)
                                         "🕒" -> {
                                             val nowStr = java.text.SimpleDateFormat("dd/MM/yyyy HH:mm", java.util.Locale("id", "ID")).format(java.util.Date())
-                                            onContentChange("$editContent $nowStr ")
+                                            val insertion = " $nowStr "
+                                            insertTextAtCursor(insertion, insertion.length)
                                         }
                                     }
                                 },
@@ -1427,6 +1510,70 @@ fun CatatanScreen(viewModel: MainViewModel) {
             )
         }
 
+        // DIALOG POPUP: PERINGATAN SIMPAN CATATAN SAAT KEMBALI
+        if (showSaveWarningDialog) {
+            AlertDialog(
+                onDismissRequest = { showSaveWarningDialog = false },
+                icon = {
+                    Icon(
+                        imageVector = Icons.Default.Warning,
+                        contentDescription = null,
+                        tint = Color(0xFFD97706),
+                        modifier = Modifier.size(32.dp)
+                    )
+                },
+                title = {
+                    Text(
+                        text = "Simpan Catatan?",
+                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+                    )
+                },
+                text = {
+                    Text(
+                        text = "Anda memiliki perubahan catatan yang belum disimpan. Apakah Anda ingin menyimpan catatan sebelum kembali?",
+                        style = MaterialTheme.typography.bodyMedium
+                    )
+                },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            saveCurrentNote {
+                                showSaveWarningDialog = false
+                                viewModel.selectedNote = null
+                            }
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0F766E))
+                    ) {
+                        Icon(Icons.Default.Save, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Simpan")
+                    }
+                },
+                dismissButton = {
+                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        TextButton(
+                            onClick = {
+                                showSaveWarningDialog = false
+                            }
+                        ) {
+                            Text("Batal")
+                        }
+                        TextButton(
+                            onClick = {
+                                showSaveWarningDialog = false
+                                hasUnsavedChanges = false
+                                viewModel.selectedNote = null
+                            },
+                            colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.error)
+                        ) {
+                            Text("Buang")
+                        }
+                    }
+                },
+                shape = RoundedCornerShape(16.dp)
+            )
+        }
+
         // DIALOG: TEMPLATE CATATAN BARU
         if (showNewNoteTemplateDialog) {
             val templates = listOf(
@@ -1465,8 +1612,9 @@ fun CatatanScreen(viewModel: MainViewModel) {
                                         )
                                         viewModel.selectedNote = newDraft
                                         editTitle = newDraft.title
-                                        editContent = defaultText
+                                        contentTextFieldValue = TextFieldValue(defaultText, selection = TextRange(defaultText.length))
                                         editCategory = cat
+                                        hasUnsavedChanges = false
                                     },
                                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
                             ) {
@@ -1612,8 +1760,9 @@ fun CatatanScreen(viewModel: MainViewModel) {
                                         )
                                         viewModel.selectedNote = newDraft
                                         editTitle = "Kertas Baru.$extension"
-                                        editContent = defaultContent
+                                        contentTextFieldValue = TextFieldValue(defaultContent, selection = TextRange(defaultContent.length))
                                         editCategory = "Kode"
+                                        hasUnsavedChanges = false
                                     }
                                     .padding(vertical = 12.dp, horizontal = 16.dp),
                                 verticalAlignment = Alignment.CenterVertically
@@ -1705,10 +1854,11 @@ fun CatatanScreen(viewModel: MainViewModel) {
                                         .clickable {
                                             viewModel.selectedNote = note
                                             editTitle = note.title
-                                            editContent = note.content
+                                            contentTextFieldValue = TextFieldValue(note.content, selection = TextRange(note.content.length))
                                             editCategory = note.category
                                             editColorHex = note.colorHex
                                             editIsPinned = note.isPinned
+                                            hasUnsavedChanges = false
                                             showNotesPopup = false
                                         }
                                 ) {

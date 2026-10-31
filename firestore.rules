@@ -1,0 +1,52 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Fungsi Pembantu: Verifikasi UID Administrator Resmi
+    function isAdmin() {
+      return request.auth != null && request.auth.uid == 'UiDpHxawlBQ17mxTUHIXvhxRR3b2';
+    }
+
+    // 1. Koleksi 'tokens' untuk menyimpan Token FCM perangkat/pengguna secara otomatis
+    match /tokens/{tokenDocId} {
+      // Semua pengguna terotentikasi dapat membaca info token
+      allow read: if request.auth != null;
+      // Pengguna dapat mendaftarkan/memperbarui token FCM perangkatnya sendiri, atau dilakukan oleh Admin
+      allow create, update: if request.auth != null &&
+        (request.resource.data.uid == request.auth.uid || isAdmin());
+      // Penghapusan token hanya diizinkan untuk pemilik akun atau Admin
+      allow delete: if request.auth != null &&
+        (resource.data.uid == request.auth.uid || isAdmin());
+    }
+
+    // 2. Koleksi 'messages' untuk siaran & notifikasi
+    // ATURAN KHUSUS: HANYA ADMIN DENGAN UID 'UiDpHxawlBQ17mxTUHIXvhxRR3b2' YANG DAPAT MENULIS & HAPUS PESAN
+    match /messages/{messageId} {
+      // Seluruh pengguna terdaftar dapat membaca pesan
+      allow read: if request.auth != null;
+      // Hanya Admin yang dapat menulis, mengubah, dan menghapus pesan
+      allow create, update, delete: if isAdmin();
+    }
+
+    // 3. Koleksi 'users' untuk profil akun & pencadangan cloud
+    match /users/{userId} {
+      // Pengguna dapat membaca/menulis profilnya sendiri, Admin dapat mengelola & membaca seluruh pengguna
+      allow read: if request.auth != null && (request.auth.uid == userId || isAdmin());
+      allow write: if request.auth != null && (request.auth.uid == userId || isAdmin());
+
+      match /{subCollection=**} {
+        allow read, write: if request.auth != null && (request.auth.uid == userId || isAdmin());
+      }
+    }
+
+    // 4. Koleksi 'otp_requests' untuk proteksi verifikasi sandi email yang dikirimkan ke Admin
+    match /otp_requests/{otpId} {
+      // Pengguna yang login dapat membuat permintaan OTP
+      allow create: if request.auth != null;
+      // Pengguna pemohon dapat membaca permintaannya sendiri, Admin dapat membaca seluruh permintaan
+      allow read: if request.auth != null && (resource.data.requesterUid == request.auth.uid || isAdmin());
+      // Admin atau pemilik dapat memperbarui/menghapus permintaan
+      allow update, delete: if request.auth != null && (resource.data.requesterUid == request.auth.uid || isAdmin());
+    }
+  }
+}

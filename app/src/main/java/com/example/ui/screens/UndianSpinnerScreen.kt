@@ -6,9 +6,6 @@ import android.media.AudioAttributes
 import android.media.AudioFormat
 import android.media.AudioTrack
 import android.os.Build
-import android.os.VibrationEffect
-import android.os.Vibrator
-import android.os.VibratorManager
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.tween
@@ -129,6 +126,213 @@ object TickSoundPlayer {
     }
 }
 
+// Robust, ultra-low latency synthetic sound player for festive fireworks celebration
+object FireworksSoundPlayer {
+    private var celebrationTrack: AudioTrack? = null
+    private var burstTrack1: AudioTrack? = null
+    private var burstTrack2: AudioTrack? = null
+    private var isBurstTrack1 = true
+
+    fun initialize() {
+        if (celebrationTrack != null) return
+        try {
+            val sampleRate = 22050
+            val rng = kotlin.random.Random(12345)
+
+            // 1. GRAND FESTIVE FIREWORKS CELEBRATION (Durasi ~2.7 detik)
+            // Multi-layered: Rocket launch whistle -> Massive boom -> Cascading crackles & pops -> Festive chime harmonics
+            val celebrationDurationMs = 2700
+            val numCelebrationSamples = (sampleRate * celebrationDurationMs / 1000)
+            val celebrationSamples = ShortArray(numCelebrationSamples)
+
+            val popTimes = doubleArrayOf(0.48, 0.62, 0.78, 0.95, 1.15, 1.38, 1.62, 1.88, 2.15)
+            val popPitches = doubleArrayOf(260.0, 190.0, 310.0, 220.0, 280.0, 170.0, 340.0, 200.0, 240.0)
+
+            val chordTimes = doubleArrayOf(0.65, 0.95, 1.30, 1.65)
+            val chordFreqs = doubleArrayOf(523.25, 659.25, 783.99, 1046.50) // C5, E5, G5, C6 (Fanfare kemeriahan)
+
+            for (i in 0 until numCelebrationSamples) {
+                val t = i.toDouble() / sampleRate
+                var sample = 0.0
+
+                // Layer 1: Rocket Launch Whistle & Whoosh (0.00s - 0.38s)
+                if (t < 0.38) {
+                    val progress = t / 0.38
+                    val freq = 420.0 + (progress * progress * 2100.0)
+                    val env = Math.sin(progress * Math.PI * 0.5) * (1.0 - progress * 0.15)
+                    val whooshNoise = (rng.nextDouble() * 2.0 - 1.0) * 0.18
+                    sample += (Math.sin(2.0 * Math.PI * freq * t) * 0.45 + whooshNoise) * env
+                }
+
+                // Layer 2: Grand Boom Explosion (0.38s onwards)
+                if (t >= 0.38) {
+                    val boomT = t - 0.38
+                    val boomEnv = Math.exp(-boomT * 3.0)
+                    // Sub-bass resonant punch
+                    val boomFreq = 92.0 * Math.exp(-boomT * 2.2) + 36.0
+                    val bass = Math.sin(2.0 * Math.PI * boomFreq * boomT) * boomEnv * 0.65
+
+                    // Noise explosion rumble
+                    val noiseEnv = Math.exp(-boomT * 5.8)
+                    val noise = (rng.nextDouble() * 2.0 - 1.0) * noiseEnv * 0.50
+
+                    // Low ambient trail
+                    val rumble = Math.sin(2.0 * Math.PI * 48.0 * boomT) * Math.exp(-boomT * 1.5) * 0.22
+
+                    sample += bass + noise + rumble
+                }
+
+                // Layer 3: Cascading Crackles & Sparkle Pops (Mercon & Kembang Api Beruntun)
+                for (pIdx in popTimes.indices) {
+                    val pTime = popTimes[pIdx]
+                    if (t >= pTime) {
+                        val pT = t - pTime
+                        if (pT < 0.25) {
+                            val popEnv = Math.exp(-pT * 24.0)
+                            val popFreq = popPitches[pIdx] * Math.exp(-pT * 10.0)
+                            val popTone = Math.sin(2.0 * Math.PI * popFreq * pT) * 0.45
+                            val popNoise = (rng.nextDouble() * 2.0 - 1.0) * 0.55
+                            val sparkShimmer = Math.sin(2.0 * Math.PI * (2200.0 + pIdx * 180.0) * pT) * 0.25
+                            sample += (popTone + popNoise + sparkShimmer) * popEnv * 0.42
+                        }
+                    }
+                }
+
+                // Layer 4: Celebration Fanfare Harmonics
+                for (cIdx in chordTimes.indices) {
+                    val cTime = chordTimes[cIdx]
+                    if (t >= cTime) {
+                        val cT = t - cTime
+                        if (cT < 0.75) {
+                            val bellEnv = Math.exp(-cT * 4.2)
+                            val f = chordFreqs[cIdx]
+                            val chime = (Math.sin(2.0 * Math.PI * f * cT) + 0.3 * Math.sin(4.0 * Math.PI * f * cT)) * bellEnv
+                            sample += chime * 0.25
+                        }
+                    }
+                }
+
+                val clamped = (sample * 27000.0).coerceIn(-32767.0, 32767.0)
+                celebrationSamples[i] = clamped.toInt().toShort()
+            }
+
+            celebrationTrack = AudioTrack.Builder()
+                .setAudioAttributes(
+                    AudioAttributes.Builder()
+                        .setUsage(AudioAttributes.USAGE_GAME)
+                        .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                        .build()
+                )
+                .setAudioFormat(
+                    AudioFormat.Builder()
+                        .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
+                        .setSampleRate(sampleRate)
+                        .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
+                        .build()
+                )
+                .setBufferSizeInBytes(numCelebrationSamples * 2)
+                .setTransferMode(AudioTrack.MODE_STATIC)
+                .build()
+
+            celebrationTrack?.write(celebrationSamples, 0, numCelebrationSamples)
+
+            // 2. CRISP FIREWORK BURST POP (Durasi ~420ms untuk letupan kembang api berkala)
+            val burstDurationMs = 420
+            val numBurstSamples = (sampleRate * burstDurationMs / 1000)
+            val burstSamples = ShortArray(numBurstSamples)
+            for (i in 0 until numBurstSamples) {
+                val t = i.toDouble() / sampleRate
+                val boomEnv = Math.exp(-t * 11.0)
+                val freq = 175.0 * Math.exp(-t * 8.5) + 52.0
+                val bass = Math.sin(2.0 * Math.PI * freq * t) * boomEnv * 0.52
+                val noise = (rng.nextDouble() * 2.0 - 1.0) * Math.exp(-t * 20.0) * 0.48
+                val crackle = if (t > 0.07 && t < 0.26) (rng.nextDouble() * 2.0 - 1.0) * Math.exp(-(t - 0.07) * 15.0) * 0.38 else 0.0
+                val s = (bass + noise + crackle) * 25000.0
+                burstSamples[i] = s.coerceIn(-32767.0, 32767.0).toInt().toShort()
+            }
+
+            fun createBurstTrack(): AudioTrack {
+                val trk = AudioTrack.Builder()
+                    .setAudioAttributes(
+                        AudioAttributes.Builder()
+                            .setUsage(AudioAttributes.USAGE_GAME)
+                            .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                            .build()
+                    )
+                    .setAudioFormat(
+                        AudioFormat.Builder()
+                            .setEncoding(AudioFormat.ENCODING_PCM_16BIT)
+                            .setSampleRate(sampleRate)
+                            .setChannelMask(AudioFormat.CHANNEL_OUT_MONO)
+                            .build()
+                    )
+                    .setBufferSizeInBytes(numBurstSamples * 2)
+                    .setTransferMode(AudioTrack.MODE_STATIC)
+                    .build()
+                trk.write(burstSamples, 0, numBurstSamples)
+                return trk
+            }
+
+            burstTrack1 = createBurstTrack()
+            burstTrack2 = createBurstTrack()
+
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    fun playCelebration() {
+        try {
+            if (celebrationTrack == null) initialize()
+            celebrationTrack?.let { track ->
+                track.stop()
+                track.reloadStaticData()
+                track.play()
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    fun playBurst() {
+        try {
+            if (burstTrack1 == null) initialize()
+            val track = if (isBurstTrack1) burstTrack1 else burstTrack2
+            isBurstTrack1 = !isBurstTrack1
+            track?.let {
+                it.stop()
+                it.reloadStaticData()
+                it.play()
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    fun stop() {
+        try {
+            celebrationTrack?.stop()
+            burstTrack1?.stop()
+            burstTrack2?.stop()
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    fun release() {
+        try {
+            celebrationTrack?.release()
+            burstTrack1?.release()
+            burstTrack2?.release()
+            celebrationTrack = null
+            burstTrack1 = null
+            burstTrack2 = null
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+}
+
 // Particle class for Fireworks and Confetti animations
 class RaffleParticle(
     var x: Float,
@@ -155,14 +359,16 @@ fun UndianSpinnerScreen(
     val scope = rememberCoroutineScope()
     val textMeasurer = rememberTextMeasurer()
 
-    // Setup Tick sound player on compose entry
+    // Setup sound players on compose entry
     LaunchedEffect(Unit) {
         TickSoundPlayer.initialize()
+        FireworksSoundPlayer.initialize()
     }
 
     DisposableEffect(Unit) {
         onDispose {
             TickSoundPlayer.release()
+            FireworksSoundPlayer.release()
         }
     }
 
@@ -200,22 +406,6 @@ fun UndianSpinnerScreen(
     // Particle manager state
     val particles = remember { mutableStateListOf<RaffleParticle>() }
 
-    // Haptic/vibration function
-    fun triggerVibration(durationMs: Long = 20) {
-        try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                val vibratorManager = context.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as? VibratorManager
-                vibratorManager?.defaultVibrator?.vibrate(VibrationEffect.createOneShot(durationMs, VibrationEffect.DEFAULT_AMPLITUDE))
-            } else {
-                @Suppress("DEPRECATION")
-                val vibrator = context.getSystemService(Context.VIBRATOR_SERVICE) as? Vibrator
-                vibrator?.vibrate(durationMs)
-            }
-        } catch (e: Exception) {
-            // Safe fallback
-        }
-    }
-
     // Calculate current winner index helper
     fun getWinningIndex(angle: Float, count: Int): Int {
         if (count == 0) return 0
@@ -227,14 +417,13 @@ fun UndianSpinnerScreen(
         return index.coerceIn(0, count - 1)
     }
 
-    // Trigger tick sound & haptic click when spinner crosses sector boundaries
+    // Trigger tick sound when spinner crosses sector boundaries
     var lastIndexedByAngle by remember { mutableStateOf(0) }
     LaunchedEffect(rotationAngle.value) {
         if (isSpinning && optionsList.isNotEmpty()) {
             val currentIndex = getWinningIndex(rotationAngle.value, optionsList.size)
             if (currentIndex != lastIndexedByAngle) {
                 lastIndexedByAngle = currentIndex
-                triggerVibration(15)
                 TickSoundPlayer.playClick() // "tek tek" sound effect
             }
         }
@@ -243,6 +432,7 @@ fun UndianSpinnerScreen(
     // Particle updater loop when winner dialog is displayed
     LaunchedEffect(showWinnerDialog) {
         if (showWinnerDialog) {
+            FireworksSoundPlayer.playCelebration()
             particles.clear()
             
             // Seed initial beautiful falling confetti (kertas warna-warni)
@@ -302,6 +492,7 @@ fun UndianSpinnerScreen(
 
                     // Spawn occasional new fireworks in the background
                     if (Random.nextFloat() < 0.05f && particles.filter { it.type == 1 }.size < 90) {
+                        FireworksSoundPlayer.playBurst()
                         val fireworkX = 100f + Random.nextFloat() * 800f
                         val fireworkY = 200f + Random.nextFloat() * 600f
                         val fireworkColor = listOf(
@@ -577,7 +768,6 @@ fun UndianSpinnerScreen(
                                 } else if (!isSpinning) {
                                     scope.launch {
                                         isSpinning = true
-                                        triggerVibration(50)
 
                                         // Decelerating Physics Spin Algorithm
                                         val randomTurns = 7 + Random.nextInt(5)
@@ -596,7 +786,7 @@ fun UndianSpinnerScreen(
                                         val winIdx = getWinningIndex(rotationAngle.value, optionsList.size)
                                         winnerName = optionsList[winIdx]
                                         isSpinning = false
-                                        triggerVibration(120)
+                                        FireworksSoundPlayer.playCelebration()
                                         showWinnerDialog = true
                                     }
                                 }
@@ -839,7 +1029,10 @@ fun UndianSpinnerScreen(
     // Beautiful winner announcement dialog with elegant confetti particles falling behind
     if (showWinnerDialog) {
         AlertDialog(
-            onDismissRequest = { showWinnerDialog = false },
+            onDismissRequest = {
+                FireworksSoundPlayer.stop()
+                showWinnerDialog = false
+            },
             properties = androidx.compose.ui.window.DialogProperties(
                 usePlatformDefaultWidth = false
             ),
@@ -854,7 +1047,10 @@ fun UndianSpinnerScreen(
                     contentAlignment = Alignment.Center
                 ) {
                     Button(
-                        onClick = { showWinnerDialog = false },
+                        onClick = {
+                            FireworksSoundPlayer.stop()
+                            showWinnerDialog = false
+                        },
                         shape = RoundedCornerShape(12.dp),
                         modifier = Modifier
                             .fillMaxWidth(0.8f)

@@ -5,7 +5,7 @@ import android.content.Intent
 import android.graphics.*
 import android.net.Uri
 import android.os.Environment
-import android.widget.Toast
+import com.example.ui.MainViewModel
 import androidx.core.content.FileProvider
 import com.example.data.AnggotaItem
 import java.io.File
@@ -287,33 +287,56 @@ object IdCardBitmapGenerator {
             }
 
             // --- MEMBER NAME & ROLE / POSITION ---
+            val fullName = (if (anggota.nama.isNotBlank()) anggota.nama else "NAMA LENGKAP").trim().uppercase()
             val namePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                 color = textDark
-                textSize = 46f
+                textSize = when {
+                    fullName.length <= 18 -> 44f
+                    fullName.length <= 32 -> 38f
+                    fullName.length <= 48 -> 32f
+                    else -> 28f
+                }
                 typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
                 textAlign = Paint.Align.CENTER
-                letterSpacing = 0.05f
+                letterSpacing = 0.04f
             }
-            val displayName = if (anggota.nama.length > 24) anggota.nama.take(22) + "..." else anggota.nama.uppercase()
-            canvas.drawText(displayName, width / 2f, 690f, namePaint)
+
+            val nameLines = wrapTextToLines(fullName, namePaint, width - 100f)
+            val lineCount = nameLines.size.coerceAtLeast(1)
+            val lineSpacing = (namePaint.textSize * 1.15f)
+
+            val startNameY = when (lineCount) {
+                1 -> 688f
+                2 -> 666f
+                3 -> 652f
+                else -> 640f
+            }
+
+            var currentNameY = startNameY
+            for (line in nameLines) {
+                canvas.drawText(line, width / 2f, currentNameY, namePaint)
+                currentNameY += lineSpacing
+            }
 
             // Job Position / Status (Gold uppercase bold)
             val positionPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                 color = goldDark
-                textSize = 26f
+                textSize = 24f
                 typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
                 textAlign = Paint.Align.CENTER
-                letterSpacing = 0.12f
+                letterSpacing = 0.10f
             }
             val roleName = (if (anggota.status.isNotBlank()) anggota.status else "MEMBER").uppercase()
-            canvas.drawText(roleName, width / 2f, 735f, positionPaint)
+            val positionY = (currentNameY + 12f).coerceAtMost(756f)
+            canvas.drawText(roleName, width / 2f, positionY, positionPaint)
 
             // Subtle divider line
             val dividerPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                 color = Color.rgb(226, 232, 240)
                 strokeWidth = 2.5f
             }
-            canvas.drawLine(width / 2f - 160f, 770f, width / 2f + 160f, 770f, dividerPaint)
+            val dividerY = (positionY + 28f).coerceAtMost(778f)
+            canvas.drawLine(width / 2f - 160f, dividerY, width / 2f + 160f, dividerY, dividerPaint)
 
             // --- CREDENTIAL DETAILS (ID, EMAIL, PHONE, JOIN DATE ONLY, QR) ---
             val detailLabelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -594,24 +617,45 @@ object IdCardBitmapGenerator {
                 canvas.drawText("( TTD Pengguna )", userSigCenterX, sigTopY + 60f, placeholderPaint)
             }
 
+            val backFullName = (if (anggota.nama.isNotBlank()) anggota.nama else "NAMA LENGKAP").trim().uppercase()
             val userNamePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                 color = darkNavy
-                textSize = 22f
+                textSize = when {
+                    backFullName.length <= 18 -> 21f
+                    backFullName.length <= 32 -> 18f
+                    else -> 16f
+                }
                 typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
                 textAlign = Paint.Align.CENTER
-                letterSpacing = 0.05f
+                letterSpacing = 0.04f
             }
-            val userDisplayName = if (anggota.nama.length > 20) anggota.nama.take(18) + "..." else anggota.nama.uppercase()
-            canvas.drawText(userDisplayName, userSigCenterX, 845f, userNamePaint)
+
+            val backNameLines = wrapTextToLines(backFullName, userNamePaint, 240f)
+            val backLineCount = backNameLines.size.coerceAtLeast(1)
+            val backLineSpacing = (userNamePaint.textSize * 1.15f)
+
+            val startBackY = when (backLineCount) {
+                1 -> 845f
+                2 -> 834f
+                3 -> 822f
+                else -> 812f
+            }
+
+            var currentBackY = startBackY
+            for (line in backNameLines) {
+                canvas.drawText(line, userSigCenterX, currentBackY, userNamePaint)
+                currentBackY += backLineSpacing
+            }
 
             val expDate = if (anggota.berlakuHingga.isNotBlank()) anggota.berlakuHingga else "01/11/27"
             val expDatePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
                 color = Color.rgb(100, 116, 139)
-                textSize = 19f
+                textSize = 18f
                 typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
                 textAlign = Paint.Align.CENTER
             }
-            canvas.drawText(expDate, userSigCenterX, 876f, expDatePaint)
+            val expDateY = (currentBackY + 12f).coerceAtMost(890f)
+            canvas.drawText(expDate, userSigCenterX, expDateY, expDatePaint)
 
             // --- BOTTOM GEOMETRIC BANDS (REF DESIGN) ---
             // Bottom Left Dark Navy Polygons
@@ -737,8 +781,51 @@ object IdCardBitmapGenerator {
             uri
         } catch (e: Exception) {
             e.printStackTrace()
-            Toast.makeText(context, "Gagal membagikan ID card: ${e.message}", Toast.LENGTH_SHORT).show()
+            MainViewModel.instance?.showToastPopup("Gagal membagikan ID card: ${e.message}")
             null
         }
+    }
+
+    /**
+     * Memecah teks menjadi beberapa baris berdasarkan lebar maksimum canvas.
+     * Tidak memotong nama dengan "..." melainkan menampilkan secara utuh di baris berikutnya.
+     */
+    fun wrapTextToLines(text: String, paint: Paint, maxWidth: Float): List<String> {
+        val clean = text.trim()
+        if (clean.isEmpty()) return emptyList()
+        val words = clean.split("\\s+".toRegex())
+        val lines = mutableListOf<String>()
+        var currentLine = StringBuilder()
+
+        for (word in words) {
+            val testLine = if (currentLine.isEmpty()) word else "$currentLine $word"
+            if (paint.measureText(testLine) <= maxWidth) {
+                currentLine = StringBuilder(testLine)
+            } else {
+                if (currentLine.isNotEmpty()) {
+                    lines.add(currentLine.toString())
+                    currentLine = StringBuilder()
+                }
+                // Jika satu kata melebihi maxWidth, pecah karakter per karakter
+                if (paint.measureText(word) > maxWidth) {
+                    var remaining = word
+                    while (paint.measureText(remaining) > maxWidth && remaining.length > 1) {
+                        var cutIndex = remaining.length - 1
+                        while (cutIndex > 1 && paint.measureText(remaining.substring(0, cutIndex)) > maxWidth) {
+                            cutIndex--
+                        }
+                        lines.add(remaining.substring(0, cutIndex))
+                        remaining = remaining.substring(cutIndex)
+                    }
+                    currentLine = StringBuilder(remaining)
+                } else {
+                    currentLine = StringBuilder(word)
+                }
+            }
+        }
+        if (currentLine.isNotEmpty()) {
+            lines.add(currentLine.toString())
+        }
+        return lines
     }
 }

@@ -259,8 +259,51 @@ class MusicService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        // Keeps the service alive
+        // startForegroundService() requires startForeground() within a few seconds
+        // even when playback has not started yet, otherwise the system kills us.
+        startForegroundNotification()
         return START_STICKY
+    }
+
+    private fun startForegroundNotification() {
+        val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        val channelId = "music_playback_channel"
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            notificationManager.createNotificationChannel(
+                NotificationChannel(
+                    channelId,
+                    "Pemutar Musik",
+                    NotificationManager.IMPORTANCE_LOW
+                ).apply {
+                    description = "Kontrol pemutaran musik di status bar dan lock screen"
+                    setShowBadge(false)
+                }
+            )
+        }
+
+        val contentIntent = PendingIntent.getActivity(
+            this, 0, Intent(this, MainActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+                putExtra("NAVIGATE_TO", "pemutar_musik")
+            },
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        val builder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            Notification.Builder(this, channelId)
+        } else {
+            Notification.Builder(this)
+        }
+
+        startForeground(
+            1001,
+            builder.setContentTitle("My Singghara")
+                .setContentText("Menyiapkan pemutar musik...")
+                .setSmallIcon(android.R.drawable.ic_media_play)
+                .setContentIntent(contentIntent)
+                .setOngoing(true)
+                .build()
+        )
     }
 
     override fun onBind(intent: Intent?): IBinder? = null

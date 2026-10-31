@@ -7,6 +7,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -29,6 +30,9 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.animation.animateContentSize
@@ -36,12 +40,19 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
 import androidx.compose.foundation.border
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.ui.window.Dialog
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import kotlinx.coroutines.delay
 import com.example.ui.MainViewModel
 import com.example.ui.components.StoragePermissionBox
+import com.example.ui.components.FirebaseAuthDialog
+import com.example.ui.components.AuthMode
+import com.example.ui.components.PhotoRepositionDialog
+import com.example.ui.components.AppUserAvatar
+import com.example.ui.components.VipMembershipDetailDialog
+import com.example.firebase.CloudUserItem
 import coil.compose.AsyncImage
 
 @Composable
@@ -50,17 +61,31 @@ fun ProfilScreen(
     onEditProfileClick: (() -> Unit)? = null
 ) {
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     val scrollState = rememberScrollState()
 
     var statusMessage by remember { mutableStateOf("") }
     var isStatusError by remember { mutableStateOf(false) }
     var activeSection by remember { mutableStateOf<String?>(null) }
 
+    var photoToRepositionUri by remember { mutableStateOf<Uri?>(null) }
+    var showPhotoOptionsDialog by remember { mutableStateOf(false) }
+    var showMembershipDialogInProfile by remember { mutableStateOf(false) }
+
+    val profileImagePickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri ->
+        if (uri != null) {
+            photoToRepositionUri = uri
+        }
+    }
+
     var showPinSetupDialog by remember { mutableStateOf(false) }
     var showPinChangeDialog by remember { mutableStateOf(false) }
     var showPinDeleteConfirmDialog by remember { mutableStateOf(false) }
     var showPinVerifyDialog by remember { mutableStateOf(false) }
     var showAppLockDialog by remember { mutableStateOf(false) }
+    var showFirestoreRulesDialog by remember { mutableStateOf(false) }
 
     val clipboardManager = androidx.compose.ui.platform.LocalClipboardManager.current
     val sharedPrefs = remember { context.getSharedPreferences("mysingghara_prefs", android.content.Context.MODE_PRIVATE) }
@@ -72,6 +97,24 @@ fun ProfilScreen(
     var showUrlDialog by remember { mutableStateOf(false) }
     var showScriptTutorial by remember { mutableStateOf(false) }
     var selectedPrayerForDialog by remember { mutableStateOf<String?>(null) }
+
+    // Firebase Auth Dialog States in Profile Screen
+    var showAuthDialogInProfile by remember { mutableStateOf(false) }
+    var authDialogModeInProfile by remember { mutableStateOf(AuthMode.LOGIN) }
+
+    // Dialog Atur Kata Sandi Email di Profil (Dilindungi OTP ke Admin UiDpHxawlBQ17mxTUHIXvhxRR3b2)
+    var showSetPasswordDialogInProfile by remember { mutableStateOf(false) }
+    var profilePasswordInput by remember { mutableStateOf("") }
+    var profilePasswordConfirm by remember { mutableStateOf("") }
+    var profilePasswordVisible by remember { mutableStateOf(false) }
+    var profilePasswordConfirmVisible by remember { mutableStateOf(false) }
+    var profilePasswordLoading by remember { mutableStateOf(false) }
+    var profilePasswordError by remember { mutableStateOf<String?>(null) }
+    var profileOtpCodeInput by remember { mutableStateOf("") }
+    var isProfileOtpVerified by remember { mutableStateOf(false) }
+    var profileOtpLoading by remember { mutableStateOf(false) }
+    var profileOtpSentSuccess by remember { mutableStateOf(false) }
+    var lastGeneratedOtpRequest by remember { mutableStateOf<com.example.firebase.AdminOtpRequest?>(null) }
 
     val locationPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestMultiplePermissions()
@@ -126,24 +169,39 @@ fun ProfilScreen(
                 ),
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Row(
-                    modifier = Modifier.padding(12.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(
-                        if (isStatusError) Icons.Default.Error else Icons.Default.CheckCircle,
-                        null,
-                        tint = if (isStatusError) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.secondary
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text(
-                        text = statusMessage,
-                        fontSize = 12.sp,
-                        color = if (isStatusError) MaterialTheme.colorScheme.onErrorContainer else MaterialTheme.colorScheme.onSecondaryContainer,
-                        modifier = Modifier.weight(1f)
-                    )
-                    IconButton(onClick = { statusMessage = "" }) {
-                        Icon(Icons.Default.Close, null, modifier = Modifier.size(16.dp))
+                Column(modifier = Modifier.padding(12.dp)) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            if (isStatusError) Icons.Default.Error else Icons.Default.CheckCircle,
+                            null,
+                            tint = if (isStatusError) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.secondary
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = statusMessage,
+                            fontSize = 12.sp,
+                            color = if (isStatusError) MaterialTheme.colorScheme.onErrorContainer else MaterialTheme.colorScheme.onSecondaryContainer,
+                            modifier = Modifier.weight(1f)
+                        )
+                        IconButton(onClick = { statusMessage = "" }) {
+                            Icon(Icons.Default.Close, null, modifier = Modifier.size(16.dp))
+                        }
+                    }
+                    if (isStatusError && (statusMessage.contains("PERMISSION", ignoreCase = true) || statusMessage.contains("permissions", ignoreCase = true))) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Button(
+                            onClick = { showFirestoreRulesDialog = true },
+                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier.fillMaxWidth().height(36.dp),
+                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
+                        ) {
+                            Icon(Icons.Default.Shield, null, modifier = Modifier.size(14.dp))
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Buka Solusi Izin Firebase Cloud (Salin Aturan)", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        }
                     }
                 }
             }
@@ -188,40 +246,19 @@ fun ProfilScreen(
                     Box(
                         contentAlignment = Alignment.TopEnd
                     ) {
-                        // Profile Avatar
-                        Box(
-                            modifier = Modifier
-                                .size(88.dp)
-                                .clip(CircleShape)
-                                .then(
-                                    if (viewModel.profileAvatarIndex >= 0) {
-                                        Modifier.background(avatarGradients.getOrElse(viewModel.profileAvatarIndex) { avatarGradients[0] })
-                                    } else {
-                                        Modifier.background(MaterialTheme.colorScheme.surfaceVariant)
-                                    }
-                                )
-                                .clickable {
-                                    onEditProfileClick?.invoke()
-                                },
-                            contentAlignment = Alignment.Center
-                        ) {
-                            if (viewModel.profileAvatarIndex == -1 && viewModel.profileImageUri.isNotEmpty()) {
-                                AsyncImage(
-                                    model = viewModel.profileImageUri,
-                                    contentDescription = "Foto Profil",
-                                    modifier = Modifier.fillMaxSize().clip(CircleShape),
-                                    contentScale = ContentScale.Crop
-                                )
-                            } else {
-                                val selectedIcon = avatarIcons.getOrElse(viewModel.profileAvatarIndex) { avatarIcons[0] }
-                                Icon(
-                                    imageVector = selectedIcon,
-                                    contentDescription = null,
-                                    tint = Color.White,
-                                    modifier = Modifier.size(44.dp)
-                                )
+                        // Profile Avatar - Klik untuk membuka Pop up Detail Membership
+                        AppUserAvatar(
+                            name = viewModel.profileName,
+                            imageUri = viewModel.profileImageUri,
+                            avatarIndex = viewModel.profileAvatarIndex,
+                            size = 88.dp,
+                            textSize = 28.sp,
+                            isLoggedIn = viewModel.currentFirebaseUser != null,
+                            contentDescription = "Foto Profil (Klik untuk Detail Membership)",
+                            onClick = {
+                                showMembershipDialogInProfile = true
                             }
-                        }
+                        )
 
                         // Icon Pengaturan di pojok kanan atas foto avatar
                         Box(
@@ -243,11 +280,33 @@ fun ProfilScreen(
                                 modifier = Modifier.size(18.dp)
                             )
                         }
+
+                        // Icon Kamera / Atur Posisi Foto di pojok kanan bawah foto avatar
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.BottomEnd)
+                                .offset(x = 4.dp, y = 4.dp)
+                                .size(30.dp)
+                                .background(MaterialTheme.colorScheme.primary, CircleShape)
+                                .border(2.dp, MaterialTheme.colorScheme.surface, CircleShape)
+                                .clip(CircleShape)
+                                .clickable {
+                                    showPhotoOptionsDialog = true
+                                },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = if (viewModel.profileAvatarIndex == -1 && viewModel.profileImageUri.isNotEmpty()) Icons.Default.Crop else Icons.Default.CameraAlt,
+                                contentDescription = "Atur Posisi Foto Profil",
+                                tint = MaterialTheme.colorScheme.onPrimary,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
                     }
 
                     Spacer(modifier = Modifier.height(10.dp))
 
-                    // Nama Pengguna
+                    // Nama Pengguna - Klik untuk membuka Pop up Detail Membership
                     Text(
                         text = viewModel.profileName.ifEmpty { "Pengguna Setia" },
                         fontSize = 18.sp,
@@ -257,9 +316,157 @@ fun ProfilScreen(
                         maxLines = 1,
                         overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                         modifier = Modifier.clickable {
-                            onEditProfileClick?.invoke()
+                            showMembershipDialogInProfile = true
                         }
                     )
+
+                    // Badge Kartu Membership VIP Interaktif (Klik Untuk Melihat Pop Up Kartu)
+                    Surface(
+                        shape = RoundedCornerShape(20.dp),
+                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                        border = BorderStroke(1.dp, Color(0xFFFFD700).copy(alpha = 0.6f)),
+                        modifier = Modifier
+                            .padding(top = 6.dp)
+                            .clickable { showMembershipDialogInProfile = true }
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Star,
+                                contentDescription = null,
+                                tint = Color(0xFFFFD700),
+                                modifier = Modifier.size(14.dp)
+                            )
+                            Text(
+                                text = "Kartu Membership VIP (Klik Detail)",
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Icon(
+                                imageVector = Icons.Default.ChevronRight,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(14.dp)
+                            )
+                        }
+                    }
+
+                    val currentFirebaseUser = viewModel.currentFirebaseUser
+                    if (currentFirebaseUser != null) {
+                        // Info Akun saat pengguna telah login
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(
+                            text = currentFirebaseUser.email ?: currentFirebaseUser.displayName ?: "",
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            textAlign = TextAlign.Center
+                        )
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            // Sinkronkan Profil dari Akun Google / Facebook
+                            OutlinedButton(
+                                onClick = {
+                                    viewModel.refreshAuthUser()
+                                    viewModel.showToastPopup("Profil berhasil disinkronkan!")
+                                },
+                                shape = RoundedCornerShape(8.dp),
+                                colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.primary),
+                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)),
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                                modifier = Modifier.height(34.dp)
+                            ) {
+                                Icon(Icons.Default.Sync, null, modifier = Modifier.size(14.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("Sinkron", fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                            }
+
+                            // Atur Kata Sandi Email (dilindungi proteksi OTP ke Admin)
+                            OutlinedButton(
+                                onClick = {
+                                    profilePasswordInput = ""
+                                    profilePasswordConfirm = ""
+                                    profilePasswordError = null
+                                    profileOtpCodeInput = ""
+                                    isProfileOtpVerified = false
+                                    profileOtpLoading = false
+                                    profileOtpSentSuccess = false
+                                    lastGeneratedOtpRequest = null
+                                    showSetPasswordDialogInProfile = true
+                                },
+                                shape = RoundedCornerShape(8.dp),
+                                colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF0F766E)),
+                                border = BorderStroke(1.dp, Color(0xFF0F766E).copy(alpha = 0.5f)),
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                                modifier = Modifier.height(34.dp)
+                            ) {
+                                Icon(Icons.Default.Key, null, modifier = Modifier.size(14.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("Sandi Email", fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                            }
+
+                            // Keluar Akun
+                            OutlinedButton(
+                                onClick = {
+                                    viewModel.requestLogoutConfirmation()
+                                },
+                                shape = RoundedCornerShape(8.dp),
+                                colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.5f)),
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+                                modifier = Modifier.height(34.dp)
+                            ) {
+                                Icon(Icons.Default.Logout, null, modifier = Modifier.size(14.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("Keluar", fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                            }
+                        }
+                    } else {
+                        // Tombol Login dan Daftar langsung di bawah profil (bukan menu)
+                        Spacer(modifier = Modifier.height(10.dp))
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            // Tombol Masuk / Login
+                            Button(
+                                onClick = {
+                                    authDialogModeInProfile = AuthMode.LOGIN
+                                    showAuthDialogInProfile = true
+                                },
+                                shape = RoundedCornerShape(8.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+                                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
+                                modifier = Modifier.height(34.dp)
+                            ) {
+                                Icon(Icons.Default.Login, null, modifier = Modifier.size(14.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("Masuk", fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
+                            }
+
+                            // Tombol Daftar
+                            Button(
+                                onClick = {
+                                    authDialogModeInProfile = AuthMode.REGISTER
+                                    showAuthDialogInProfile = true
+                                },
+                                shape = RoundedCornerShape(8.dp),
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0F766E)),
+                                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
+                                modifier = Modifier.height(34.dp)
+                            ) {
+                                Icon(Icons.Default.PersonAdd, null, modifier = Modifier.size(14.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("Daftar", fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
                 }
 
                 Text(
@@ -287,10 +494,15 @@ fun ProfilScreen(
                             onClick = { activeSection = "keamanan_dan_data" }
                         )
 
+                        val isDark = isSystemInDarkTheme()
+                        val webConnectTint = if (isDark) Color(0xFF34D399) else Color(0xFF00A884)
+                        val shareTint = if (isDark) Color(0xFF60A5FA) else MaterialTheme.colorScheme.primary
+                        val telegramTint = if (isDark) Color(0xFF38BDF8) else Color(0xFF229ED9)
+
                         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
                         MenuItem(
                             icon = Icons.Default.Devices,
-                            iconTint = Color(0xFF00A884),
+                            iconTint = webConnectTint,
                             title = "Web Connect (Akses PC)",
                             subtitle = "Hubungkan & kelola aplikasi dari browser Laptop / PC",
                             onClick = { viewModel.currentRoute = "web_connect" }
@@ -299,10 +511,41 @@ fun ProfilScreen(
                         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
                         MenuItem(
                             icon = Icons.Default.Cloud,
-                            iconTint = MaterialTheme.colorScheme.primary,
+                            iconTint = shareTint,
                             title = "Pengaturan Share",
                             subtitle = "Seting Share & Bantuan",
                             onClick = { activeSection = "pengaturan_share" }
+                        )
+
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                        MenuItem(
+                            icon = Icons.Default.Forum,
+                            iconTint = telegramTint,
+                            title = "Telegram AI Assistant",
+                            subtitle = "Asisten bot @My_Singghara_bot: cek libur, agenda & database",
+                            onClick = { viewModel.currentRoute = "telegram_ai" }
+                        )
+
+                        val isUserAdmin = viewModel.currentFirebaseUser?.uid == com.example.firebase.FirebaseAccountAdminManager.ADMIN_UID
+                        if (isUserAdmin) {
+                            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                            val isDark = isSystemInDarkTheme()
+                            MenuItem(
+                                icon = Icons.Default.AdminPanelSettings,
+                                iconTint = if (isDark) Color(0xFF34D399) else Color(0xFF047857),
+                                title = "Manajemen Akun (Khusus Admin)",
+                                subtitle = "Panel Admin: Pengguna, Pesan & Token FCM",
+                                onClick = { viewModel.currentRoute = "manajemen_akun" }
+                            )
+                        }
+
+                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                        MenuItem(
+                            icon = Icons.Default.Info,
+                            iconTint = Color(0xFF0F766E),
+                            title = "Tentang Aplikasi",
+                            subtitle = "Versi v${com.example.BuildConfig.VERSION_NAME}",
+                            onClick = { viewModel.currentRoute = "tentang_aplikasi" }
                         )
                     }
                 }
@@ -422,12 +665,21 @@ fun ProfilScreen(
 
                         // b. Sub-Menu: Cadangkan & Pulihkan (Backup & Restore)
                         val hasFolderForBackup = viewModel.safFolderUriStr.isNotEmpty()
+                        val currentUser = viewModel.currentFirebaseUser
+                        val backupSubtitle = if (currentUser != null) {
+                            "Cloud Firebase (${currentUser.email ?: currentUser.displayName}) & Berkas Lokal"
+                        } else {
+                            "Cloud Firebase Terisolasi & Berkas Lokal (SAF)"
+                        }
                         
                         MenuItem(
                             icon = Icons.Default.Backup,
                             title = "Cadangkan & Pulihkan (Backup & Restore)",
-                            subtitle = "Ekspor, Pulihkan, & Manajemen Penyimpanan",
-                            onClick = { showBackupDialog = true },
+                            subtitle = backupSubtitle,
+                            onClick = {
+                                viewModel.checkCloudBackupMetadata()
+                                showBackupDialog = true
+                            },
                             trailing = {
                                 Icon(
                                     imageVector = Icons.Default.ChevronRight,
@@ -945,7 +1197,199 @@ fun ProfilScreen(
                                             fontSize = 12.sp,
                                             color = MaterialTheme.colorScheme.primary
                                         )
+
+                                        val bpCount = viewModel.allBelanjaPasar.collectAsState().value.size
+                                        Card(
+                                            colors = CardDefaults.cardColors(
+                                                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
+                                            ),
+                                            shape = RoundedCornerShape(8.dp),
+                                            modifier = Modifier.fillMaxWidth()
+                                        ) {
+                                            Column(
+                                                modifier = Modifier.padding(10.dp),
+                                                verticalArrangement = Arrangement.spacedBy(3.dp)
+                                            ) {
+                                                Text(
+                                                    text = "Cakupan Sinkronisasi & Cadangan:",
+                                                    fontWeight = FontWeight.Bold,
+                                                    fontSize = 11.sp,
+                                                    color = MaterialTheme.colorScheme.primary
+                                                )
+                                                Text(
+                                                    text = "• Rekap Belanja Pasar ($bpCount item terintegrasi)\n• Belanja Harian & Tabungan\n• Catatan, Agenda, Jadwal & Mind Map\n• Al-Qur'an, Data Anggota, Presensi & Gaji",
+                                                    fontSize = 10.sp,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                    lineHeight = 14.sp
+                                                )
+                                            }
+                                        }
                                         
+                                        // Firebase Cloud Backup & Restore Section
+                                        HorizontalDivider(
+                                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
+                                            modifier = Modifier.padding(vertical = 4.dp)
+                                        )
+
+                                        val currentUser = viewModel.currentFirebaseUser
+                                        val isUserLoggedIn = currentUser != null
+
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.SpaceBetween
+                                        ) {
+                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                                Icon(
+                                                    Icons.Default.CloudSync,
+                                                    null,
+                                                    tint = Color(0xFF0284C7),
+                                                    modifier = Modifier.size(18.dp)
+                                                )
+                                                Spacer(modifier = Modifier.width(6.dp))
+                                                Text(
+                                                    text = "Cadangan Cloud Firebase",
+                                                    fontWeight = FontWeight.Bold,
+                                                    fontSize = 12.5.sp,
+                                                    color = Color(0xFF0284C7)
+                                                )
+                                            }
+
+                                            if (isUserLoggedIn) {
+                                                Surface(
+                                                    shape = RoundedCornerShape(12.dp),
+                                                    color = Color(0xFF10B981).copy(alpha = 0.15f)
+                                                ) {
+                                                    Text(
+                                                        text = "Tersambung",
+                                                        fontSize = 10.sp,
+                                                        fontWeight = FontWeight.SemiBold,
+                                                        color = Color(0xFF047857),
+                                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                                    )
+                                                }
+                                            } else {
+                                                Surface(
+                                                    shape = RoundedCornerShape(12.dp),
+                                                    color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.2f)
+                                                ) {
+                                                    Text(
+                                                        text = "Belum Masuk",
+                                                        fontSize = 10.sp,
+                                                        fontWeight = FontWeight.SemiBold,
+                                                        color = MaterialTheme.colorScheme.error,
+                                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                                    )
+                                                }
+                                            }
+                                        }
+
+                                        Card(
+                                            colors = CardDefaults.cardColors(
+                                                containerColor = if (isUserLoggedIn) Color(0xFF0284C7).copy(alpha = 0.08f)
+                                                else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+                                            ),
+                                            shape = RoundedCornerShape(8.dp),
+                                            modifier = Modifier.fillMaxWidth()
+                                        ) {
+                                            Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                                if (isUserLoggedIn) {
+                                                    Text(
+                                                        text = "Akun Cloud: ${currentUser?.email ?: currentUser?.displayName ?: "Pengguna"}",
+                                                        fontWeight = FontWeight.Bold,
+                                                        fontSize = 11.5.sp,
+                                                        color = MaterialTheme.colorScheme.onSurface
+                                                    )
+                                                    val meta = viewModel.cloudBackupMetadata
+                                                    if (meta != null) {
+                                                        Text(
+                                                            text = "Cadangan Terakhir: ${meta.dateTimeFormatted} (${meta.sizeKb})",
+                                                            fontSize = 10.5.sp,
+                                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                        )
+                                                    } else {
+                                                        Text(
+                                                            text = "Data tersimpan di Firestore pribadi: users/${currentUser?.uid?.take(8)}.../backups",
+                                                            fontSize = 10.5.sp,
+                                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                        )
+                                                    }
+                                                    Text(
+                                                        text = "🔒 Data akun Anda terisolasi total, tidak dapat dibaca atau diubah akun lain.",
+                                                        fontSize = 10.sp,
+                                                        color = Color(0xFF047857)
+                                                    )
+                                                } else {
+                                                    Text(
+                                                        text = "Masuk atau daftar akun untuk menyimpan cadangan ke Firebase Cloud Console secara otomatis dan terisolasi per akun.",
+                                                        fontSize = 10.5.sp,
+                                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                    )
+                                                }
+                                            }
+                                        }
+
+                                        if (isUserLoggedIn) {
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                            ) {
+                                                Button(
+                                                    onClick = {
+                                                        viewModel.backupToFirebaseCloud(context) { msg, success ->
+                                                            statusMessage = msg
+                                                            isStatusError = !success
+                                                        }
+                                                    },
+                                                    enabled = !viewModel.isCloudBackupLoading,
+                                                    modifier = Modifier.weight(1f),
+                                                    shape = RoundedCornerShape(8.dp),
+                                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0284C7))
+                                                ) {
+                                                    if (viewModel.isCloudBackupLoading) {
+                                                        CircularProgressIndicator(color = Color.White, modifier = Modifier.size(14.dp), strokeWidth = 2.dp)
+                                                    } else {
+                                                        Icon(Icons.Default.CloudUpload, null, modifier = Modifier.size(16.dp))
+                                                        Spacer(modifier = Modifier.width(6.dp))
+                                                        Text("Cadangkan Cloud", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                                    }
+                                                }
+
+                                                Button(
+                                                    onClick = {
+                                                        viewModel.restoreFromFirebaseCloud(context) { msg, success ->
+                                                            statusMessage = msg
+                                                            isStatusError = !success
+                                                        }
+                                                    },
+                                                    enabled = !viewModel.isCloudBackupLoading,
+                                                    modifier = Modifier.weight(1f),
+                                                    shape = RoundedCornerShape(8.dp),
+                                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0F766E))
+                                                ) {
+                                                    if (viewModel.isCloudBackupLoading) {
+                                                        CircularProgressIndicator(color = Color.White, modifier = Modifier.size(14.dp), strokeWidth = 2.dp)
+                                                    } else {
+                                                        Icon(Icons.Default.CloudDownload, null, modifier = Modifier.size(16.dp))
+                                                        Spacer(modifier = Modifier.width(6.dp))
+                                                        Text("Pulihkan Cloud", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                                    }
+                                                }
+                                            }
+                                        }
+
+                                        HorizontalDivider(
+                                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
+                                            modifier = Modifier.padding(vertical = 4.dp)
+                                        )
+
+                                        Text(
+                                            text = "Cadangan Berkas Lokal (SAF)",
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 12.sp,
+                                            color = MaterialTheme.colorScheme.onSurface
+                                        )
+
                                         if (!hasFolderForBackup) {
                                             Card(
                                                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.15f)),
@@ -995,6 +1439,64 @@ fun ProfilScreen(
                                                     Text("Impor", fontSize = 12.sp)
                                                 }
                                             }
+                                        }
+
+                                        HorizontalDivider(
+                                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
+                                            modifier = Modifier.padding(vertical = 4.dp)
+                                        )
+
+                                        val azanDownloadState by com.example.util.AzanDownloader.downloadState.collectAsState()
+                                        val availableMp3Count = remember(azanDownloadState) { com.example.util.SinggharaFolderManager.getAvailableMp3Files().size }
+
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.SpaceBetween
+                                        ) {
+                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                                Icon(Icons.Default.MusicNote, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
+                                                Spacer(modifier = Modifier.width(6.dp))
+                                                Text("Audio Adzan (Bawaan Paket / Offline)", fontWeight = FontWeight.Bold, fontSize = 12.sp, color = MaterialTheme.colorScheme.primary)
+                                            }
+                                            Text("$availableMp3Count berkas", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                         }
+
+                                        Text(
+                                            "Audio adzan Google Drive sudah dimasukkan ke dalam paket pemasangan aplikasi & otomatis tersedia di folder My Singghara/Data/mp3 tanpa harus koneksi internet.",
+                                            fontSize = 10.5.sp,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            lineHeight = 14.sp
+                                        )
+
+                                        when (val st = azanDownloadState) {
+                                            is com.example.util.AzanDownloadState.Downloading -> {
+                                                Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                                    LinearProgressIndicator(progress = { st.progressPercent / 100f }, modifier = Modifier.fillMaxWidth())
+                                                    Text("Memproses: ${st.currentFileName} (${st.downloadedCount}/${st.totalCount})", fontSize = 10.5.sp, color = MaterialTheme.colorScheme.primary)
+                                                }
+                                            }
+                                            is com.example.util.AzanDownloadState.Success -> {
+                                                Text("Audio adzan tersimpan di My Singghara/Data/mp3 (${st.fileNames.size} berkas siap).", fontSize = 10.5.sp, color = Color(0xFF16A34A))
+                                            }
+                                            is com.example.util.AzanDownloadState.Error -> {
+                                                Text("Status: ${st.errorMessage}", fontSize = 10.5.sp, color = MaterialTheme.colorScheme.outline)
+                                            }
+                                            else -> {}
+                                        }
+
+                                        OutlinedButton(
+                                            onClick = {
+                                                com.example.util.SinggharaFolderManager.seedDefaultMp3sFromAssets(context)
+                                                com.example.util.AzanDownloader.startDownloadAzanMp3s(context, force = true)
+                                                viewModel.showToastPopup("Memasang ulang audio adzan ke folder My Singghara/Data/mp3...")
+                                            },
+                                            modifier = Modifier.fillMaxWidth(),
+                                            shape = RoundedCornerShape(8.dp)
+                                        ) {
+                                            Icon(Icons.Default.CloudDownload, null, modifier = Modifier.size(16.dp))
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                            Text("Pasang Ulang / Sinkronkan Audio Adzan", fontSize = 11.5.sp)
                                         }
                                     }
                                 },
@@ -1849,12 +2351,17 @@ function doGet(e) {
       var list = [];
       while (files.hasNext()) {
         var file = files.next();
+        var dCreated = file.getDateCreated();
+        var dUpdated = file.getLastUpdated();
         list.push({
           id: file.getId(),
           name: file.getName(),
           mimeType: file.getMimeType(),
           size: file.getSize(),
-          url: file.getUrl()
+          url: file.getUrl(),
+          date: dCreated ? dCreated.toISOString() : "",
+          lastUpdated: dUpdated ? dUpdated.toISOString() : "",
+          timestamp: dUpdated ? dUpdated.getTime() : (dCreated ? dCreated.getTime() : 0)
         });
       }
       return ContentService.createTextOutput(JSON.stringify({ status: "success", files: list }))
@@ -1976,12 +2483,13 @@ function doPost(e) {
 
                         Text(
                             "Langkah Penyebaran (Deployment):\n" +
-                                    "1. Buka script.google.com & buat project baru.\n" +
+                                    "1. Buka script.google.com & buat project baru (atau buka project yang ada).\n" +
                                     "2. Tempelkan kode yang telah Anda salin.\n" +
-                                    "3. Klik 'Deploy' -> 'New Deployment'.\n" +
+                                    "3. Klik 'Deploy' -> 'New Deployment' (atau 'Manage deployments' jika sudah ada).\n" +
                                     "4. Pilih jenis 'Web App'.\n" +
                                     "5. Set 'Execute as': 'Me' & 'Who has access': 'Anyone'.\n" +
-                                    "6. Klik 'Deploy', izinkan hak akses Drive, lalu salin URL Web App yang dihasilkan ke pengaturan share aplikasi ini.",
+                                    "6. ⚠️ PENTING: Saat memperbarui script lama, klik ikon pensil (Edit), ubah 'Version' menjadi 'New version', lalu klik 'Deploy'.\n" +
+                                    "7. Salin URL Web App yang berakhiran /exec ke aplikasi ini.",
                             fontSize = 11.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             lineHeight = 16.sp
@@ -1992,6 +2500,544 @@ function doPost(e) {
                     Button(onClick = { showScriptTutorial = false }) {
                         Text("Mengerti")
                     }
+                }
+            )
+        }
+
+        // Firebase Auth Dialog (Login, Register, Forgot Password)
+        if (showAuthDialogInProfile) {
+            FirebaseAuthDialog(
+                viewModel = viewModel,
+                initialMode = authDialogModeInProfile,
+                onDismissRequest = {
+                    showAuthDialogInProfile = false
+                    viewModel.refreshAuthUser()
+                }
+            )
+        }
+
+        // Dialog Buat / Atur Kata Sandi Email dari Profil (Dilindungi Proteksi OTP ke Admin UiDpHxawlBQ17mxTUHIXvhxRR3b2)
+        val currentUserInProfile = viewModel.currentFirebaseUser
+        if (showSetPasswordDialogInProfile && currentUserInProfile != null) {
+            val userEmail = currentUserInProfile.email ?: ""
+            val isCurrentUserAdmin = currentUserInProfile.uid == com.example.firebase.FirebaseAccountAdminManager.ADMIN_UID
+            AlertDialog(
+                onDismissRequest = {
+                    if (!profilePasswordLoading && !profileOtpLoading) showSetPasswordDialogInProfile = false
+                },
+                title = {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Surface(
+                            shape = CircleShape,
+                            color = Color(0xFF0F766E).copy(alpha = 0.12f),
+                            modifier = Modifier.size(36.dp)
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Icon(
+                                    Icons.Default.Security,
+                                    contentDescription = null,
+                                    tint = Color(0xFF0F766E),
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                        }
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Column {
+                            Text(
+                                text = "Kata Sandi Login Email",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 16.5.sp,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Text(
+                                text = "Proteksi OTP Admin: UiDpHxawlBQ17mxTUHIXvhxRR3b2",
+                                fontSize = 10.5.sp,
+                                color = Color(0xFF0F766E),
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
+                    }
+                },
+                text = {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .verticalScroll(rememberScrollState()),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        // Alert / Banner Proteksi Keamanan Admin
+                        Card(
+                            colors = CardDefaults.cardColors(
+                                containerColor = if (isProfileOtpVerified) Color(0xFFECFDF5) else Color(0xFFFEF3C7)
+                            ),
+                            shape = RoundedCornerShape(10.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(10.dp),
+                                verticalAlignment = Alignment.Top
+                            ) {
+                                Icon(
+                                    imageVector = if (isProfileOtpVerified) Icons.Default.CheckCircle else Icons.Default.Shield,
+                                    contentDescription = null,
+                                    tint = if (isProfileOtpVerified) Color(0xFF059669) else Color(0xFFD97706),
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Column {
+                                    Text(
+                                        text = if (isProfileOtpVerified) "Otorisasi OTP Admin Terverifikasi" else "Proteksi Sandi Akun Singghara",
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 11.5.sp,
+                                        color = if (isProfileOtpVerified) Color(0xFF065F46) else Color(0xFF92400E)
+                                    )
+                                    Spacer(modifier = Modifier.height(2.dp))
+                                    Text(
+                                        text = if (isProfileOtpVerified) {
+                                            "Kode verifikasi telah disetujui. Anda sekarang dapat menetapkan kata sandi baru untuk akun $userEmail."
+                                        } else {
+                                            "Untuk keamanan akun $userEmail, pengaturan kata sandi wajib diverifikasi dengan kode OTP yang dikirimkan ke Admin Singghara (UID: UiDpHxawlBQ17mxTUHIXvhxRR3b2)."
+                                        },
+                                        fontSize = 10.5.sp,
+                                        color = if (isProfileOtpVerified) Color(0xFF047857) else Color(0xFF78350F),
+                                        lineHeight = 14.sp
+                                    )
+                                }
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        if (!profilePasswordError.isNullOrBlank()) {
+                            Surface(
+                                shape = RoundedCornerShape(8.dp),
+                                color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.9f),
+                                modifier = Modifier.fillMaxWidth().padding(bottom = 10.dp)
+                            ) {
+                                Text(
+                                    text = profilePasswordError!!,
+                                    color = MaterialTheme.colorScheme.onErrorContainer,
+                                    fontSize = 11.5.sp,
+                                    modifier = Modifier.padding(8.dp),
+                                    textAlign = TextAlign.Center
+                                )
+                            }
+                        }
+
+                        // STEP 1: Verifikasi OTP dari Admin jika belum terverifikasi
+                        if (!isProfileOtpVerified) {
+                            Card(
+                                colors = CardDefaults.cardColors(
+                                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+                                ),
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Column(
+                                    modifier = Modifier.padding(12.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally
+                                ) {
+                                    Text(
+                                        text = "Langkah 1: Minta Kode OTP ke Admin",
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 12.5.sp,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                    Spacer(modifier = Modifier.height(6.dp))
+                                    Text(
+                                        text = "Kirimkan kode OTP ke Admin resmi, lalu masukkan kode yang diberikan Admin:",
+                                        fontSize = 11.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        textAlign = TextAlign.Center
+                                    )
+
+                                    Spacer(modifier = Modifier.height(10.dp))
+
+                                    // Tombol Kirim OTP ke Admin
+                                    Button(
+                                        onClick = {
+                                            profileOtpLoading = true
+                                            profilePasswordError = null
+                                            viewModel.requestEmailPasswordOtp { success, req, err ->
+                                                profileOtpLoading = false
+                                                if (success && req != null) {
+                                                    profileOtpSentSuccess = true
+                                                    lastGeneratedOtpRequest = req
+                                                    viewModel.showToastPopup("Permintaan kode OTP berhasil dikirimkan ke Admin!")
+                                                } else {
+                                                    profilePasswordError = err ?: "Gagal mengirim permintaan OTP ke Admin."
+                                                }
+                                            }
+                                        },
+                                        enabled = !profileOtpLoading,
+                                        shape = RoundedCornerShape(8.dp),
+                                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0F766E)),
+                                        modifier = Modifier.fillMaxWidth().height(38.dp)
+                                    ) {
+                                        if (profileOtpLoading) {
+                                            CircularProgressIndicator(color = Color.White, modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                                        } else {
+                                            Icon(Icons.Default.Send, null, modifier = Modifier.size(14.dp))
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                            Text(
+                                                text = if (profileOtpSentSuccess) "Kirim Ulang OTP ke Admin" else "Kirim OTP ke Admin (UiDpHxawlBQ17mxTUHIXvhxRR3b2)",
+                                                fontSize = 11.sp,
+                                                fontWeight = FontWeight.SemiBold
+                                            )
+                                        }
+                                    }
+
+                                    if (profileOtpSentSuccess) {
+                                        Spacer(modifier = Modifier.height(10.dp))
+
+                                        // Tombol Chat WhatsApp ke Admin
+                                        OutlinedButton(
+                                            onClick = {
+                                                try {
+                                                    val rawPhone = viewModel.adminPhoneNumber
+                                                    val formattedPhone = if (rawPhone.startsWith("0")) "62" + rawPhone.substring(1) else rawPhone.replace("+", "").replace("-", "").replace(" ", "")
+                                                    val msg = "Halo Admin My Singghara, saya meminta 6-digit kode OTP untuk verifikasi kata sandi email akun: $userEmail (UID: ${currentUserInProfile.uid}). Mohon berikan kodenya."
+                                                    val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://api.whatsapp.com/send?phone=$formattedPhone&text=${Uri.encode(msg)}"))
+                                                    context.startActivity(intent)
+                                                } catch (e: Exception) {
+                                                    viewModel.showToastPopup("Gagal membuka WhatsApp: ${e.message}")
+                                                }
+                                            },
+                                            shape = RoundedCornerShape(8.dp),
+                                            colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF059669)),
+                                            border = BorderStroke(1.dp, Color(0xFF059669).copy(alpha = 0.5f)),
+                                            modifier = Modifier.fillMaxWidth().height(36.dp)
+                                        ) {
+                                            Icon(Icons.Default.Chat, null, modifier = Modifier.size(14.dp))
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                            Text("Hubungi Admin via WhatsApp", fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                                        }
+
+                                        // Jika yang sedang login adalah Admin sendiri
+                                        if (isCurrentUserAdmin && lastGeneratedOtpRequest != null) {
+                                            Spacer(modifier = Modifier.height(6.dp))
+                                            TextButton(
+                                                onClick = {
+                                                    profileOtpCodeInput = lastGeneratedOtpRequest?.otpCode ?: ""
+                                                    profilePasswordError = null
+                                                },
+                                                modifier = Modifier.height(30.dp),
+                                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                                            ) {
+                                                Icon(Icons.Default.AdminPanelSettings, null, modifier = Modifier.size(13.dp), tint = Color(0xFF047857))
+                                                Spacer(modifier = Modifier.width(4.dp))
+                                                Text(
+                                                    "Isi Otomatis Kode Admin (${lastGeneratedOtpRequest?.otpCode ?: ""})",
+                                                    fontSize = 11.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = Color(0xFF047857)
+                                                )
+                                            }
+                                        }
+
+                                        Spacer(modifier = Modifier.height(12.dp))
+
+                                        // Kolom Input 6-Digit OTP dari Admin
+                                        OutlinedTextField(
+                                            value = profileOtpCodeInput,
+                                            onValueChange = {
+                                                if (it.length <= 6) {
+                                                    profileOtpCodeInput = it.filter { char -> char.isDigit() }
+                                                    profilePasswordError = null
+                                                }
+                                            },
+                                            label = { Text("Kode OTP 6-Digit dari Admin", fontSize = 12.sp) },
+                                            leadingIcon = { Icon(Icons.Default.Key, null, modifier = Modifier.size(18.dp), tint = Color(0xFF0F766E)) },
+                                            singleLine = true,
+                                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                            modifier = Modifier.fillMaxWidth(),
+                                            shape = RoundedCornerShape(10.dp)
+                                        )
+
+                                        Spacer(modifier = Modifier.height(10.dp))
+
+                                        Button(
+                                            onClick = {
+                                                if (profileOtpCodeInput.length != 6) {
+                                                    profilePasswordError = "Kode OTP harus 6 digit angka."
+                                                    return@Button
+                                                }
+                                                profileOtpLoading = true
+                                                profilePasswordError = null
+                                                viewModel.verifyEmailPasswordOtp(profileOtpCodeInput) { ok, err ->
+                                                    profileOtpLoading = false
+                                                    if (ok) {
+                                                        isProfileOtpVerified = true
+                                                        profilePasswordError = null
+                                                        viewModel.showToastPopup("Otorisasi Admin Berhasil! Silakan masukkan kata sandi baru.")
+                                                    } else {
+                                                        profilePasswordError = err ?: "Kode OTP salah atau tidak cocok dari Admin."
+                                                    }
+                                                }
+                                            },
+                                            enabled = !profileOtpLoading && profileOtpCodeInput.length == 6,
+                                            shape = RoundedCornerShape(8.dp),
+                                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF059669)),
+                                            modifier = Modifier.fillMaxWidth().height(38.dp)
+                                        ) {
+                                            if (profileOtpLoading) {
+                                                CircularProgressIndicator(color = Color.White, modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                                            } else {
+                                                Icon(Icons.Default.VerifiedUser, null, modifier = Modifier.size(15.dp))
+                                                Spacer(modifier = Modifier.width(6.dp))
+                                                Text("Verifikasi Kode OTP", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        } else {
+                            // STEP 2: Input Sandi Baru setelah OTP Terverifikasi
+                            Text(
+                                text = "Langkah 2: Tentukan Kata Sandi Baru",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 12.5.sp,
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp)
+                            )
+
+                            OutlinedTextField(
+                                value = profilePasswordInput,
+                                onValueChange = { profilePasswordInput = it; profilePasswordError = null },
+                                label = { Text("Kata Sandi Baru (min. 6 karakter)", fontSize = 12.sp) },
+                                leadingIcon = { Icon(Icons.Default.Lock, null, modifier = Modifier.size(18.dp)) },
+                                trailingIcon = {
+                                    IconButton(onClick = { profilePasswordVisible = !profilePasswordVisible }) {
+                                        Icon(
+                                            imageVector = if (profilePasswordVisible) Icons.Default.Visibility else Icons.Default.VisibilityOff,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                    }
+                                },
+                                visualTransformation = if (profilePasswordVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                                singleLine = true,
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(10.dp)
+                            )
+
+                            Spacer(modifier = Modifier.height(8.dp))
+
+                            OutlinedTextField(
+                                value = profilePasswordConfirm,
+                                onValueChange = { profilePasswordConfirm = it; profilePasswordError = null },
+                                label = { Text("Konfirmasi Kata Sandi", fontSize = 12.sp) },
+                                leadingIcon = { Icon(Icons.Default.Lock, null, modifier = Modifier.size(18.dp)) },
+                                trailingIcon = {
+                                    IconButton(onClick = { profilePasswordConfirmVisible = !profilePasswordConfirmVisible }) {
+                                        Icon(
+                                            imageVector = if (profilePasswordConfirmVisible) Icons.Default.Visibility else Icons.Default.VisibilityOff,
+                                            contentDescription = null,
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                    }
+                                },
+                                visualTransformation = if (profilePasswordConfirmVisible) VisualTransformation.None else PasswordVisualTransformation(),
+                                singleLine = true,
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(10.dp)
+                            )
+                        }
+                    }
+                },
+                confirmButton = {
+                    if (isProfileOtpVerified) {
+                        Button(
+                            onClick = {
+                                if (profilePasswordInput.length < 6) {
+                                    profilePasswordError = "Kata sandi minimal harus 6 karakter."
+                                    return@Button
+                                }
+                                if (profilePasswordInput != profilePasswordConfirm) {
+                                    profilePasswordError = "Konfirmasi kata sandi tidak cocok."
+                                    return@Button
+                                }
+
+                                profilePasswordLoading = true
+                                profilePasswordError = null
+                                scope.launch {
+                                    val res = viewModel.authManager.setUserPasswordForGoogleAccount(
+                                        user = currentUserInProfile,
+                                        newPassword = profilePasswordInput,
+                                        context = context
+                                    )
+                                    profilePasswordLoading = false
+                                    res.onSuccess {
+                                        lastGeneratedOtpRequest?.id?.let { otpId ->
+                                            viewModel.markAdminOtpUsed(otpId)
+                                        }
+                                        viewModel.showToastPopup("Kata sandi berhasil disimpan! Anda sekarang dapat login dengan email.")
+                                        showSetPasswordDialogInProfile = false
+                                    }.onFailure { err ->
+                                        profilePasswordError = err.message ?: "Gagal memperbarui kata sandi."
+                                    }
+                                }
+                            },
+                            enabled = !profilePasswordLoading,
+                            shape = RoundedCornerShape(8.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0F766E))
+                        ) {
+                            if (profilePasswordLoading) {
+                                CircularProgressIndicator(color = Color.White, modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                            } else {
+                                Text("Simpan Kata Sandi", fontSize = 12.5.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+                },
+                dismissButton = {
+                    OutlinedButton(
+                        onClick = { showSetPasswordDialogInProfile = false },
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        Text(if (isProfileOtpVerified) "Tutup" else "Batal", fontSize = 12.sp)
+                    }
+                }
+            )
+        }
+
+        // Firestore Rules Helper Dialog
+        if (showFirestoreRulesDialog) {
+            com.example.ui.components.FirestoreRulesHelperDialog(
+                onDismissRequest = { showFirestoreRulesDialog = false }
+            )
+        }
+
+        // Photo Options Dialog (Profil)
+        if (showPhotoOptionsDialog) {
+            AlertDialog(
+                onDismissRequest = { showPhotoOptionsDialog = false },
+                title = {
+                    Text(
+                        "Foto Profil",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 18.sp,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                },
+                text = {
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Text(
+                            "Atur posisi atau pilih foto dari galeri agar pas dan tidak terpotong:",
+                            fontSize = 13.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+
+                        if (viewModel.profileAvatarIndex == -1 && viewModel.profileImageUri.isNotEmpty()) {
+                            FilledTonalButton(
+                                onClick = {
+                                    showPhotoOptionsDialog = false
+                                    try {
+                                        photoToRepositionUri = Uri.parse(viewModel.profileImageUri)
+                                    } catch (e: Exception) {
+                                        viewModel.showToastPopup("Gagal membuka foto: ${e.message}")
+                                    }
+                                },
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Icon(Icons.Default.Crop, contentDescription = null, modifier = Modifier.size(18.dp))
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text("Atur Posisi Foto Saat Ini")
+                            }
+                        }
+
+                        Button(
+                            onClick = {
+                                showPhotoOptionsDialog = false
+                                try {
+                                    viewModel.preventAutoLock = true
+                                    profileImagePickerLauncher.launch("image/*")
+                                } catch (e: Exception) {
+                                    viewModel.preventAutoLock = false
+                                    viewModel.showToastPopup("Gagal membuka galeri: ${e.message}")
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Icon(Icons.Default.PhotoLibrary, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Pilih Foto dari Galeri")
+                        }
+
+                        OutlinedButton(
+                            onClick = {
+                                showPhotoOptionsDialog = false
+                                onEditProfileClick?.invoke()
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Icon(Icons.Default.Palette, contentDescription = null, modifier = Modifier.size(18.dp))
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text("Pilih Avatar Karakter")
+                        }
+                    }
+                },
+                confirmButton = {},
+                dismissButton = {
+                    TextButton(onClick = { showPhotoOptionsDialog = false }) {
+                        Text("Tutup")
+                    }
+                }
+            )
+        }
+
+        // Photo Reposition Dialog
+        if (photoToRepositionUri != null) {
+            PhotoRepositionDialog(
+                imageUri = photoToRepositionUri!!,
+                onDismiss = { photoToRepositionUri = null },
+                onConfirm = { croppedBitmap ->
+                    viewModel.saveProfileImageBitmap(croppedBitmap)
+                    photoToRepositionUri = null
+                    viewModel.showToastPopup("Posisi foto berhasil disimpan!")
+                }
+            )
+        }
+
+        // POPUP DETAIL MEMBERSHIP VIP (Muncul Saat Klik Profil User)
+        if (showMembershipDialogInProfile || viewModel.showMembershipDetailDialog) {
+            val currentFbUser = viewModel.currentFirebaseUser
+            val isUserAdmin = currentFbUser?.let { viewModel.adminManager.isAdmin(it.uid) } ?: false
+            val currentCloudUser = remember(currentFbUser, viewModel.accountMembershipTier, viewModel.accountMembershipEndDate) {
+                currentFbUser?.let { fb ->
+                    CloudUserItem(
+                        uid = fb.uid,
+                        email = fb.email ?: "",
+                        displayName = viewModel.profileName.ifEmpty { fb.displayName ?: "Pengguna Setia" },
+                        photoUrl = viewModel.profileImageUri.ifEmpty { fb.photoUrl?.toString() ?: "" },
+                        isActive = !viewModel.isAccountBlocked,
+                        isAdmin = isUserAdmin,
+                        membershipDurationMonths = if (viewModel.accountMembershipTier.contains("12")) 12
+                            else if (viewModel.accountMembershipTier.contains("7")) 7
+                            else if (viewModel.accountMembershipTier.contains("5")) 5
+                            else if (viewModel.accountMembershipTier.contains("3")) 3
+                            else if (viewModel.accountMembershipTier.contains("1")) 1
+                            else 0,
+                        membershipEndDate = viewModel.accountMembershipEndDate,
+                        membershipTier = viewModel.accountMembershipTier
+                    )
+                }
+            }
+
+            VipMembershipDetailDialog(
+                user = viewModel.selectedMembershipUser ?: currentCloudUser,
+                currentUserName = viewModel.profileName,
+                currentUserEmail = currentFbUser?.email ?: "",
+                adminPhoneNumber = viewModel.adminPhoneNumber,
+                isViewerAdmin = isUserAdmin,
+                onDismiss = {
+                    showMembershipDialogInProfile = false
+                    viewModel.closeMembershipDetail()
                 }
             )
         }

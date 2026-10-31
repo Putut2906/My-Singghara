@@ -57,6 +57,7 @@ import coil.request.ImageRequest
 import com.example.data.AnggotaItem
 import com.example.data.RiwayatPresensi
 import com.example.ui.MainViewModel
+import com.example.ui.components.CustomDatePickerDialog
 import com.example.utils.IdCardBitmapGenerator
 import com.example.utils.QrCodeHelper
 import kotlinx.coroutines.Dispatchers
@@ -87,11 +88,17 @@ import androidx.compose.ui.input.pointer.pointerInput
 @Composable
 fun DataKaryawanMuridScreen(
     viewModel: MainViewModel,
-    onBack: (() -> Unit)? = null
+    isFullTableOnly: Boolean = false,
+    onBack: (() -> Unit)? = null,
+    onOpenFullTable: (() -> Unit)? = null
 ) {
     // Handle Android OS system back button
     BackHandler {
         if (onBack != null) onBack() else viewModel.currentRoute = "home"
+    }
+
+    LaunchedEffect(Unit) {
+        viewModel.checkAndCleanupExpiredAnggota()
     }
 
     val context = LocalContext.current
@@ -112,6 +119,7 @@ fun DataKaryawanMuridScreen(
     var showSignatureDialog by remember { mutableStateOf(false) }
     var signatureVersion by remember { mutableStateOf(0) }
     var deletingAnggota by remember { mutableStateOf<AnggotaItem?>(null) }
+    var showToolbarOverflowMenu by remember { mutableStateOf(false) }
 
     // Check if deep linked from viewModel
     LaunchedEffect(viewModel.selectedAnggotaForIdCard) {
@@ -153,50 +161,52 @@ fun DataKaryawanMuridScreen(
             verticalArrangement = Arrangement.spacedBy(12.dp),
             contentPadding = PaddingValues(bottom = 40.dp, top = 8.dp)
         ) {
-            // Ringkasan Statistik Data (Tanpa icon company dan judul)
-            item {
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(16.dp),
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
-                    ),
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(10.dp),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+            // Ringkasan Statistik Data (Hanya ditampilkan pada menu utama, tidak di halaman Tabel Penuh)
+            if (!isFullTableOnly) {
+                item {
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(16.dp),
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
+                        ),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
                     ) {
-                        StatMiniBox(
-                            label = "Total",
-                            count = allAnggota.size,
-                            icon = Icons.Default.Groups,
-                            color = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.weight(1f)
-                        )
-                        StatMiniBox(
-                            label = "Karyawan",
-                            count = totalKaryawan,
-                            icon = Icons.Default.Work,
-                            color = Color(0xFF0F766E),
-                            modifier = Modifier.weight(1f)
-                        )
-                        StatMiniBox(
-                            label = "Murid/Siswa",
-                            count = totalMurid,
-                            icon = Icons.Default.School,
-                            color = Color(0xFF4338CA),
-                            modifier = Modifier.weight(1f)
-                        )
-                        StatMiniBox(
-                            label = "Guru/Staf",
-                            count = totalGuru,
-                            icon = Icons.Default.SupervisedUserCircle,
-                            color = Color(0xFFB45309),
-                            modifier = Modifier.weight(1f)
-                        )
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(10.dp),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            StatMiniBox(
+                                label = "Total",
+                                count = allAnggota.size,
+                                icon = Icons.Default.Groups,
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.weight(1f)
+                            )
+                            StatMiniBox(
+                                label = "Karyawan",
+                                count = totalKaryawan,
+                                icon = Icons.Default.Work,
+                                color = Color(0xFF0F766E),
+                                modifier = Modifier.weight(1f)
+                            )
+                            StatMiniBox(
+                                label = "Murid/Siswa",
+                                count = totalMurid,
+                                icon = Icons.Default.School,
+                                color = Color(0xFF4338CA),
+                                modifier = Modifier.weight(1f)
+                            )
+                            StatMiniBox(
+                                label = "Guru/Staf",
+                                count = totalGuru,
+                                icon = Icons.Default.SupervisedUserCircle,
+                                color = Color(0xFFB45309),
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
                     }
                 }
             }
@@ -414,6 +424,55 @@ fun DataKaryawanMuridScreen(
                                     modifier = Modifier.size(20.dp)
                                 )
                             }
+
+                            // Action Bar: Icon Titik 3 (Menu Overflow)
+                            Box {
+                                IconButton(
+                                    onClick = { showToolbarOverflowMenu = true },
+                                    modifier = Modifier
+                                        .size(36.dp)
+                                        .testTag("btn_toolbar_more_vert")
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.MoreVert,
+                                        contentDescription = "Menu Titik Tiga",
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
+
+                                DropdownMenu(
+                                    expanded = showToolbarOverflowMenu,
+                                    onDismissRequest = { showToolbarOverflowMenu = false }
+                                ) {
+                                    if (onOpenFullTable != null && !isFullTableOnly) {
+                                        DropdownMenuItem(
+                                            text = { Text("Tabel Anggota Lengkap") },
+                                            leadingIcon = { Icon(Icons.Default.TableChart, contentDescription = null) },
+                                            onClick = {
+                                                showToolbarOverflowMenu = false
+                                                onOpenFullTable()
+                                            }
+                                        )
+                                    }
+                                    DropdownMenuItem(
+                                        text = { Text("Riwayat Presensi") },
+                                        leadingIcon = { Icon(Icons.Default.History, contentDescription = null) },
+                                        onClick = {
+                                            showToolbarOverflowMenu = false
+                                            showRiwayatPresensiDialog = true
+                                        }
+                                    )
+                                    DropdownMenuItem(
+                                        text = { Text("Scan Presensi QR") },
+                                        leadingIcon = { Icon(Icons.Default.QrCodeScanner, contentDescription = null) },
+                                        onClick = {
+                                            showToolbarOverflowMenu = false
+                                            showScannerDialog = true
+                                        }
+                                    )
+                                }
+                            }
                         }
                     }
                 }
@@ -422,17 +481,65 @@ fun DataKaryawanMuridScreen(
             // Table Header Count & Status
             item {
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(8.dp))
+                        .clickable {
+                            if (!isFullTableOnly) {
+                                onOpenFullTable?.invoke()
+                            }
+                        }
+                        .padding(vertical = 4.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(
-                        text = "Tabel Anggota (${filteredList.size})",
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 15.sp,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                    if (allPresensi.isNotEmpty()) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Text(
+                            text = "Tabel Anggota (${filteredList.size})",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 15.sp,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        if (!isFullTableOnly && onOpenFullTable != null) {
+                            Surface(
+                                shape = RoundedCornerShape(12.dp),
+                                color = Color(0xFF0F766E).copy(alpha = 0.15f),
+                                modifier = Modifier.clickable { onOpenFullTable.invoke() }
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(2.dp)
+                                ) {
+                                    Text(
+                                        text = "${filteredList.size} Data",
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Color(0xFF0F766E)
+                                    )
+                                    Icon(
+                                        imageVector = Icons.Default.OpenInNew,
+                                        contentDescription = "Buka Tabel Penuh",
+                                        tint = Color(0xFF0F766E),
+                                        modifier = Modifier.size(11.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    if (!isFullTableOnly && onOpenFullTable != null) {
+                        TextButton(
+                            onClick = { onOpenFullTable.invoke() },
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                        ) {
+                            Text("Buka Halaman", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFF0F766E))
+                            Spacer(modifier = Modifier.width(2.dp))
+                            Icon(Icons.Default.ArrowForward, contentDescription = null, modifier = Modifier.size(12.dp), tint = Color(0xFF0F766E))
+                        }
+                    } else if (allPresensi.isNotEmpty()) {
                         Text(
                             text = "${allPresensi.size} Presensi Terverifikasi",
                             fontSize = 12.sp,
@@ -474,6 +581,7 @@ fun DataKaryawanMuridScreen(
     if (showInputDialog) {
         AnggotaInputDialog(
             existingAnggota = editingAnggota,
+            viewModel = viewModel,
             onDismiss = {
                 showInputDialog = false
                 editingAnggota = null
@@ -481,10 +589,10 @@ fun DataKaryawanMuridScreen(
             onSave = { savedItem ->
                 if (editingAnggota != null) {
                     viewModel.updateAnggota(savedItem)
-                    Toast.makeText(context, "Data ${savedItem.nama} berhasil diperbarui", Toast.LENGTH_SHORT).show()
+                    viewModel.showToastPopup("Data ${savedItem.nama} berhasil diperbarui")
                 } else {
                     viewModel.saveAnggota(savedItem) { newId ->
-                        Toast.makeText(context, "Data berhasil disimpan & ID Card dibuat!", Toast.LENGTH_SHORT).show()
+                        viewModel.showToastPopup("Data berhasil disimpan & ID Card dibuat!")
                     }
                 }
                 showInputDialog = false
@@ -499,6 +607,7 @@ fun DataKaryawanMuridScreen(
     if (previewingAnggota != null) {
         IdCardPreviewDialog(
             anggota = previewingAnggota!!,
+            viewModel = viewModel,
             signatureVersion = signatureVersion,
             onDismiss = { previewingAnggota = null },
             onEdit = {
@@ -528,7 +637,7 @@ fun DataKaryawanMuridScreen(
             onDismiss = { showScannerDialog = false },
             onRecordAttendance = { presensi ->
                 viewModel.recordPresensi(presensi) {
-                    Toast.makeText(context, "Presensi ${presensi.nama} (${presensi.statusPresensi}) berhasil dicatat!", Toast.LENGTH_SHORT).show()
+                    viewModel.showToastPopup("Presensi ${presensi.nama} (${presensi.statusPresensi}) berhasil dicatat!")
                 }
             }
         )
@@ -555,7 +664,7 @@ fun DataKaryawanMuridScreen(
                     onClick = {
                         deletingAnggota?.let { viewModel.deleteAnggota(it) }
                         deletingAnggota = null
-                        Toast.makeText(context, "Data anggota berhasil dihapus", Toast.LENGTH_SHORT).show()
+                        viewModel.showToastPopup("Data anggota berhasil dihapus")
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
                 ) {
@@ -651,8 +760,7 @@ fun AnggotaTableView(
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(text = "No", fontWeight = FontWeight.Bold, fontSize = 12.sp, modifier = Modifier.width(40.dp), color = MaterialTheme.colorScheme.primary)
-                        Text(text = "Foto", fontWeight = FontWeight.Bold, fontSize = 12.sp, modifier = Modifier.width(55.dp), color = MaterialTheme.colorScheme.primary)
-                        Text(text = "Nama (ID Card)", fontWeight = FontWeight.Bold, fontSize = 12.sp, modifier = Modifier.width(180.dp), color = MaterialTheme.colorScheme.primary)
+                        Text(text = "Profil User (Detail, Pratinjau & Ekspor)", fontWeight = FontWeight.Bold, fontSize = 12.sp, modifier = Modifier.width(235.dp), color = MaterialTheme.colorScheme.primary)
                         Text(text = "NIP / NIM", fontWeight = FontWeight.Bold, fontSize = 12.sp, modifier = Modifier.width(120.dp), color = MaterialTheme.colorScheme.primary)
                         Text(text = "Status", fontWeight = FontWeight.Bold, fontSize = 12.sp, modifier = Modifier.width(110.dp), color = MaterialTheme.colorScheme.primary)
                         Text(text = "Divisi", fontWeight = FontWeight.Bold, fontSize = 12.sp, modifier = Modifier.width(120.dp), color = MaterialTheme.colorScheme.primary)
@@ -692,14 +800,20 @@ fun AnggotaTableView(
                                 modifier = Modifier.width(40.dp)
                             )
 
-                            // Foto Thumbnail
-                            Box(
-                                modifier = Modifier.width(55.dp),
-                                contentAlignment = Alignment.CenterStart
+                            // Profil User (Foto, Nama, Info) - Klik untuk Pop Up Detail (Fitur Pratinjau & Ekspor)
+                            Row(
+                                modifier = Modifier
+                                    .width(235.dp)
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .clickable { onViewIdCard(item) }
+                                    .padding(vertical = 4.dp, horizontal = 4.dp)
+                                    .testTag("profil_user_${item.id}"),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
                                 Box(
                                     modifier = Modifier
-                                        .size(36.dp)
+                                        .size(38.dp)
                                         .clip(CircleShape)
                                         .background(themeColor.copy(alpha = 0.12f))
                                         .border(1.dp, themeColor, CircleShape),
@@ -724,17 +838,8 @@ fun AnggotaTableView(
                                         )
                                     }
                                 }
-                            }
 
-                            // Nama (ID Card) - Clickable to open ID card popup
-                            Row(
-                                modifier = Modifier
-                                    .width(180.dp)
-                                    .clickable { onViewIdCard(item) }
-                                    .padding(vertical = 4.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Column {
+                                Column(modifier = Modifier.weight(1f)) {
                                     Text(
                                         text = item.nama,
                                         fontWeight = FontWeight.Bold,
@@ -748,14 +853,14 @@ fun AnggotaTableView(
                                         horizontalArrangement = Arrangement.spacedBy(2.dp)
                                     ) {
                                         Icon(
-                                            imageVector = Icons.Default.Badge,
-                                            contentDescription = "Buka ID Card",
+                                            imageVector = Icons.Default.Visibility,
+                                            contentDescription = "Buka Detail, Pratinjau & Ekspor",
                                             tint = Color(0xFF0F766E),
                                             modifier = Modifier.size(11.dp)
                                         )
                                         Text(
-                                            text = "Buka ID Card",
-                                            fontSize = 10.sp,
+                                            text = "Detail, Pratinjau & Ekspor",
+                                            fontSize = 9.5.sp,
                                             fontWeight = FontWeight.SemiBold,
                                             color = Color(0xFF0F766E)
                                         )
@@ -781,15 +886,19 @@ fun AnggotaTableView(
                                     shape = RoundedCornerShape(12.dp),
                                     color = themeColor.copy(alpha = 0.15f)
                                 ) {
-                                    Text(
-                                        text = item.status,
+                                    Row(
                                         modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp),
-                                        fontSize = 11.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        color = themeColor,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Text(
+                                            text = item.status,
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = themeColor,
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                    }
                                 }
                             }
 
@@ -880,7 +989,11 @@ fun AnggotaCardItem(
     ) {
         Column(modifier = Modifier.padding(14.dp)) {
             Row(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(10.dp))
+                    .clickable { onViewIdCard() }
+                    .padding(4.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 // Photo / Initial Avatar
@@ -962,6 +1075,26 @@ fun AnggotaCardItem(
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis
                         )
+                    }
+
+                    Surface(
+                        shape = RoundedCornerShape(6.dp),
+                        color = themeColor.copy(alpha = 0.1f),
+                        modifier = Modifier.padding(top = 4.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Icon(Icons.Default.Visibility, contentDescription = null, tint = themeColor, modifier = Modifier.size(11.dp))
+                            Text(
+                                text = "Klik Profil: Detail, Pratinjau & Ekspor",
+                                fontSize = 9.5.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = themeColor
+                            )
+                        }
                     }
                 }
             }
@@ -1090,20 +1223,31 @@ fun EmptyMemberState(
 @Composable
 fun AnggotaInputDialog(
     existingAnggota: AnggotaItem?,
+    viewModel: MainViewModel? = null,
     onDismiss: () -> Unit,
     onSave: (AnggotaItem) -> Unit
 ) {
     val context = LocalContext.current
 
-    var nomorInduk by remember { mutableStateOf(existingAnggota?.nomorInduk ?: "") }
+    var nomorInduk by remember {
+        mutableStateOf(existingAnggota?.nomorInduk ?: "")
+    }
     var nama by remember { mutableStateOf(existingAnggota?.nama ?: "") }
-    var status by remember { mutableStateOf(existingAnggota?.status ?: "Karyawan") }
-    var divisiOrJurusan by remember { mutableStateOf(existingAnggota?.divisiOrJurusan ?: "") }
-    var instansi by remember { mutableStateOf(existingAnggota?.instansi ?: "My Singghara") }
+    var status by remember {
+        mutableStateOf(existingAnggota?.status ?: "Karyawan")
+    }
+    var divisiOrJurusan by remember {
+        mutableStateOf(existingAnggota?.divisiOrJurusan ?: "")
+    }
+    var instansi by remember {
+        mutableStateOf(existingAnggota?.instansi ?: "My Singghara")
+    }
     var fotoUri by remember { mutableStateOf(existingAnggota?.fotoUri ?: "") }
     var kontak by remember { mutableStateOf(existingAnggota?.kontak ?: "") }
     var email by remember { mutableStateOf(existingAnggota?.email ?: "") }
-    var berlakuHingga by remember { mutableStateOf(existingAnggota?.berlakuHingga ?: "Berlaku Selama Aktif") }
+    var berlakuHingga by remember {
+        mutableStateOf(existingAnggota?.berlakuHingga ?: "Berlaku Selama Aktif")
+    }
     var catatanQr by remember { mutableStateOf(existingAnggota?.catatanQr ?: "") }
     var memberTandaTanganUri by remember { mutableStateOf(existingAnggota?.tandaTanganUri ?: "") }
 
@@ -1113,12 +1257,24 @@ fun AnggotaInputDialog(
     var memberCanvasHeightPx by remember { mutableStateOf(0) }
 
     var isStatusDropdownExpanded by remember { mutableStateOf(false) }
-    val statusOptions = listOf("Karyawan", "Murid", "Guru / Tenaga Pendidik", "Dosen", "Staf Administrasi", "Magang / PKL", "Tamu / Mitra")
+    val statusOptions = listOf(
+        "Karyawan",
+        "Murid",
+        "Guru / Tenaga Pendidik",
+        "Dosen",
+        "Staf Administrasi",
+        "Magang / PKL",
+        "Tamu / Mitra"
+    )
 
     var isMasaBerlakuDropdownExpanded by remember { mutableStateOf(false) }
+    var showDatePickerDialog by remember { mutableStateOf(false) }
     val masaBerlakuOptions = listOf(
         "Berlaku Selama Aktif",
         "Seumur Hidup / Permanen",
+        "1 Bulan",
+        "3 Bulan",
+        "6 Bulan",
         "1 Tahun",
         "2 Tahun",
         "3 Tahun",
@@ -1139,7 +1295,7 @@ fun AnggotaInputDialog(
         }
     }
 
-    // Auto-generate NIM/NIP helper
+    // Auto-generate NIM/NIP/Member ID helper
     fun generateRandomNomorInduk() {
         val prefix = when {
             status.contains("Murid", ignoreCase = true) || status.contains("Siswa", ignoreCase = true) -> "NIS-"
@@ -1316,9 +1472,16 @@ fun AnggotaInputDialog(
                                         OutlinedButton(
                                             onClick = { fotoUri = "" },
                                             shape = RoundedCornerShape(8.dp),
-                                            colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error)
+                                            colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.5f)),
+                                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp)
                                         ) {
-                                            Text("Hapus", fontSize = 12.sp)
+                                            Icon(
+                                                imageVector = Icons.Default.Delete,
+                                                contentDescription = "Hapus Foto",
+                                                tint = MaterialTheme.colorScheme.error,
+                                                modifier = Modifier.size(16.dp)
+                                            )
                                         }
                                     }
                                 }
@@ -1478,55 +1641,88 @@ fun AnggotaInputDialog(
                                 fontWeight = FontWeight.SemiBold
                             )
                             Spacer(modifier = Modifier.height(4.dp))
-                            ExposedDropdownMenuBox(
-                                expanded = isMasaBerlakuDropdownExpanded,
-                                onExpandedChange = { isMasaBerlakuDropdownExpanded = !isMasaBerlakuDropdownExpanded }
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
-                                OutlinedTextField(
-                                    value = berlakuHingga,
-                                    onValueChange = { berlakuHingga = it },
-                                    placeholder = { Text("Pilih dari menu atau ketik masa berlaku...") },
-                                    singleLine = true,
-                                    modifier = Modifier
-                                        .menuAnchor()
-                                        .fillMaxWidth(),
-                                    shape = RoundedCornerShape(12.dp),
-                                    leadingIcon = { Icon(Icons.Default.DateRange, contentDescription = null) },
-                                    trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = isMasaBerlakuDropdownExpanded) }
-                                )
-                                ExposedDropdownMenu(
-                                    expanded = isMasaBerlakuDropdownExpanded,
-                                    onDismissRequest = { isMasaBerlakuDropdownExpanded = false }
-                                ) {
-                                    masaBerlakuOptions.forEach { opt ->
-                                        DropdownMenuItem(
-                                            text = {
-                                                Row(
-                                                    modifier = Modifier.fillMaxWidth(),
-                                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                                    verticalAlignment = Alignment.CenterVertically
-                                                ) {
-                                                    Text(
-                                                        text = opt,
-                                                        fontWeight = if (berlakuHingga == opt) FontWeight.Bold else FontWeight.Normal,
-                                                        color = if (berlakuHingga == opt) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
-                                                    )
-                                                    if (berlakuHingga == opt) {
-                                                        Icon(
-                                                            imageVector = Icons.Default.Check,
-                                                            contentDescription = null,
-                                                            tint = MaterialTheme.colorScheme.primary,
-                                                            modifier = Modifier.size(16.dp)
-                                                        )
-                                                    }
-                                                }
-                                            },
-                                            onClick = {
-                                                berlakuHingga = opt
-                                                isMasaBerlakuDropdownExpanded = false
-                                            }
+                                Box(modifier = Modifier.weight(1f)) {
+                                    ExposedDropdownMenuBox(
+                                        expanded = isMasaBerlakuDropdownExpanded,
+                                        onExpandedChange = { isMasaBerlakuDropdownExpanded = !isMasaBerlakuDropdownExpanded }
+                                    ) {
+                                        OutlinedTextField(
+                                            value = berlakuHingga,
+                                            onValueChange = { },
+                                            readOnly = true,
+                                            placeholder = { Text("Pilih masa berlaku...") },
+                                            singleLine = true,
+                                            modifier = Modifier
+                                                .menuAnchor()
+                                                .fillMaxWidth(),
+                                            shape = RoundedCornerShape(12.dp),
+                                            leadingIcon = { Icon(Icons.Default.DateRange, contentDescription = null) },
+                                            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = isMasaBerlakuDropdownExpanded) }
                                         )
+                                        ExposedDropdownMenu(
+                                            expanded = isMasaBerlakuDropdownExpanded,
+                                            onDismissRequest = { isMasaBerlakuDropdownExpanded = false }
+                                        ) {
+                                            masaBerlakuOptions.forEach { opt ->
+                                                DropdownMenuItem(
+                                                    text = {
+                                                        Row(
+                                                            modifier = Modifier.fillMaxWidth(),
+                                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                                            verticalAlignment = Alignment.CenterVertically
+                                                        ) {
+                                                            Text(
+                                                                text = opt,
+                                                                fontWeight = if (berlakuHingga == opt) FontWeight.Bold else FontWeight.Normal,
+                                                                color = if (berlakuHingga == opt) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                                                            )
+                                                            if (berlakuHingga == opt) {
+                                                                Icon(
+                                                                    imageVector = Icons.Default.Check,
+                                                                    contentDescription = null,
+                                                                    tint = MaterialTheme.colorScheme.primary,
+                                                                    modifier = Modifier.size(16.dp)
+                                                                )
+                                                            }
+                                                        }
+                                                    },
+                                                    onClick = {
+                                                        berlakuHingga = opt
+                                                        isMasaBerlakuDropdownExpanded = false
+                                                    }
+                                                )
+                                            }
+                                        }
                                     }
+                                }
+
+                                // Icon Kalender di sebelah kanan form input (Date Time Picker bawaan aplikasi)
+                                IconButton(
+                                    onClick = { showDatePickerDialog = true },
+                                    modifier = Modifier
+                                        .size(54.dp)
+                                        .background(
+                                            color = MaterialTheme.colorScheme.primaryContainer,
+                                            shape = RoundedCornerShape(12.dp)
+                                        )
+                                        .border(
+                                            width = 1.dp,
+                                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f),
+                                            shape = RoundedCornerShape(12.dp)
+                                        )
+                                        .testTag("btn_masa_berlaku_calendar")
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.CalendarMonth,
+                                        contentDescription = "Pilih Kalender Masa Berlaku",
+                                        tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                                        modifier = Modifier.size(24.dp)
+                                    )
                                 }
                             }
                         }
@@ -1796,7 +1992,7 @@ fun AnggotaInputDialog(
                     Button(
                         onClick = {
                             if (nomorInduk.isBlank() || nama.isBlank()) {
-                                Toast.makeText(context, "Mohon isi NIM/NIP dan Nama Lengkap", Toast.LENGTH_SHORT).show()
+                                MainViewModel.instance?.showToastPopup("Mohon isi NIM/NIP dan Nama Lengkap")
                                 return@Button
                             }
 
@@ -1890,6 +2086,17 @@ fun AnggotaInputDialog(
             }
         )
     }
+
+    if (showDatePickerDialog) {
+        CustomDatePickerDialog(
+            initialDateStr = if (berlakuHingga.matches(Regex("\\d{4}-\\d{2}-\\d{2}"))) berlakuHingga else null,
+            onDismissRequest = { showDatePickerDialog = false },
+            onDateSelected = { selectedDate ->
+                berlakuHingga = selectedDate
+                showDatePickerDialog = false
+            }
+        )
+    }
 }
 
 // -------------------------------------------------------------
@@ -1899,6 +2106,7 @@ fun AnggotaInputDialog(
 @Composable
 fun IdCardPreviewDialog(
     anggota: AnggotaItem,
+    viewModel: MainViewModel,
     signatureVersion: Int = 0,
     onDismiss: () -> Unit,
     onEdit: () -> Unit
@@ -1914,7 +2122,7 @@ fun IdCardPreviewDialog(
     var isExporting by remember { mutableStateOf(false) }
     var showExportDropdown by remember { mutableStateOf(false) }
 
-    // Generate Bitmaps using the official IdCardBitmapGenerator engine (100% identical to Web Connect PC)
+    // Generate Bitmaps using Standard Vertical Generator
     LaunchedEffect(anggota, signatureVersion) {
         isLoadingBitmaps = true
         withContext(Dispatchers.Default) {
@@ -1925,6 +2133,7 @@ fun IdCardPreviewDialog(
             } catch (e: Exception) {
                 null
             }
+
             val f = IdCardBitmapGenerator.createVerticalIdCardBitmap(context, anggota, qr, isFrontSide = true)
             val b = IdCardBitmapGenerator.createVerticalIdCardBitmap(context, anggota, qr, isFrontSide = false)
             val c = IdCardBitmapGenerator.createCombinedDualSideBitmap(context, anggota, qr)
@@ -1937,7 +2146,7 @@ fun IdCardPreviewDialog(
 
     val isMurid = anggota.status.contains("Murid", ignoreCase = true) || anggota.status.contains("Siswa", ignoreCase = true)
     val isGuru = anggota.status.contains("Guru", ignoreCase = true) || anggota.status.contains("Dosen", ignoreCase = true) || anggota.status.contains("Pendidik", ignoreCase = true)
-    
+
     val primaryThemeColor = when {
         isMurid -> Color(0xFF4338CA)
         isGuru -> Color(0xFFB45309)
@@ -1963,7 +2172,7 @@ fun IdCardPreviewDialog(
                     .padding(16.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                // Header Bar
+                // Header Bar: Pop Up Detail Pengguna (Fitur Pratinjau & Ekspor)
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -1976,11 +2185,19 @@ fun IdCardPreviewDialog(
                             tint = primaryThemeColor
                         )
                         Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = "Kartu Tanda Pengenal (ID Card)",
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 16.sp
-                        )
+                        Column {
+                            Text(
+                                text = "Pop Up Detail: Fitur Pratinjau & Ekspor",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 15.sp,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Text(
+                                text = "Kartu ID Standar & Rekap Profil",
+                                fontSize = 11.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
                     }
 
                     IconButton(onClick = onDismiss) {
@@ -1988,11 +2205,121 @@ fun IdCardPreviewDialog(
                     }
                 }
 
-                // Front / Back / Both Sided Mode Switcher (Identical to Web Connect PC)
+                // Ringkasan Detail Profil Pengguna (Muncul saat klik profil user)
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
+                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 4.dp)
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 10.dp, vertical = 7.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        // Foto Avatar
+                        Box(
+                            modifier = Modifier
+                                .size(44.dp)
+                                .clip(CircleShape)
+                                .background(primaryThemeColor.copy(alpha = 0.15f))
+                                .border(1.5.dp, primaryThemeColor, CircleShape),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            if (anggota.fotoUri.isNotBlank()) {
+                                AsyncImage(
+                                    model = ImageRequest.Builder(LocalContext.current)
+                                        .data(Uri.parse(anggota.fotoUri))
+                                        .crossfade(true)
+                                        .build(),
+                                    contentDescription = "Foto ${anggota.nama}",
+                                    modifier = Modifier.fillMaxSize(),
+                                    contentScale = ContentScale.Crop
+                                )
+                            } else {
+                                Text(
+                                    text = if (anggota.nama.isNotBlank()) anggota.nama.first().uppercase() else "?",
+                                    fontSize = 18.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = primaryThemeColor
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.width(10.dp))
+
+                        // Detail Info Column
+                        Column(modifier = Modifier.weight(1f)) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Text(
+                                    text = anggota.nama,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 13.5.sp,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                Surface(
+                                    shape = RoundedCornerShape(6.dp),
+                                    color = primaryThemeColor.copy(alpha = 0.15f),
+                                    border = BorderStroke(1.dp, primaryThemeColor.copy(alpha = 0.3f))
+                                ) {
+                                    Text(
+                                        text = anggota.status,
+                                        fontSize = 9.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = primaryThemeColor,
+                                        modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
+                                    )
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(2.dp))
+
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Text(
+                                    text = "NIP/NIM: ${anggota.nomorInduk.ifBlank { "-" }}",
+                                    fontSize = 10.sp,
+                                    fontFamily = FontFamily.Monospace,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                if (anggota.divisiOrJurusan.isNotBlank()) {
+                                    Text(
+                                        text = "• ${anggota.divisiOrJurusan}",
+                                        fontSize = 10.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                                if (anggota.emailOrTelp.isNotBlank()) {
+                                    Text(
+                                        text = "• ${anggota.emailOrTelp}",
+                                        fontSize = 10.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Front / Back / Both Sided Mode Switcher
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(vertical = 8.dp),
+                        .padding(top = 4.dp, bottom = 6.dp),
                     horizontalArrangement = Arrangement.Center,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
@@ -2012,7 +2339,7 @@ fun IdCardPreviewDialog(
                                     fontSize = 11.sp,
                                     fontWeight = FontWeight.Bold,
                                     color = if (previewMode == "FRONT") Color.White else MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp)
                                 )
                             }
                             Surface(
@@ -2025,7 +2352,7 @@ fun IdCardPreviewDialog(
                                     fontSize = 11.sp,
                                     fontWeight = FontWeight.Bold,
                                     color = if (previewMode == "BACK") Color.White else MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp)
                                 )
                             }
                             Surface(
@@ -2038,14 +2365,14 @@ fun IdCardPreviewDialog(
                                     fontSize = 11.sp,
                                     fontWeight = FontWeight.Bold,
                                     color = if (previewMode == "BOTH") Color.White else MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp)
                                 )
                             }
                         }
                     }
                 }
 
-                // ID CARD OFFICIAL ENGINE BITMAP PREVIEW
+                // ID CARD BITMAP PREVIEW CANVAS
                 Box(
                     modifier = Modifier
                         .weight(1f)
@@ -2061,7 +2388,7 @@ fun IdCardPreviewDialog(
                             CircularProgressIndicator(color = primaryThemeColor)
                             Spacer(modifier = Modifier.height(12.dp))
                             Text(
-                                text = "Menyiapkan pratinjau ID Card...",
+                                text = "Menyiapkan pratinjau kartu...",
                                 fontSize = 12.sp,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -2081,7 +2408,7 @@ fun IdCardPreviewDialog(
                                     ) {
                                         Image(
                                             bitmap = frontBitmap!!.asImageBitmap(),
-                                            contentDescription = "ID Card Tampak Depan",
+                                            contentDescription = "Tampak Depan",
                                             modifier = Modifier
                                                 .fillMaxHeight()
                                                 .clip(RoundedCornerShape(18.dp)),
@@ -2103,7 +2430,7 @@ fun IdCardPreviewDialog(
                                     ) {
                                         Image(
                                             bitmap = backBitmap!!.asImageBitmap(),
-                                            contentDescription = "ID Card Tampak Belakang",
+                                            contentDescription = "Tampak Belakang",
                                             modifier = Modifier
                                                 .fillMaxHeight()
                                                 .clip(RoundedCornerShape(18.dp)),
@@ -2134,7 +2461,7 @@ fun IdCardPreviewDialog(
                                         ) {
                                             Image(
                                                 bitmap = frontBitmap!!.asImageBitmap(),
-                                                contentDescription = "ID Card Depan",
+                                                contentDescription = "Depan",
                                                 modifier = Modifier
                                                     .fillMaxHeight()
                                                     .clip(RoundedCornerShape(18.dp)),
@@ -2155,7 +2482,7 @@ fun IdCardPreviewDialog(
                                         ) {
                                             Image(
                                                 bitmap = backBitmap!!.asImageBitmap(),
-                                                contentDescription = "ID Card Belakang",
+                                                contentDescription = "Belakang",
                                                 modifier = Modifier
                                                     .fillMaxHeight()
                                                     .clip(RoundedCornerShape(18.dp)),
@@ -2200,11 +2527,11 @@ fun IdCardPreviewDialog(
                             if (isExporting) {
                                 CircularProgressIndicator(modifier = Modifier.size(16.dp), color = Color.White, strokeWidth = 2.dp)
                             } else {
-                                Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(16.dp), tint = Color.White)
                                 Spacer(modifier = Modifier.width(6.dp))
-                                Text("Bagikan / Simpan", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                Text("Bagikan / Simpan", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.White)
                                 Spacer(modifier = Modifier.width(4.dp))
-                                Icon(Icons.Default.ArrowDropDown, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Icon(Icons.Default.ArrowDropDown, contentDescription = null, modifier = Modifier.size(16.dp), tint = Color.White)
                             }
                         }
 
@@ -2649,7 +2976,7 @@ fun RiwayatPresensiDialog(
                     onClick = {
                         onClearAll()
                         showClearConfirm = false
-                        Toast.makeText(context, "Semua riwayat presensi telah dibersihkan", Toast.LENGTH_SHORT).show()
+                        MainViewModel.instance?.showToastPopup("Semua riwayat presensi telah dibersihkan")
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
                 ) {
@@ -2944,7 +3271,7 @@ fun PhotoCropAdjustDialog(
                                     onCropApplied(Uri.fromFile(file).toString())
                                 } catch (e: Exception) {
                                     e.printStackTrace()
-                                    Toast.makeText(context, "Gagal memproses foto", Toast.LENGTH_SHORT).show()
+                                    MainViewModel.instance?.showToastPopup("Gagal memproses foto")
                                 }
                             }
                         },
@@ -3076,9 +3403,9 @@ fun TandaTanganDialog(
                     paths = emptyList()
                     currentPathPoints = emptyList()
                     onSignatureUpdated()
-                    Toast.makeText(context, "Tanda tangan berhasil dihapus.", Toast.LENGTH_SHORT).show()
+                    viewModel.showToastPopup("Tanda tangan berhasil dihapus.")
                 } catch (e: Exception) {
-                    Toast.makeText(context, "Gagal menghapus: ${e.message}", Toast.LENGTH_SHORT).show()
+                    viewModel.showToastPopup("Gagal menghapus: ${e.message}")
                 }
             },
             onDismiss = { showPinDialog = false }
@@ -3414,9 +3741,9 @@ fun TandaTanganDialog(
                                         paths = emptyList()
                                         currentPathPoints = emptyList()
                                         onSignatureUpdated()
-                                        Toast.makeText(context, "Tanda tangan berhasil dihapus.", Toast.LENGTH_SHORT).show()
+                                        viewModel.showToastPopup("Tanda tangan berhasil dihapus.")
                                     } catch (e: Exception) {
-                                        Toast.makeText(context, "Gagal menghapus: ${e.message}", Toast.LENGTH_SHORT).show()
+                                        viewModel.showToastPopup("Gagal menghapus: ${e.message}")
                                     }
                                 }
                             },
@@ -3485,14 +3812,14 @@ fun TandaTanganDialog(
                                         bitmap.compress(Bitmap.CompressFormat.PNG, 100, out)
                                     }
                                     onSignatureUpdated()
-                                    Toast.makeText(context, "Tanda tangan resmi & label berhasil disimpan.", Toast.LENGTH_SHORT).show()
+                                    viewModel.showToastPopup("Tanda tangan resmi & label berhasil disimpan.")
                                     onDismiss()
                                 } catch (e: Exception) {
-                                    Toast.makeText(context, "Gagal menyimpan: ${e.message}", Toast.LENGTH_SHORT).show()
+                                    viewModel.showToastPopup("Gagal menyimpan: ${e.message}")
                                 }
                             } else {
                                 onSignatureUpdated()
-                                Toast.makeText(context, "Label tanda tangan CEO diperbarui.", Toast.LENGTH_SHORT).show()
+                                viewModel.showToastPopup("Label tanda tangan CEO diperbarui.")
                                 onDismiss()
                             }
                         },

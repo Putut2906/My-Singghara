@@ -1,0 +1,65 @@
+{
+  "name": "My Singghara",
+  "short_name": "My Singghara",
+  "description": "Aplikasi Akses PC My Singghara - 100% Offline Lokal",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#0f172a",
+  "theme_color": "#3674b5",
+  "orientation": "any",
+  "lang": "id",
+  "icons": [
+    {
+      "src": "/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/favicon.png",
+      "sizes": "64x64",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/favicon.ico",
+      "sizes": "32x32",
+      "type": "image/x-icon",
+      "purpose": "any"
+    }
+  ],
+  "categories": [
+    "productivity",
+    "business",
+    "utilities"
+  ],
+  "shortcuts": [
+    {
+      "name": "Dashboard",
+      "url": "/?tab=dashboard",
+      "description": "Buka Dashboard My Singghara"
+    },
+    {
+      "name": "Manajemen Akun",
+      "url": "/?tab=manajemen_akun",
+      "description": "Kelola Pengguna dan Membership"
+    },
+    {
+      "name": "Pembukuan",
+      "url": "/?tab=pembukuan",
+      "description": "Catatan Keuangan & Kasir"
+    },
+    {
+      "name": "Catatan & Note",
+      "url": "/?tab=catatan",
+      "description": "Catatan Pribadi & Dokumen"
+    }
+  ]
+}

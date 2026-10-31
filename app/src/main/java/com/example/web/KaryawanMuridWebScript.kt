@@ -559,8 +559,13 @@ object KaryawanMuridWebScript {
                                                 </div>
 
                                                 <div class="col-md-6">
-                                                    <label class="form-label small fw-bold text-main">Masa Berlaku</label>
-                                                    <input type="text" id="anggotaInputBerlaku" class="form-control rounded-3" value="Berlaku Selama Aktif">
+                                                    <label class="form-label small fw-bold text-main">Masa Berlaku ID Card</label>
+                                                    <div class="input-group">
+                                                        <input type="text" id="anggotaInputBerlaku" class="form-control rounded-start-3" value="Berlaku Selama Aktif" readonly style="cursor: pointer; background-color: var(--input-bg);" onclick="openAnggotaDatePickerModal()">
+                                                        <button class="btn btn-outline-secondary rounded-end-3 px-3 d-flex align-items-center justify-content-center" type="button" onclick="openAnggotaDatePickerModal()" title="Pilih Tanggal Masa Berlaku" id="btnAnggotaCalendarPicker" style="border-color: var(--border-color);">
+                                                            <i class="bi bi-calendar-event-fill" style="color: #0F766E; font-size: 1.1rem;"></i>
+                                                        </button>
+                                                    </div>
                                                 </div>
 
                                                 <div class="col-md-6">
@@ -1147,8 +1152,8 @@ object KaryawanMuridWebScript {
                 <html>
                 <head>
                     <title>Cetak ID Card - ${dol}{escapeHtml(item.nama)}</title>
-                    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-                    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css">
+                    <link href="/assets/css/bootstrap.min.css" rel="stylesheet">
+                    <link rel="stylesheet" href="/assets/css/bootstrap-icons.css">
                     <style>
                         @media print {
                             body { margin: 0; padding: 15mm; background: #fff; }
@@ -3183,8 +3188,8 @@ object KaryawanMuridWebScript {
                 <html>
                 <head>
                     <title>Cetak Massal ID Card Singghara (A4)</title>
-                    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-                    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css">
+                    <link href="/assets/css/bootstrap.min.css" rel="stylesheet">
+                    <link rel="stylesheet" href="/assets/css/bootstrap-icons.css">
                     <style>
                         @media print {
                             body { margin: 0; padding: 10mm; background: #fff; }
@@ -3802,6 +3807,407 @@ object KaryawanMuridWebScript {
                 }
             } catch(e) {
                 alert('Kesalahan: ' + e.message);
+            }
+        }
+
+        // =========================================================================
+        // CUSTOM DATE TIME PICKER BAWAAN APLIKASI (POP-UP INPUT DATA MASA BERLAKU)
+        // =========================================================================
+        window._pickerState = {
+            isLifetime: true,
+            year: new Date().getFullYear(),
+            month: new Date().getMonth(),
+            day: new Date().getDate(),
+            includeTime: false,
+            hour: 12,
+            minute: 0
+        };
+
+        function openAnggotaDatePickerModal() {
+            let modalEl = document.getElementById('anggotaDatePickerModal');
+            if (!modalEl) {
+                modalEl = document.createElement('div');
+                modalEl.id = 'anggotaDatePickerModal';
+                modalEl.className = 'modal fade';
+                modalEl.tabIndex = -1;
+                modalEl.setAttribute('aria-hidden', 'true');
+                modalEl.innerHTML = `
+                    <div class="modal-dialog modal-dialog-centered">
+                        <div class="modal-content shadow-lg border-0 rounded-4 overflow-hidden" style="background-color: var(--modal-bg, #ffffff); color: var(--text-main, #1e293b);">
+                            <!-- HEADER -->
+                            <div class="modal-header border-bottom border-secondary border-opacity-10 px-4 py-3" style="background: rgba(15, 118, 110, 0.08);">
+                                <div class="d-flex align-items-center gap-2">
+                                    <div class="rounded-circle d-flex align-items-center justify-content-center" style="width: 36px; height: 36px; background: #0F766E; color: #ffffff;">
+                                        <i class="bi bi-calendar-event-fill fs-6"></i>
+                                    </div>
+                                    <div>
+                                        <h6 class="modal-title fw-bold mb-0" style="color: #0F766E;">Pilih Masa Berlaku ID Card</h6>
+                                        <small class="text-secondary" style="font-size: 11px;">Date & Time Picker Bawaan Aplikasi</small>
+                                    </div>
+                                </div>
+                                <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+                            </div>
+
+                            <!-- BODY -->
+                            <div class="modal-body p-4">
+                                <!-- PRESET CEPAT -->
+                                <div class="mb-3">
+                                    <label class="form-label small fw-bold text-secondary mb-2 d-flex align-items-center gap-1">
+                                        <i class="bi bi-lightning-charge-fill text-warning"></i> Preset Cepat
+                                    </label>
+                                    <div class="d-flex flex-wrap gap-2">
+                                        <button type="button" class="btn btn-sm rounded-pill px-3 py-1 fw-bold" id="btnPresetLifetime" onclick="setPickerPreset('lifetime')" style="border: 1px solid #0F766E; background: #0F766E; color: #ffffff;">
+                                            <i class="bi bi-infinity me-1"></i> Selama Aktif
+                                        </button>
+                                        <button type="button" class="btn btn-sm btn-outline-secondary rounded-pill px-3 py-1 fw-bold" onclick="setPickerPreset('6m')">
+                                            +6 Bulan
+                                        </button>
+                                        <button type="button" class="btn btn-sm btn-outline-secondary rounded-pill px-3 py-1 fw-bold" onclick="setPickerPreset('1y')">
+                                            +1 Tahun
+                                        </button>
+                                        <button type="button" class="btn btn-sm btn-outline-secondary rounded-pill px-3 py-1 fw-bold" onclick="setPickerPreset('2y')">
+                                            +2 Tahun
+                                        </button>
+                                        <button type="button" class="btn btn-sm btn-outline-secondary rounded-pill px-3 py-1 fw-bold" onclick="setPickerPreset('3y')">
+                                            +3 Tahun
+                                        </button>
+                                        <button type="button" class="btn btn-sm btn-outline-secondary rounded-pill px-3 py-1 fw-bold" onclick="setPickerPreset('5y')">
+                                            +5 Tahun
+                                        </button>
+                                    </div>
+                                </div>
+
+                                <!-- KALENDER INTERAKTIF KUSTOM -->
+                                <div class="card card-custom p-3 mb-3 border rounded-3" style="background-color: var(--card-bg);">
+                                    <div class="d-flex justify-content-between align-items-center mb-2">
+                                        <button type="button" class="btn btn-sm btn-light rounded-circle p-1 border" onclick="prevPickerMonth()" title="Bulan Sebelumnya">
+                                            <i class="bi bi-chevron-left"></i>
+                                        </button>
+                                        <div class="d-flex align-items-center gap-2">
+                                            <select id="pickerMonthSelect" class="form-select form-select-sm py-1 fw-bold border-0 bg-transparent" style="cursor: pointer;" onchange="changePickerMonthYear()">
+                                                <option value="0">Januari</option>
+                                                <option value="1">Februari</option>
+                                                <option value="2">Maret</option>
+                                                <option value="3">April</option>
+                                                <option value="4">Mei</option>
+                                                <option value="5">Juni</option>
+                                                <option value="6">Juli</option>
+                                                <option value="7">Agustus</option>
+                                                <option value="8">September</option>
+                                                <option value="9">Oktober</option>
+                                                <option value="10">November</option>
+                                                <option value="11">Desember</option>
+                                            </select>
+                                            <select id="pickerYearSelect" class="form-select form-select-sm py-1 fw-bold border-0 bg-transparent" style="cursor: pointer;" onchange="changePickerMonthYear()">
+                                            </select>
+                                        </div>
+                                        <button type="button" class="btn btn-sm btn-light rounded-circle p-1 border" onclick="nextPickerMonth()" title="Bulan Berikutnya">
+                                            <i class="bi bi-chevron-right"></i>
+                                        </button>
+                                    </div>
+
+                                    <!-- DAYS HEADER -->
+                                    <div class="d-grid text-center small fw-bold text-secondary mb-1" style="grid-template-columns: repeat(7, 1fr); font-size: 11px;">
+                                        <div class="text-danger">Min</div>
+                                        <div>Sen</div>
+                                        <div>Sel</div>
+                                        <div>Rab</div>
+                                        <div>Kam</div>
+                                        <div>Jum</div>
+                                        <div>Sab</div>
+                                    </div>
+
+                                    <!-- DAYS GRID -->
+                                    <div id="pickerDaysGrid" class="d-grid text-center gap-1" style="grid-template-columns: repeat(7, 1fr);">
+                                    </div>
+                                </div>
+
+                                <!-- OPSIONAL: TIME PICKER (JAM & MENIT) -->
+                                <div class="card card-custom p-3 border rounded-3 mb-3" style="background-color: var(--card-bg);">
+                                    <div class="d-flex justify-content-between align-items-center">
+                                        <div class="d-flex align-items-center gap-2">
+                                            <i class="bi bi-clock-history text-teal" style="color: #0F766E;"></i>
+                                            <label class="form-check-label small fw-bold cursor-pointer" for="pickerTimeToggle">Sertakan Waktu Jam & Menit</label>
+                                        </div>
+                                        <div class="form-check form-switch m-0">
+                                            <input class="form-check-input cursor-pointer" type="checkbox" id="pickerTimeToggle" onchange="togglePickerTime(this.checked)">
+                                        </div>
+                                    </div>
+                                    <div id="pickerTimeWrapper" class="mt-2 pt-2 border-top border-secondary border-opacity-10 d-none">
+                                        <div class="d-flex align-items-center justify-content-center gap-2">
+                                            <div>
+                                                <label class="form-label small text-secondary mb-0" style="font-size: 10px;">Jam (00-23)</label>
+                                                <input type="number" id="pickerHourInput" min="0" max="23" class="form-control form-control-sm text-center fw-bold" style="width: 70px;" value="12" onchange="updatePickerTimeVals()">
+                                            </div>
+                                            <span class="fw-bold fs-5 mt-3">:</span>
+                                            <div>
+                                                <label class="form-label small text-secondary mb-0" style="font-size: 10px;">Menit (00-59)</label>
+                                                <input type="number" id="pickerMinuteInput" min="0" max="59" class="form-control form-control-sm text-center fw-bold" style="width: 70px;" value="00" onchange="updatePickerTimeVals()">
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- PREVIEW HASIL AKHIR -->
+                                <div class="p-3 rounded-3 border d-flex align-items-center justify-content-between" style="background: rgba(15, 118, 110, 0.06); border-color: rgba(15, 118, 110, 0.25) !important;">
+                                    <span class="small fw-bold text-secondary">Hasil Masa Berlaku:</span>
+                                    <span class="fw-bold text-teal" id="pickerPreviewText" style="color: #0F766E; font-size: 14px;">Berlaku Selama Aktif</span>
+                                </div>
+                            </div>
+
+                            <!-- FOOTER -->
+                            <div class="modal-footer border-top border-secondary border-opacity-10 px-4 py-3">
+                                <button type="button" class="btn btn-sm btn-outline-secondary rounded-pill px-3 fw-bold" data-bs-dismiss="modal">Batal</button>
+                                <button type="button" class="btn btn-sm btn-primary rounded-pill px-4 fw-bold shadow-sm d-flex align-items-center gap-1" onclick="applyAnggotaDatePicker()" style="background-color: #0F766E; border-color: #0F766E;">
+                                    <i class="bi bi-check2-circle fs-6"></i>
+                                    <span>Terapkan Masa Berlaku</span>
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                `;
+                document.body.appendChild(modalEl);
+
+                // Populate Years Dropdown (Current year up to +15 years)
+                const yrSel = document.getElementById('pickerYearSelect');
+                const curY = new Date().getFullYear();
+                for (let y = curY; y <= curY + 15; y++) {
+                    const opt = document.createElement('option');
+                    opt.value = y;
+                    opt.textContent = y;
+                    yrSel.appendChild(opt);
+                }
+            }
+
+            // Parse existing value in anggotaInputBerlaku if present
+            const curVal = (document.getElementById('anggotaInputBerlaku').value || '').trim();
+            if (curVal && curVal !== 'Berlaku Selama Aktif') {
+                const parts = curVal.split(' ');
+                const datePart = parts[0];
+                const timePart = parts[1] || '';
+                const dParts = datePart.split('/');
+                if (dParts.length === 3) {
+                    const d = parseInt(dParts[0], 10);
+                    const m = parseInt(dParts[1], 10) - 1;
+                    const y = parseInt(dParts[2], 10);
+                    if (!isNaN(d) && !isNaN(m) && !isNaN(y)) {
+                        window._pickerState.isLifetime = false;
+                        window._pickerState.year = y;
+                        window._pickerState.month = m;
+                        window._pickerState.day = d;
+                    }
+                }
+                if (timePart && timePart.includes(':')) {
+                    const tParts = timePart.split(':');
+                    window._pickerState.includeTime = true;
+                    window._pickerState.hour = parseInt(tParts[0], 10) || 12;
+                    window._pickerState.minute = parseInt(tParts[1], 10) || 0;
+                } else {
+                    window._pickerState.includeTime = false;
+                }
+            } else {
+                window._pickerState.isLifetime = true;
+            }
+
+            renderPickerCalendarUI();
+
+            const modal = new bootstrap.Modal(modalEl);
+            modal.show();
+        }
+
+        function renderPickerCalendarUI() {
+            const st = window._pickerState;
+            const mSel = document.getElementById('pickerMonthSelect');
+            const ySel = document.getElementById('pickerYearSelect');
+            const tToggle = document.getElementById('pickerTimeToggle');
+            const tWrap = document.getElementById('pickerTimeWrapper');
+            const hInput = document.getElementById('pickerHourInput');
+            const minInput = document.getElementById('pickerMinuteInput');
+            const prevText = document.getElementById('pickerPreviewText');
+            const btnLifetime = document.getElementById('btnPresetLifetime');
+
+            if (mSel) mSel.value = st.month;
+            if (ySel) ySel.value = st.year;
+            if (tToggle) tToggle.checked = st.includeTime;
+            if (tWrap) {
+                if (st.includeTime && !st.isLifetime) tWrap.classList.remove('d-none');
+                else tWrap.classList.add('d-none');
+            }
+            if (hInput) hInput.value = String(st.hour).padStart(2, '0');
+            if (minInput) minInput.value = String(st.minute).padStart(2, '0');
+
+            if (btnLifetime) {
+                if (st.isLifetime) {
+                    btnLifetime.style.background = '#0F766E';
+                    btnLifetime.style.color = '#ffffff';
+                    btnLifetime.style.borderColor = '#0F766E';
+                } else {
+                    btnLifetime.style.background = 'transparent';
+                    btnLifetime.style.color = '#64748b';
+                    btnLifetime.style.borderColor = '#cbd5e1';
+                }
+            }
+
+            // Build calendar grid
+            const grid = document.getElementById('pickerDaysGrid');
+            if (grid) {
+                grid.innerHTML = '';
+                const firstDay = new Date(st.year, st.month, 1).getDay();
+                const totalDays = new Date(st.year, st.month + 1, 0).getDate();
+
+                // Empty cells before first day of month
+                for (let i = 0; i < firstDay; i++) {
+                    const emptyCell = document.createElement('div');
+                    emptyCell.className = 'p-2';
+                    grid.appendChild(emptyCell);
+                }
+
+                // Days cells
+                for (let d = 1; d <= totalDays; d++) {
+                    const isSelected = !st.isLifetime && st.day === d;
+                    const cell = document.createElement('button');
+                    cell.type = 'button';
+                    cell.className = 'btn btn-sm p-1 rounded-circle fw-bold ' + (isSelected ? 'btn-primary text-white shadow-sm' : 'btn-light');
+                    if (isSelected) {
+                        cell.style.backgroundColor = '#0F766E';
+                        cell.style.borderColor = '#0F766E';
+                    }
+                    cell.style.width = '36px';
+                    cell.style.height = '36px';
+                    cell.textContent = d;
+                    cell.onclick = () => {
+                        st.isLifetime = false;
+                        st.day = d;
+                        renderPickerCalendarUI();
+                    };
+                    grid.appendChild(cell);
+                }
+            }
+
+            // Update preview text
+            if (prevText) {
+                if (st.isLifetime) {
+                    prevText.textContent = 'Berlaku Selama Aktif';
+                } else {
+                    const dd = String(st.day).padStart(2, '0');
+                    const mm = String(st.month + 1).padStart(2, '0');
+                    const yyyy = st.year;
+                    let txt = `${dol}{dd}/${dol}{mm}/${dol}{yyyy}`;
+                    if (st.includeTime) {
+                        const hh = String(st.hour).padStart(2, '0');
+                        const mi = String(st.minute).padStart(2, '0');
+                        txt += ` ${dol}{hh}:${dol}{mi}`;
+                    }
+                    prevText.textContent = txt;
+                }
+            }
+        }
+
+        function setPickerPreset(preset) {
+            const st = window._pickerState;
+            const now = new Date();
+            if (preset === 'lifetime') {
+                st.isLifetime = true;
+            } else if (preset === '6m') {
+                st.isLifetime = false;
+                const d = new Date(now.getFullYear(), now.getMonth() + 6, now.getDate());
+                st.year = d.getFullYear();
+                st.month = d.getMonth();
+                st.day = d.getDate();
+            } else if (preset === '1y') {
+                st.isLifetime = false;
+                const d = new Date(now.getFullYear() + 1, now.getMonth(), now.getDate());
+                st.year = d.getFullYear();
+                st.month = d.getMonth();
+                st.day = d.getDate();
+            } else if (preset === '2y') {
+                st.isLifetime = false;
+                const d = new Date(now.getFullYear() + 2, now.getMonth(), now.getDate());
+                st.year = d.getFullYear();
+                st.month = d.getMonth();
+                st.day = d.getDate();
+            } else if (preset === '3y') {
+                st.isLifetime = false;
+                const d = new Date(now.getFullYear() + 3, now.getMonth(), now.getDate());
+                st.year = d.getFullYear();
+                st.month = d.getMonth();
+                st.day = d.getDate();
+            } else if (preset === '5y') {
+                st.isLifetime = false;
+                const d = new Date(now.getFullYear() + 5, now.getMonth(), now.getDate());
+                st.year = d.getFullYear();
+                st.month = d.getMonth();
+                st.day = d.getDate();
+            }
+            renderPickerCalendarUI();
+        }
+
+        function prevPickerMonth() {
+            const st = window._pickerState;
+            st.month--;
+            if (st.month < 0) {
+                st.month = 11;
+                st.year--;
+            }
+            renderPickerCalendarUI();
+        }
+
+        function nextPickerMonth() {
+            const st = window._pickerState;
+            st.month++;
+            if (st.month > 11) {
+                st.month = 0;
+                st.year++;
+            }
+            renderPickerCalendarUI();
+        }
+
+        function changePickerMonthYear() {
+            const st = window._pickerState;
+            const mSel = document.getElementById('pickerMonthSelect');
+            const ySel = document.getElementById('pickerYearSelect');
+            if (mSel) st.month = parseInt(mSel.value, 10);
+            if (ySel) st.year = parseInt(ySel.value, 10);
+            renderPickerCalendarUI();
+        }
+
+        function togglePickerTime(isChecked) {
+            window._pickerState.includeTime = isChecked;
+            renderPickerCalendarUI();
+        }
+
+        function updatePickerTimeVals() {
+            const st = window._pickerState;
+            const h = parseInt(document.getElementById('pickerHourInput').value, 10);
+            const m = parseInt(document.getElementById('pickerMinuteInput').value, 10);
+            st.hour = isNaN(h) ? 12 : Math.max(0, Math.min(23, h));
+            st.minute = isNaN(m) ? 0 : Math.max(0, Math.min(59, m));
+            renderPickerCalendarUI();
+        }
+
+        function applyAnggotaDatePicker() {
+            const st = window._pickerState;
+            const input = document.getElementById('anggotaInputBerlaku');
+            if (input) {
+                if (st.isLifetime) {
+                    input.value = 'Berlaku Selama Aktif';
+                } else {
+                    const dd = String(st.day).padStart(2, '0');
+                    const mm = String(st.month + 1).padStart(2, '0');
+                    const yyyy = st.year;
+                    let txt = `${dol}{dd}/${dol}{mm}/${dol}{yyyy}`;
+                    if (st.includeTime) {
+                        const hh = String(st.hour).padStart(2, '0');
+                        const mi = String(st.minute).padStart(2, '0');
+                        txt += ` ${dol}{hh}:${dol}{mi}`;
+                    }
+                    input.value = txt;
+                }
+            }
+            const modalEl = document.getElementById('anggotaDatePickerModal');
+            if (modalEl) {
+                const modal = bootstrap.Modal.getInstance(modalEl);
+                if (modal) modal.hide();
             }
         }
 

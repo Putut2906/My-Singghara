@@ -8,6 +8,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -39,15 +40,24 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import android.content.Context
+import android.content.Intent
+import android.net.Uri
 import android.print.PrintAttributes
 import android.print.PrintManager
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.window.Dialog
+import coil.compose.AsyncImage
 import com.example.data.SavingTarget
 import com.example.data.SavingTransaction
 import com.example.ui.MainViewModel
+import com.example.util.ReceiptScannerHelper
+import com.example.util.ParsedReceiptData
+import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -77,6 +87,17 @@ fun TabunganScreen(viewModel: MainViewModel) {
     var editingTrx by remember { mutableStateOf<SavingTransaction?>(null) }
     var selectedCategory by remember { mutableStateOf("sisa") } // sisa, masuk, keluar
     var showDetailPopup by remember { mutableStateOf(false) }
+
+    val receiptPickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickVisualMedia()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            viewModel.sharedReceiptUri = uri
+            viewModel.sharedReceiptText = null
+            viewModel.showSharedReceiptDialog = true
+        }
+    }
+
     var feedbackBannerMessage by remember { mutableStateOf<String?>(null) }
     var feedbackBannerIcon by remember { mutableStateOf<androidx.compose.ui.graphics.vector.ImageVector?>(null) }
     var feedbackBannerColor by remember { mutableStateOf<Color?>(null) }
@@ -300,6 +321,26 @@ fun TabunganScreen(viewModel: MainViewModel) {
                                             contentDescription = "Tambah Transaksi",
                                             tint = MaterialTheme.colorScheme.primary,
                                             modifier = Modifier.size(22.dp)
+                                        )
+                                    }
+                                }
+
+                                Surface(
+                                    onClick = {
+                                        receiptPickerLauncher.launch(
+                                            PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                                        )
+                                    },
+                                    shape = RoundedCornerShape(10.dp),
+                                    color = MaterialTheme.colorScheme.tertiaryContainer,
+                                    modifier = Modifier.size(38.dp).testTag("scan_receipt_button")
+                                ) {
+                                    Box(contentAlignment = Alignment.Center) {
+                                        Icon(
+                                            Icons.Default.ReceiptLong,
+                                            contentDescription = "Pindai Bukti E-Wallet (GoPay, DANA, OVO)",
+                                            tint = MaterialTheme.colorScheme.onTertiaryContainer,
+                                            modifier = Modifier.size(20.dp)
                                         )
                                     }
                                 }
@@ -557,6 +598,7 @@ fun TabunganScreen(viewModel: MainViewModel) {
                 }
             }
         }
+
 
         if (transactionsFlow.isEmpty()) {
             item {
@@ -1007,6 +1049,23 @@ fun TabunganScreen(viewModel: MainViewModel) {
                         Text("Input Transaksi Baru")
                     }
 
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    // Option 3: Pindai Bukti Transaksi E-Wallet / Bank
+                    OutlinedButton(
+                        onClick = {
+                            showChoosePopup = false
+                            receiptPickerLauncher.launch(
+                                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                            )
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Icon(Icons.Default.ReceiptLong, null)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Pindai Bukti E-Wallet (GoPay/DANA/OVO)")
+                    }
+
                     Spacer(modifier = Modifier.height(16.dp))
 
                     TextButton(onClick = { showChoosePopup = false }) {
@@ -1291,6 +1350,23 @@ fun TabunganScreen(viewModel: MainViewModel) {
                 }
             }
         }
+    }
+
+    // Dialog Pemrosesan Bukti Pembayaran / Transaksi E-Wallet (GoPay, DANA, OVO, Bank) dari Menu Sheet OS
+    if (viewModel.showSharedReceiptDialog) {
+        SharedReceiptProcessDialog(
+            viewModel = viewModel,
+            onDismiss = {
+                viewModel.showSharedReceiptDialog = false
+                viewModel.sharedReceiptUri = null
+                viewModel.sharedReceiptText = null
+            },
+            onSaveSuccess = { msg ->
+                feedbackBannerMessage = msg
+                feedbackBannerIcon = Icons.Default.CheckCircle
+                feedbackBannerColor = Color(0xFF10B981)
+            }
+        )
     }
 
     if (showSafWarningDialog) {
@@ -1918,3 +1994,491 @@ fun LegendChip(
         }
     }
 }
+
+@Composable
+fun SharedReceiptProcessDialog(
+    viewModel: MainViewModel,
+    onDismiss: () -> Unit,
+    onSaveSuccess: (String) -> Unit
+) {
+    val context = LocalContext.current
+    val uri = viewModel.sharedReceiptUri
+    val sharedText = viewModel.sharedReceiptText
+
+    var isAnalyzing by remember { mutableStateOf(true) }
+    var analysisError by remember { mutableStateOf<String?>(null) }
+
+    var jenis by remember { mutableStateOf("keluar") }
+    var nominalStr by remember { mutableStateOf("") }
+    var kategori by remember { mutableStateOf("Lainnya") }
+    var deskripsi by remember { mutableStateOf("") }
+    var tanggal by remember { mutableStateOf(SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date())) }
+    var detectedPlatform by remember { mutableStateOf("E-Wallet/Bank") }
+    var rawExtractedText by remember { mutableStateOf("") }
+    var showRawText by remember { mutableStateOf(false) }
+
+    val categoriesMap = mapOf(
+        "masuk" to listOf("Gaji", "Bonus", "Hadiah", "Investasi", "Lainnya"),
+        "keluar" to listOf("Kebutuhan Pokok", "Tagihan", "Transportasi", "Pendidikan", "Gaya Hidup", "Lainnya")
+    )
+
+    LaunchedEffect(uri, sharedText) {
+        isAnalyzing = true
+        analysisError = null
+        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            try {
+                val result = if (uri != null) {
+                    ReceiptScannerHelper.parseReceiptImage(context, uri)
+                } else if (!sharedText.isNullOrBlank()) {
+                    ReceiptScannerHelper.parseReceiptText(sharedText)
+                } else {
+                    null
+                }
+
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                    if (result != null) {
+                        jenis = result.jenis
+                        nominalStr = if (result.nominal > 0) result.nominal.toLong().toString() else ""
+                        kategori = result.kategori
+                        deskripsi = result.deskripsi
+                        tanggal = result.tanggal
+                        detectedPlatform = result.platformName
+                        rawExtractedText = result.rawText
+                    } else {
+                        analysisError = "Bukti transaksi tidak dapat dibaca otomatis. Silakan masukkan data secara manual."
+                    }
+                    isAnalyzing = false
+                }
+            } catch (e: Exception) {
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                    analysisError = e.message ?: "Terjadi kesalahan saat memproses gambar"
+                    isAnalyzing = false
+                }
+            }
+        }
+    }
+
+    Dialog(onDismissRequest = onDismiss) {
+        Surface(
+            shape = RoundedCornerShape(20.dp),
+            color = MaterialTheme.colorScheme.surface,
+            tonalElevation = 6.dp,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(vertical = 16.dp)
+                .testTag("shared_receipt_dialog")
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(20.dp)
+                    .verticalScroll(rememberScrollState())
+            ) {
+                // Header
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(40.dp)
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(MaterialTheme.colorScheme.primaryContainer),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.ReceiptLong,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(24.dp)
+                        )
+                    }
+
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Catat Bukti Transaksi",
+                            fontWeight = FontWeight.Black,
+                            fontSize = 17.sp,
+                            color = MaterialTheme.colorScheme.onSurface
+                        )
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Text(
+                                text = "Menu Sheet OS • ",
+                                fontSize = 11.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            Surface(
+                                shape = RoundedCornerShape(4.dp),
+                                color = MaterialTheme.colorScheme.secondaryContainer
+                            ) {
+                                Text(
+                                    text = detectedPlatform,
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp)
+                                )
+                            }
+                        }
+                    }
+
+                    IconButton(
+                        onClick = onDismiss,
+                        modifier = Modifier.size(28.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Close,
+                            contentDescription = "Tutup",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(14.dp))
+
+                // Gambar Bukti Preview
+                if (uri != null) {
+                    Card(
+                        shape = RoundedCornerShape(12.dp),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(140.dp)
+                    ) {
+                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            AsyncImage(
+                                model = uri,
+                                contentDescription = "Pratinjau Bukti Transaksi",
+                                contentScale = androidx.compose.ui.layout.ContentScale.Fit,
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .padding(6.dp)
+                            )
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(12.dp))
+                }
+
+                // Status Analisis OCR
+                if (isAnalyzing) {
+                    Card(
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f)),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(14.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(22.dp),
+                                strokeWidth = 2.5.dp,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                            Column {
+                                Text(
+                                    text = "Menganalisis Bukti Pembayaran...",
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onPrimaryContainer
+                                )
+                                Text(
+                                    text = "Mengekstrak nominal, jenis, tanggal, dan penerima via OCR",
+                                    fontSize = 11.sp,
+                                    color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
+                                )
+                            }
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(12.dp))
+                } else if (analysisError != null) {
+                    Card(
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.6f)),
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Icon(Icons.Default.Info, null, tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(18.dp))
+                            Text(
+                                text = analysisError ?: "",
+                                fontSize = 11.sp,
+                                color = MaterialTheme.colorScheme.onErrorContainer
+                            )
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(12.dp))
+                } else {
+                    Card(
+                        colors = CardDefaults.cardColors(containerColor = Color(0xFFE8F5E9)),
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Icon(Icons.Default.CheckCircle, null, tint = Color(0xFF2E7D32), modifier = Modifier.size(18.dp))
+                            Text(
+                                text = "Bukti berhasil dianalisis otomatis! Periksa & simpan data di bawah ini.",
+                                fontSize = 11.sp,
+                                color = Color(0xFF1B5E20),
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(12.dp))
+                }
+
+                // Jenis Transaksi (Masuk vs Keluar)
+                Text(
+                    text = "Jenis Transaksi",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    val isMasuk = jenis == "masuk"
+                    Surface(
+                        onClick = {
+                            jenis = "masuk"
+                            if (!categoriesMap["masuk"]!!.contains(kategori)) {
+                                kategori = categoriesMap["masuk"]!!.first()
+                            }
+                        },
+                        shape = RoundedCornerShape(12.dp),
+                        color = if (isMasuk) Color(0xFFE8F5E9) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                        border = androidx.compose.foundation.BorderStroke(
+                            1.5.dp,
+                            if (isMasuk) Color(0xFF2E7D32) else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+                        ),
+                        modifier = Modifier.weight(1f).testTag("select_jenis_masuk")
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(vertical = 10.dp, horizontal = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.ArrowDownward,
+                                contentDescription = null,
+                                tint = if (isMasuk) Color(0xFF2E7D32) else MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "Uang Masuk (+)",
+                                fontWeight = if (isMasuk) FontWeight.Bold else FontWeight.Medium,
+                                fontSize = 12.sp,
+                                color = if (isMasuk) Color(0xFF2E7D32) else MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+
+                    val isKeluar = jenis == "keluar"
+                    Surface(
+                        onClick = {
+                            jenis = "keluar"
+                            if (!categoriesMap["keluar"]!!.contains(kategori)) {
+                                kategori = categoriesMap["keluar"]!!.first()
+                            }
+                        },
+                        shape = RoundedCornerShape(12.dp),
+                        color = if (isKeluar) Color(0xFFFFEBEE) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                        border = androidx.compose.foundation.BorderStroke(
+                            1.5.dp,
+                            if (isKeluar) Color(0xFFC62828) else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+                        ),
+                        modifier = Modifier.weight(1f).testTag("select_jenis_keluar")
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(vertical = 10.dp, horizontal = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.ArrowUpward,
+                                contentDescription = null,
+                                tint = if (isKeluar) Color(0xFFC62828) else MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = "Uang Keluar (-)",
+                                fontWeight = if (isKeluar) FontWeight.Bold else FontWeight.Medium,
+                                fontSize = 12.sp,
+                                color = if (isKeluar) Color(0xFFC62828) else MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(12.dp))
+
+                // Input Nominal
+                OutlinedTextField(
+                    value = nominalStr,
+                    onValueChange = { input ->
+                        val digits = input.filter { it.isDigit() }
+                        nominalStr = digits
+                    },
+                    label = { Text("Nominal Transaksi") },
+                    prefix = { Text("Rp ", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary) },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.fillMaxWidth().testTag("input_shared_nominal"),
+                    singleLine = true
+                )
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                // Input Tanggal
+                OutlinedTextField(
+                    value = tanggal,
+                    onValueChange = { tanggal = it },
+                    label = { Text("Tanggal Transaksi (YYYY-MM-DD)") },
+                    trailingIcon = {
+                        Icon(Icons.Default.DateRange, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                    },
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.fillMaxWidth().testTag("input_shared_tanggal"),
+                    singleLine = true
+                )
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                // Kategori Selector
+                Text(
+                    text = "Kategori",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+                val availableCategories = categoriesMap[jenis] ?: listOf("Lainnya")
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    availableCategories.forEach { cat ->
+                        val isSelected = kategori == cat
+                        FilterChip(
+                            selected = isSelected,
+                            onClick = { kategori = cat },
+                            label = { Text(cat, fontSize = 11.sp) },
+                            shape = RoundedCornerShape(8.dp)
+                        )
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                // Deskripsi / Keterangan
+                OutlinedTextField(
+                    value = deskripsi,
+                    onValueChange = { deskripsi = it },
+                    label = { Text("Keterangan / Deskripsi") },
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.fillMaxWidth().testTag("input_shared_deskripsi"),
+                    singleLine = false,
+                    maxLines = 3
+                )
+
+                if (rawExtractedText.isNotBlank()) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    TextButton(
+                        onClick = { showRawText = !showRawText },
+                        contentPadding = PaddingValues(0.dp)
+                    ) {
+                        Icon(
+                            imageVector = if (showRawText) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text(
+                            text = if (showRawText) "Sembunyikan Teks OCR Asli" else "Lihat Teks OCR Asli yang Terbaca",
+                            fontSize = 11.sp
+                        )
+                    }
+
+                    if (showRawText) {
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                text = rawExtractedText,
+                                fontSize = 10.sp,
+                                fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(10.dp)
+                            )
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(20.dp))
+
+                // Action Buttons
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    OutlinedButton(
+                        onClick = onDismiss,
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text("Batal")
+                    }
+
+                    val nominalValue = nominalStr.toDoubleOrNull() ?: 0.0
+                    Button(
+                        onClick = {
+                            if (nominalValue > 0) {
+                                val tglFinal = tanggal.ifBlank {
+                                    SimpleDateFormat("yyyy-MM-dd", Locale.US).format(Date())
+                                }
+                                val newTrx = SavingTransaction(
+                                    jenis = jenis,
+                                    kategori = kategori.ifBlank { "Lainnya" },
+                                    deskripsi = deskripsi.ifBlank { "Transaksi $detectedPlatform" },
+                                    nominal = nominalValue,
+                                    tanggal = tglFinal
+                                )
+                                viewModel.addSavingTransaction(newTrx)
+                                val jenisLabel = if (jenis == "masuk") "Pemasukan" else "Pengeluaran"
+                                onSaveSuccess("$jenisLabel Rp %,.0f berhasil dicatat ke Tabungan!".format(nominalValue))
+                                onDismiss()
+                            }
+                        },
+                        enabled = nominalValue > 0 && !isAnalyzing,
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.weight(1f).testTag("save_shared_receipt_button")
+                    ) {
+                        Text("Simpan", fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+        }
+    }
+}
+
+

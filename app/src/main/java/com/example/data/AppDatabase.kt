@@ -17,9 +17,17 @@ import androidx.room.RoomDatabase
         MindMap::class,
         JadwalKegiatan::class,
         AnggotaItem::class,
-        RiwayatPresensi::class
+        RiwayatPresensi::class,
+        GajiItem::class,
+        BelanjaPasarItem::class,
+        FcmNotification::class,
+        ArisanKelompok::class,
+        ArisanPeserta::class,
+        ArisanIuran::class,
+        ArisanKasTransaksi::class,
+        ArisanPemenangRiwayat::class
     ],
-    version = 10,
+    version = 14,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -33,6 +41,11 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun jadwalDao(): JadwalDao
     abstract fun anggotaDao(): AnggotaDao
     abstract fun presensiDao(): PresensiDao
+    abstract fun gajiDao(): GajiDao
+    abstract fun belanjaPasarDao(): BelanjaPasarDao
+    abstract fun fcmNotificationDao(): FcmNotificationDao
+    abstract fun arisanDao(): ArisanDao
+
 
     companion object {
         @Volatile

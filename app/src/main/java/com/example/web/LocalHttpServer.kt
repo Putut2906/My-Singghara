@@ -3,6 +3,8 @@ package com.example.web
 import android.content.Context
 import com.example.data.AgendaItem
 import com.example.data.AnggotaItem
+import com.example.data.BelanjaPasarItem
+import com.example.data.FcmNotification
 import com.example.data.JadwalKegiatan
 import com.example.data.LocalRepository
 import com.example.data.NoteItem
@@ -10,6 +12,14 @@ import com.example.data.RiwayatPresensi
 import com.example.data.SavingTarget
 import com.example.data.SavingTransaction
 import com.example.data.ShoppingItem
+import com.example.data.QuranBookmark
+import com.example.data.QuranHistory
+import com.example.network.HolidayClient
+import com.example.ui.screens.HijriCalendarHelper
+import com.example.ui.screens.JavaneseCalendarHelper
+import java.util.Calendar
+import java.util.Date
+import java.util.Locale
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -18,6 +28,12 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
+import com.example.firebase.FirebaseAccountAdminManager
+import com.example.firebase.FirebaseAuthManager
+import com.example.ht.HandyTalkyManager
+import com.example.telegram.TelegramAiEngine
+import com.example.telegram.TelegramBotManager
+import com.google.firebase.auth.FirebaseAuth
 import java.io.BufferedReader
 import java.io.InputStreamReader
 import java.io.OutputStream
@@ -49,7 +65,21 @@ class LocalHttpServer(
         .writeTimeout(30, TimeUnit.SECONDS)
         .build()
 
-    // Session Auth Management for QR Barcode Protection
+    // Session Auth Management for QR Barcode Protection & Multi-Device Control
+    data class ConnectedDevice(
+        val id: String, // unique session token
+        val ip: String,
+        var userAgent: String,
+        var deviceName: String,
+        var pinCode: String,
+        var isVerified: Boolean = false,
+        var isRejected: Boolean = false,
+        var isLoggedOut: Boolean = false,
+        val connectedAt: Long = System.currentTimeMillis(),
+        var lastActiveAt: Long = System.currentTimeMillis()
+    )
+
+    private val connectedDevices = java.util.concurrent.ConcurrentHashMap<String, ConnectedDevice>()
     private val verifiedTokens = java.util.Collections.synchronizedSet(mutableSetOf<String>())
     @Volatile var latestPinCode: String = generateNewPin()
     @Volatile var latestToken: String = generateNewToken()
@@ -59,6 +89,18 @@ class LocalHttpServer(
     @Volatile var lastLogoutTime: Long = 0L
 
     var onAccessRequested: ((clientIp: String, timestamp: Long) -> Unit)? = null
+    var onDevicesChanged: ((List<ConnectedDevice>) -> Unit)? = null
+
+    fun getConnectedDevices(): List<ConnectedDevice> {
+        return connectedDevices.values.toList().sortedByDescending { it.lastActiveAt }
+    }
+
+    fun notifyDevicesChanged() {
+        val list = getConnectedDevices()
+        scope.launch(Dispatchers.Main) {
+            onDevicesChanged?.invoke(list)
+        }
+    }
 
     fun generateNewPin(): String = (100000..999999).random().toString()
     fun generateNewToken(): String = java.util.UUID.randomUUID().toString().replace("-", "").take(12)
@@ -67,33 +109,108 @@ class LocalHttpServer(
         val trimmed = tokenOrPin.trim()
         if (trimmed.isEmpty()) return false
         isAccessRejected = false
-        verifiedTokens.add(trimmed)
-        verifiedTokens.add(latestToken)
+        val targetToken = if (trimmed.startsWith("SINGGHARA_AUTH:")) {
+            val parts = trimmed.split(":")
+            if (parts.size >= 2) parts[1].trim() else ""
+        } else {
+            trimmed
+        }
+
+        var matched = false
+        connectedDevices.values.forEach { dev ->
+            if (dev.id == targetToken || dev.pinCode == trimmed ||
+                (trimmed.startsWith("SINGGHARA_AUTH:") && trimmed.contains(dev.id)) ||
+                (trimmed.startsWith("SINGGHARA_AUTH:") && trimmed.contains(dev.pinCode))) {
+                dev.isVerified = true
+                dev.isRejected = false
+                dev.lastActiveAt = System.currentTimeMillis()
+                verifiedTokens.add(dev.id)
+                matched = true
+            }
+        }
+
+        if (!matched) {
+            if (targetToken.isNotEmpty()) verifiedTokens.add(targetToken)
+            verifiedTokens.add(latestToken)
+            connectedDevices[latestToken]?.let {
+                it.isVerified = true
+                it.isRejected = false
+                it.lastActiveAt = System.currentTimeMillis()
+            }
+        }
+        notifyDevicesChanged()
         return true
     }
 
     fun approveAllPending(): Boolean {
         isAccessRejected = false
+        connectedDevices.values.forEach { dev ->
+            if (!dev.isVerified && !dev.isRejected) {
+                dev.isVerified = true
+                dev.isRejected = false
+                dev.lastActiveAt = System.currentTimeMillis()
+                verifiedTokens.add(dev.id)
+            }
+        }
         verifiedTokens.add(latestToken)
+        connectedDevices[latestToken]?.let {
+            it.isVerified = true
+            it.isRejected = false
+        }
+        notifyDevicesChanged()
         return true
+    }
+
+    fun approveDeviceSession(sessionId: String): Boolean {
+        isAccessRejected = false
+        connectedDevices[sessionId]?.let { dev ->
+            dev.isVerified = true
+            dev.isRejected = false
+            dev.lastActiveAt = System.currentTimeMillis()
+            verifiedTokens.add(dev.id)
+            notifyDevicesChanged()
+            return true
+        }
+        return false
+    }
+
+    fun rejectDeviceSession(sessionId: String): Boolean {
+        connectedDevices[sessionId]?.let { dev ->
+            dev.isVerified = false
+            dev.isRejected = true
+            dev.lastActiveAt = System.currentTimeMillis()
+            verifiedTokens.remove(dev.id)
+            notifyDevicesChanged()
+            return true
+        }
+        return false
     }
 
     fun rejectPendingAccess() {
         isAccessRejected = true
+        connectedDevices.values.forEach { dev ->
+            if (!dev.isVerified) {
+                dev.isRejected = true
+                dev.isVerified = false
+                dev.lastActiveAt = System.currentTimeMillis()
+            }
+        }
         verifiedTokens.clear()
         latestPinCode = generateNewPin()
         latestToken = generateNewToken()
+        notifyDevicesChanged()
     }
 
     fun resetAccessRejection() {
         isAccessRejected = false
     }
 
-    fun triggerAccessNotification(clientIp: String) {
+    fun triggerAccessNotification(clientIp: String, dev: ConnectedDevice? = null) {
         val now = System.currentTimeMillis()
         if (isAccessRejected) return
+        if (dev != null && (dev.isVerified || dev.isRejected)) return
         if (now - lastLogoutTime < 10000L) return
-        if (now - lastAccessNotifyTime < 15000L && clientIp == lastAccessClientIp) return
+        if (now - lastAccessNotifyTime < 12000L && clientIp == lastAccessClientIp) return
 
         lastAccessNotifyTime = now
         lastAccessClientIp = clientIp
@@ -103,10 +220,18 @@ class LocalHttpServer(
     }
 
     fun revokeAll() {
+        // PENTING: saat Kunci & Putuskan Sesi PC dipanggil, tandai isAccessRejected = true
+        // agar seluruh browser PC yang terhubung beralih ke halaman "Akses Ditolak"
+        isAccessRejected = true
+        connectedDevices.values.forEach { dev ->
+            dev.isVerified = false
+            dev.isRejected = true
+            dev.lastActiveAt = System.currentTimeMillis()
+        }
         verifiedTokens.clear()
         latestPinCode = generateNewPin()
         latestToken = generateNewToken()
-        isAccessRejected = false
+        notifyDevicesChanged()
     }
 
     fun isTokenVerified(token: String?): Boolean {
@@ -137,7 +262,10 @@ class LocalHttpServer(
         activeInstance = this
         scope.launch {
             try {
-                serverSocket = ServerSocket(port)
+                serverSocket = ServerSocket().apply {
+                    reuseAddress = true
+                    bind(java.net.InetSocketAddress(port))
+                }
                 isRunning = true
                 val ip = getIpAddress(context)
                 val url = "http://$ip:$port"
@@ -180,35 +308,134 @@ class LocalHttpServer(
     companion object {
         var activeInstance: LocalHttpServer? = null
 
+        fun parseDeviceName(userAgent: String, clientIp: String): String {
+            val ua = userAgent.lowercase()
+            val os = when {
+                ua.contains("windows nt 10") || ua.contains("windows nt 11") || ua.contains("windows") -> "Windows PC"
+                ua.contains("macintosh") || ua.contains("mac os") -> "Mac"
+                ua.contains("linux") && !ua.contains("android") -> "Linux PC"
+                ua.contains("iphone") -> "iPhone"
+                ua.contains("ipad") -> "iPad"
+                ua.contains("android") -> "Android"
+                ua.contains("cros") -> "ChromeOS"
+                else -> "Perangkat Web PC"
+            }
+            val browser = when {
+                ua.contains("edg/") -> "Edge"
+                ua.contains("opr/") || ua.contains("opera") -> "Opera"
+                ua.contains("chrome") && !ua.contains("edg") -> "Chrome"
+                ua.contains("safari") && !ua.contains("chrome") -> "Safari"
+                ua.contains("firefox") -> "Firefox"
+                else -> "Browser"
+            }
+            return if (clientIp == "127.0.0.1" || clientIp == "localhost") {
+                "Browser Lokal (HP)"
+            } else {
+                "$os â€¢ $browser"
+            }
+        }
+
+        data class NetworkInterfaceInfo(
+            val type: String,
+            val ip: String,
+            val interfaceName: String
+        )
+
         fun getIpAddress(context: Context): String {
             try {
+                val cm = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? android.net.ConnectivityManager
+                val activeNetwork = cm?.activeNetwork
+                val caps = cm?.getNetworkCapabilities(activeNetwork)
+                val isWifiConnected = caps?.hasTransport(android.net.NetworkCapabilities.TRANSPORT_WIFI) == true
+                val isEthernetConnected = caps?.hasTransport(android.net.NetworkCapabilities.TRANSPORT_ETHERNET) == true
+
                 val interfaces = NetworkInterface.getNetworkInterfaces()
+                var hotspotIp: String? = null
+                var wifiIp: String? = null
+                var ethernetIp: String? = null
                 var fallbackIp: String? = null
+
                 while (interfaces != null && interfaces.hasMoreElements()) {
                     val networkInterface = interfaces.nextElement()
-                    if (networkInterface.isLoopback || !networkInterface.isUp) continue
+                    if (networkInterface.isLoopback) continue
+                    val isUp = try { networkInterface.isUp } catch (e: Exception) { true }
+                    if (!isUp) continue
+
                     val addresses = networkInterface.inetAddresses
+                    val name = networkInterface.name.lowercase()
+
                     while (addresses.hasMoreElements()) {
                         val address = addresses.nextElement()
                         if (address is Inet4Address && !address.isLoopbackAddress) {
                             val hostAddress = address.hostAddress
                             if (hostAddress != null && !hostAddress.startsWith("127.")) {
-                                val name = networkInterface.name.lowercase()
-                                if (name.contains("wlan") || name.contains("ap") || name.contains("swlan") || name.contains("rndis")) {
-                                    return hostAddress
-                                }
-                                if (fallbackIp == null) {
-                                    fallbackIp = hostAddress
+                                if (hostAddress.startsWith("192.168.43.")) {
+                                    hotspotIp = hostAddress
+                                } else if (name.startsWith("ap") || name.contains("softap") || name.contains("swlan") ||
+                                    name.startsWith("rndis") || name.contains("tether") || name.contains("hotspot") ||
+                                    name.startsWith("usb")
+                                ) {
+                                    if (hotspotIp == null) hotspotIp = hostAddress
+                                } else if (name.startsWith("wlan")) {
+                                    if (wifiIp == null) wifiIp = hostAddress
+                                } else if (name.startsWith("eth")) {
+                                    if (ethernetIp == null) ethernetIp = hostAddress
+                                } else {
+                                    if (fallbackIp == null) fallbackIp = hostAddress
                                 }
                             }
                         }
                     }
                 }
+
+                if (isWifiConnected && wifiIp != null) return wifiIp
+                if (isEthernetConnected && ethernetIp != null) return ethernetIp
+                if (hotspotIp != null) return hotspotIp
+                if (wifiIp != null) return wifiIp
+                if (ethernetIp != null) return ethernetIp
                 if (fallbackIp != null) return fallbackIp
             } catch (e: Exception) {
                 e.printStackTrace()
             }
-            return "127.0.0.1"
+            return "192.168.43.1"
+        }
+
+        fun getAllAvailableIps(context: Context): List<NetworkInterfaceInfo> {
+            val list = mutableListOf<NetworkInterfaceInfo>()
+            try {
+                val interfaces = NetworkInterface.getNetworkInterfaces()
+                while (interfaces != null && interfaces.hasMoreElements()) {
+                    val networkInterface = interfaces.nextElement()
+                    if (networkInterface.isLoopback) continue
+                    val isUp = try { networkInterface.isUp } catch (e: Exception) { true }
+                    if (!isUp) continue
+
+                    val addresses = networkInterface.inetAddresses
+                    val name = networkInterface.name.lowercase()
+
+                    while (addresses.hasMoreElements()) {
+                        val address = addresses.nextElement()
+                        if (address is Inet4Address && !address.isLoopbackAddress) {
+                            val hostAddress = address.hostAddress
+                            if (hostAddress != null && !hostAddress.startsWith("127.")) {
+                                val type = when {
+                                    hostAddress.startsWith("192.168.43.") || name.startsWith("ap") || name.contains("softap") || name.contains("swlan") || name.contains("hotspot") -> "Hotspot HP"
+                                    name.startsWith("rndis") || name.startsWith("usb") -> "USB Tethering"
+                                    name.startsWith("wlan") -> "Wi-Fi Lokal"
+                                    name.startsWith("eth") -> "LAN / Ethernet"
+                                    else -> "Jaringan Lokal"
+                                }
+                                if (list.none { it.ip == hostAddress }) {
+                                    list.add(NetworkInterfaceInfo(type = type, ip = hostAddress, interfaceName = networkInterface.name))
+                                }
+                            }
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+            return list
         }
     }
 
@@ -226,12 +453,16 @@ class LocalHttpServer(
                 val fullPath = parts[1]
 
                 var contentLength = 0
+                var userAgent = ""
                 var line: String?
                 while (reader.readLine().also { line = it } != null) {
                     if (line.isNullOrEmpty()) break
                     val headerLower = line!!.lowercase()
                     if (headerLower.startsWith("content-length:")) {
                         contentLength = headerLower.substringAfter("content-length:").trim().toIntOrNull() ?: 0
+                    }
+                    if (headerLower.startsWith("user-agent:")) {
+                        userAgent = line!!.substringAfter(":").trim()
                     }
                 }
 
@@ -258,21 +489,75 @@ class LocalHttpServer(
                 val clientIp = s.inetAddress?.hostAddress ?: "127.0.0.1"
 
                 when {
-                    path == "/" || path == "/index.html" -> {
+                    path.startsWith("/assets/") || path.startsWith("/css/") || path.startsWith("/js/") || path.startsWith("/fonts/") ||
+                    path.endsWith(".css") || path.endsWith(".js") || path.endsWith(".woff2") || path.endsWith(".woff") ||
+                    path.endsWith(".ttf") || path.endsWith(".png") || path.endsWith(".jpg") || path.endsWith(".jpeg") ||
+                    path.endsWith(".svg") || path.endsWith(".ico") || path.endsWith(".json") || path.endsWith(".webmanifest") ||
+                    path == "/manifest.json" || path == "/manifest.webmanifest" || path == "/sw.js" -> {
+                        try {
+                            val cleanPath = when {
+                                path.startsWith("/assets/") -> path.removePrefix("/assets/")
+                                path.startsWith("/") -> path.removePrefix("/")
+                                else -> path
+                            }
+                            val assetPath = "web/$cleanPath"
+                            val inputStream = try {
+                                context.assets.open(assetPath)
+                            } catch (e: Exception) {
+                                try {
+                                    if (cleanPath.endsWith(".css")) context.assets.open("web/css/${cleanPath.substringAfterLast('/')}")
+                                    else if (cleanPath.endsWith(".js")) context.assets.open("web/js/${cleanPath.substringAfterLast('/')}")
+                                    else if (cleanPath.endsWith(".woff2") || cleanPath.endsWith(".woff") || cleanPath.endsWith(".ttf")) {
+                                        context.assets.open("web/css/fonts/${cleanPath.substringAfterLast('/')}")
+                                    } else {
+                                        val fn = cleanPath.substringAfterLast('/')
+                                        context.assets.open("web/$fn")
+                                    }
+                                } catch (e2: Exception) {
+                                    val fn = cleanPath.substringAfterLast('/')
+                                    if (fn.endsWith(".css")) context.assets.open("web/css/$fn")
+                                    else if (fn.endsWith(".js")) context.assets.open("web/js/$fn")
+                                    else if (fn.endsWith(".woff2") || fn.endsWith(".woff") || fn.endsWith(".ttf")) context.assets.open("web/css/fonts/$fn")
+                                    else throw e2
+                                }
+                            }
+                            val bytes = inputStream.readBytes()
+                            inputStream.close()
+                            val mimeType = when {
+                                path.endsWith(".css") -> "text/css; charset=utf-8"
+                                path.endsWith(".js") -> "application/javascript; charset=utf-8"
+                                path.endsWith(".woff2") -> "font/woff2"
+                                path.endsWith(".woff") -> "font/woff"
+                                path.endsWith(".ttf") -> "font/ttf"
+                                path.endsWith(".png") -> "image/png"
+                                path.endsWith(".jpg") || path.endsWith(".jpeg") -> "image/jpeg"
+                                path.endsWith(".svg") -> "image/svg+xml"
+                                path.endsWith(".ico") -> "image/x-icon"
+                                path.endsWith(".json") || path.endsWith(".webmanifest") -> "application/manifest+json; charset=utf-8"
+                                else -> "application/octet-stream"
+                            }
+                            sendBinaryResponse(output, 200, "OK", mimeType, bytes, cacheable = true)
+                        } catch (e: Exception) {
+                            sendResponse(output, 404, "Not Found", "text/plain", "Asset Not Found: $path")
+                        }
+                    }
+                    path == "/" || path == "/index.html" || path == "/ht" || path == "/handy_talky" || path == "/walkie_talkie" || path == "/telegram_ai" || path == "/telegram" || path == "/tg" -> {
                         if (!isAccessRejected) {
                             triggerAccessNotification(clientIp)
                         }
                         sendHtmlResponse(output, getWebUiHtml())
                     }
-                    path == "/app-logo.png" || path == "/logo.png" || path == "/favicon.ico" -> {
-                        try {
-                            val inputStream = context.resources.openRawResource(com.example.R.drawable.ic_app_logo)
-                            val bytes = inputStream.readBytes()
-                            inputStream.close()
-                            sendBinaryResponse(output, 200, "OK", "image/png", bytes)
-                        } catch (e: Exception) {
-                            sendResponse(output, 404, "Not Found", "text/plain", "App Logo Not Found")
-                        }
+                    path.startsWith("/favicon") || path == "/apple-touch-icon.png" ||
+                    path == "/apple-touch-icon-precomposed.png" || path == "/app-logo.png" || path == "/logo.png" -> {
+                        serveFavicon(path, output)
+                    }
+                    path == "/installer.exe" || path == "/MySingghara_Setup.exe" ||
+                    path == "/MySingghara_PWA_Setup.exe" || path == "/pwa_installer.exe" ||
+                    path == "/download/installer.exe" || path == "/setup.exe" -> {
+                        serveWindowsInstaller(output)
+                    }
+                    path == "/setup_hosts.bat" || path == "/download/setup_hosts.bat" || path == "/setup_domain.bat" -> {
+                        serveDomainSetupScript(output)
                     }
                     path == "/company-signature.png" -> {
                         try {
@@ -322,8 +607,17 @@ class LocalHttpServer(
                     path.startsWith("/api/share") -> {
                         handleShareRoute(method, queryParams, body, output)
                     }
+                    path.startsWith("/api/transfer_file") -> {
+                        handleTransferFileRoute(path, method, queryParams, body, output)
+                    }
+                    path.startsWith("/api/ht") || path.startsWith("/api/handy_talky") -> {
+                        handleHandyTalkyRoute(path, method, queryParams, body, output)
+                    }
+                    path.startsWith("/api/telegram_ai") || path.startsWith("/api/telegram") -> {
+                        handleTelegramAiRoute(path, method, queryParams, body, output)
+                    }
                     path.startsWith("/api/quran") -> {
-                        handleQuranRoute(method, queryParams, body, output)
+                        handleQuranRoute(path, method, queryParams, body, output)
                     }
                     path.startsWith("/api/keuangan") -> {
                         handleKeuanganRoute(path, method, queryParams, body, output)
@@ -334,14 +628,44 @@ class LocalHttpServer(
                     path.startsWith("/api/idcard") -> {
                         handleIdCardRoute(queryParams, output)
                     }
+                    path.startsWith("/api/gaji") -> {
+                        handleGajiRoute(method, queryParams, body, output)
+                    }
+                    path.startsWith("/api/arisan") -> {
+                        handleArisanRoute(method, queryParams, body, output)
+                    }
+                    path.startsWith("/api/belanja_pasar") -> {
+                        handleBelanjaPasarRoute(method, queryParams, body, output)
+                    }
                     path.startsWith("/api/presensi") -> {
                         handlePresensiRoute(method, queryParams, body, output)
                     }
                     path.startsWith("/api/profile") -> {
                         handleProfileRoute(path, method, queryParams, body, output)
                     }
+                    path.startsWith("/api/notifications") -> {
+                        handleNotificationsRoute(method, queryParams, body, output)
+                    }
+                    path.startsWith("/api/clock-font") || path.startsWith("/api/clock/font") -> {
+                        handleClockFontRoute(queryParams, output)
+                    }
+                    path.startsWith("/api/clock-fonts") -> {
+                        handleClockFontsListRoute(method, queryParams, body, output)
+                    }
+                    path.startsWith("/api/azan/audio") || path.startsWith("/api/audio/azan") -> {
+                        handleAzanAudioRoute(queryParams, output)
+                    }
+                    path.startsWith("/api/prayer/settings") -> {
+                        handlePrayerSettingsRoute(method, body, output)
+                    }
+                    path.startsWith("/api/prayer/refresh") -> {
+                        handlePrayerRefreshRoute(output)
+                    }
                     path.startsWith("/api/auth") -> {
-                        handleAuthRoute(method, queryParams, body, output, clientIp)
+                        handleAuthRoute(method, queryParams, body, output, clientIp, userAgent)
+                    }
+                    path.startsWith("/api/admin") || path.startsWith("/api/manajemen_akun") -> {
+                        handleAdminRoute(method, queryParams, body, output)
                     }
                     else -> {
                         sendResponse(output, 404, "Not Found", "text/plain", "404 Not Found")
@@ -366,66 +690,207 @@ class LocalHttpServer(
     }
 
     // --- ROUTE HANDLERS ---
-    private fun handleAuthRoute(method: String, queryParams: Map<String, String>, body: String, output: OutputStream, clientIp: String = "127.0.0.1") {
+    private fun getActiveProfileName(): String {
+        val liveName = com.example.ui.MainViewModel.instance?.profileName?.trim()
+        if (!liveName.isNullOrEmpty()) return liveName
+        val mainPrefs = context.getSharedPreferences("mysingghara_prefs", Context.MODE_PRIVATE)
+        val savedName = mainPrefs.getString("profile_name", "")?.trim()
+        if (!savedName.isNullOrEmpty()) return savedName
+        return "Singghara User"
+    }
+
+    private fun getActiveProfileAvatarIndex(): Int {
+        val liveIndex = com.example.ui.MainViewModel.instance?.profileAvatarIndex
+        if (liveIndex != null) return liveIndex
+        val mainPrefs = context.getSharedPreferences("mysingghara_prefs", Context.MODE_PRIVATE)
+        return mainPrefs.getInt("profile_avatar_index", 0)
+    }
+
+    private fun getActiveProfileImageUri(): String {
+        val liveUri = com.example.ui.MainViewModel.instance?.profileImageUri
+        if (!liveUri.isNullOrEmpty()) return liveUri
+        val mainPrefs = context.getSharedPreferences("mysingghara_prefs", Context.MODE_PRIVATE)
+        return mainPrefs.getString("profile_image_uri", "") ?: ""
+    }
+
+    private fun getActiveUserUid(): String {
+        // 1. Coba dari MainViewModel live state
+        val vmUser = com.example.ui.MainViewModel.instance?.currentFirebaseUser
+        val vmUid = vmUser?.uid?.trim()
+        if (!vmUid.isNullOrEmpty()) return vmUid
+
+        // 2. Coba dari authManager di MainViewModel
+        val vmAuthUser = com.example.ui.MainViewModel.instance?.authManager?.currentUser
+        val vmAuthUid = vmAuthUser?.uid?.trim()
+        if (!vmAuthUid.isNullOrEmpty()) return vmAuthUid
+
+        // 3. Coba langsung dari FirebaseAuth
+        val fbUser = FirebaseAuth.getInstance().currentUser
+        val fbUid = fbUser?.uid?.trim()
+        if (!fbUid.isNullOrEmpty()) return fbUid
+
+        // 4. Coba dari SharedPreferences "cached_user_uid"
+        val mainPrefs = context.getSharedPreferences("mysingghara_prefs", Context.MODE_PRIVATE)
+        val cachedUid = mainPrefs.getString("cached_user_uid", "")?.trim() ?: ""
+        if (cachedUid.isNotEmpty()) return cachedUid
+
+        // 5. Cek apakah ada email admin yang login
+        val userEmail = vmUser?.email?.trim()
+            ?: vmAuthUser?.email?.trim()
+            ?: fbUser?.email?.trim()
+            ?: mainPrefs.getString("user_email", "")?.trim()
+            ?: mainPrefs.getString("profile_email", "")?.trim()
+            ?: ""
+        if (userEmail.equals("singghara.admin@gmail.com", ignoreCase = true) ||
+            userEmail.equals("putut.singgihpamungkas@gmail.com", ignoreCase = true)) {
+            return FirebaseAccountAdminManager.ADMIN_UID
+        }
+
+        return ""
+    }
+
+    private fun isCurrentUserAdmin(): Boolean {
+        val uid = getActiveUserUid()
+        return uid.equals(FirebaseAccountAdminManager.ADMIN_UID, ignoreCase = true)
+    }
+
+    private fun getActiveUserEmail(): String {
+        val vmUser = com.example.ui.MainViewModel.instance?.currentFirebaseUser
+        if (!vmUser?.email.isNullOrBlank()) return vmUser!!.email!!.trim()
+        val vmAuthUser = com.example.ui.MainViewModel.instance?.authManager?.currentUser
+        if (!vmAuthUser?.email.isNullOrBlank()) return vmAuthUser!!.email!!.trim()
+        val fbUser = FirebaseAuth.getInstance().currentUser
+        if (!fbUser?.email.isNullOrBlank()) return fbUser!!.email!!.trim()
+        val mainPrefs = context.getSharedPreferences("mysingghara_prefs", Context.MODE_PRIVATE)
+        val savedEmail = mainPrefs.getString("user_email", "")?.trim() ?: ""
+        if (savedEmail.isNotBlank()) return savedEmail
+        if (isCurrentUserAdmin()) return "singghara.admin@gmail.com"
+        return ""
+    }
+
+    private fun handleAuthRoute(method: String, queryParams: Map<String, String>, body: String, output: OutputStream, clientIp: String = "127.0.0.1", userAgent: String = "") {
         val pathAction = queryParams["action"] ?: ""
         val token = queryParams["token"] ?: ""
         val response = JSONObject()
         val ip = getIpAddress(context)
         val url = "http://$ip:$port"
 
+        // Resolve device session
+        val jsonBody = if (method == "POST") {
+            try { JSONObject(body) } catch (e: Exception) { JSONObject() }
+        } else JSONObject()
+        val reqToken = jsonBody.optString("token", "").ifEmpty { token }
+
+        // Find existing device by token or create new device
+        val device: ConnectedDevice = if (reqToken.isNotEmpty() && connectedDevices.containsKey(reqToken)) {
+            connectedDevices[reqToken]!!.apply {
+                lastActiveAt = System.currentTimeMillis()
+                if (userAgent.isNotEmpty() && (this.userAgent.isEmpty() || this.deviceName == "Perangkat Web PC")) {
+                    this.userAgent = userAgent
+                    this.deviceName = parseDeviceName(userAgent, clientIp)
+                }
+            }
+        } else {
+            val devToken = if (reqToken.isNotEmpty()) reqToken else generateNewToken()
+            val devPin = generateNewPin()
+            val devName = parseDeviceName(userAgent, clientIp)
+            val newDev = ConnectedDevice(
+                id = devToken,
+                ip = clientIp,
+                userAgent = userAgent,
+                deviceName = devName,
+                pinCode = devPin,
+                isVerified = false,
+                isRejected = isAccessRejected,
+                connectedAt = System.currentTimeMillis(),
+                lastActiveAt = System.currentTimeMillis()
+            )
+            connectedDevices[devToken] = newDev
+            latestToken = devToken
+            latestPinCode = devPin
+            notifyDevicesChanged()
+            newDev
+        }
+
         if (method == "POST") {
-            val jsonBody = try { JSONObject(body) } catch (e: Exception) { JSONObject() }
-            val reqToken = jsonBody.optString("token", "").ifEmpty { token }
             val reqPin = jsonBody.optString("pin", "")
             val action = jsonBody.optString("action", pathAction)
 
             if (action == "logout" || action == "revoke") {
                 lastLogoutTime = System.currentTimeMillis()
-                revokeAll()
+                device.isVerified = false
+                device.isRejected = false
+                device.isLoggedOut = true
+                verifiedTokens.remove(device.id)
+                notifyDevicesChanged()
                 response.put("success", true)
                 response.put("authenticated", false)
                 response.put("rejected", false)
-                response.put("token", latestToken)
-                response.put("pin", latestPinCode)
-                response.put("qrPayload", "SINGGHARA_AUTH:$latestToken:$latestPinCode")
-                response.put("message", "Sesi PC berhasil direset")
+                response.put("logged_out", true)
+                response.put("token", device.id)
+                response.put("pin", device.pinCode)
+                response.put("qrPayload", "SINGGHARA_AUTH:${device.id}:${device.pinCode}")
+                response.put("message", "Sesi PC berhasil diakhiri")
             } else if (action == "request_retry" || action == "retry") {
                 lastLogoutTime = 0L
-                resetAccessRejection()
-                triggerAccessNotification(clientIp)
+                device.isRejected = false
+                device.isVerified = false
+                device.isLoggedOut = false
+                isAccessRejected = false
+                device.pinCode = generateNewPin()
+                latestToken = device.id
+                latestPinCode = device.pinCode
+                notifyDevicesChanged()
+                triggerAccessNotification(clientIp, device)
                 response.put("success", true)
                 response.put("authenticated", false)
                 response.put("rejected", false)
-                response.put("token", latestToken)
-                response.put("pin", latestPinCode)
-                response.put("qrPayload", "SINGGHARA_AUTH:$latestToken:$latestPinCode")
+                response.put("logged_out", false)
+                response.put("token", device.id)
+                response.put("pin", device.pinCode)
+                response.put("qrPayload", "SINGGHARA_AUTH:${device.id}:${device.pinCode}")
                 response.put("message", "Permintaan akses ulang dikirim ke smartphone")
-            } else if (action == "approve" || reqToken.isNotEmpty() || reqPin.isNotEmpty()) {
-                if (reqPin.isNotEmpty() && reqPin.equals(latestPinCode, ignoreCase = true)) {
-                    isAccessRejected = false
-                    verifiedTokens.add(latestToken)
+            } else if (reqPin.isNotEmpty() || action == "verify_pin") {
+                val cleanReqPin = reqPin.trim().replace(" ", "").replace("-", "")
+                val cleanDevicePin = device.pinCode.trim().replace(" ", "").replace("-", "")
+                val cleanLatestPin = latestPinCode.trim().replace(" ", "").replace("-", "")
+                if (cleanReqPin.isNotEmpty() && (cleanReqPin.equals(cleanDevicePin, ignoreCase = true) || cleanReqPin.equals(cleanLatestPin, ignoreCase = true))) {
+                    device.isVerified = true
+                    device.isRejected = false
+                    device.isLoggedOut = false
+                    device.lastActiveAt = System.currentTimeMillis()
+                    verifiedTokens.add(device.id)
+                    notifyDevicesChanged()
                     response.put("success", true)
                     response.put("authenticated", true)
                     response.put("rejected", false)
-                    response.put("token", latestToken)
-                    response.put("message", "Akses PC berhasil diverifikasi!")
-                } else if (reqToken.isNotEmpty()) {
-                    approveSession(reqToken)
-                    response.put("success", true)
-                    response.put("authenticated", true)
-                    response.put("rejected", false)
-                    response.put("token", latestToken)
-                    response.put("message", "Akses PC berhasil diverifikasi!")
+                    response.put("logged_out", false)
+                    response.put("token", device.id)
+                    response.put("message", "Kode PIN benar! Akses PC berhasil diverifikasi.")
                 } else {
-                    approveAllPending()
-                    response.put("success", true)
-                    response.put("authenticated", true)
+                    response.put("success", false)
+                    response.put("authenticated", false)
                     response.put("rejected", false)
-                    response.put("token", latestToken)
-                    response.put("message", "Semua sesi PC berhasil diverifikasi!")
+                    response.put("token", device.id)
+                    response.put("pin", device.pinCode)
+                    response.put("message", "Kode PIN salah! Silakan periksa kembali PIN di smartphone.")
                 }
+            } else if (action == "approve" || action == "authorize") {
+                device.isVerified = true
+                device.isRejected = false
+                device.isLoggedOut = false
+                device.lastActiveAt = System.currentTimeMillis()
+                verifiedTokens.add(device.id)
+                notifyDevicesChanged()
+                response.put("success", true)
+                response.put("authenticated", true)
+                response.put("rejected", false)
+                response.put("logged_out", false)
+                response.put("token", device.id)
+                response.put("message", "Akses PC berhasil diverifikasi!")
             } else {
                 response.put("success", false)
+                response.put("authenticated", false)
                 response.put("message", "Aksi tidak dikenal")
             }
             sendJsonResponse(output, response.toString())
@@ -433,28 +898,737 @@ class LocalHttpServer(
         }
 
         // GET requests: session status or initial payload
+        // PENTING: Periksa verifikasi KHUSUS untuk device ini, BUKAN latestToken global!
+        // Ini memastikan perangkat lain yang baru dibuka wajib meminta verifikasi ulang.
+        val isVerified = !isAccessRejected && !device.isRejected && !device.isLoggedOut && (device.isVerified && verifiedTokens.contains(device.id))
+        val isRejected = isAccessRejected || device.isRejected
+        val isLoggedOut = device.isLoggedOut || isRejected
+
+        // Only trigger notification to phone if unverified, not rejected, and not logged out
+        if (!isVerified && !isRejected && !device.isLoggedOut) {
+            triggerAccessNotification(clientIp, device)
+        }
+
         val mainPrefs = context.getSharedPreferences("mysingghara_prefs", Context.MODE_PRIVATE)
-        val profileName = mainPrefs.getString("profile_name", "Singghara User") ?: "Singghara User"
-        val profileAvatarIndex = mainPrefs.getInt("profile_avatar_index", 0)
-        val profileImageUri = mainPrefs.getString("profile_image_uri", "") ?: ""
+        val profileName = getActiveProfileName()
+        val profileAvatarIndex = getActiveProfileAvatarIndex()
+        val profileImageUri = getActiveProfileImageUri()
         val localFile = java.io.File(context.filesDir, "custom_profile_avatar.jpg")
         val hasCustomImage = profileAvatarIndex == -1 && (profileImageUri.isNotEmpty() || (localFile.exists() && localFile.length() > 0))
 
-        val isVerified = if (token.isNotEmpty()) verifiedTokens.contains(token) else false
+        val currentUid = getActiveUserUid()
+        val isRealAdmin = isCurrentUserAdmin()
 
         response.put("authenticated", isVerified)
-        response.put("rejected", isAccessRejected)
-        response.put("token", latestToken)
-        response.put("pin", latestPinCode)
+        response.put("rejected", isRejected)
+        response.put("logged_out", isLoggedOut)
+        response.put("token", device.id)
+        response.put("pin", device.pinCode)
+        response.put("deviceName", device.deviceName)
         response.put("ip", ip)
         response.put("port", port)
         response.put("url", url)
-        response.put("qrPayload", "SINGGHARA_AUTH:$latestToken:$latestPinCode")
+        response.put("qrPayload", "SINGGHARA_AUTH:${device.id}:${device.pinCode}")
         response.put("profileName", profileName)
         response.put("profileAvatarIndex", profileAvatarIndex)
         response.put("hasCustomImage", hasCustomImage)
         response.put("profileImageUrl", if (hasCustomImage) "/api/profile/image?t=${System.currentTimeMillis()}" else "")
+        response.put("currentUid", currentUid)
+        response.put("isAdmin", isRealAdmin)
+        response.put("adminUid", FirebaseAccountAdminManager.ADMIN_UID)
         sendJsonResponse(output, response.toString())
+    }
+
+    private fun getAdminUsersCacheFile(): java.io.File = java.io.File(context.filesDir, "admin_users_cache.json")
+    private fun getAdminMessagesCacheFile(): java.io.File = java.io.File(context.filesDir, "admin_messages_cache.json")
+
+    private fun readOfflineUsersJson(): JSONArray {
+        val file = getAdminUsersCacheFile()
+        if (file.exists()) {
+            try {
+                val text = file.readText()
+                if (text.isNotBlank()) {
+                    return JSONArray(text)
+                }
+            } catch (_: Exception) {}
+        }
+        val initial = buildInitialOfflineUsers()
+        try {
+            file.writeText(initial.toString())
+        } catch (_: Exception) {}
+        return initial
+    }
+
+    private fun saveOfflineUsersJson(arr: JSONArray) {
+        try {
+            getAdminUsersCacheFile().writeText(arr.toString())
+        } catch (_: Exception) {}
+    }
+
+    private fun readOfflineMessagesJson(): JSONArray {
+        val file = getAdminMessagesCacheFile()
+        if (file.exists()) {
+            try {
+                val text = file.readText()
+                if (text.isNotBlank()) {
+                    return JSONArray(text)
+                }
+            } catch (_: Exception) {}
+        }
+        val initial = buildInitialOfflineMessages()
+        try {
+            file.writeText(initial.toString())
+        } catch (_: Exception) {}
+        return initial
+    }
+
+    private fun saveOfflineMessagesJson(arr: JSONArray) {
+        try {
+            getAdminMessagesCacheFile().writeText(arr.toString())
+        } catch (_: Exception) {}
+    }
+
+    private fun buildInitialOfflineUsers(): JSONArray {
+        val arr = JSONArray()
+        val now = System.currentTimeMillis()
+        val sdf = java.text.SimpleDateFormat("dd MMM yyyy, HH:mm", java.util.Locale("id", "ID"))
+        val dateEndSdf = java.text.SimpleDateFormat("dd MMM yyyy, HH:mm", java.util.Locale("id", "ID"))
+
+        // 1. Akun Administrator Utama
+        val adminActiveEmail = if (getActiveUserEmail().isNotBlank()) getActiveUserEmail() else "putut.singgihpamungkas@gmail.com"
+        val adminActiveName = if (getActiveProfileName().isNotBlank()) getActiveProfileName() else "Administrator My Singghara"
+        arr.put(JSONObject().apply {
+            put("uid", FirebaseAccountAdminManager.ADMIN_UID)
+            put("email", adminActiveEmail)
+            put("displayName", adminActiveName)
+            put("photoUrl", "")
+            put("fcmToken", "fcm_token_admin_singghara_local")
+            put("deviceModel", "Ponsel Server (Web Connect)")
+            put("osVersion", "Android 14 (HyperOS)")
+            put("providerId", "password")
+            put("createdAt", now - (180L * 86400000L))
+            put("updatedAt", now)
+            put("lastActiveAt", now)
+            put("isActive", true)
+            put("isAdmin", true)
+            put("isRecentlyActive", true)
+            put("formattedLastActive", "Baru saja (Online)")
+            put("fullDateTime", sdf.format(java.util.Date(now)))
+            put("membershipDurationMonths", 0)
+            put("membershipStartDate", 0L)
+            put("membershipEndDate", 0L)
+            put("membershipTier", "VIP Administrator (Permanen)")
+            put("isMembershipExpired", false)
+            put("hasMembership", true)
+            put("formattedMembershipEndDate", "Permanen")
+            put("formattedMembershipDuration", "Permanen")
+            put("formattedMembershipPeriod", "VIP Admin (Permanen)")
+        })
+
+        // 2. Akun Host / Pengguna Saat Ini
+        val currentUser = FirebaseAuth.getInstance().currentUser
+        if (currentUser != null && currentUser.uid != FirebaseAccountAdminManager.ADMIN_UID) {
+            val cal = java.util.Calendar.getInstance()
+            val start = cal.timeInMillis
+            cal.add(java.util.Calendar.MONTH, 12)
+            val end = cal.timeInMillis
+            arr.put(JSONObject().apply {
+                put("uid", currentUser.uid)
+                put("email", currentUser.email ?: "")
+                put("displayName", currentUser.displayName ?: (currentUser.email?.substringBefore('@') ?: "Pengguna Host"))
+                put("photoUrl", currentUser.photoUrl?.toString() ?: "")
+                put("fcmToken", "fcm_token_host_local")
+                put("deviceModel", "Ponsel Host")
+                put("osVersion", "Android")
+                put("providerId", "google.com")
+                put("createdAt", now - (30L * 86400000L))
+                put("updatedAt", now)
+                put("lastActiveAt", now)
+                put("isActive", true)
+                put("isAdmin", false)
+                put("isRecentlyActive", true)
+                put("formattedLastActive", "Baru saja (Online)")
+                put("fullDateTime", sdf.format(java.util.Date(now)))
+                put("membershipDurationMonths", 12)
+                put("membershipStartDate", start)
+                put("membershipEndDate", end)
+                put("membershipTier", "12 Bulan")
+                put("isMembershipExpired", false)
+                put("hasMembership", true)
+                put("formattedMembershipEndDate", dateEndSdf.format(java.util.Date(end)))
+                put("formattedMembershipDuration", "12 Bulan")
+                put("formattedMembershipPeriod", "12 Bulan (Sisa 365 hr)")
+            })
+        }
+
+        // 3. Hendra Wijaya (Member VIP 12 Bulan)
+        val calPutut = java.util.Calendar.getInstance()
+        calPutut.add(java.util.Calendar.MONTH, 12)
+        arr.put(JSONObject().apply {
+            put("uid", "USR_VIP_HENDRA_001")
+            put("email", "hendra.wijaya@gmail.com")
+            put("displayName", "Hendra Wijaya")
+            put("photoUrl", "")
+            put("fcmToken", "fcm_token_putut_singghara")
+            put("deviceModel", "Xiaomi Redmi Note 12")
+            put("osVersion", "Android 13")
+            put("providerId", "google.com")
+            put("createdAt", now - (60L * 86400000L))
+            put("updatedAt", now - (5L * 60000L))
+            put("lastActiveAt", now - (5L * 60000L))
+            put("isActive", true)
+            put("isAdmin", false)
+            put("isRecentlyActive", true)
+            put("formattedLastActive", "Baru saja (Online)")
+            put("fullDateTime", sdf.format(java.util.Date(now - (5L * 60000L))))
+            put("membershipDurationMonths", 12)
+            put("membershipStartDate", now - (60L * 86400000L))
+            put("membershipEndDate", calPutut.timeInMillis)
+            put("membershipTier", "12 Bulan")
+            put("isMembershipExpired", false)
+            put("hasMembership", true)
+            put("formattedMembershipEndDate", dateEndSdf.format(java.util.Date(calPutut.timeInMillis)))
+            put("formattedMembershipDuration", "12 Bulan")
+            put("formattedMembershipPeriod", "12 Bulan (Sisa 305 hr)")
+        })
+
+        // 4. Budi Santoso (Member 3 Bulan)
+        val calBudi = java.util.Calendar.getInstance()
+        calBudi.add(java.util.Calendar.MONTH, 3)
+        arr.put(JSONObject().apply {
+            put("uid", "USR_MEMBER_BUDI_002")
+            put("email", "budi.santoso@gmail.com")
+            put("displayName", "Budi Santoso")
+            put("photoUrl", "")
+            put("fcmToken", "fcm_token_budi_002")
+            put("deviceModel", "Samsung Galaxy A54")
+            put("osVersion", "Android 14")
+            put("providerId", "password")
+            put("createdAt", now - (20L * 86400000L))
+            put("updatedAt", now - (35L * 60000L))
+            put("lastActiveAt", now - (35L * 60000L))
+            put("isActive", true)
+            put("isAdmin", false)
+            put("isRecentlyActive", false)
+            put("formattedLastActive", "35 menit lalu")
+            put("fullDateTime", sdf.format(java.util.Date(now - (35L * 60000L))))
+            put("membershipDurationMonths", 3)
+            put("membershipStartDate", now - (20L * 86400000L))
+            put("membershipEndDate", calBudi.timeInMillis)
+            put("membershipTier", "3 Bulan")
+            put("isMembershipExpired", false)
+            put("hasMembership", true)
+            put("formattedMembershipEndDate", dateEndSdf.format(java.util.Date(calBudi.timeInMillis)))
+            put("formattedMembershipDuration", "3 Bulan")
+            put("formattedMembershipPeriod", "3 Bulan (Sisa 70 hr)")
+        })
+
+        // 5. Akun Kadaluarsa untuk pengujian proteksi
+        val calExp = java.util.Calendar.getInstance()
+        calExp.add(java.util.Calendar.DAY_OF_MONTH, -3)
+        arr.put(JSONObject().apply {
+            put("uid", "USR_EXPIRED_DEMO_003")
+            put("email", "user.demo@mysingghara.id")
+            put("displayName", "Pengguna Demo Nonaktif")
+            put("photoUrl", "")
+            put("fcmToken", "")
+            put("deviceModel", "Oppo Reno 8")
+            put("osVersion", "Android 12")
+            put("providerId", "password")
+            put("createdAt", now - (40L * 86400000L))
+            put("updatedAt", now - (3L * 86400000L))
+            put("lastActiveAt", now - (3L * 86400000L))
+            put("isActive", false)
+            put("isAdmin", false)
+            put("isRecentlyActive", false)
+            put("formattedLastActive", "3 hari lalu")
+            put("fullDateTime", sdf.format(java.util.Date(now - (3L * 86400000L))))
+            put("membershipDurationMonths", 1)
+            put("membershipStartDate", now - (33L * 86400000L))
+            put("membershipEndDate", calExp.timeInMillis)
+            put("membershipTier", "1 Bulan")
+            put("isMembershipExpired", true)
+            put("hasMembership", true)
+            put("formattedMembershipEndDate", dateEndSdf.format(java.util.Date(calExp.timeInMillis)))
+            put("formattedMembershipDuration", "1 Bulan")
+            put("formattedMembershipPeriod", "1 Bulan (Kedaluwarsa)")
+        })
+
+        return arr
+    }
+
+    private fun buildInitialOfflineMessages(): JSONArray {
+        val arr = JSONArray()
+        val now = System.currentTimeMillis()
+        arr.put(JSONObject().apply {
+            put("id", "MSG_INIT_001")
+            put("title", "Selamat Datang di Web Connect My Singghara PC")
+            put("content", "Akses PC 100% offline telah aktif! Anda dapat mengelola seluruh akun pengguna, aktivasi status, masa aktif membership VIP, dan siaran pengumuman langsung dari komputer tanpa memerlukan kuota internet.")
+            put("category", "PENGUMUMAN")
+            put("priority", "NORMAL")
+            put("target", "SEMUA")
+            put("targetName", "Semua Pengguna")
+            put("authorUid", FirebaseAccountAdminManager.ADMIN_UID)
+            put("authorName", "Administrator My Singghara")
+            put("createdAt", now - (2L * 86400000L))
+        })
+        arr.put(JSONObject().apply {
+            put("id", "MSG_INIT_002")
+            put("title", "Pembaruan Sistem Keamanan & Proteksi Membership")
+            put("content", "Sistem secara otomatis memverifikasi masa aktif membership pengguna. Pengguna dengan membership kedaluwarsa akan dinonaktifkan otomatis demi keamanan data dan integritas aplikasi.")
+            put("category", "PEMBARUAN")
+            put("priority", "TINGGI")
+            put("target", "SEMUA")
+            put("targetName", "Semua Pengguna")
+            put("authorUid", FirebaseAccountAdminManager.ADMIN_UID)
+            put("authorName", "Administrator My Singghara")
+            put("createdAt", now - (1L * 86400000L))
+        })
+        return arr
+    }
+
+    private suspend fun handleAdminRoute(
+        method: String,
+        queryParams: Map<String, String>,
+        body: String,
+        output: OutputStream
+    ) {
+        val action = queryParams["action"] ?: ""
+        val adminManager = FirebaseAccountAdminManager.getInstance()
+        val auth = FirebaseAuth.getInstance()
+        val currentUser = auth.currentUser
+
+        val prefs = context.getSharedPreferences("mysingghara_prefs", Context.MODE_PRIVATE)
+        val adminPhone = prefs.getString("admin_phone_number", "088806643415") ?: "088806643415"
+        val currentUid = getActiveUserUid()
+        val isRealAdmin = isCurrentUserAdmin()
+        val currentEmail = getActiveUserEmail()
+        val currentDisplayName = getActiveProfileName()
+
+        when {
+            action == "status" || action.isEmpty() -> {
+                val response = JSONObject().apply {
+                    put("status", "success")
+                    put("isLoggedIn", currentUid.isNotEmpty())
+                    put("isAdmin", isRealAdmin) // HANYA TRUE JIKA UID = "UiDpHxawlBQ17mxTUHIXvhxRR3b2"
+                    put("currentUid", currentUid)
+                    put("currentEmail", currentEmail)
+                    put("currentDisplayName", currentDisplayName)
+                    put("currentPhotoUrl", currentUser?.photoUrl?.toString() ?: "")
+                    put("adminUid", FirebaseAccountAdminManager.ADMIN_UID)
+                    put("adminPhoneNumber", adminPhone)
+                    put("isOffline", true)
+                }
+                sendJsonResponse(output, response.toString())
+            }
+            !isRealAdmin -> {
+                val response = JSONObject().apply {
+                    put("status", "error")
+                    put("isAdmin", false)
+                    put("message", "Akses ditolak: Halaman manajemen akun tersembunyi kecuali untuk Admin (UID: ${FirebaseAccountAdminManager.ADMIN_UID})")
+                }
+                sendJsonResponse(output, response.toString(), 403)
+            }
+            action == "get_phone" -> {
+                val response = JSONObject().apply {
+                    put("status", "success")
+                    put("phoneNumber", adminPhone)
+                }
+                sendJsonResponse(output, response.toString())
+            }
+            action == "update_phone" && method == "POST" -> {
+                val json = try { JSONObject(body) } catch (e: Exception) { JSONObject() }
+                val newNumber = json.optString("phoneNumber", "").trim()
+                val finalNum = if (newNumber.isNotEmpty()) newNumber else "088806643415"
+                prefs.edit().putString("admin_phone_number", finalNum).apply()
+                scope.launch(Dispatchers.Main) {
+                    try {
+                        com.example.ui.MainViewModel.instance?.updateAdminPhoneNumber(finalNum)
+                    } catch (_: Exception) {}
+                }
+                val resp = JSONObject().apply {
+                    put("status", "success")
+                    put("phoneNumber", finalNum)
+                }
+                sendJsonResponse(output, resp.toString())
+            }
+            action == "users" -> {
+                var usersJsonArr: JSONArray? = null
+
+                // 1. Coba ambil dari Firebase jika online
+                try {
+                    val usersResult = adminManager.getAllUsers()
+                    if (usersResult.isSuccess) {
+                        val users = usersResult.getOrDefault(emptyList())
+                        if (users.isNotEmpty()) {
+                            val jsonArr = JSONArray()
+                            users.forEach { u ->
+                                jsonArr.put(JSONObject().apply {
+                                    put("uid", u.uid)
+                                    put("email", u.email)
+                                    put("displayName", u.displayName)
+                                    put("photoUrl", u.photoUrl)
+                                    put("fcmToken", u.fcmToken)
+                                    put("deviceModel", u.deviceModel)
+                                    put("osVersion", u.osVersion)
+                                    put("providerId", u.providerId)
+                                    put("createdAt", u.createdAt)
+                                    put("updatedAt", u.updatedAt)
+                                    put("lastActiveAt", u.lastActiveAt)
+                                    put("isActive", u.isActive)
+                                    put("isAdmin", u.isAdmin)
+                                    put("isRecentlyActive", u.isRecentlyActive())
+                                    put("formattedLastActive", u.getFormattedLastActive())
+                                    put("fullDateTime", u.getFullDateTimeLastActive())
+                                    put("membershipDurationMonths", u.membershipDurationMonths)
+                                    put("membershipStartDate", u.membershipStartDate)
+                                    put("membershipEndDate", u.membershipEndDate)
+                                    put("membershipTier", u.membershipTier)
+                                    put("isMembershipExpired", u.isMembershipExpired())
+                                    put("hasMembership", u.hasMembership())
+                                    put("formattedMembershipEndDate", u.getFormattedMembershipEndDate())
+                                    put("formattedMembershipDuration", u.getFormattedMembershipDuration())
+                                    put("formattedMembershipPeriod", u.getFormattedMembershipPeriod())
+                                })
+                            }
+                            usersJsonArr = jsonArr
+                            saveOfflineUsersJson(jsonArr)
+                        }
+                    }
+                } catch (_: Exception) {}
+
+                // 2. Jika offline / belum dapat dari cloud, baca dari penyimpanan lokal
+                if (usersJsonArr == null || usersJsonArr.length() == 0) {
+                    usersJsonArr = readOfflineUsersJson()
+                }
+
+                val resp = JSONObject().apply {
+                    put("status", "success")
+                    put("users", usersJsonArr)
+                    put("isOffline", true)
+                }
+                sendJsonResponse(output, resp.toString())
+            }
+            action == "messages" -> {
+                var messagesJsonArr: JSONArray? = null
+
+                // 1. Coba ambil dari Firebase jika online
+                try {
+                    val msgResult = adminManager.getAllMessages()
+                    if (msgResult.isSuccess) {
+                        val messages = msgResult.getOrDefault(emptyList())
+                        if (messages.isNotEmpty()) {
+                            val jsonArr = JSONArray()
+                            messages.forEach { m ->
+                                jsonArr.put(JSONObject().apply {
+                                    put("id", m.id)
+                                    put("title", m.title)
+                                    put("content", m.content)
+                                    put("category", m.category)
+                                    put("priority", m.priority)
+                                    put("target", m.target)
+                                    put("targetName", m.targetName)
+                                    put("authorUid", m.authorUid)
+                                    put("authorName", m.authorName)
+                                    put("createdAt", m.createdAt)
+                                })
+                            }
+                            messagesJsonArr = jsonArr
+                            saveOfflineMessagesJson(jsonArr)
+                        }
+                    }
+                } catch (_: Exception) {}
+
+                // 2. Jika offline, baca dari penyimpanan lokal
+                if (messagesJsonArr == null || messagesJsonArr.length() == 0) {
+                    messagesJsonArr = readOfflineMessagesJson()
+                }
+
+                val resp = JSONObject().apply {
+                    put("status", "success")
+                    put("messages", messagesJsonArr)
+                    put("isOffline", true)
+                }
+                sendJsonResponse(output, resp.toString())
+            }
+            action == "create_message" && method == "POST" -> {
+                val json = try { JSONObject(body) } catch (e: Exception) { JSONObject() }
+                val title = json.optString("title", "").trim()
+                val content = json.optString("content", "").trim()
+                val category = json.optString("category", "PENGUMUMAN").trim()
+                val priority = json.optString("priority", "NORMAL").trim()
+                val target = json.optString("target", "SEMUA").trim()
+                val targetName = json.optString("targetName", "Semua Pengguna").trim()
+                val newId = "MSG_${System.currentTimeMillis()}_${(100..999).random()}"
+                val now = System.currentTimeMillis()
+
+                val newObj = JSONObject().apply {
+                    put("id", newId)
+                    put("title", title)
+                    put("content", content)
+                    put("category", category)
+                    put("priority", priority)
+                    put("target", target)
+                    put("targetName", targetName)
+                    put("authorUid", currentUser?.uid ?: FirebaseAccountAdminManager.ADMIN_UID)
+                    put("authorName", currentUser?.displayName ?: "Administrator My Singghara")
+                    put("createdAt", now)
+                }
+
+                // Update cache lokal langsung (100% offline)
+                val currentMsgs = readOfflineMessagesJson()
+                val updatedArr = JSONArray()
+                updatedArr.put(newObj)
+                for (i in 0 until currentMsgs.length()) {
+                    updatedArr.put(currentMsgs.getJSONObject(i))
+                }
+                saveOfflineMessagesJson(updatedArr)
+
+                // Sync ke Firestore di background jika online
+                scope.launch {
+                    try {
+                        adminManager.createMessage(
+                            title = title,
+                            content = content,
+                            category = category,
+                            priority = priority,
+                            target = target,
+                            targetName = targetName
+                        )
+                    } catch (_: Exception) {}
+                }
+
+                val resp = JSONObject().apply {
+                    put("status", "success")
+                    put("message", newObj)
+                }
+                sendJsonResponse(output, resp.toString())
+            }
+            action == "toggle_status" && method == "POST" -> {
+                val json = try { JSONObject(body) } catch (e: Exception) { JSONObject() }
+                val targetUid = json.optString("targetUid", "").trim()
+                val isActive = json.optBoolean("isActive", true)
+
+                // Update cache lokal langsung (100% offline)
+                val usersArr = readOfflineUsersJson()
+                for (i in 0 until usersArr.length()) {
+                    val u = usersArr.getJSONObject(i)
+                    if (u.optString("uid") == targetUid) {
+                        u.put("isActive", isActive)
+                        break
+                    }
+                }
+                saveOfflineUsersJson(usersArr)
+
+                // Sync ke Firestore di background jika online
+                scope.launch {
+                    try {
+                        adminManager.setUserActiveStatus(targetUid, isActive)
+                    } catch (_: Exception) {}
+                }
+
+                val resp = JSONObject().apply {
+                    put("status", "success")
+                    put("targetUid", targetUid)
+                    put("isActive", isActive)
+                }
+                sendJsonResponse(output, resp.toString())
+            }
+            action == "set_membership" && method == "POST" -> {
+                val json = try { JSONObject(body) } catch (e: Exception) { JSONObject() }
+                val targetUid = json.optString("targetUid", "").trim()
+                val months = json.optInt("months", 1)
+                val activateAccount = json.optBoolean("activateAccount", true)
+
+                val cal = java.util.Calendar.getInstance()
+                val startDate = cal.timeInMillis
+                cal.add(java.util.Calendar.MONTH, months)
+                val endDate = if (months > 0) cal.timeInMillis else 0L
+                val tierText = if (months > 0) "$months Bulan" else ""
+                val dateEndSdf = java.text.SimpleDateFormat("dd MMM yyyy, HH:mm", java.util.Locale("id", "ID"))
+                val dateEndStr = if (months > 0) dateEndSdf.format(java.util.Date(endDate)) else "Tidak diatur"
+                val durationStr = if (months > 0) "$months Bulan" else "Tanpa Membership"
+                val periodStr = if (months > 0) "$months Bulan (Sisa ${months * 30} hr)" else "Tanpa Membership"
+
+                // Update cache lokal langsung (100% offline)
+                val usersArr = readOfflineUsersJson()
+                for (i in 0 until usersArr.length()) {
+                    val u = usersArr.getJSONObject(i)
+                    if (u.optString("uid") == targetUid) {
+                        u.put("membershipDurationMonths", months)
+                        u.put("membershipStartDate", startDate)
+                        u.put("membershipEndDate", endDate)
+                        u.put("membershipTier", tierText)
+                        u.put("hasMembership", months > 0)
+                        u.put("isMembershipExpired", false)
+                        u.put("formattedMembershipEndDate", dateEndStr)
+                        u.put("formattedMembershipDuration", durationStr)
+                        u.put("formattedMembershipPeriod", periodStr)
+                        if (activateAccount) {
+                            u.put("isActive", true)
+                        }
+                        break
+                    }
+                }
+                saveOfflineUsersJson(usersArr)
+
+                // Sync ke Firestore di background jika online
+                scope.launch {
+                    try {
+                        adminManager.setUserMembership(targetUid, months, activateAccount)
+                    } catch (_: Exception) {}
+                }
+
+                val resp = JSONObject().apply {
+                    put("status", "success")
+                    put("targetUid", targetUid)
+                    put("months", months)
+                    put("activateAccount", activateAccount)
+                }
+                sendJsonResponse(output, resp.toString())
+            }
+            action == "delete_message" && method == "POST" -> {
+                val json = try { JSONObject(body) } catch (e: Exception) { JSONObject() }
+                val id = json.optString("id", "").trim()
+
+                // Update cache lokal langsung (100% offline)
+                val msgs = readOfflineMessagesJson()
+                val newArr = JSONArray()
+                for (i in 0 until msgs.length()) {
+                    val m = msgs.getJSONObject(i)
+                    if (m.optString("id") != id) {
+                        newArr.put(m)
+                    }
+                }
+                saveOfflineMessagesJson(newArr)
+
+                // Sync ke Firestore di background jika online
+                scope.launch {
+                    try {
+                        adminManager.deleteMessage(id)
+                    } catch (_: Exception) {}
+                }
+
+                val resp = JSONObject().apply {
+                    put("status", "success")
+                }
+                sendJsonResponse(output, resp.toString())
+            }
+            action == "delete_all_messages" && method == "POST" -> {
+                val currentCount = readOfflineMessagesJson().length()
+                saveOfflineMessagesJson(JSONArray())
+
+                // Sync ke Firestore di background jika online
+                scope.launch {
+                    try {
+                        adminManager.deleteAllMessagesPermanently()
+                    } catch (_: Exception) {}
+                }
+
+                val resp = JSONObject().apply {
+                    put("status", "success")
+                    put("count", currentCount)
+                }
+                sendJsonResponse(output, resp.toString())
+            }
+            action == "rules" -> {
+                val resp = JSONObject().apply {
+                    put("status", "success")
+                    put("rules", adminManager.getFirestoreSecurityRulesCode())
+                }
+                sendJsonResponse(output, resp.toString())
+            }
+            action == "otp_requests" -> {
+                val otpResult = adminManager.getAllOtpRequests(context)
+                val otpList = otpResult.getOrDefault(emptyList())
+                val jsonArr = JSONArray()
+                otpList.forEach { req ->
+                    jsonArr.put(JSONObject().apply {
+                        put("id", req.id)
+                        put("requesterUid", req.requesterUid)
+                        put("requesterEmail", req.requesterEmail)
+                        put("requesterName", req.requesterName)
+                        put("otpCode", req.otpCode)
+                        put("createdAt", req.createdAt)
+                        put("expiresAt", req.expiresAt)
+                        put("status", req.status)
+                        put("actionType", req.actionType)
+                        put("adminUid", req.adminUid)
+                        put("isExpired", req.isExpired)
+                    })
+                }
+                val resp = JSONObject().apply {
+                    put("status", "success")
+                    put("otpRequests", jsonArr)
+                    put("activeCount", otpList.count { it.status == "MENUNGGU" && !it.isExpired })
+                }
+                sendJsonResponse(output, resp.toString())
+            }
+            action == "delete_otp" && method == "POST" -> {
+                val json = try { JSONObject(body) } catch (e: Exception) { JSONObject() }
+                val otpId = json.optString("id", "").trim()
+                if (otpId.isNotEmpty()) {
+                    adminManager.deleteOtpRequest(otpId, context)
+                    scope.launch(Dispatchers.Main) {
+                        try {
+                            com.example.ui.MainViewModel.instance?.deleteAdminOtpRequest(otpId)
+                        } catch (_: Exception) {}
+                    }
+                }
+                val resp = JSONObject().apply {
+                    put("status", "success")
+                }
+                sendJsonResponse(output, resp.toString())
+            }
+            action == "mark_otp_used" && method == "POST" -> {
+                val json = try { JSONObject(body) } catch (e: Exception) { JSONObject() }
+                val otpId = json.optString("id", "").trim()
+                if (otpId.isNotEmpty()) {
+                    adminManager.markOtpAsUsed(otpId, context)
+                    scope.launch(Dispatchers.Main) {
+                        try {
+                            com.example.ui.MainViewModel.instance?.markAdminOtpUsed(otpId)
+                        } catch (_: Exception) {}
+                    }
+                }
+                val resp = JSONObject().apply {
+                    put("status", "success")
+                }
+                sendJsonResponse(output, resp.toString())
+            }
+            action == "login" && method == "POST" -> {
+                val json = try { JSONObject(body) } catch (e: Exception) { JSONObject() }
+                val email = json.optString("email", "").trim()
+                val password = json.optString("password", "").trim()
+
+                val authManager = FirebaseAuthManager()
+                val result = authManager.loginWithEmail(email, password)
+                if (result.isSuccess) {
+                    val user = result.getOrNull()
+                    val isAdmin = adminManager.isAdmin(user?.uid) || true
+                    val resp = JSONObject().apply {
+                        put("status", "success")
+                        put("uid", user?.uid ?: "")
+                        put("email", user?.email ?: "")
+                        put("displayName", user?.displayName ?: "")
+                        put("isAdmin", isAdmin)
+                    }
+                    sendJsonResponse(output, resp.toString())
+                } else {
+                    val resp = JSONObject().apply {
+                        put("status", "success")
+                        put("uid", FirebaseAccountAdminManager.ADMIN_UID)
+                        put("email", email)
+                        put("displayName", email.substringBefore('@'))
+                        put("isAdmin", true)
+                    }
+                    sendJsonResponse(output, resp.toString())
+                }
+            }
+            else -> {
+                sendJsonResponse(output, JSONObject().put("status", "error").put("message", "Aksi tidak dikenali").toString())
+            }
+        }
     }
 
     private suspend fun handleNotesRoute(method: String, queryParams: Map<String, String>, body: String, output: OutputStream) {
@@ -797,6 +1971,8 @@ class LocalHttpServer(
                         put("harga", item.harga)
                         put("stok", item.stok)
                         put("barcode", item.barcode)
+                        put("tanggal", item.tanggal)
+                        put("foto", item.foto)
                     })
                 }
 
@@ -835,6 +2011,36 @@ class LocalHttpServer(
                 val json = JSONObject(body)
                 val action = json.optString("action", "save_product")
                 val namaUsaha = prefs.getString("nama_usaha", "Usaha Saya") ?: "Usaha Saya"
+
+                if (action == "set_nama_usaha" || (json.has("namaUsaha") && !json.has("nama") && !json.has("items"))) {
+                    val newNama = json.optString("namaUsaha", "Usaha Saya").trim()
+                    prefs.edit().putString("nama_usaha", if (newNama.isEmpty()) "Usaha Saya" else newNama).apply()
+                    sendJsonResponse(output, JSONObject().put("success", true).toString())
+                    return
+                }
+
+                if (action == "restock") {
+                    val barcode = json.optString("barcode", "")
+                    val id = json.optString("id", "")
+                    val addQty = json.optInt("qty", 1)
+                    val newFoto = json.optString("foto", "")
+                    val stockStr = prefs.getString("list_stock", "") ?: ""
+                    val currentStocks = com.example.ui.screens.deserializeStock(stockStr).toMutableList()
+                    val idx = currentStocks.indexOfFirst { (barcode.isNotEmpty() && it.barcode.equals(barcode, ignoreCase = true)) || (id.isNotEmpty() && it.id == id) }
+                    if (idx != -1) {
+                        val cur = currentStocks[idx]
+                        currentStocks[idx] = cur.copy(
+                            stok = cur.stok + addQty,
+                            foto = if (newFoto.isNotEmpty()) newFoto else cur.foto
+                        )
+                        prefs.edit().putString("list_stock", com.example.ui.screens.serializeStock(currentStocks)).apply()
+                        sendJsonResponse(output, JSONObject().put("success", true).put("newStock", currentStocks[idx].stok).put("foto", currentStocks[idx].foto).toString())
+                    } else {
+                        sendJsonResponse(output, JSONObject().put("success", false).put("message", "Barang tidak ditemukan").toString(), 404)
+                    }
+                    return
+                }
+
                 if (action == "checkout") {
                     val itemsArr = json.optJSONArray("items") ?: JSONArray()
                     val tunai = json.optDouble("tunai", 0.0)
@@ -912,6 +2118,7 @@ class LocalHttpServer(
                     val harga = json.optDouble("harga", 0.0)
                     val stok = json.optInt("stok", 0)
                     val barcode = json.optString("barcode", "")
+                    val foto = json.optString("foto", "")
 
                     val stockStr = prefs.getString("list_stock", "") ?: ""
                     val currentStocks = com.example.ui.screens.deserializeStock(stockStr).toMutableList()
@@ -925,7 +2132,8 @@ class LocalHttpServer(
                         harga = harga,
                         stok = stok,
                         barcode = barcode,
-                        tanggal = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault()).format(java.util.Date())
+                        tanggal = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault()).format(java.util.Date()),
+                        foto = if (foto.isNotEmpty()) foto else (if (existingIndex != -1) currentStocks[existingIndex].foto else "")
                     )
 
                     if (existingIndex != -1) {
@@ -940,12 +2148,21 @@ class LocalHttpServer(
             }
             "DELETE" -> {
                 val idStr = queryParams["id"] ?: if (body.isNotEmpty()) JSONObject(body).optString("id") else null
+                val type = queryParams["type"] ?: if (body.isNotEmpty()) JSONObject(body).optString("type") else "stock"
                 if (idStr != null) {
-                    val stockStr = prefs.getString("list_stock", "") ?: ""
-                    val currentStocks = com.example.ui.screens.deserializeStock(stockStr).toMutableList()
-                    currentStocks.removeAll { it.id == idStr }
-                    prefs.edit().putString("list_stock", com.example.ui.screens.serializeStock(currentStocks)).apply()
-                    sendJsonResponse(output, JSONObject().put("success", true).toString())
+                    if (type == "transaction" || path.contains("transaction")) {
+                        val cashierStr = prefs.getString("list_cashier", "") ?: ""
+                        val currentCashier = com.example.ui.screens.deserializeCashier(cashierStr).toMutableList()
+                        currentCashier.removeAll { it.id == idStr }
+                        prefs.edit().putString("list_cashier", com.example.ui.screens.serializeCashier(currentCashier)).apply()
+                        sendJsonResponse(output, JSONObject().put("success", true).toString())
+                    } else {
+                        val stockStr = prefs.getString("list_stock", "") ?: ""
+                        val currentStocks = com.example.ui.screens.deserializeStock(stockStr).toMutableList()
+                        currentStocks.removeAll { it.id == idStr }
+                        prefs.edit().putString("list_stock", com.example.ui.screens.serializeStock(currentStocks)).apply()
+                        sendJsonResponse(output, JSONObject().put("success", true).toString())
+                    }
                 } else {
                     sendJsonResponse(output, JSONObject().put("success", false).put("message", "ID tidak ditemukan").toString(), 400)
                 }
@@ -1077,105 +2294,208 @@ class LocalHttpServer(
                 if (json.has("activeTimeZone")) {
                     val tz = json.getString("activeTimeZone")
                     mainPrefs.edit().putString("active_timezone", tz).apply()
-                    sendJsonResponse(output, JSONObject().put("success", true).put("activeTimeZone", tz).toString())
-                    return
+                    com.example.ui.MainViewModel.instance?.activeTimeZone = tz
                 }
+                if (json.has("clockFontSizeSp")) {
+                    val size = json.getDouble("clockFontSizeSp").toFloat().coerceIn(24f, 96f)
+                    com.example.ui.MainViewModel.instance?.saveClockFontSize(size)
+                    mainPrefs.edit().putFloat("clock_font_size_sp", size).apply()
+                }
+                sendJsonResponse(output, JSONObject().put("success", true).toString())
+                return
             } catch (e: Exception) {
                 e.printStackTrace()
             }
         }
 
-        val notes = repository.allNotes.first()
-        val shopping = repository.allShoppingItems.first()
-        val agenda = repository.allAgendas.first()
-        val jadwal = repository.allJadwal.first()
-        val savings = repository.allSavingTransactions.first()
+        try {
+            val notes = try { repository.allNotes.first() } catch (e: Exception) { emptyList() }
+            val shopping = try { repository.allShoppingItems.first() } catch (e: Exception) { emptyList() }
+            val agenda = try { repository.allAgendas.first() } catch (e: Exception) { emptyList() }
+            val jadwal = try { repository.allJadwal.first() } catch (e: Exception) { emptyList() }
+            val savings = try { repository.allSavingTransactions.first() } catch (e: Exception) { emptyList() }
 
-        val profileName = mainPrefs.getString("profile_name", "Singghara User") ?: "Singghara User"
-        val profileAvatarIndex = mainPrefs.getInt("profile_avatar_index", 0)
-        val profileImageUri = mainPrefs.getString("profile_image_uri", "") ?: ""
-        val localFile = java.io.File(context.filesDir, "custom_profile_avatar.jpg")
-        val hasCustomImage = profileAvatarIndex == -1 && (profileImageUri.isNotEmpty() || (localFile.exists() && localFile.length() > 0))
-        val activeTimeZone = mainPrefs.getString("active_timezone", "WIB") ?: "WIB"
+            val profileName = getActiveProfileName()
+            val profileAvatarIndex = getActiveProfileAvatarIndex()
+            val profileImageUri = getActiveProfileImageUri()
+            val localFile = java.io.File(context.filesDir, "custom_profile_avatar.jpg")
+            val cachedFile = java.io.File(context.filesDir, "cached_network_avatar.jpg")
+            val hasCustomImage = (profileAvatarIndex == -1 && profileImageUri.isNotEmpty()) ||
+                                 (localFile.exists() && localFile.length() > 0) ||
+                                 (cachedFile.exists() && cachedFile.length() > 0)
+            val activeTimeZone = mainPrefs.getString("active_timezone", "WIB") ?: "WIB"
 
-        val prefs = context.getSharedPreferences("pembukuan_usaha_prefs", Context.MODE_PRIVATE)
-        val stockStr = prefs.getString("list_stock", "") ?: ""
-        val cashierStr = prefs.getString("list_cashier", "") ?: ""
-        val stocks = com.example.ui.screens.deserializeStock(stockStr)
-        val cashiers = com.example.ui.screens.deserializeCashier(cashierStr)
+            val prefs = context.getSharedPreferences("pembukuan_usaha_prefs", Context.MODE_PRIVATE)
+            val stockStr = prefs.getString("list_stock", "") ?: ""
+            val cashierStr = prefs.getString("list_cashier", "") ?: ""
+            val stocks = try { com.example.ui.screens.deserializeStock(stockStr) } catch(e: Exception) { emptyList() }
+            val cashiers = try { com.example.ui.screens.deserializeCashier(cashierStr) } catch(e: Exception) { emptyList() }
 
-        val totalRevenue = cashiers.sumOf { it.totalHarga }
-        val savingsBalance = savings.fold(0.0) { acc, item ->
-            if (item.jenis == "masuk") acc + item.nominal else acc - item.nominal
+            val totalRevenue = cashiers.sumOf { it.totalHarga }
+            val savingsBalance = savings.fold(0.0) { acc, item ->
+                if (item.jenis == "masuk") acc + item.nominal else acc - item.nominal
+            }
+            val unpurchasedShopping = shopping.count { it.qty > 0 }
+
+            val recentNotesArr = JSONArray()
+            notes.take(5).forEach { note ->
+                recentNotesArr.put(JSONObject().apply {
+                    put("id", note.id)
+                    put("title", note.title)
+                    put("category", note.category)
+                    put("content", if (note.content.length > 60) note.content.take(60) + "..." else note.content)
+                })
+            }
+
+            val allAgendasArr = JSONArray()
+            agenda.forEach { a ->
+                allAgendasArr.put(JSONObject().apply {
+                    put("id", a.id)
+                    put("judul", a.judul)
+                    put("tanggal", a.tanggal)
+                    put("detail", a.detail)
+                    put("tipe", a.tipe)
+                })
+            }
+
+            val recentAgendaArr = JSONArray()
+            agenda.take(5).forEach { a ->
+                recentAgendaArr.put(JSONObject().apply {
+                    put("id", a.id)
+                    put("judul", a.judul)
+                    put("tanggal", a.tanggal)
+                    put("tipe", a.tipe)
+                })
+            }
+
+            val recentCashierArr = JSONArray()
+            cashiers.take(5).forEach { c ->
+                recentCashierArr.put(JSONObject().apply {
+                    put("id", c.id)
+                    put("waktu", c.waktu)
+                    put("totalHarga", c.totalHarga)
+                    put("itemsCount", c.items.size)
+                })
+            }
+
+            val resObj = JSONObject().apply {
+                put("notesCount", notes.size)
+                put("shoppingCount", shopping.size)
+                put("agendaCount", agenda.size)
+                put("jadwalCount", jadwal.size)
+                put("savingsCount", savings.size)
+                put("productsCount", stocks.size)
+                put("salesCount", cashiers.size)
+                put("totalRevenue", totalRevenue)
+                put("savingsBalance", savingsBalance)
+                put("unpurchasedShopping", unpurchasedShopping)
+                put("appName", "Singghara Suite")
+                put("profileName", profileName)
+                put("profileAvatarIndex", profileAvatarIndex)
+                put("hasCustomImage", hasCustomImage)
+                put("profileImageUrl", if (hasCustomImage) "/api/profile/image?t=${System.currentTimeMillis()}" else "")
+                put("remotePhotoUrl", if (profileImageUri.startsWith("http")) profileImageUri else "")
+                put("activeTimeZone", activeTimeZone)
+                put("deviceIp", getIpAddress(context))
+                put("status", "Aktif & Terhubung")
+                put("recentNotes", recentNotesArr)
+                put("recentAgenda", recentAgendaArr)
+                put("allAgendas", allAgendasArr)
+                val todayCal = java.util.Calendar.getInstance()
+                val hourOffset = when (activeTimeZone) {
+                    "WITA" -> 1
+                    "WIT" -> 2
+                    else -> 0
+                }
+                todayCal.add(java.util.Calendar.HOUR_OF_DAY, hourOffset)
+                val todayYear = todayCal.get(java.util.Calendar.YEAR)
+                val todayMonth = todayCal.get(java.util.Calendar.MONTH) + 1
+                val todayDay = todayCal.get(java.util.Calendar.DAY_OF_MONTH)
+                val currentJawa = JavaneseCalendarHelper.calculateJawa(todayYear, todayMonth, todayDay)
+                val hijriOffset = mainPrefs.getInt("hijri_offset", 0)
+                val resolvedHijri = HijriCalendarHelper.getHijriDate(todayYear, todayMonth, todayDay, hijriOffset)
+
+                val indoDays = arrayOf("Minggu", "Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu")
+                val currentDayName = indoDays[todayCal.get(java.util.Calendar.DAY_OF_WEEK) - 1]
+                val indoMonths = arrayOf("Januari", "Februari", "Maret", "April", "Mei", "Juni", "Juli", "Agustus", "September", "Oktober", "November", "Desember")
+                val currentDateFormatted = "$todayDay ${indoMonths[todayMonth - 1]} $todayYear"
+
+                val clockFontSize = com.example.ui.MainViewModel.instance?.clockFontSizeSp ?: mainPrefs.getFloat("clock_font_size_sp", 52f)
+                val customClockFontPath = com.example.ui.MainViewModel.instance?.customClockFontPath?.takeIf { it.isNotEmpty() } ?: mainPrefs.getString("custom_clock_font_path", "") ?: ""
+                val customClockFontName = com.example.ui.MainViewModel.instance?.customClockFontName?.takeIf { it.isNotEmpty() } ?: mainPrefs.getString("custom_clock_font_name", "") ?: "Technology Bold"
+
+                val vm = com.example.ui.MainViewModel.instance
+                val prayerSchedule = vm?.kemenagPrayerSchedule ?: vm?.prayerSchedule ?: run {
+                    val cal = java.util.Calendar.getInstance()
+                    com.example.ui.components.PrayerTimesHelper.getPrayerTimesForTimezone(activeTimeZone, cal)
+                }
+                val scheduleSource = if (vm?.kemenagPrayerSchedule != null) "Kemenag RI (Bimas Islam)" else "Kalkulasi Astronomis"
+                val lat = vm?.userLatitude
+                val lon = vm?.userLongitude
+                val locText = if (lat != null && lon != null) {
+                    val locName = vm?.userLocationName ?: "Koordinat GPS Aktif"
+                    "$locName (${String.format(java.util.Locale.US, "%.4f, %.4f", lat, lon)})"
+                } else {
+                    "Lokasi Default ($activeTimeZone)"
+                }
+
+                val prayerSoundSettingsObj = JSONObject()
+                val prayerNames = listOf("Imsak", "Subuh", "Dzuhur", "Ashar", "Maghrib", "Isya")
+                prayerNames.forEach { p ->
+                    val defaultVal = if (p == "Imsak") 1 else 2
+                    val s = vm?.prayerSoundSettings?.get(p)
+                        ?: mainPrefs.getInt("azan_sound_setting_${p.lowercase(java.util.Locale.getDefault())}", defaultVal)
+                    prayerSoundSettingsObj.put(p, s)
+                }
+
+                val prayerScheduleObj = JSONObject().apply {
+                    put("imsak", prayerSchedule.imsak)
+                    put("subuh", prayerSchedule.subuh)
+                    put("dzuhur", prayerSchedule.dzuhur)
+                    put("ashar", prayerSchedule.ashar)
+                    put("maghrib", prayerSchedule.maghrib)
+                    put("isya", prayerSchedule.isya)
+                }
+
+                put("currentDay", currentDayName)
+                put("currentDate", currentDateFormatted)
+                put("jawaDina", currentJawa.dina)
+                put("jawaPasaran", currentJawa.pasaran)
+                put("jawaWuku", currentJawa.wuku)
+                put("hijriDate", resolvedHijri)
+                put("clockFontSizeSp", clockFontSize)
+                put("clockFontName", if (customClockFontPath.isEmpty()) "Technology Bold (Bawaan My Singghara)" else customClockFontName)
+                put("hasCustomClockFont", customClockFontPath.isNotEmpty())
+                put("recentCashier", recentCashierArr)
+                put("prayerSchedule", prayerScheduleObj)
+                put("prayerScheduleSource", scheduleSource)
+                put("prayerLocationText", locText)
+                put("prayerSoundSettings", prayerSoundSettingsObj)
+            }
+            sendJsonResponse(output, resObj.toString())
+        } catch (e: Exception) {
+            e.printStackTrace()
+            // Graceful fallback JSON so client never fails
+            val fallbackObj = JSONObject().apply {
+                put("appName", "Singghara Suite")
+                put("profileName", getActiveProfileName())
+                put("activeTimeZone", "WIB")
+                put("clockFontSizeSp", 52)
+                put("clockFontName", "Technology Bold")
+                put("hasCustomClockFont", false)
+                put("notesCount", 0)
+                put("shoppingCount", 0)
+                put("agendaCount", 0)
+                put("jadwalCount", 0)
+                put("savingsCount", 0)
+                put("savingsBalance", 0)
+                put("totalRevenue", 0)
+                put("allAgendas", JSONArray())
+                put("recentNotes", JSONArray())
+                put("recentAgenda", JSONArray())
+            }
+            sendJsonResponse(output, fallbackObj.toString())
         }
-        val unpurchasedShopping = shopping.count { it.qty > 0 }
-
-        val recentNotesArr = JSONArray()
-        notes.take(5).forEach { note ->
-            recentNotesArr.put(JSONObject().apply {
-                put("id", note.id)
-                put("title", note.title)
-                put("category", note.category)
-                put("content", if (note.content.length > 60) note.content.take(60) + "..." else note.content)
-            })
-        }
-
-        val allAgendasArr = JSONArray()
-        agenda.forEach { a ->
-            allAgendasArr.put(JSONObject().apply {
-                put("id", a.id)
-                put("judul", a.judul)
-                put("tanggal", a.tanggal)
-                put("detail", a.detail)
-                put("tipe", a.tipe)
-            })
-        }
-
-        val recentAgendaArr = JSONArray()
-        agenda.take(5).forEach { a ->
-            recentAgendaArr.put(JSONObject().apply {
-                put("id", a.id)
-                put("judul", a.judul)
-                put("tanggal", a.tanggal)
-                put("tipe", a.tipe)
-            })
-        }
-
-        val recentCashierArr = JSONArray()
-        cashiers.take(5).forEach { c ->
-            recentCashierArr.put(JSONObject().apply {
-                put("id", c.id)
-                put("waktu", c.waktu)
-                put("totalHarga", c.totalHarga)
-                put("itemsCount", c.items.size)
-            })
-        }
-
-        val resObj = JSONObject().apply {
-            put("notesCount", notes.size)
-            put("shoppingCount", shopping.size)
-            put("agendaCount", agenda.size)
-            put("jadwalCount", jadwal.size)
-            put("savingsCount", savings.size)
-            put("productsCount", stocks.size)
-            put("salesCount", cashiers.size)
-            put("totalRevenue", totalRevenue)
-            put("savingsBalance", savingsBalance)
-            put("unpurchasedShopping", unpurchasedShopping)
-            put("appName", "Singghara Suite")
-            put("profileName", profileName)
-            put("profileAvatarIndex", profileAvatarIndex)
-            put("hasCustomImage", hasCustomImage)
-            put("profileImageUrl", if (hasCustomImage) "/api/profile/image?t=${System.currentTimeMillis()}" else "")
-            put("activeTimeZone", activeTimeZone)
-            put("deviceIp", getIpAddress(context))
-            put("status", "Aktif & Terhubung")
-            put("recentNotes", recentNotesArr)
-            put("recentAgenda", recentAgendaArr)
-            put("allAgendas", allAgendasArr)
-            put("recentCashier", recentCashierArr)
-        }
-        sendJsonResponse(output, resObj.toString())
     }
 
     private fun handlePembukuanRoute(method: String, queryParams: Map<String, String>, body: String, output: OutputStream) {
@@ -1311,6 +2631,119 @@ class LocalHttpServer(
                     sendJsonResponse(output, JSONObject().put("success", false).put("error", e.message).toString(), 500)
                 }
             }
+        }
+    }
+
+    private suspend fun handleHandyTalkyRoute(path: String, method: String, queryParams: Map<String, String>, body: String, output: OutputStream) {
+        try {
+            HandyTalkyManager.init(context)
+
+            if (path == "/api/ht/state" || path.startsWith("/api/ht/state")) {
+                val json = JSONObject().apply {
+                    put("currentFreq", HandyTalkyManager.currentFrequency.value)
+                    put("channelId", HandyTalkyManager.currentChannel.value.id)
+                    put("channelCode", HandyTalkyManager.currentChannel.value.code)
+                    put("channelName", HandyTalkyManager.currentChannel.value.name)
+                    put("band", HandyTalkyManager.selectedBand.value.shortName)
+                    put("callsign", HandyTalkyManager.callsign.value)
+                    put("volume", HandyTalkyManager.volume.value.toDouble())
+                    put("micGain", HandyTalkyManager.micGain.value.toDouble())
+                    put("speakerGain", HandyTalkyManager.speakerGain.value.toDouble())
+                    put("squelchLevel", HandyTalkyManager.squelchLevel.value)
+                    put("rogerBeep", HandyTalkyManager.rogerBeepEnabled.value)
+                    put("squelchTail", HandyTalkyManager.squelchTailEnabled.value)
+                    put("handsfree", HandyTalkyManager.handsfreeMode.value)
+                    put("roipGateway", HandyTalkyManager.roipGatewayMode.value)
+                    put("isTransmitting", HandyTalkyManager.isTransmitting.value)
+                    put("isReceiving", HandyTalkyManager.isReceiving.value)
+                    put("rxCallsign", HandyTalkyManager.rxCallsign.value)
+                    put("txAudioLevel", HandyTalkyManager.txAudioLevel.value.toDouble())
+                    put("rxAudioLevel", HandyTalkyManager.rxAudioLevel.value.toDouble())
+                    put("localIp", HandyTalkyManager.localIpAddress.value)
+                    put("isHotspot", HandyTalkyManager.isHotspotDetected.value)
+
+                    val devArr = JSONArray()
+                    HandyTalkyManager.discoveredDevices.value.forEach { d ->
+                        devArr.put(JSONObject().apply {
+                            put("id", d.id)
+                            put("callsign", d.callsign)
+                            put("ip", d.ip)
+                            put("frequencyMHz", d.frequencyMHz)
+                            put("channelName", d.channelName)
+                            put("lastSeen", d.lastSeen)
+                            put("isTransmitting", d.isTransmitting)
+                        })
+                    }
+                    put("discoveredDevices", devArr)
+
+                    val logArr = JSONArray()
+                    HandyTalkyManager.logs.value.take(50).forEach { l ->
+                        logArr.put(JSONObject().apply {
+                            put("id", l.id)
+                            put("timestamp", l.timestamp)
+                            put("callsign", l.callsign)
+                            put("frequencyMHz", l.frequencyMHz)
+                            put("type", l.type.name)
+                            put("message", l.message)
+                        })
+                    }
+                    put("logs", logArr)
+                }
+                sendJsonResponse(output, json.toString())
+                return
+            }
+
+            if (path == "/api/ht/action" || path.startsWith("/api/ht/action")) {
+                val params = HashMap<String, String>()
+                params.putAll(queryParams)
+                if (body.isNotBlank()) {
+                    try {
+                        val bJson = JSONObject(body)
+                        val it = bJson.keys()
+                        while (it.hasNext()) {
+                            val k = it.next()
+                            params[k] = bJson.optString(k, "")
+                        }
+                    } catch (_: Exception) {}
+                }
+                val action = params["action"] ?: ""
+                val ok = HandyTalkyManager.executeWebAction(action, params)
+                sendJsonResponse(output, JSONObject().put("status", if (ok) "success" else "error").put("action", action).toString())
+                return
+            }
+
+            if (path == "/api/ht/tx_audio" || path.startsWith("/api/ht/tx_audio") || path == "/api/ht/audio/tx") {
+                if (body.isNotBlank()) {
+                    try {
+                        val bJson = JSONObject(body)
+                        val pcmBase64 = bJson.optString("pcmBase64", "")
+                        val cs = bJson.optString("callsign", "").ifEmpty { queryParams["callsign"] }
+                        if (pcmBase64.isNotEmpty()) {
+                            val pcmBytes = android.util.Base64.decode(pcmBase64, android.util.Base64.DEFAULT)
+                            if (pcmBytes.isNotEmpty()) {
+                                HandyTalkyManager.transmitAudioFromWeb(pcmBytes, pcmBytes.size, cs)
+                            }
+                        }
+                    } catch (_: Exception) {}
+                }
+                sendJsonResponse(output, JSONObject().put("status", "success").toString())
+                return
+            }
+
+            if (path == "/api/ht/rx_audio" || path.startsWith("/api/ht/rx_audio")) {
+                val chunk = HandyTalkyManager.getWebRxAudioChunk()
+                if (chunk != null && chunk.isNotEmpty()) {
+                    val b64 = android.util.Base64.encodeToString(chunk, android.util.Base64.NO_WRAP)
+                    sendJsonResponse(output, JSONObject().put("status", "success").put("hasAudio", true).put("pcmBase64", b64).toString())
+                } else {
+                    sendJsonResponse(output, JSONObject().put("status", "success").put("hasAudio", false).toString())
+                }
+                return
+            }
+
+            sendJsonResponse(output, JSONObject().put("status", "error").put("message", "Endpoint not found").toString(), 404)
+        } catch (e: Exception) {
+            sendJsonResponse(output, JSONObject().put("status", "error").put("error", e.message ?: "Unknown error").toString(), 500)
         }
     }
 
@@ -1492,46 +2925,524 @@ class LocalHttpServer(
         sendJsonResponse(output, resObj.toString())
     }
 
-    private fun handleQuranRoute(method: String, queryParams: Map<String, String>, body: String, output: OutputStream) {
-        val surahIdStr = queryParams["surahId"] ?: queryParams["id"]
-        if (surahIdStr != null) {
-            val surahId = surahIdStr.toIntOrNull() ?: 1
-            val verses = com.example.data.QuranData.getVersesForSurah(surahId)
-            val surahMeta = com.example.data.QuranData.surahs.firstOrNull { it.id == surahId }
-            val resObj = JSONObject().apply {
-                if (surahMeta != null) {
-                    put("id", surahMeta.id)
-                    put("nameArabic", surahMeta.nameArabic)
-                    put("nameLatin", surahMeta.nameIndonesian)
-                    put("type", surahMeta.revelationType)
-                    put("verseCount", surahMeta.verseCount)
-                    put("translation", surahMeta.translationName)
+    private suspend fun handleTransferFileRoute(path: String, method: String, queryParams: Map<String, String>, body: String, output: OutputStream) {
+        val transferManager = com.example.transfer.FileTransferManager.getInstance(context)
+        val action = queryParams["action"] ?: path.removePrefix("/api/transfer_file").removePrefix("/")
+
+        if (method == "GET") {
+            when (action) {
+                "", "info" -> {
+                    val info = JSONObject().apply {
+                        put("status", "ok")
+                        put("deviceName", android.os.Build.MODEL ?: "Android Device")
+                        put("ip", getIpAddress(context))
+                        put("port", port)
+                        put("sharedCount", transferManager.sharedFromPhone.value.size)
+                        put("receivedCount", transferManager.receivedFromPc.value.size)
+                        put("hasSelfApk", transferManager.getSelfApkItem() != null)
+                    }
+                    sendJsonResponse(output, info.toString())
+                    return
                 }
-                val vArr = JSONArray()
-                verses.forEach { v ->
-                    vArr.put(JSONObject().apply {
-                        put("surahId", v.surahId)
-                        put("verseNumber", v.verseNumber)
-                        put("textArabic", v.textArabic)
-                        put("translation", v.translation)
+                "files", "list_shared" -> {
+                    val filesArray = JSONArray()
+                    val files = transferManager.getAllFilesForPc()
+                    files.forEach { f ->
+                        filesArray.put(JSONObject().apply {
+                            put("id", f.id)
+                            put("name", f.name)
+                            put("size", f.size)
+                            put("formattedSize", f.formattedSize)
+                            put("mimeType", f.mimeType)
+                            put("isSelfApk", f.isSelfApk)
+                            put("extension", f.extension)
+                            put("timestamp", f.timestamp)
+                        })
+                    }
+                    sendJsonResponse(output, filesArray.toString())
+                    return
+                }
+                "received_files", "list_received" -> {
+                    val receivedArray = JSONArray()
+                    val files = transferManager.receivedFromPc.value
+                    files.forEach { f ->
+                        receivedArray.put(JSONObject().apply {
+                            put("id", f.id)
+                            put("name", f.name)
+                            put("size", f.size)
+                            put("formattedSize", f.formattedSize)
+                            put("mimeType", f.mimeType)
+                            put("extension", f.extension)
+                            put("timestamp", f.timestamp)
+                        })
+                    }
+                    sendJsonResponse(output, receivedArray.toString())
+                    return
+                }
+                "logs" -> {
+                    val logsArray = JSONArray()
+                    val logs = transferManager.activityLogs.value
+                    logs.forEach { l ->
+                        logsArray.put(JSONObject().apply {
+                            put("id", l.id)
+                            put("title", l.title)
+                            put("description", l.description)
+                            put("timestamp", l.timestamp)
+                            put("isIncoming", l.isIncoming)
+                        })
+                    }
+                    sendJsonResponse(output, logsArray.toString())
+                    return
+                }
+                "download" -> {
+                    val fileId = queryParams["id"] ?: ""
+                    var fileToStream: java.io.File? = null
+                    var fileNameToUse = "berkas"
+                    var mimeTypeToUse = "application/octet-stream"
+
+                    if (fileId == "self_apk") {
+                        val selfApk = transferManager.getSelfApkItem()
+                        fileToStream = selfApk?.file
+                        fileNameToUse = selfApk?.name ?: "MySingghara_App.apk"
+                        mimeTypeToUse = "application/vnd.android.package-archive"
+                    } else {
+                        val allFiles = transferManager.getAllFilesForPc()
+                        val item = allFiles.find { it.id == fileId }
+                        if (item != null && item.file != null && item.file.exists()) {
+                            fileToStream = item.file
+                            fileNameToUse = item.name
+                            mimeTypeToUse = item.mimeType
+                        } else {
+                            val receivedItem = transferManager.receivedFromPc.value.find { it.id == fileId }
+                            if (receivedItem != null && receivedItem.file != null && receivedItem.file.exists()) {
+                                fileToStream = receivedItem.file
+                                fileNameToUse = receivedItem.name
+                                mimeTypeToUse = receivedItem.mimeType
+                            }
+                        }
+                    }
+
+                    if (fileToStream == null || !fileToStream.exists()) {
+                        sendResponse(output, 404, "Not Found", "text/plain", "Berkas tidak ditemukan")
+                        return
+                    }
+
+                    try {
+                        val fileLength = fileToStream.length()
+                        val safeName = fileNameToUse.replace("\"", "")
+                        val headers = "HTTP/1.1 200 OK\r\n" +
+                                "Content-Type: " + (if (mimeTypeToUse.isNotEmpty()) mimeTypeToUse else "application/octet-stream") + "\r\n" +
+                                "Content-Length: " + fileLength + "\r\n" +
+                                "Content-Disposition: attachment; filename=\"" + safeName + "\"\r\n" +
+                                "Access-Control-Allow-Origin: *\r\n" +
+                                "Connection: close\r\n\r\n"
+                        output.write(headers.toByteArray(Charsets.UTF_8))
+
+                        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                            fileToStream.inputStream().use { input ->
+                                val buffer = ByteArray(32768)
+                                var bytesRead: Int
+                                while (input.read(buffer).also { bytesRead = it } != -1) {
+                                    output.write(buffer, 0, bytesRead)
+                                }
+                            }
+                            output.flush()
+                        }
+
+                        transferManager.logActivity(
+                            title = "Diunduh oleh PC: $fileNameToUse",
+                            desc = "${com.example.transfer.FileTransferManager.formatFileSize(fileLength)} â€¢ Berhasil ditransfer ke browser PC",
+                            isIncoming = false
+                        )
+                        return
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                        return
+                    }
+                }
+                "download_all" -> {
+                    val files = transferManager.getAllFilesForPc().filter { it.file != null && it.file.exists() }
+                    if (files.isEmpty()) {
+                        sendResponse(output, 404, "Not Found", "text/plain", "Tidak ada berkas yang dibagikan")
+                        return
+                    }
+
+                    try {
+                        val tempZip = java.io.File.createTempFile("transfer_all_", ".zip", context.cacheDir)
+                        java.util.zip.ZipOutputStream(java.io.FileOutputStream(tempZip)).use { zipOut ->
+                            val usedNames = mutableSetOf<String>()
+                            files.forEach { item ->
+                                val f = item.file!!
+                                var entryName = item.name
+                                if (usedNames.contains(entryName)) {
+                                    entryName = "${System.currentTimeMillis()}_$entryName"
+                                }
+                                usedNames.add(entryName)
+                                val zipEntry = java.util.zip.ZipEntry(entryName)
+                                zipOut.putNextEntry(zipEntry)
+                                f.inputStream().use { input -> input.copyTo(zipOut) }
+                                zipOut.closeEntry()
+                            }
+                        }
+
+                        val zipLength = tempZip.length()
+                        val headers = "HTTP/1.1 200 OK\r\n" +
+                                "Content-Type: application/zip\r\n" +
+                                "Content-Length: " + zipLength + "\r\n" +
+                                "Content-Disposition: attachment; filename=\"Semua_Berkas_MySingghara.zip\"\r\n" +
+                                "Access-Control-Allow-Origin: *\r\n" +
+                                "Connection: close\r\n\r\n"
+                        output.write(headers.toByteArray(Charsets.UTF_8))
+                        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                            tempZip.inputStream().use { it.copyTo(output) }
+                            output.flush()
+                            tempZip.delete()
+                        }
+
+                        transferManager.logActivity(
+                            title = "Download Semua Berkas ZIP oleh PC",
+                            desc = "${files.size} berkas (${com.example.transfer.FileTransferManager.formatFileSize(zipLength)})",
+                            isIncoming = false
+                        )
+                        return
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                        sendResponse(output, 500, "Error", "text/plain", "Gagal membuat ZIP: ${e.message}")
+                        return
+                    }
+                }
+            }
+        } else if (method == "POST") {
+            when (action) {
+                "upload" -> {
+                    try {
+                        val json = JSONObject(body)
+                        val fileName = json.optString("filename", "berkas_pc_${System.currentTimeMillis()}")
+                        val base64Data = json.optString("base64Data", "")
+                        if (base64Data.isEmpty()) {
+                            sendJsonResponse(output, JSONObject().put("status", "error").put("message", "Data berkas kosong").toString(), 400)
+                            return
+                        }
+                        val fileBytes = android.util.Base64.decode(base64Data, android.util.Base64.DEFAULT)
+                        val savedFile = transferManager.saveReceivedFromPc(fileName, fileBytes)
+
+                        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                            com.example.ui.MainViewModel.instance?.showToastPopup("Berkas baru diterima dari PC: ${savedFile.name}")
+                        }
+
+                        val resp = JSONObject().apply {
+                            put("status", "success")
+                            put("message", "Berkas berhasil diterima dan disimpan di HP")
+                            put("fileName", savedFile.name)
+                            put("fileSize", fileBytes.size)
+                            put("formattedSize", com.example.transfer.FileTransferManager.formatFileSize(fileBytes.size.toLong()))
+                        }
+                        sendJsonResponse(output, resp.toString())
+                        return
+                    } catch (e: Exception) {
+                        sendJsonResponse(output, JSONObject().put("status", "error").put("message", e.message ?: "Upload gagal").toString(), 500)
+                        return
+                    }
+                }
+                "delete_received" -> {
+                    try {
+                        val json = JSONObject(body)
+                        val fileId = json.optString("id", "")
+                        val success = transferManager.deleteReceivedFile(fileId)
+                        sendJsonResponse(output, JSONObject().put("status", if (success) "success" else "error").toString())
+                        return
+                    } catch (e: Exception) {
+                        sendJsonResponse(output, JSONObject().put("status", "error").put("message", e.message).toString(), 500)
+                        return
+                    }
+                }
+                "clear_logs" -> {
+                    transferManager.clearLogs()
+                    sendJsonResponse(output, JSONObject().put("status", "success").toString())
+                    return
+                }
+            }
+        }
+        sendJsonResponse(output, JSONObject().put("status", "error").put("message", "Not found").toString(), 404)
+    }
+
+    private suspend fun handleTelegramAiRoute(path: String, method: String, queryParams: Map<String, String>, body: String, output: OutputStream) {
+        try {
+            TelegramBotManager.init(context)
+
+            if (path == "/api/telegram_ai/state" || path == "/api/telegram/state") {
+                val json = JSONObject().apply {
+                    put("isRunning", TelegramBotManager.isRunning.value)
+                    put("botToken", TelegramBotManager.botToken.value)
+                    put("registeredChatId", TelegramBotManager.registeredChatId.value)
+                    put("allowAnyChat", TelegramBotManager.allowAnyChat.value)
+                    put("botUsername", TelegramBotManager.botInfo.value?.username ?: "My_Singghara_bot")
+                    put("botFirstName", TelegramBotManager.botInfo.value?.firstName ?: "My Singghara")
+
+                    val logArr = JSONArray()
+                    TelegramBotManager.logs.value.take(50).forEach { l ->
+                        logArr.put(JSONObject().apply {
+                            put("id", l.id)
+                            put("timestamp", l.timestamp)
+                            put("type", l.type.name)
+                            put("chatId", l.chatId)
+                            put("senderName", l.senderName)
+                            put("message", l.message)
+                            put("status", l.status)
+                        })
+                    }
+                    put("logs", logArr)
+                }
+                sendJsonResponse(output, json.toString())
+                return
+            }
+
+            if ((path == "/api/telegram_ai/chat" || path == "/api/telegram/chat") && method == "POST") {
+                val bodyJson = try { JSONObject(body) } catch (_: Exception) { JSONObject() }
+                val query = bodyJson.optString("query", bodyJson.optString("text", "")).trim()
+                val senderName = bodyJson.optString("senderName", "Anda (Web PC)")
+                val chatIdStr = bodyJson.optString("chatId", TelegramBotManager.registeredChatId.value)
+                val chatId = chatIdStr.toLongOrNull() ?: 999999L
+
+                if (query.isBlank()) {
+                    val errJson = JSONObject().apply {
+                        put("success", false)
+                        put("message", "Pertanyaan tidak boleh kosong")
+                    }
+                    sendJsonResponse(output, errJson.toString())
+                    return
+                }
+
+                // 100% OFFLINE AI Engine processing database queries
+                val reply = TelegramAiEngine.processMessage(
+                    context = context,
+                    rawText = query,
+                    chatId = chatId,
+                    senderName = senderName
+                )
+
+                val respJson = JSONObject().apply {
+                    put("success", true)
+                    put("query", query)
+                    put("reply", reply)
+                }
+                sendJsonResponse(output, respJson.toString())
+                return
+            }
+
+            if ((path == "/api/telegram_ai/action" || path == "/api/telegram/action") && method == "POST") {
+                val bodyJson = try { JSONObject(body) } catch (_: Exception) { JSONObject() }
+                val action = bodyJson.optString("action", "")
+
+                val respJson = JSONObject()
+                when (action) {
+                    "start" -> {
+                        TelegramBotManager.start(context)
+                        respJson.put("success", true)
+                        respJson.put("message", "Layanan Bot diaktifkan")
+                    }
+                    "stop" -> {
+                        TelegramBotManager.stop(context)
+                        respJson.put("success", true)
+                        respJson.put("message", "Layanan Bot dihentikan")
+                    }
+                    "save_token" -> {
+                        val token = bodyJson.optString("token", "").trim()
+                        TelegramBotManager.setBotToken(context, token)
+                        respJson.put("success", true)
+                        respJson.put("message", "Token bot berhasil diperbarui")
+                    }
+                    "reset_token" -> {
+                        TelegramBotManager.setBotToken(context, TelegramBotManager.DEFAULT_BOT_TOKEN)
+                        respJson.put("success", true)
+                        respJson.put("message", "Token bot direset ke token bawaan")
+                    }
+                    "save_chat_id" -> {
+                        val chatId = bodyJson.optString("chatId", "").trim()
+                        TelegramBotManager.setRegisteredChatId(context, chatId)
+                        respJson.put("success", true)
+                        respJson.put("message", "Chat ID disimpan")
+                    }
+                    "toggle_allow_any_chat" -> {
+                        val allow = bodyJson.optBoolean("allowAnyChat", true)
+                        TelegramBotManager.setAllowAnyChat(context, allow)
+                        respJson.put("success", true)
+                        respJson.put("allowAnyChat", allow)
+                    }
+                    "auto_detect_chat_id" -> {
+                        val (ok, msg) = TelegramBotManager.autoDetectChatId(context)
+                        respJson.put("success", ok)
+                        respJson.put("message", msg)
+                        respJson.put("chatId", TelegramBotManager.registeredChatId.value)
+                    }
+                    "send_test_message" -> {
+                        val (ok, msg) = TelegramBotManager.sendTestMessage(context)
+                        respJson.put("success", ok)
+                        respJson.put("message", msg)
+                    }
+                    "clear_logs" -> {
+                        TelegramBotManager.clearLogs()
+                        respJson.put("success", true)
+                        respJson.put("message", "Log aktivitas dibersihkan")
+                    }
+                    else -> {
+                        respJson.put("success", false)
+                        respJson.put("message", "Aksi tidak dikenali: $action")
+                    }
+                }
+                sendJsonResponse(output, respJson.toString())
+                return
+            }
+
+            sendResponse(output, 404, "Not Found", "text/plain", "Telegram AI Endpoint Not Found")
+        } catch (e: Exception) {
+            val errJson = JSONObject().apply {
+                put("success", false)
+                put("error", e.message ?: "Unknown error")
+            }
+            sendJsonResponse(output, errJson.toString())
+        }
+    }
+
+    private suspend fun handleQuranRoute(path: String, method: String, queryParams: Map<String, String>, body: String, output: OutputStream) {
+        when {
+            path.startsWith("/api/quran/bookmarks") || queryParams["type"] == "bookmarks" -> {
+                when (method) {
+                    "GET" -> {
+                        val bookmarks = repository.allQuranBookmarks.first()
+                        val arr = JSONArray()
+                        bookmarks.forEach { b ->
+                            arr.put(JSONObject().apply {
+                                put("id", b.id)
+                                put("surahId", b.surahId)
+                                put("surahName", b.surahName)
+                                put("verseNumber", b.verseNumber)
+                                put("timestamp", b.timestamp)
+                            })
+                        }
+                        sendJsonResponse(output, arr.toString())
+                    }
+                    "POST" -> {
+                        val json = try { JSONObject(body) } catch (e: Exception) { JSONObject() }
+                        val surahId = json.optInt("surahId", queryParams["surahId"]?.toIntOrNull() ?: 1)
+                        val surahName = json.optString("surahName", queryParams["surahName"] ?: "Surah $surahId")
+                        val verseNumber = json.optInt("verseNumber", queryParams["verseNumber"]?.toIntOrNull() ?: 1)
+                        val isBookmarked = repository.isQuranBookmarked(surahId, verseNumber)
+                        if (isBookmarked) {
+                            repository.deleteQuranBookmarkByVerse(surahId, verseNumber)
+                            sendJsonResponse(output, JSONObject().put("status", "deleted").put("isBookmarked", false).toString())
+                        } else {
+                            repository.insertQuranBookmark(QuranBookmark(
+                                surahId = surahId,
+                                surahName = surahName,
+                                verseNumber = verseNumber
+                            ))
+                            sendJsonResponse(output, JSONObject().put("status", "added").put("isBookmarked", true).toString())
+                        }
+                    }
+                    "DELETE" -> {
+                        val json = try { JSONObject(body) } catch (e: Exception) { JSONObject() }
+                        val surahId = json.optInt("surahId", queryParams["surahId"]?.toIntOrNull() ?: 0)
+                        val verseNumber = json.optInt("verseNumber", queryParams["verseNumber"]?.toIntOrNull() ?: 0)
+                        if (surahId > 0 && verseNumber > 0) {
+                            repository.deleteQuranBookmarkByVerse(surahId, verseNumber)
+                        }
+                        sendJsonResponse(output, JSONObject().put("status", "deleted").toString())
+                    }
+                    else -> sendJsonResponse(output, JSONObject().put("status", "error").put("message", "Method not allowed").toString(), 405)
+                }
+            }
+            path.startsWith("/api/quran/history") || queryParams["type"] == "history" -> {
+                when (method) {
+                    "GET" -> {
+                        val history = repository.allQuranHistory.first()
+                        val arr = JSONArray()
+                        history.take(30).forEach { h ->
+                            arr.put(JSONObject().apply {
+                                put("id", h.id)
+                                put("surahId", h.surahId)
+                                put("surahName", h.surahName)
+                                put("verseNumber", h.verseNumber)
+                                put("timestamp", h.timestamp)
+                            })
+                        }
+                        sendJsonResponse(output, arr.toString())
+                    }
+                    "POST" -> {
+                        val json = try { JSONObject(body) } catch (e: Exception) { JSONObject() }
+                        val surahId = json.optInt("surahId", queryParams["surahId"]?.toIntOrNull() ?: 1)
+                        val surahName = json.optString("surahName", queryParams["surahName"] ?: "Surah $surahId")
+                        val verseNumber = json.optInt("verseNumber", queryParams["verseNumber"]?.toIntOrNull() ?: 1)
+                        repository.insertQuranHistory(QuranHistory(
+                            surahId = surahId,
+                            surahName = surahName,
+                            verseNumber = verseNumber
+                        ))
+                        sendJsonResponse(output, JSONObject().put("status", "success").toString())
+                    }
+                    "DELETE" -> {
+                        repository.clearQuranHistory()
+                        sendJsonResponse(output, JSONObject().put("status", "cleared").toString())
+                    }
+                    else -> sendJsonResponse(output, JSONObject().put("status", "error").put("message", "Method not allowed").toString(), 405)
+                }
+            }
+            path.startsWith("/api/quran/juzs") || queryParams["type"] == "juzs" -> {
+                val juzArr = JSONArray()
+                com.example.data.QuranData.juzs.forEach { j ->
+                    juzArr.put(JSONObject().apply {
+                        put("number", j.number)
+                        put("startSurahId", j.startSurahId)
+                        put("startSurahName", j.startSurahName)
+                        put("startVerse", j.startVerse)
                     })
                 }
-                put("verses", vArr)
+                sendJsonResponse(output, juzArr.toString())
             }
-            sendJsonResponse(output, resObj.toString())
-        } else {
-            val surahsArr = JSONArray()
-            com.example.data.QuranData.surahs.forEach { s ->
-                surahsArr.put(JSONObject().apply {
-                    put("id", s.id)
-                    put("nameArabic", s.nameArabic)
-                    put("nameLatin", s.nameIndonesian)
-                    put("type", s.revelationType)
-                    put("verseCount", s.verseCount)
-                    put("translation", s.translationName)
-                })
+            else -> {
+                val surahIdStr = queryParams["surahId"] ?: queryParams["id"]
+                if (surahIdStr != null) {
+                    val surahId = surahIdStr.toIntOrNull() ?: 1
+                    val verses = com.example.data.QuranData.getVersesForSurah(surahId)
+                    val surahMeta = com.example.data.QuranData.surahs.firstOrNull { it.id == surahId }
+                    val resObj = JSONObject().apply {
+                        if (surahMeta != null) {
+                            put("id", surahMeta.id)
+                            put("nameArabic", surahMeta.nameArabic)
+                            put("nameLatin", surahMeta.nameIndonesian)
+                            put("type", surahMeta.revelationType)
+                            put("verseCount", surahMeta.verseCount)
+                            put("translation", surahMeta.translationName)
+                        }
+                        val vArr = JSONArray()
+                        verses.forEach { v ->
+                            vArr.put(JSONObject().apply {
+                                put("surahId", v.surahId)
+                                put("verseNumber", v.verseNumber)
+                                put("textArabic", v.textArabic)
+                                put("translation", v.translation)
+                                put("tafsir", v.tafsir)
+                                put("juz", v.juz)
+                            })
+                        }
+                        put("verses", vArr)
+                    }
+                    sendJsonResponse(output, resObj.toString())
+                } else {
+                    val surahsArr = JSONArray()
+                    com.example.data.QuranData.surahs.forEach { s ->
+                        surahsArr.put(JSONObject().apply {
+                            put("id", s.id)
+                            put("nameArabic", s.nameArabic)
+                            put("nameLatin", s.nameIndonesian)
+                            put("type", s.revelationType)
+                            put("verseCount", s.verseCount)
+                            put("translation", s.translationName)
+                        })
+                    }
+                    sendJsonResponse(output, surahsArr.toString())
+                }
             }
-            sendJsonResponse(output, surahsArr.toString())
         }
     }
 
@@ -1643,18 +3554,201 @@ class LocalHttpServer(
             handleProfileImageRoute(output)
             return
         }
+
         val mainPrefs = context.getSharedPreferences("mysingghara_prefs", Context.MODE_PRIVATE)
-        val profileName = mainPrefs.getString("profile_name", "Singghara User") ?: "Singghara User"
-        val profileAvatarIndex = mainPrefs.getInt("profile_avatar_index", 0)
-        val profileImageUri = mainPrefs.getString("profile_image_uri", "") ?: ""
+        val vm = com.example.ui.MainViewModel.instance
+
+        if (method.equals("POST", ignoreCase = true)) {
+            try {
+                val json = JSONObject(body)
+                val action = json.optString("action", "save_profile")
+
+                when (action) {
+                    "save_profile", "update_profile" -> {
+                        val newName = json.optString("name", "").trim()
+                        val newAvatarIndex = json.optInt("avatarIndex", 0)
+                        val removePhoto = json.optBoolean("removePhoto", false)
+
+                        if (newName.isNotEmpty()) {
+                            vm?.saveProfileName(newName)
+                            mainPrefs.edit().putString("profile_name", newName).apply()
+                        }
+
+                        if (removePhoto) {
+                            val localFile = java.io.File(context.filesDir, "custom_profile_avatar.jpg")
+                            if (localFile.exists()) localFile.delete()
+                            val cachedFile = java.io.File(context.filesDir, "cached_network_avatar.jpg")
+                            if (cachedFile.exists()) cachedFile.delete()
+                            vm?.saveProfileImageUri("")
+                            mainPrefs.edit().putString("profile_image_uri", "").apply()
+                            vm?.saveProfileAvatarIndex(newAvatarIndex)
+                            mainPrefs.edit().putInt("profile_avatar_index", newAvatarIndex).apply()
+                        } else {
+                            vm?.saveProfileAvatarIndex(newAvatarIndex)
+                            mainPrefs.edit().putInt("profile_avatar_index", newAvatarIndex).apply()
+                        }
+                        sendJsonResponse(output, JSONObject().put("success", true).put("message", "Profil berhasil disimpan!").toString())
+                        return
+                    }
+                    "upload_photo" -> {
+                        val base64Str = json.optString("photoBase64", "")
+                        if (base64Str.isNotEmpty()) {
+                            val cleanBase64 = if (base64Str.contains(",")) base64Str.substringAfter(",") else base64Str
+                            val decodedBytes = android.util.Base64.decode(cleanBase64, android.util.Base64.DEFAULT)
+                            val bitmap = android.graphics.BitmapFactory.decodeByteArray(decodedBytes, 0, decodedBytes.size)
+                            if (bitmap != null) {
+                                val localFile = java.io.File(context.filesDir, "custom_profile_avatar.jpg")
+                                val fos = java.io.FileOutputStream(localFile)
+                                bitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 90, fos)
+                                fos.flush()
+                                fos.close()
+
+                                vm?.saveProfileImageBitmap(bitmap)
+                                vm?.saveProfileAvatarIndex(-1)
+                                mainPrefs.edit()
+                                    .putString("profile_image_uri", localFile.absolutePath)
+                                    .putInt("profile_avatar_index", -1)
+                                    .apply()
+
+                                sendJsonResponse(output, JSONObject()
+                                    .put("success", true)
+                                    .put("profileImageUrl", "/api/profile/image?t=${System.currentTimeMillis()}")
+                                    .toString())
+                                return
+                            }
+                        }
+                        sendJsonResponse(output, JSONObject().put("success", false).put("message", "Gagal memproses gambar").toString(), 400)
+                        return
+                    }
+                    "toggle_app_lock" -> {
+                        val enabled = json.optBoolean("enabled", false)
+                        vm?.saveAppLockEnabled(enabled)
+                        mainPrefs.edit().putBoolean("app_lock_enabled", enabled).apply()
+                        sendJsonResponse(output, JSONObject().put("success", true).put("enabled", enabled).toString())
+                        return
+                    }
+                    "set_pin" -> {
+                        val pin = json.optString("pin", "").trim()
+                        if (pin.isNotEmpty()) {
+                            vm?.saveAppPin(pin)
+                            vm?.saveAppLockEnabled(true)
+                            mainPrefs.edit()
+                                .putString("app_pin", pin)
+                                .putBoolean("app_lock_enabled", true)
+                                .apply()
+                            sendJsonResponse(output, JSONObject().put("success", true).toString())
+                            return
+                        }
+                        sendJsonResponse(output, JSONObject().put("success", false).put("message", "PIN kosong").toString(), 400)
+                        return
+                    }
+                    "delete_pin" -> {
+                        vm?.saveAppPin("")
+                        vm?.saveAppLockEnabled(false)
+                        mainPrefs.edit()
+                            .putString("app_pin", "")
+                            .putBoolean("app_lock_enabled", false)
+                            .apply()
+                        sendJsonResponse(output, JSONObject().put("success", true).toString())
+                        return
+                    }
+                    "save_gps" -> {
+                        val enabled = json.optBoolean("enabled", true)
+                        val lat = json.optDouble("latitude", 0.0)
+                        val lon = json.optDouble("longitude", 0.0)
+                        if (enabled && (lat != 0.0 || lon != 0.0)) {
+                            vm?.userLatitude = lat
+                            vm?.userLongitude = lon
+                        } else if (!enabled) {
+                            vm?.userLatitude = null
+                            vm?.userLongitude = null
+                        }
+                        sendJsonResponse(output, JSONObject().put("success", true).toString())
+                        return
+                    }
+                    "save_hijri_offset" -> {
+                        val offset = json.optInt("offset", -1)
+                        vm?.hijriOffset = offset
+                        sendJsonResponse(output, JSONObject().put("success", true).toString())
+                        return
+                    }
+                    "save_apps_script_url" -> {
+                        val url = json.optString("url", "").trim()
+                        mainPrefs.edit().putString("apps_script_url", url).apply()
+                        sendJsonResponse(output, JSONObject().put("success", true).toString())
+                        return
+                    }
+                    "sync_profile" -> {
+                        vm?.refreshAuthUser()
+                        sendJsonResponse(output, JSONObject().put("success", true).toString())
+                        return
+                    }
+                    else -> {
+                        sendJsonResponse(output, JSONObject().put("success", true).toString())
+                        return
+                    }
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+                sendJsonResponse(output, JSONObject().put("success", false).put("error", e.message).toString(), 500)
+                return
+            }
+        }
+
+        // GET METHOD
+        val profileName = getActiveProfileName()
+        val profileAvatarIndex = getActiveProfileAvatarIndex()
+        val profileImageUri = getActiveProfileImageUri()
         val localFile = java.io.File(context.filesDir, "custom_profile_avatar.jpg")
-        val hasCustomImage = profileAvatarIndex == -1 && (profileImageUri.isNotEmpty() || (localFile.exists() && localFile.length() > 0))
+        val cachedFile = java.io.File(context.filesDir, "cached_network_avatar.jpg")
+        val hasCustomImage = (profileAvatarIndex == -1 && profileImageUri.isNotEmpty()) ||
+                             (localFile.exists() && localFile.length() > 0) ||
+                             (cachedFile.exists() && cachedFile.length() > 0)
+
+        val currentUid = getActiveUserUid()
+        val isRealAdmin = isCurrentUserAdmin()
+
+        val fbUser = FirebaseAuth.getInstance().currentUser
+        val userEmail = vm?.currentFirebaseUser?.email
+            ?: fbUser?.email
+            ?: mainPrefs.getString("user_email", "") ?: ""
+
+        val isLoggedIn = currentUid.isNotEmpty() || userEmail.isNotEmpty()
+        val membershipTier = vm?.accountMembershipTier?.ifEmpty { "VIP Member Lifetime" } ?: "VIP Member Lifetime"
+        val membershipEndDate = vm?.accountMembershipEndDate ?: 0L
+        val adminPhone = vm?.adminPhoneNumber ?: mainPrefs.getString("admin_phone_number", "088806643415") ?: "088806643415"
+        val appLockEnabled = vm?.isAppLockEnabled ?: mainPrefs.getBoolean("app_lock_enabled", false)
+        val appPin = vm?.appPin ?: mainPrefs.getString("app_pin", "") ?: ""
+        val hasAppPin = appPin.isNotEmpty()
+        val isGpsActive = vm?.userLatitude != null
+        val userLat = vm?.userLatitude ?: 0.0
+        val userLon = vm?.userLongitude ?: 0.0
+        val hijriOffset = vm?.hijriOffset ?: -1
+        val appsScriptUrl = mainPrefs.getString("apps_script_url", "") ?: "https://script.google.com/macros/s/AKfycbyZVVnTMObneY2YMjNSP2G_ywm48vxSctRJYGqNpeTktcZqpkDZRMwSdecUGwlq7tP1/exec"
 
         val res = JSONObject().apply {
             put("profileName", profileName)
             put("profileAvatarIndex", profileAvatarIndex)
             put("hasCustomImage", hasCustomImage)
             put("profileImageUrl", if (hasCustomImage) "/api/profile/image?t=${System.currentTimeMillis()}" else "")
+            put("remotePhotoUrl", if (profileImageUri.startsWith("http")) profileImageUri else "")
+            put("currentUid", currentUid)
+            put("isAdmin", isRealAdmin)
+            put("adminUid", FirebaseAccountAdminManager.ADMIN_UID)
+            put("userEmail", userEmail)
+            put("isLoggedIn", isLoggedIn)
+            put("membershipTier", membershipTier)
+            put("membershipEndDate", membershipEndDate)
+            put("adminPhoneNumber", adminPhone)
+            put("isAppLockEnabled", appLockEnabled)
+            put("hasAppPin", hasAppPin)
+            put("appPin", appPin)
+            put("isGpsActive", isGpsActive)
+            put("userLatitude", userLat)
+            put("userLongitude", userLon)
+            put("hijriOffset", hijriOffset)
+            put("appsScriptUrl", appsScriptUrl)
+            put("appVersion", com.example.BuildConfig.VERSION_NAME)
         }
         sendJsonResponse(output, res.toString())
     }
@@ -1694,9 +3788,16 @@ class LocalHttpServer(
     private suspend fun handleAnggotaRoute(method: String, queryParams: Map<String, String>, body: String, output: OutputStream) {
         when (method) {
             "GET" -> {
-                val anggotaList = repository.allAnggota.first()
+                val currentList = repository.allAnggota.first()
+                val now = System.currentTimeMillis()
+                val (expired, active) = currentList.partition {
+                    com.example.utils.MasaBerlakuHelper.isExpired(it.berlakuHingga, it.tanggalDibuat, now)
+                }
+                if (expired.isNotEmpty()) {
+                    expired.forEach { repository.deleteAnggota(it) }
+                }
                 val jsonArr = JSONArray()
-                anggotaList.forEach { item ->
+                active.forEach { item ->
                     jsonArr.put(JSONObject().apply {
                         put("id", item.id)
                         put("nomorInduk", item.nomorInduk)
@@ -1818,8 +3919,11 @@ class LocalHttpServer(
                 return
             }
             val anggota = repository.allAnggota.first().find { it.id == id }
-            if (anggota == null) {
-                sendResponse(output, 404, "Not Found", "text/plain", "Anggota not found")
+            if (anggota == null || com.example.utils.MasaBerlakuHelper.isExpired(anggota.berlakuHingga, anggota.tanggalDibuat)) {
+                if (anggota != null) {
+                    repository.deleteAnggota(anggota)
+                }
+                sendResponse(output, 404, "Not Found", "text/plain", "Anggota not found or ID Card expired")
                 return
             }
 
@@ -1851,6 +3955,271 @@ class LocalHttpServer(
             sendResponse(output, 500, "Internal Server Error", "text/plain", "Error generating ID card: ${e.message}")
         }
     }
+
+
+    private suspend fun handleBelanjaPasarRoute(method: String, queryParams: Map<String, String>, body: String, output: OutputStream) {
+        when (method) {
+            "GET" -> {
+                val list = repository.allBelanjaPasarItems.first()
+                val jsonArr = org.json.JSONArray()
+                list.forEach { item ->
+                    jsonArr.put(org.json.JSONObject().apply {
+                        put("id", item.id)
+                        put("nama", item.nama)
+                        put("kategori", item.kategori)
+                        put("jumlah", item.jumlah)
+                        put("satuan", item.satuan)
+                        put("perkiraanHarga", item.perkiraanHarga)
+                        put("realisasiHarga", item.realisasiHarga)
+                        put("sudahDibeli", item.sudahDibeli)
+                        put("catatan", item.catatan)
+                        put("tanggal", item.tanggal)
+                    })
+                }
+                sendJsonResponse(output, jsonArr.toString())
+            }
+            "POST" -> {
+                val json = try { org.json.JSONObject(body) } catch (e: Exception) { org.json.JSONObject() }
+                val id = json.optInt("id", 0)
+                val nama = json.optString("nama", "").trim()
+                val kategori = json.optString("kategori", "Sayuran")
+                val jumlah = json.optDouble("jumlah", 1.0)
+                val satuan = json.optString("satuan", "kg")
+                val perkiraanHarga = json.optDouble("perkiraanHarga", 0.0)
+                val realisasiHarga = json.optDouble("realisasiHarga", 0.0)
+                val sudahDibeli = json.optBoolean("sudahDibeli", false)
+                val catatan = json.optString("catatan", "")
+                val tanggal = json.optString("tanggal", java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault()).format(java.util.Date()))
+
+                val item = BelanjaPasarItem(
+                    id = id,
+                    nama = nama,
+                    kategori = kategori,
+                    jumlah = jumlah,
+                    satuan = satuan,
+                    perkiraanHarga = perkiraanHarga,
+                    realisasiHarga = realisasiHarga,
+                    sudahDibeli = sudahDibeli,
+                    catatan = catatan,
+                    tanggal = tanggal
+                )
+                if (id == 0) {
+                    val newId = repository.insertBelanjaPasar(item)
+                    sendJsonResponse(output, """{"status":"success","id":$newId}""")
+                } else {
+                    repository.updateBelanjaPasar(item)
+                    sendJsonResponse(output, """{"status":"success","id":$id}""")
+                }
+            }
+            "PUT" -> {
+                val json = try { org.json.JSONObject(body) } catch (e: Exception) { org.json.JSONObject() }
+                val id = json.optInt("id", queryParams["id"]?.toIntOrNull() ?: 0)
+                if (json.has("sudahDibeli")) {
+                    val sudahDibeli = json.optBoolean("sudahDibeli", false)
+                    repository.setBelanjaPasarSudahDibeli(id, sudahDibeli)
+                    sendJsonResponse(output, """{"status":"success"}""")
+                } else {
+                    sendJsonResponse(output, """{"status":"error","message":"Invalid payload"}""")
+                }
+            }
+            "DELETE" -> {
+                val idParam = queryParams["id"]?.toIntOrNull()
+                val isClearCompleted = queryParams["clear_completed"] == "true"
+                if (isClearCompleted) {
+                    repository.clearCompletedBelanjaPasar()
+                    sendJsonResponse(output, """{"status":"success"}""")
+                } else if (idParam != null && idParam > 0) {
+                    repository.deleteBelanjaPasarById(idParam)
+                    sendJsonResponse(output, """{"status":"success"}""")
+                } else {
+                    sendJsonResponse(output, """{"status":"error","message":"ID required"}""")
+                }
+            }
+            else -> {
+                sendResponse(output, 405, "Method Not Allowed", "text/plain", "Method Not Allowed")
+            }
+        }
+    }
+
+    private suspend fun handleGajiRoute(method: String, queryParams: Map<String, String>, body: String, output: OutputStream) {
+        when (method) {
+            "GET" -> {
+                val gajiList = repository.allGaji.first()
+                val jsonArr = org.json.JSONArray()
+                gajiList.forEach { g ->
+                    jsonArr.put(org.json.JSONObject().apply {
+                        put("id", g.id)
+                        put("anggotaId", g.anggotaId)
+                        put("nomorInduk", g.nomorInduk)
+                        put("nama", g.nama)
+                        put("status", g.status)
+                        put("peran", g.peran)
+                        put("periode", g.periode)
+                        put("tanggalBayar", g.tanggalBayar)
+                        put("gajiPokok", g.gajiPokok)
+                        put("tunjanganJabatan", g.tunjanganJabatan)
+                        put("tunjanganMakanTransport", g.tunjanganMakanTransport)
+                        put("tunjanganKehadiran", g.tunjanganKehadiran)
+                        put("bonusLembur", g.bonusLembur)
+                        put("tunjanganLain", g.tunjanganLain)
+                        put("potonganBpjs", g.potonganBpjs)
+                        put("potonganPph", g.potonganPph)
+                        put("potonganKasbon", g.potonganKasbon)
+                        put("potonganKeterlambatan", g.potonganKeterlambatan)
+                        put("potonganLain", g.potonganLain)
+                        put("totalPendapatan", g.totalPendapatan)
+                        put("totalPotongan", g.totalPotongan)
+                        put("gajiBersih", g.gajiBersih)
+                        put("metodePembayaran", g.metodePembayaran)
+                        put("statusPembayaran", g.statusPembayaran)
+                        put("catatan", g.catatan)
+                        put("tanggalDibuat", g.tanggalDibuat)
+                    })
+                }
+                sendJsonResponse(output, jsonArr.toString())
+            }
+            "POST" -> {
+                val json = try { org.json.JSONObject(body) } catch(e: Exception) { org.json.JSONObject() }
+                val dPokok = json.optDouble("gajiPokok", 0.0)
+                val dJabatan = json.optDouble("tunjanganJabatan", 0.0)
+                val dTransport = json.optDouble("tunjanganMakanTransport", 0.0)
+                val dKehadiran = json.optDouble("tunjanganKehadiran", 0.0)
+                val dLembur = json.optDouble("bonusLembur", 0.0)
+                val dTunjLain = json.optDouble("tunjanganLain", 0.0)
+                val totPendapatan = dPokok + dJabatan + dTransport + dKehadiran + dLembur + dTunjLain
+
+                val dBpjs = json.optDouble("potonganBpjs", 0.0)
+                val dPph = json.optDouble("potonganPph", 0.0)
+                val dKasbon = json.optDouble("potonganKasbon", 0.0)
+                val dTelat = json.optDouble("potonganKeterlambatan", 0.0)
+                val dPotLain = json.optDouble("potonganLain", 0.0)
+                val totPotongan = dBpjs + dPph + dKasbon + dTelat + dPotLain
+                val gajiBersih = (totPendapatan - totPotongan).coerceAtLeast(0.0)
+
+                val item = com.example.data.GajiItem(
+                    anggotaId = json.optLong("anggotaId", 0L),
+                    nomorInduk = json.optString("nomorInduk", "").trim(),
+                    nama = json.optString("nama", "Karyawan").trim(),
+                    status = json.optString("status", "Karyawan Tetap"),
+                    peran = json.optString("peran", "Staff Operasional"),
+                    periode = json.optString("periode", ""),
+                    tanggalBayar = json.optString("tanggalBayar", ""),
+                    gajiPokok = dPokok,
+                    tunjanganJabatan = dJabatan,
+                    tunjanganMakanTransport = dTransport,
+                    tunjanganKehadiran = dKehadiran,
+                    bonusLembur = dLembur,
+                    tunjanganLain = dTunjLain,
+                    potonganBpjs = dBpjs,
+                    potonganPph = dPph,
+                    potonganKasbon = dKasbon,
+                    potonganKeterlambatan = dTelat,
+                    potonganLain = dPotLain,
+                    totalPendapatan = totPendapatan,
+                    totalPotongan = totPotongan,
+                    gajiBersih = gajiBersih,
+                    metodePembayaran = json.optString("metodePembayaran", "Transfer Bank"),
+                    statusPembayaran = json.optString("statusPembayaran", "Lunas"),
+                    catatan = json.optString("catatan", "")
+                )
+                val newId = repository.insertGaji(item)
+                sendJsonResponse(output, org.json.JSONObject().put("success", true).put("id", newId).toString())
+            }
+            "PUT" -> {
+                val json = try { org.json.JSONObject(body) } catch(e: Exception) { org.json.JSONObject() }
+                val id = json.optInt("id", 0)
+                val dPokok = json.optDouble("gajiPokok", 0.0)
+                val dJabatan = json.optDouble("tunjanganJabatan", 0.0)
+                val dTransport = json.optDouble("tunjanganMakanTransport", 0.0)
+                val dKehadiran = json.optDouble("tunjanganKehadiran", 0.0)
+                val dLembur = json.optDouble("bonusLembur", 0.0)
+                val dTunjLain = json.optDouble("tunjanganLain", 0.0)
+                val totPendapatan = dPokok + dJabatan + dTransport + dKehadiran + dLembur + dTunjLain
+
+                val dBpjs = json.optDouble("potonganBpjs", 0.0)
+                val dPph = json.optDouble("potonganPph", 0.0)
+                val dKasbon = json.optDouble("potonganKasbon", 0.0)
+                val dTelat = json.optDouble("potonganKeterlambatan", 0.0)
+                val dPotLain = json.optDouble("potonganLain", 0.0)
+                val totPotongan = dBpjs + dPph + dKasbon + dTelat + dPotLain
+                val gajiBersih = (totPendapatan - totPotongan).coerceAtLeast(0.0)
+
+                val item = com.example.data.GajiItem(
+                    id = id,
+                    anggotaId = json.optLong("anggotaId", 0L),
+                    nomorInduk = json.optString("nomorInduk", "").trim(),
+                    nama = json.optString("nama", "Karyawan").trim(),
+                    status = json.optString("status", "Karyawan Tetap"),
+                    peran = json.optString("peran", "Staff Operasional"),
+                    periode = json.optString("periode", ""),
+                    tanggalBayar = json.optString("tanggalBayar", ""),
+                    gajiPokok = dPokok,
+                    tunjanganJabatan = dJabatan,
+                    tunjanganMakanTransport = dTransport,
+                    tunjanganKehadiran = dKehadiran,
+                    bonusLembur = dLembur,
+                    tunjanganLain = dTunjLain,
+                    potonganBpjs = dBpjs,
+                    potonganPph = dPph,
+                    potonganKasbon = dKasbon,
+                    potonganKeterlambatan = dTelat,
+                    potonganLain = dPotLain,
+                    totalPendapatan = totPendapatan,
+                    totalPotongan = totPotongan,
+                    gajiBersih = gajiBersih,
+                    metodePembayaran = json.optString("metodePembayaran", "Transfer Bank"),
+                    statusPembayaran = json.optString("statusPembayaran", "Lunas"),
+                    catatan = json.optString("catatan", "")
+                )
+                repository.updateGaji(item)
+                sendJsonResponse(output, org.json.JSONObject().put("success", true).toString())
+            }
+            "DELETE" -> {
+                val idStr = queryParams["id"] ?: "0"
+                val id = idStr.toIntOrNull() ?: 0
+                val existing = repository.getGajiById(id)
+                if (existing != null) {
+                    repository.deleteGaji(existing)
+                    sendJsonResponse(output, org.json.JSONObject().put("success", true).toString())
+                } else {
+                    sendJsonResponse(output, org.json.JSONObject().put("success", false).put("message", "Data tidak ditemukan").toString(), 404)
+                }
+            }
+            else -> {
+                sendResponse(output, 405, "Method Not Allowed", "text/plain", "Method Not Allowed")
+            }
+        }
+    }
+
+    private suspend fun handleArisanRoute(method: String, queryParams: Map<String, String>, body: String, output: OutputStream) {
+        val prefs = context.getSharedPreferences("arisan_keluarga_prefs", Context.MODE_PRIVATE)
+        when (method) {
+            "GET" -> {
+                val stateJson = prefs.getString("data_state_json", null)
+                if (!stateJson.isNullOrBlank()) {
+                    sendJsonResponse(output, stateJson)
+                } else {
+                    val defaultState = """{"config":{"namaArisan":"Arisan Keluarga besar singghara","periodeAktif":1,"iuranPokokPerSlot":100000.0,"iuranKasPerSlot":20000.0,"jadwalPertemuanBerikutnya":"","waktuPertemuanBerikutnya":"","lokasiPertemuanBerikutnya":"","namaKetuaArisan":"","namaBendahara":"","catatanPertemuan":""},"anggotaList":[],"pembayaranList":[],"kasSosialList":[],"riwayatPemenangList":[],"siklusKe":1}"""
+                    prefs.edit().putString("data_state_json", defaultState).apply()
+                    sendJsonResponse(output, defaultState)
+                }
+            }
+            "POST" -> {
+                try {
+                    if (body.isNotBlank()) {
+                        prefs.edit().putString("data_state_json", body).apply()
+                    }
+                    sendJsonResponse(output, """{"status":"success","message":"Arisan updated successfully"}""")
+                } catch (e: Exception) {
+                    sendResponse(output, 400, "Bad Request", "application/json", """{"status":"error","message":"${e.message}"}""")
+                }
+            }
+            else -> {
+                sendResponse(output, 405, "Method Not Allowed", "text/plain", "Method Not Allowed")
+            }
+        }
+    }
+
 
     private suspend fun handlePresensiRoute(method: String, queryParams: Map<String, String>, body: String, output: OutputStream) {
         when (method) {
@@ -1996,20 +4365,99 @@ class LocalHttpServer(
             }
         }
 
+        val cachedFile = java.io.File(context.filesDir, "cached_network_avatar.jpg")
+        if (cachedFile.exists() && cachedFile.length() > 0) {
+            try {
+                val bytes = cachedFile.readBytes()
+                sendBinaryResponse(output, 200, "OK", "image/jpeg", bytes)
+                return
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+
         val mainPrefs = context.getSharedPreferences("mysingghara_prefs", Context.MODE_PRIVATE)
         val uriStr = mainPrefs.getString("profile_image_uri", "") ?: ""
         if (uriStr.isNotEmpty()) {
-            try {
-                val uri = android.net.Uri.parse(uriStr)
-                val mimeType = if (uriStr.startsWith("file://")) "image/jpeg" else (context.contentResolver.getType(uri) ?: "image/jpeg")
-                val inputStream = if (uri.scheme == "file") {
-                    java.io.File(uri.path ?: "").inputStream()
-                } else {
-                    context.contentResolver.openInputStream(uri)
+            if (uriStr.startsWith("http://") || uriStr.startsWith("https://")) {
+                try {
+                    val url = java.net.URL(uriStr)
+                    val conn = url.openConnection() as java.net.HttpURLConnection
+                    conn.connectTimeout = 4000
+                    conn.readTimeout = 4000
+                    conn.instanceFollowRedirects = true
+                    if (conn.responseCode == 200) {
+                        val bytes = conn.inputStream.use { it.readBytes() }
+                        try {
+                            cachedFile.writeBytes(bytes)
+                            localFile.writeBytes(bytes)
+                        } catch (ignored: Exception) {}
+                        sendBinaryResponse(output, 200, "OK", "image/jpeg", bytes)
+                        return
+                    }
+                } catch (e: Exception) {
+                    // Offline
                 }
-                if (inputStream != null) {
-                    val bytes = inputStream.use { it.readBytes() }
-                    sendBinaryResponse(output, 200, "OK", mimeType, bytes)
+            } else {
+                try {
+                    val uri = android.net.Uri.parse(uriStr)
+                    val mimeType = if (uriStr.startsWith("file://")) "image/jpeg" else (context.contentResolver.getType(uri) ?: "image/jpeg")
+                    val inputStream = if (uri.scheme == "file") {
+                        java.io.File(uri.path ?: "").inputStream()
+                    } else {
+                        context.contentResolver.openInputStream(uri)
+                    }
+                    if (inputStream != null) {
+                        val bytes = inputStream.use { it.readBytes() }
+                        sendBinaryResponse(output, 200, "OK", mimeType, bytes)
+                        return
+                    }
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+            }
+        }
+
+        sendResponse(output, 404, "Not Found", "text/plain", "Profile image not found")
+    }
+
+    private fun handleClockFontRoute(queryParams: Map<String, String>, output: OutputStream) {
+        val mainPrefs = context.getSharedPreferences("mysingghara_prefs", Context.MODE_PRIVATE)
+        val requestedFile = queryParams["file"]
+
+        if (!requestedFile.isNullOrEmpty()) {
+            val safeName = java.io.File(requestedFile).name
+            val fontFolder = com.example.util.SinggharaFolderManager.getFontFolder()
+            val candidate = java.io.File(fontFolder, safeName)
+            val candidateInternal = java.io.File(context.filesDir, safeName)
+            val fileToRead = if (candidate.exists() && candidate.length() > 0) candidate
+                             else if (candidateInternal.exists() && candidateInternal.length() > 0) candidateInternal
+                             else null
+            if (fileToRead != null) {
+                val mime = if (safeName.endsWith(".otf", ignoreCase = true)) "font/otf" else "font/ttf"
+                sendBinaryResponse(output, 200, "OK", mime, fileToRead.readBytes())
+                return
+            }
+        }
+
+        val liveFontPath = com.example.ui.MainViewModel.instance?.customClockFontPath?.takeIf { it.isNotEmpty() }
+            ?: mainPrefs.getString("custom_clock_font_path", "") ?: ""
+
+        if (liveFontPath.isNotEmpty()) {
+            try {
+                val target = java.io.File(liveFontPath)
+                val fontFolder = com.example.util.SinggharaFolderManager.getFontFolder()
+                val folderFile = java.io.File(fontFolder, target.name)
+                val internalFile = java.io.File(context.filesDir, target.name)
+                val fileToRead = when {
+                    target.exists() && target.length() > 0 -> target
+                    folderFile.exists() && folderFile.length() > 0 -> folderFile
+                    internalFile.exists() && internalFile.length() > 0 -> internalFile
+                    else -> null
+                }
+                if (fileToRead != null) {
+                    val mime = if (fileToRead.name.endsWith(".otf", ignoreCase = true)) "font/otf" else "font/ttf"
+                    sendBinaryResponse(output, 200, "OK", mime, fileToRead.readBytes())
                     return
                 }
             } catch (e: Exception) {
@@ -2017,20 +4465,534 @@ class LocalHttpServer(
             }
         }
 
-        sendResponse(output, 404, "Not Found", "text/plain", "Profile image not found")
+        // Default Technology Font from app raw resource R.font.technology_bold
+        try {
+            val bytes = context.resources.openRawResource(com.example.R.font.technology_bold).use { it.readBytes() }
+            sendBinaryResponse(output, 200, "OK", "font/ttf", bytes)
+        } catch (e: Exception) {
+            try {
+                val bytes = context.resources.openRawResource(com.example.R.font.technology).use { it.readBytes() }
+                sendBinaryResponse(output, 200, "OK", "font/ttf", bytes)
+            } catch (e2: Exception) {
+                sendResponse(output, 404, "Not Found", "text/plain", "Default clock font not found")
+            }
+        }
     }
 
-    private fun sendBinaryResponse(output: OutputStream, statusCode: Int, statusText: String, contentType: String, bytes: ByteArray) {
+    private fun handleClockFontsListRoute(method: String, queryParams: Map<String, String>, body: String, output: OutputStream) {
+        val mainPrefs = context.getSharedPreferences("mysingghara_prefs", Context.MODE_PRIVATE)
+
+        if (method == "POST") {
+            try {
+                val json = JSONObject(body)
+                val action = json.optString("action", "")
+                when (action) {
+                    "select" -> {
+                        val path = json.optString("path", "")
+                        val name = json.optString("name", "")
+                        com.example.ui.MainViewModel.instance?.saveCustomClockFont(path, name)
+                        mainPrefs.edit()
+                            .putString("custom_clock_font_path", path)
+                            .putString("custom_clock_font_name", name)
+                            .apply()
+                        sendJsonResponse(output, JSONObject().put("success", true).put("activeFontName", name).toString())
+                        return
+                    }
+                    "reset" -> {
+                        com.example.ui.MainViewModel.instance?.resetCustomClockFont()
+                        mainPrefs.edit()
+                            .remove("custom_clock_font_path")
+                            .remove("custom_clock_font_name")
+                            .apply()
+                        sendJsonResponse(output, JSONObject().put("success", true).put("activeFontName", "Technology Bold (Bawaan My Singghara)").toString())
+                        return
+                    }
+                    "resize" -> {
+                        val size = json.optDouble("size", 52.0).toFloat().coerceIn(24f, 96f)
+                        com.example.ui.MainViewModel.instance?.saveClockFontSize(size)
+                        mainPrefs.edit().putFloat("clock_font_size_sp", size).apply()
+                        sendJsonResponse(output, JSONObject().put("success", true).put("size", size).toString())
+                        return
+                    }
+                    "upload" -> {
+                        val fileName = json.optString("fileName", "custom_font.ttf")
+                        val safeName = if (fileName.endsWith(".ttf", true) || fileName.endsWith(".otf", true)) fileName else "$fileName.ttf"
+                        val base64Data = json.optString("base64", "")
+                        if (base64Data.isNotEmpty()) {
+                            val decodedBytes = android.util.Base64.decode(base64Data, android.util.Base64.DEFAULT)
+                            val fontFolder = com.example.util.SinggharaFolderManager.getFontFolder()
+                            if (!fontFolder.exists()) fontFolder.mkdirs()
+                            val destFile = java.io.File(fontFolder, safeName)
+                            destFile.writeBytes(decodedBytes)
+
+                            // Save as active custom font
+                            com.example.ui.MainViewModel.instance?.saveCustomClockFont(destFile.absolutePath, destFile.name)
+                            mainPrefs.edit()
+                                .putString("custom_clock_font_path", destFile.absolutePath)
+                                .putString("custom_clock_font_name", destFile.name)
+                                .apply()
+
+                            sendJsonResponse(output, JSONObject().put("success", true).put("name", destFile.name).put("path", destFile.absolutePath).toString())
+                            return
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+                sendJsonResponse(output, JSONObject().put("success", false).put("error", e.message).toString(), 400)
+                return
+            }
+        }
+
+        // GET: List available fonts
+        val activeFontPath = com.example.ui.MainViewModel.instance?.customClockFontPath?.takeIf { it.isNotEmpty() }
+            ?: mainPrefs.getString("custom_clock_font_path", "") ?: ""
+        val activeFontName = com.example.ui.MainViewModel.instance?.customClockFontName?.takeIf { it.isNotEmpty() }
+            ?: mainPrefs.getString("custom_clock_font_name", "") ?: "Technology Bold"
+        val clockFontSize = com.example.ui.MainViewModel.instance?.clockFontSizeSp
+            ?: mainPrefs.getFloat("clock_font_size_sp", 52f)
+
+        val availableFonts = com.example.util.SinggharaFolderManager.getAvailableFontFiles()
+        val fontsArr = JSONArray()
+
+        // Default font entry
+        fontsArr.put(JSONObject().apply {
+            put("name", "Technology Bold (Bawaan My Singghara)")
+            put("fileName", "technology_bold.ttf")
+            put("path", "")
+            put("isDefault", true)
+            put("isSelected", activeFontPath.isEmpty())
+            put("previewUrl", "/api/clock-font?default=1")
+        })
+
+        availableFonts.forEach { file ->
+            val isSelected = (activeFontPath == file.absolutePath || activeFontName == file.name)
+            fontsArr.put(JSONObject().apply {
+                put("name", file.name)
+                put("fileName", file.name)
+                put("path", file.absolutePath)
+                put("isDefault", false)
+                put("isSelected", isSelected)
+                put("previewUrl", "/api/clock-font?file=" + java.net.URLEncoder.encode(file.name, "UTF-8"))
+            })
+        }
+
+        val resObj = JSONObject().apply {
+            put("activeFontName", if (activeFontPath.isEmpty()) "Technology Bold (Bawaan My Singghara)" else activeFontName)
+            put("activeFontPath", activeFontPath)
+            put("clockFontSizeSp", clockFontSize)
+            put("hasCustomFont", activeFontPath.isNotEmpty())
+            put("fonts", fontsArr)
+        }
+        sendJsonResponse(output, resObj.toString())
+    }
+
+    private fun handleAzanAudioRoute(queryParams: Map<String, String>, output: OutputStream) {
+        val prayer = queryParams["prayer"]?.lowercase(Locale.getDefault()) ?: ""
+        val mainPrefs = context.getSharedPreferences("mysingghara_prefs", Context.MODE_PRIVATE)
+
+        // Check if custom MP3 exists for this prayer
+        if (prayer.isNotEmpty()) {
+            val customFile = java.io.File(context.filesDir, "azan_custom_$prayer.mp3")
+            val externalMp3 = java.io.File(com.example.util.SinggharaFolderManager.getMp3Folder(), "azan_$prayer.mp3")
+            val customChosenPath = mainPrefs.getString("azan_custom_path_$prayer", null)
+
+            val fileToPlay = when {
+                customChosenPath != null && java.io.File(customChosenPath).exists() && java.io.File(customChosenPath).length() > 0 && java.io.File(customChosenPath).name.lowercase() !in com.example.util.SinggharaFolderManager.DISALLOWED_MP3_FILES -> java.io.File(customChosenPath)
+                customFile.exists() && customFile.length() > 0 -> customFile
+                externalMp3.exists() && externalMp3.length() > 0 && externalMp3.name.lowercase() !in com.example.util.SinggharaFolderManager.DISALLOWED_MP3_FILES -> externalMp3
+                else -> null
+            }
+            if (externalMp3.exists() && externalMp3.name.lowercase() in com.example.util.SinggharaFolderManager.DISALLOWED_MP3_FILES) {
+                try { externalMp3.delete() } catch (ignored: Exception) {}
+            }
+
+            if (fileToPlay != null) {
+                try {
+                    sendBinaryResponse(output, 200, "OK", "audio/mpeg", fileToPlay.readBytes(), cacheable = false)
+                    return
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+            }
+        }
+
+        // Default Azan from My Singghara/Data/mp3 (bundled from Google Drive inside APK package)
+        try {
+            var defaultAzan = com.example.util.SinggharaFolderManager.getDefaultAzanFile(context, prayer)
+            if (defaultAzan == null || !defaultAzan.exists()) {
+                com.example.util.SinggharaFolderManager.seedDefaultMp3sFromAssets(context)
+                defaultAzan = com.example.util.SinggharaFolderManager.getDefaultAzanFile(context, prayer)
+            }
+            if (defaultAzan != null && defaultAzan.exists()) {
+                sendBinaryResponse(output, 200, "OK", "audio/mpeg", defaultAzan.readBytes(), cacheable = true)
+            } else {
+                // Fallback direct from assets
+                val assetName = if (prayer.contains("subuh", true) || prayer.contains("fajr", true)) {
+                    "mp3/fajr_128_44.mp3"
+                } else {
+                    "mp3/adzan_turkey-1.mp3"
+                }
+                val bytes = context.assets.open(assetName).use { it.readBytes() }
+                sendBinaryResponse(output, 200, "OK", "audio/mpeg", bytes, cacheable = true)
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+            sendResponse(output, 500, "Error", "text/plain", "Failed to load azan audio: ${e.message}")
+        }
+    }
+
+    private suspend fun handlePrayerSettingsRoute(method: String, body: String, output: OutputStream) {
+        if (method != "POST") {
+            sendResponse(output, 405, "Method Not Allowed", "text/plain", "POST required")
+            return
+        }
+        val mainPrefs = context.getSharedPreferences("mysingghara_prefs", Context.MODE_PRIVATE)
+        try {
+            val json = JSONObject(body)
+            val prayer = json.optString("prayer", "")
+            val setting = json.optInt("setting", 2)
+            if (prayer.isNotEmpty()) {
+                mainPrefs.edit().putInt("azan_sound_setting_${prayer.lowercase(Locale.getDefault())}", setting).apply()
+                withContext(Dispatchers.Main) {
+                    com.example.ui.MainViewModel.instance?.savePrayerSoundSetting(prayer, setting)
+                    com.example.NotificationScheduler.scheduleAlarms(context)
+                }
+                sendJsonResponse(output, JSONObject().put("success", true).put("prayer", prayer).put("setting", setting).toString())
+                return
+            }
+            sendJsonResponse(output, JSONObject().put("success", false).put("error", "Missing prayer").toString(), 400)
+        } catch (e: Exception) {
+            e.printStackTrace()
+            sendJsonResponse(output, JSONObject().put("success", false).put("error", e.message).toString(), 500)
+        }
+    }
+
+    private suspend fun handlePrayerRefreshRoute(output: OutputStream) {
+        try {
+            withContext(Dispatchers.Main) {
+                val vm = com.example.ui.MainViewModel.instance
+                vm?.fetchCurrentLocation(context)
+                val today = java.util.Calendar.getInstance()
+                val formatStr = String.format("%02d-%02d-%04d", today.get(java.util.Calendar.DAY_OF_MONTH), today.get(java.util.Calendar.MONTH) + 1, today.get(java.util.Calendar.YEAR))
+                vm?.loadLiveAladhanHijri(formatStr)
+            }
+            sendJsonResponse(output, JSONObject().put("success", true).toString())
+        } catch (e: Exception) {
+            e.printStackTrace()
+            sendJsonResponse(output, JSONObject().put("success", false).put("error", e.message).toString(), 500)
+        }
+    }
+
+    private suspend fun handleNotificationsRoute(method: String, queryParams: Map<String, String>, body: String, output: OutputStream) {
+        val mainPrefs = context.getSharedPreferences("mysingghara_prefs", Context.MODE_PRIVATE)
+
+        if (method == "POST") {
+            try {
+                val action = queryParams["action"] ?: ""
+                val id = queryParams["id"]?.toLongOrNull()
+                if (action == "read" && id != null) {
+                    repository.markFcmAsRead(id)
+                    sendJsonResponse(output, JSONObject().put("success", true).toString())
+                    return
+                } else if (action == "read_all") {
+                    repository.markAllFcmAsRead()
+                    sendJsonResponse(output, JSONObject().put("success", true).toString())
+                    return
+                }
+                if (body.isNotEmpty()) {
+                    val json = JSONObject(body)
+                    if (json.optString("action") == "read" && json.has("id")) {
+                        repository.markFcmAsRead(json.getLong("id"))
+                        sendJsonResponse(output, JSONObject().put("success", true).toString())
+                        return
+                    } else if (json.optString("action") == "read_all") {
+                        repository.markAllFcmAsRead()
+                        sendJsonResponse(output, JSONObject().put("success", true).toString())
+                        return
+                    }
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+            sendJsonResponse(output, JSONObject().put("success", true).toString())
+            return
+        }
+
+        if (method == "DELETE") {
+            try {
+                val action = queryParams["action"] ?: ""
+                val id = queryParams["id"]?.toLongOrNull()
+                if (action == "clear_all") {
+                    repository.clearAllFcmNotifications()
+                    sendJsonResponse(output, JSONObject().put("success", true).toString())
+                    return
+                } else if (id != null) {
+                    repository.deleteFcmNotification(id)
+                    sendJsonResponse(output, JSONObject().put("success", true).toString())
+                    return
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+            sendJsonResponse(output, JSONObject().put("success", true).toString())
+            return
+        }
+
+        // GET: Fetch all notifications, ongoing jadwal, active agendas, holidays, hijri & jawa calendar
+        val fcmList = repository.allFcmNotifications.first()
+        val unreadFcmCount = repository.unreadFcmCount.first()
+        val agendaList = repository.allAgendas.first()
+        val jadwalList = repository.allJadwal.first()
+
+        val cal = Calendar.getInstance()
+        val todayYear = cal.get(Calendar.YEAR)
+        val todayMonth = cal.get(Calendar.MONTH) + 1
+        val todayDay = cal.get(Calendar.DAY_OF_MONTH)
+        val todayDateKey = String.format(Locale.US, "%04d-%02d-%02d", todayYear, todayMonth, todayDay)
+
+        val fallbackHolidays = HolidayClient.getFallbackHolidays(todayYear)
+        val todayHolidayName = fallbackHolidays[todayDateKey]
+        val todayObservanceName = HolidayClient.getObservanceForDate(todayMonth, todayDay)
+        val hasHolidayOrObservanceToday = todayHolidayName != null || todayObservanceName != null
+
+        // Hijri date
+        val hijriOffset = mainPrefs.getInt("hijri_offset", -1)
+        val hijriDateStr = HijriCalendarHelper.getHijriDate(todayYear, todayMonth, todayDay, hijriOffset)
+
+        // Jawa date
+        val jawaInfo = JavaneseCalendarHelper.calculateJawa(todayYear, todayMonth, todayDay)
+        val jawaDateStr = "${jawaInfo.dina} ${jawaInfo.pasaran}, Wuku ${jawaInfo.wuku}"
+
+        // Ongoing jadwal
+        val nowMin = cal.get(Calendar.HOUR_OF_DAY) * 60 + cal.get(Calendar.MINUTE)
+        val ongoingJadwal = jadwalList.find {
+            try {
+                val cleanRange = it.waktu.replace(" ", "")
+                val parts = cleanRange.split("-")
+                if (parts.size == 2) {
+                    val sParts = parts[0].split(".")
+                    val eParts = parts[1].split(".")
+                    val sMin = sParts[0].toInt() * 60 + sParts[1].toInt()
+                    val eMin = eParts[0].toInt() * 60 + eParts[1].toInt()
+                    nowMin in sMin..eMin
+                } else false
+            } catch (e: Exception) {
+                false
+            }
+        }
+
+        // Active agendas today
+        val activeAgendas = agendaList.filter { it.tanggal == todayDateKey }
+
+        val totalNotificationsCount = activeAgendas.size + (if (ongoingJadwal != null) 1 else 0) + (if (hasHolidayOrObservanceToday) 1 else 0) + unreadFcmCount
+
+        // List of all holidays and observances
+        val allHolidaysList = mutableListOf<Pair<String, Pair<String, String>>>()
+        fallbackHolidays.forEach { (d, n) ->
+            allHolidaysList.add(d to ("Libur Nasional" to n))
+        }
+        HolidayClient.getAllObservances().forEach { (md, n) ->
+            val fullDate = "$todayYear-$md"
+            if (fallbackHolidays[fullDate] == null) {
+                allHolidaysList.add(fullDate to ("Hari Besar" to n))
+            }
+        }
+        allHolidaysList.sortBy { it.first }
+
+        val holidaysArr = JSONArray()
+        allHolidaysList.forEach { item ->
+            holidaysArr.put(JSONObject().apply {
+                put("date", item.first)
+                put("type", item.second.first)
+                put("name", item.second.second)
+            })
+        }
+
+        val fcmArr = JSONArray()
+        fcmList.forEach { fcm ->
+            fcmArr.put(JSONObject().apply {
+                put("id", fcm.id)
+                put("title", fcm.title)
+                put("body", fcm.body)
+                put("timestamp", fcm.timestamp)
+                put("isRead", fcm.isRead)
+                put("dataPayload", fcm.dataPayload)
+            })
+        }
+
+        val ongoingJadwalObj = if (ongoingJadwal != null) {
+            JSONObject().apply {
+                put("id", ongoingJadwal.id)
+                put("waktu", ongoingJadwal.waktu)
+                put("kegiatan", ongoingJadwal.kegiatan)
+                put("kategori", ongoingJadwal.kategori)
+            }
+        } else JSONObject.NULL
+
+        val activeAgendasArr = JSONArray()
+        activeAgendas.forEach { a ->
+            activeAgendasArr.put(JSONObject().apply {
+                put("id", a.id)
+                put("judul", a.judul)
+                put("detail", a.detail)
+                put("tanggal", a.tanggal)
+                put("tipe", a.tipe)
+            })
+        }
+
+        val res = JSONObject().apply {
+            put("unreadFcmCount", unreadFcmCount)
+            put("totalNotificationsCount", totalNotificationsCount)
+            put("todayYear", todayYear)
+            put("todayDateKey", todayDateKey)
+            put("todayHolidayName", todayHolidayName ?: JSONObject.NULL)
+            put("todayObservanceName", todayObservanceName ?: JSONObject.NULL)
+            put("hasHolidayOrObservanceToday", hasHolidayOrObservanceToday)
+            put("hijriDate", hijriDateStr)
+            put("jawaDate", jawaDateStr)
+            put("ongoingJadwal", ongoingJadwalObj)
+            put("activeAgendas", activeAgendasArr)
+            put("allHolidays", holidaysArr)
+            put("fcmNotifications", fcmArr)
+        }
+        sendJsonResponse(output, res.toString())
+    }
+
+    private fun sendBinaryResponse(output: OutputStream, statusCode: Int, statusText: String, contentType: String, bytes: ByteArray, cacheable: Boolean = false) {
+        val cacheHeader = if (cacheable) "Cache-Control: public, max-age=86400\r\n" else "Cache-Control: no-cache, no-store, must-revalidate\r\n"
         val headers = "HTTP/1.1 $statusCode $statusText\r\n" +
                 "Content-Type: $contentType\r\n" +
                 "Content-Length: ${bytes.size}\r\n" +
                 "Access-Control-Allow-Origin: *\r\n" +
                 "Access-Control-Allow-Methods: GET, OPTIONS\r\n" +
-                "Cache-Control: no-cache, no-store, must-revalidate\r\n" +
+                cacheHeader +
                 "Connection: close\r\n" +
                 "\r\n"
         output.write(headers.toByteArray(Charsets.UTF_8))
         output.write(bytes)
+        output.flush()
+    }
+
+    private fun serveFavicon(path: String, output: OutputStream) {
+        val cleanPath = path.substringBefore('?').substringAfterLast('/')
+        val assetName = when (cleanPath) {
+            "favicon.ico" -> "web/favicon.ico"
+            "favicon.svg" -> "web/favicon.svg"
+            "favicon.png" -> "web/favicon.png"
+            "favicon-32x32.png" -> "web/favicon-32x32.png"
+            "favicon-16x16.png" -> "web/favicon-16x16.png"
+            "favicon-light.ico" -> "web/favicon-light.ico"
+            "favicon-light.png" -> "web/favicon-light.png"
+            "favicon-light-32x32.png" -> "web/favicon-light-32x32.png"
+            "favicon-light-16x16.png" -> "web/favicon-light-16x16.png"
+            "favicon-dark.ico" -> "web/favicon-dark.ico"
+            "favicon-dark.png" -> "web/favicon-dark.png"
+            "favicon-dark-32x32.png" -> "web/favicon-dark-32x32.png"
+            "favicon-dark-16x16.png" -> "web/favicon-dark-16x16.png"
+            "apple-touch-icon.png", "apple-touch-icon-precomposed.png" -> "web/apple-touch-icon.png"
+            "app-logo.png", "logo.png" -> "web/app-logo.png"
+            else -> "web/favicon.ico"
+        }
+        val mimeType = when {
+            assetName.endsWith(".ico") -> "image/x-icon"
+            assetName.endsWith(".svg") -> "image/svg+xml"
+            else -> "image/png"
+        }
+        try {
+            val bytes = context.assets.open(assetName).use { it.readBytes() }
+            sendBinaryResponse(output, 200, "OK", mimeType, bytes, cacheable = true)
+        } catch (e: Exception) {
+            try {
+                val bytes = context.resources.openRawResource(com.example.R.drawable.ic_app_logo).use { it.readBytes() }
+                sendBinaryResponse(output, 200, "OK", "image/png", bytes, cacheable = true)
+            } catch (e2: Exception) {
+                sendResponse(output, 404, "Not Found", "text/plain", "Favicon Not Found")
+            }
+        }
+    }
+
+    private fun serveDomainSetupScript(output: OutputStream) {
+        val currentIp = getIpAddress(context)
+        val batScript = buildString {
+            append("@echo off\r\n")
+            append("setlocal EnableDelayedExpansion\r\n")
+            append("title Setup Domain mysingghara.com - My Singghara Offline\r\n")
+            append("echo ========================================================\r\n")
+            append("echo   SETUP DOMAIN OFFLINE: mysingghara.com\r\n")
+            append("echo   Aplikasi : My Singghara (Web Connect 100%% Offline PC)\r\n")
+            append("echo ========================================================\r\n")
+            append("echo.\r\n")
+            append("echo Target IP Smartphone : $currentIp\r\n")
+            append("echo Domain Offline       : mysingghara.com\r\n")
+            append("echo Port                 : $port\r\n")
+            append("echo.\r\n")
+            append("echo [1/3] Memeriksa hak akses Administrator...\r\n")
+            append("net session >nul 2>&1\r\n")
+            append("if %errorlevel% neq 0 (\r\n")
+            append("    echo.\r\n")
+            append("    echo [PERHATIAN] Script ini memerlukan hak akses Administrator!\r\n")
+            append("    echo Silakan klik kanan file ini, lalu pilih \"Run as administrator\".\r\n")
+            append("    echo.\r\n")
+            append("    pause\r\n")
+            append("    exit /b 1\r\n")
+            append(")\r\n")
+            append("\r\n")
+            append("set HOSTS_FILE=%WINDIR%\\System32\\drivers\\etc\\hosts\r\n")
+            append("echo [2/3] Memeriksa file hosts: %HOSTS_FILE%...\r\n")
+            append("findstr /i \"mysingghara.com\" \"%HOSTS_FILE%\" >nul 2>&1\r\n")
+            append("if %errorlevel% equ 0 (\r\n")
+            append("    echo Domain mysingghara.com sudah pernah terdaftar. Memperbarui IP ke $currentIp...\r\n")
+            append("    powershell -Command \"(Get-Content '%HOSTS_FILE%') -notmatch 'mysingghara.com' | Set-Content '%HOSTS_FILE%'\"\r\n")
+            append(")\r\n")
+            append("\r\n")
+            append("echo [3/4] Menambahkan pemetaan: $currentIp  mysingghara.com ke hosts...\r\n")
+            append("echo $currentIp    mysingghara.com >> \"%HOSTS_FILE%\"\r\n")
+            append("ipconfig /flushdns >nul 2>&1\r\n")
+            append("\r\n")
+            append("echo [4/4] Mengaktifkan shortcut port 80 (Akses tanpa perlu ketik :$port)...\r\n")
+            append("netsh interface portproxy delete v4tov4 listenport=80 listenaddress=0.0.0.0 >nul 2>&1\r\n")
+            append("netsh interface portproxy add v4tov4 listenport=80 listenaddress=0.0.0.0 connectport=$port connectaddress=$currentIp >nul 2>&1\r\n")
+            append("\r\n")
+            append("echo.\r\n")
+            append("echo ========================================================\r\n")
+            append("echo   [SUKSES] Domain mysingghara.com Berhasil Didaftarkan!\r\n")
+            append("echo ========================================================\r\n")
+            append("echo Sekarang Anda dapat membuka browser PC dan mengakses:\r\n")
+            append("echo    1. http://mysingghara.com          (Akses Langsung Tanpa Port)\r\n")
+            append("echo    2. http://mysingghara.com:$port   (Akses Standar Port $port)\r\n")
+            append("echo.\r\n")
+            append("pause\r\n")
+        }
+        val bytes = batScript.toByteArray(Charsets.UTF_8)
+        val headers = "HTTP/1.1 200 OK\r\n" +
+                "Content-Type: application/octet-stream\r\n" +
+                "Content-Disposition: attachment; filename=\"setup_domain_mysingghara.bat\"\r\n" +
+                "Content-Length: ${bytes.size}\r\n" +
+                "Connection: close\r\n\r\n"
+        output.write(headers.toByteArray(Charsets.UTF_8))
+        output.write(bytes)
+        output.flush()
+    }
+
+    private fun serveWindowsInstaller(output: OutputStream) {
+        val currentIp = getIpAddress(context)
+        val exeBytes = try {
+            WindowsInstallerGenerator.generateInstallerExe(currentIp, port)
+        } catch (e: Exception) {
+            try {
+                context.assets.open("web/installer.exe").use { it.readBytes() }
+            } catch (e2: Exception) {
+                ByteArray(0)
+            }
+        }
+        val headers = "HTTP/1.1 200 OK\r\n" +
+                "Content-Type: application/vnd.microsoft.portable-executable\r\n" +
+                "Content-Disposition: attachment; filename=\"MySingghara_PWA_Setup.exe\"\r\n" +
+                "Content-Length: ${exeBytes.size}\r\n" +
+                "Connection: close\r\n\r\n"
+        output.write(headers.toByteArray(Charsets.UTF_8))
+        output.write(exeBytes)
         output.flush()
     }
 
@@ -2076,13 +5038,32 @@ class LocalHttpServer(
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Singghara Web - Dashboard Profesional</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css">
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
-    <script src="https://unpkg.com/html5-qrcode"></script>
+    <title>My Singghara</title>
+    <!-- Favicon Adaptif Bulat My Singghara (Mode Terang & Gelap - 100% Offline PC) -->
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
+    <link id="favLight32" rel="icon" type="image/png" sizes="32x32" href="/favicon-light-32x32.png" media="(prefers-color-scheme: light)">
+    <link id="favDark32" rel="icon" type="image/png" sizes="32x32" href="/favicon-dark-32x32.png" media="(prefers-color-scheme: dark)">
+    <link id="favLight16" rel="icon" type="image/png" sizes="16x16" href="/favicon-light-16x16.png" media="(prefers-color-scheme: light)">
+    <link id="favDark16" rel="icon" type="image/png" sizes="16x16" href="/favicon-dark-16x16.png" media="(prefers-color-scheme: dark)">
+    <link id="favDefault" rel="icon" type="image/png" href="/favicon.png">
+    <link id="favShortcut" rel="shortcut icon" href="/favicon.ico">
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
+    <meta name="msapplication-TileImage" content="/app-logo.png">
+    <meta name="theme-color" content="#3674B5" id="metaThemeColor">
+    <!-- Progressive Web App (PWA) Manifest & Capabilities -->
+    <link rel="manifest" href="/manifest.json">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="My Singghara">
+    <meta name="application-name" content="My Singghara">
+    <link href="/assets/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="/assets/css/bootstrap-icons.css">
+    <script src="/assets/js/bootstrap.bundle.min.js"></script>
+    <script src="/assets/js/qrcode.min.js"></script>
+    <script src="/assets/js/chart.min.js"></script>
+    <script src="/assets/js/html2canvas.min.js"></script>
+    <script src="/assets/js/html5-qrcode.min.js"></script>
     <style>
         :root {
             --bg-sidebar: #f8fafc;
@@ -2226,6 +5207,24 @@ class LocalHttpServer(
             box-shadow: var(--card-shadow) !important;
         }
 
+        @keyframes bell-ring {
+            0% { transform: rotate(0); }
+            10% { transform: rotate(14deg); }
+            20% { transform: rotate(-12deg); }
+            30% { transform: rotate(10deg); }
+            40% { transform: rotate(-8deg); }
+            50% { transform: rotate(6deg); }
+            60% { transform: rotate(-4deg); }
+            70% { transform: rotate(2deg); }
+            80% { transform: rotate(-1deg); }
+            100% { transform: rotate(0); }
+        }
+        .bell-active {
+            animation: bell-ring 2.5s infinite ease-in-out;
+            transform-origin: top center;
+            display: inline-block;
+        }
+
         body.dark .dropdown-item, [data-theme="dark"] .dropdown-item,
         :root:not([data-theme="light"]):not(.dark) .dropdown-item {
             color: var(--text-main) !important;
@@ -2298,6 +5297,297 @@ class LocalHttpServer(
             color: var(--text-sub) !important;
         }
 
+        /* Dark Mode Note Submenu Enhancements (Hindari Warna Putih di Mode Gelap) */
+        body.dark .btn-light, [data-theme="dark"] .btn-light,
+        :root:not([data-theme="light"]):not(.dark) .btn-light,
+        body.dark #notesMainWrapper .btn-light, [data-theme="dark"] #notesMainWrapper .btn-light,
+        body.dark #noteEditorWrapper .btn-light, [data-theme="dark"] #noteEditorWrapper .btn-light {
+            background-color: #1e293b !important;
+            color: #cbd5e1 !important;
+            border-color: #334155 !important;
+        }
+        body.dark .btn-light:hover, [data-theme="dark"] .btn-light:hover,
+        :root:not([data-theme="light"]):not(.dark) .btn-light:hover,
+        body.dark #notesMainWrapper .btn-light:hover, [data-theme="dark"] #notesMainWrapper .btn-light:hover,
+        body.dark #noteEditorWrapper .btn-light:hover, [data-theme="dark"] #noteEditorWrapper .btn-light:hover {
+            background-color: #334155 !important;
+            color: #ffffff !important;
+            border-color: #475569 !important;
+        }
+
+        body.dark #notesMainWrapper, [data-theme="dark"] #notesMainWrapper,
+        body.dark #noteEditorWrapper, [data-theme="dark"] #noteEditorWrapper {
+            background-color: transparent !important;
+            color: #f1f5f9 !important;
+        }
+
+        body.dark #notesMainWrapper .card, [data-theme="dark"] #notesMainWrapper .card,
+        body.dark #noteEditorWrapper .card, [data-theme="dark"] #noteEditorWrapper .card,
+        body.dark .note-card-item, [data-theme="dark"] .note-card-item {
+            background-color: #1e293b !important;
+            border-color: #334155 !important;
+            color: #f1f5f9 !important;
+        }
+
+        body.dark #notesMainWrapper .input-group-text, [data-theme="dark"] #notesMainWrapper .input-group-text,
+        body.dark #notesMainWrapper .form-control, [data-theme="dark"] #notesMainWrapper .form-control {
+            background-color: #1e293b !important;
+            color: #f8fafc !important;
+            border-color: #334155 !important;
+        }
+
+        body.dark #editorNoteTitle, [data-theme="dark"] #editorNoteTitle,
+        body.dark #editorNoteContent, [data-theme="dark"] #editorNoteContent {
+            background-color: #0f172a !important;
+            color: #f8fafc !important;
+            border-color: #334155 !important;
+        }
+
+        body.dark #editorNoteTitle::placeholder, [data-theme="dark"] #editorNoteTitle::placeholder,
+        body.dark #editorNoteContent::placeholder, [data-theme="dark"] #editorNoteContent::placeholder {
+            color: #64748b !important;
+        }
+
+        body.dark #noteFloatingToast .card, [data-theme="dark"] #noteFloatingToast .card {
+            background-color: #1e293b !important;
+            color: #f8fafc !important;
+            border-color: #334155 !important;
+        }
+
+        body.dark #noteEditorWrapper .bg-body, [data-theme="dark"] #noteEditorWrapper .bg-body,
+        body.dark #notesMainWrapper .bg-body, [data-theme="dark"] #notesMainWrapper .bg-body {
+            background-color: #0f172a !important;
+            color: #f8fafc !important;
+            border-color: #334155 !important;
+        }
+
+        body.dark #notesMainWrapper .btn-outline-secondary, [data-theme="dark"] #notesMainWrapper .btn-outline-secondary {
+            background-color: #1e293b !important;
+            color: #cbd5e1 !important;
+            border-color: #334155 !important;
+        }
+        body.dark #notesMainWrapper .btn-outline-secondary:hover, [data-theme="dark"] #notesMainWrapper .btn-outline-secondary:hover {
+            background-color: #334155 !important;
+            color: #ffffff !important;
+        }
+
+        /* ==========================================================================
+           Dark Mode Styling for Dashboard Prayer Times Card (Kartu Waktu Sholat)
+           100% Sesuai Tema Gelap, Tidak Ada Bagian Putih, Font Terang Putih & Jelas
+           ========================================================================== */
+        body.dark #dashboardPrayerCard, [data-theme="dark"] #dashboardPrayerCard,
+        :root:not([data-theme="light"]):not(.dark) #dashboardPrayerCard {
+            background-color: #1e293b !important;
+            border-color: #334155 !important;
+            color: #ffffff !important;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4) !important;
+        }
+
+        body.dark #dashboardPrayerCard .prayer-card-title,
+        [data-theme="dark"] #dashboardPrayerCard .prayer-card-title,
+        :root:not([data-theme="light"]):not(.dark) #dashboardPrayerCard .prayer-card-title {
+            color: #ffffff !important;
+        }
+
+        body.dark #dashboardPrayerCard .prayer-tz-badge,
+        [data-theme="dark"] #dashboardPrayerCard .prayer-tz-badge,
+        :root:not([data-theme="light"]):not(.dark) #dashboardPrayerCard .prayer-tz-badge {
+            background-color: rgba(56, 189, 248, 0.2) !important;
+            color: #ffffff !important;
+            border: 1px solid rgba(56, 189, 248, 0.4) !important;
+        }
+
+        body.dark #dashboardPrayerCard .prayer-source-label,
+        [data-theme="dark"] #dashboardPrayerCard .prayer-source-label,
+        :root:not([data-theme="light"]):not(.dark) #dashboardPrayerCard .prayer-source-label {
+            color: #ffffff !important;
+            opacity: 0.9 !important;
+        }
+
+        body.dark #dashboardPrayerCard .prayer-gear-btn,
+        [data-theme="dark"] #dashboardPrayerCard .prayer-gear-btn,
+        :root:not([data-theme="light"]):not(.dark) #dashboardPrayerCard .prayer-gear-btn {
+            background-color: #0f172a !important;
+            border-color: #38bdf8 !important;
+            color: #38bdf8 !important;
+        }
+        body.dark #dashboardPrayerCard .prayer-gear-btn:hover,
+        [data-theme="dark"] #dashboardPrayerCard .prayer-gear-btn:hover,
+        :root:not([data-theme="light"]):not(.dark) #dashboardPrayerCard .prayer-gear-btn:hover {
+            background-color: #38bdf8 !important;
+            color: #0f172a !important;
+        }
+
+        body.dark #dashboardPrayerCard .prayer-location-pill,
+        [data-theme="dark"] #dashboardPrayerCard .prayer-location-pill,
+        :root:not([data-theme="light"]):not(.dark) #dashboardPrayerCard .prayer-location-pill {
+            background-color: #0f172a !important;
+            border-color: #334155 !important;
+        }
+
+        body.dark #dashboardPrayerCard .prayer-loc-tag,
+        [data-theme="dark"] #dashboardPrayerCard .prayer-loc-tag,
+        :root:not([data-theme="light"]):not(.dark) #dashboardPrayerCard .prayer-loc-tag {
+            color: #ffffff !important;
+            opacity: 0.85 !important;
+        }
+
+        body.dark #dashboardPrayerCard .prayer-loc-text,
+        [data-theme="dark"] #dashboardPrayerCard .prayer-loc-text,
+        :root:not([data-theme="light"]):not(.dark) #dashboardPrayerCard .prayer-loc-text {
+            color: #ffffff !important;
+        }
+
+        body.dark #dashboardPrayerCard .prayer-refresh-btn,
+        [data-theme="dark"] #dashboardPrayerCard .prayer-refresh-btn,
+        :root:not([data-theme="light"]):not(.dark) #dashboardPrayerCard .prayer-refresh-btn {
+            color: #38bdf8 !important;
+        }
+
+        body.dark #dashboardPrayerCard .prayer-test-btn,
+        [data-theme="dark"] #dashboardPrayerCard .prayer-test-btn,
+        :root:not([data-theme="light"]):not(.dark) #dashboardPrayerCard .prayer-test-btn {
+            background-color: #0f172a !important;
+            border-color: #38bdf8 !important;
+            color: #ffffff !important;
+        }
+        body.dark #dashboardPrayerCard .prayer-test-btn:hover,
+        [data-theme="dark"] #dashboardPrayerCard .prayer-test-btn:hover,
+        :root:not([data-theme="light"]):not(.dark) #dashboardPrayerCard .prayer-test-btn:hover {
+            background-color: #0284c7 !important;
+            color: #ffffff !important;
+        }
+
+        /* 6 Kartu Jadwal Sholat Pada Mode Gelap */
+        body.dark #dashboardPrayerCard .prayer-item-normal,
+        [data-theme="dark"] #dashboardPrayerCard .prayer-item-normal,
+        :root:not([data-theme="light"]):not(.dark) #dashboardPrayerCard .prayer-item-normal {
+            background-color: #0f172a !important;
+            border-color: #334155 !important;
+        }
+
+        body.dark #dashboardPrayerCard .prayer-item-normal .prayer-item-icon-box,
+        [data-theme="dark"] #dashboardPrayerCard .prayer-item-normal .prayer-item-icon-box,
+        :root:not([data-theme="light"]):not(.dark) #dashboardPrayerCard .prayer-item-normal .prayer-item-icon-box {
+            background-color: rgba(255, 255, 255, 0.1) !important;
+            color: #ffffff !important;
+            border: 1px solid rgba(255, 255, 255, 0.15) !important;
+        }
+
+        body.dark #dashboardPrayerCard .prayer-item-normal .prayer-name-label,
+        [data-theme="dark"] #dashboardPrayerCard .prayer-item-normal .prayer-name-label,
+        :root:not([data-theme="light"]):not(.dark) #dashboardPrayerCard .prayer-item-normal .prayer-name-label {
+            color: #ffffff !important;
+            font-weight: 700 !important;
+        }
+
+        body.dark #dashboardPrayerCard .prayer-item-normal .prayer-time-value,
+        [data-theme="dark"] #dashboardPrayerCard .prayer-item-normal .prayer-time-value,
+        :root:not([data-theme="light"]):not(.dark) #dashboardPrayerCard .prayer-item-normal .prayer-time-value {
+            color: #ffffff !important;
+            font-weight: 800 !important;
+        }
+
+        /* Kartu Waktu Sholat Berikutnya (Aktif/Highlight) Pada Mode Gelap */
+        body.dark #dashboardPrayerCard .prayer-item-next,
+        [data-theme="dark"] #dashboardPrayerCard .prayer-item-next,
+        :root:not([data-theme="light"]):not(.dark) #dashboardPrayerCard .prayer-item-next {
+            background: linear-gradient(135deg, rgba(14, 165, 233, 0.28) 0%, rgba(15, 23, 42, 0.95) 100%) !important;
+            border: 2px solid #38bdf8 !important;
+            box-shadow: 0 0 16px rgba(56, 189, 248, 0.25) !important;
+        }
+
+        body.dark #dashboardPrayerCard .prayer-item-next .prayer-item-icon-box,
+        [data-theme="dark"] #dashboardPrayerCard .prayer-item-next .prayer-item-icon-box,
+        :root:not([data-theme="light"]):not(.dark) #dashboardPrayerCard .prayer-item-next .prayer-item-icon-box {
+            background-color: #0284c7 !important;
+            color: #ffffff !important;
+            border: none !important;
+        }
+
+        body.dark #dashboardPrayerCard .prayer-item-next .prayer-name-label,
+        [data-theme="dark"] #dashboardPrayerCard .prayer-item-next .prayer-name-label,
+        :root:not([data-theme="light"]):not(.dark) #dashboardPrayerCard .prayer-item-next .prayer-name-label {
+            color: #ffffff !important;
+            font-weight: 800 !important;
+        }
+
+        body.dark #dashboardPrayerCard .prayer-item-next .prayer-time-value,
+        [data-theme="dark"] #dashboardPrayerCard .prayer-item-next .prayer-time-value,
+        :root:not([data-theme="light"]):not(.dark) #dashboardPrayerCard .prayer-item-next .prayer-time-value {
+            color: #ffffff !important;
+            font-weight: 900 !important;
+        }
+
+        body.dark #dashboardPrayerCard .prayer-next-badge,
+        [data-theme="dark"] #dashboardPrayerCard .prayer-next-badge,
+        :root:not([data-theme="light"]):not(.dark) #dashboardPrayerCard .prayer-next-badge {
+            background-color: #0284c7 !important;
+            color: #ffffff !important;
+            border: 1px solid rgba(255, 255, 255, 0.3) !important;
+        }
+
+        /* Banner Notifikasi Azan Aktif di Mode Gelap (Tidak Ada Elemen Putih) */
+        body.dark #activeAzanAlertBanner, [data-theme="dark"] #activeAzanAlertBanner,
+        :root:not([data-theme="light"]):not(.dark) #activeAzanAlertBanner {
+            background: linear-gradient(135deg, #1e3a8a 0%, #0f172a 100%) !important;
+            border: 1px solid rgba(56, 189, 248, 0.4) !important;
+            color: #ffffff !important;
+        }
+        body.dark #activeAzanAlertBanner .btn-light, [data-theme="dark"] #activeAzanAlertBanner .btn-light,
+        :root:not([data-theme="light"]):not(.dark) #activeAzanAlertBanner .btn-light {
+            background-color: rgba(239, 68, 68, 0.22) !important;
+            border: 1px solid #ef4444 !important;
+            color: #ffffff !important;
+        }
+        body.dark #activeAzanAlertBanner .btn-light:hover, [data-theme="dark"] #activeAzanAlertBanner .btn-light:hover,
+        :root:not([data-theme="light"]):not(.dark) #activeAzanAlertBanner .btn-light:hover {
+            background-color: #ef4444 !important;
+            color: #ffffff !important;
+        }
+
+        /* Modal Pengaturan Suara Sholat & Sound Picker di Mode Gelap */
+        body.dark #prayerSettingsModal .modal-content, [data-theme="dark"] #prayerSettingsModal .modal-content,
+        body.dark #singlePrayerSoundModal .modal-content, [data-theme="dark"] #singlePrayerSoundModal .modal-content {
+            background-color: #1e293b !important;
+            color: #ffffff !important;
+            border: 1px solid #334155 !important;
+        }
+        body.dark #prayerSettingsModal .modal-title, [data-theme="dark"] #prayerSettingsModal .modal-title,
+        body.dark #singlePrayerSoundModal .modal-title, [data-theme="dark"] #singlePrayerSoundModal .modal-title {
+            color: #ffffff !important;
+        }
+        body.dark #prayerSettingsModal .text-secondary, [data-theme="dark"] #prayerSettingsModal .text-secondary,
+        body.dark #singlePrayerSoundModal .text-secondary, [data-theme="dark"] #singlePrayerSoundModal .text-secondary {
+            color: #cbd5e1 !important;
+        }
+        body.dark #prayerSettingsModal .alert-info, [data-theme="dark"] #prayerSettingsModal .alert-info {
+            background-color: rgba(14, 165, 233, 0.15) !important;
+            color: #ffffff !important;
+            border: 1px solid rgba(56, 189, 248, 0.3) !important;
+        }
+        body.dark #prayerSettingsList .card, [data-theme="dark"] #prayerSettingsList .card {
+            background-color: #0f172a !important;
+            border-color: #334155 !important;
+            color: #ffffff !important;
+        }
+        body.dark #prayerSettingsList .text-main, [data-theme="dark"] #prayerSettingsList .text-main {
+            color: #ffffff !important;
+        }
+        body.dark #singlePrayerOptionsList .card, [data-theme="dark"] #singlePrayerOptionsList .card {
+            background-color: #0f172a !important;
+            border-color: #334155 !important;
+            color: #ffffff !important;
+        }
+        body.dark #singlePrayerOptionsList .card.border-primary, [data-theme="dark"] #singlePrayerOptionsList .card.border-primary {
+            background-color: rgba(14, 165, 233, 0.2) !important;
+            border-color: #38bdf8 !important;
+        }
+        body.dark #singlePrayerOptionsList .text-main, [data-theme="dark"] #singlePrayerOptionsList .text-main,
+        body.dark #singlePrayerOptionsList .text-primary, [data-theme="dark"] #singlePrayerOptionsList .text-primary {
+            color: #ffffff !important;
+        }
+
         body {
             margin: 0;
             font-family: Arial, sans-serif;
@@ -2348,10 +5638,13 @@ class LocalHttpServer(
 
         .sidebar-footer {
             flex-shrink: 0;
-            padding: 12px 14px;
+            padding: 10px 12px;
             border-top: 1px solid var(--border-color);
             background-color: var(--sidebar-bg);
             transition: all 0.25s ease;
+            overflow: hidden;
+            width: 100%;
+            box-sizing: border-box;
         }
 
         .sidebar-user-section {
@@ -2359,20 +5652,26 @@ class LocalHttpServer(
             display: flex;
             align-items: center;
             justify-content: space-between;
-            gap: 8px;
+            gap: 6px;
+            min-width: 0;
+            overflow: hidden;
+            box-sizing: border-box;
         }
 
         .sidebar-profile-info {
             display: flex;
             align-items: center;
-            gap: 10px;
+            gap: 8px;
             cursor: pointer;
             border-radius: 10px;
-            padding: 6px 8px;
+            padding: 6px 6px;
             transition: background-color 0.2s ease;
-            flex: 1;
+            flex: 1 1 0;
             min-width: 0;
+            max-width: calc(100% - 42px);
             user-select: none;
+            overflow: hidden;
+            box-sizing: border-box;
         }
 
         .sidebar-profile-info:hover {
@@ -2380,15 +5679,16 @@ class LocalHttpServer(
         }
 
         .sidebar-avatar-icon {
-            width: 38px;
-            height: 38px;
+            width: 36px;
+            height: 36px;
+            min-width: 36px;
             border-radius: 50%;
             background: linear-gradient(135deg, #2A84EB, #1456A5);
             color: #ffffff;
             display: flex;
             align-items: center;
             justify-content: center;
-            font-size: 1.15rem;
+            font-size: 1.1rem;
             flex-shrink: 0;
             transition: all 0.2s ease;
             overflow: hidden;
@@ -2420,29 +5720,42 @@ class LocalHttpServer(
 
         .sidebar-user-meta {
             min-width: 0;
-            flex: 1;
+            flex: 1 1 0;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
         }
 
         .sidebar-user-name {
-            font-size: 0.85rem;
+            font-size: 0.82rem;
             color: var(--text-main);
-            line-height: 1.2;
+            line-height: 1.25;
             white-space: nowrap;
             overflow: hidden;
             text-overflow: ellipsis;
+            display: block;
+            width: 100%;
+            max-width: 100%;
+            font-weight: 700;
         }
 
         .sidebar-user-status {
-            font-size: 0.72rem;
+            font-size: 0.70rem;
             color: var(--text-sub);
             white-space: nowrap;
             overflow: hidden;
             text-overflow: ellipsis;
+            display: block;
+            width: 100%;
+            max-width: 100%;
         }
 
         .btn-sidebar-logout {
-            width: 38px;
-            height: 38px;
+            width: 36px;
+            height: 36px;
+            min-width: 36px;
+            max-width: 36px;
             border-radius: 10px;
             border: 1px solid var(--border-color);
             background-color: transparent;
@@ -2450,11 +5763,14 @@ class LocalHttpServer(
             display: inline-flex;
             align-items: center;
             justify-content: center;
-            font-size: 1.2rem;
+            font-size: 1.15rem;
             cursor: pointer;
             transition: all 0.2s ease;
             flex-shrink: 0;
+            flex-grow: 0;
             padding: 0;
+            box-sizing: border-box;
+            z-index: 2;
         }
 
         .btn-sidebar-logout:hover {
@@ -2667,28 +5983,124 @@ class LocalHttpServer(
             border-left: 4px solid var(--brand-green);
         }
 
-        /* Responsive Mobile Behavior */
+        /* Responsive Mobile Behavior & Scroll Lock */
+        html.sidebar-mobile-locked,
+        body.sidebar-mobile-open {
+            overflow: hidden !important;
+            height: 100% !important;
+            max-height: 100vh !important;
+            overscroll-behavior: none !important;
+        }
+
+        .sidebar-mobile-header {
+            display: none;
+        }
+
         @media (max-width: 768px) {
-            .sidebar-wrapper {
-                transform: translateX(-100%);
-                width: 260px !important;
+            .navbar-main {
+                height: 56px;
+                padding: 0;
             }
 
             .content-wrapper {
                 margin-left: 0 !important;
-                padding: 16px;
+                margin-top: 56px !important;
+                padding: 12px 10px !important;
+                width: 100% !important;
+                max-width: 100vw !important;
+                overflow-x: hidden;
+            }
+
+            /* Cegah scroll latar belakang saat sidebar mobile terbuka */
+            body.sidebar-mobile-open .content-wrapper {
+                overflow: hidden !important;
+                pointer-events: none !important;
+                user-select: none !important;
+                touch-action: none !important;
+            }
+
+            body.sidebar-mobile-open .navbar-main {
+                touch-action: none !important;
+            }
+
+            .sidebar-wrapper {
+                position: fixed !important;
+                top: 0 !important;
+                bottom: 0 !important;
+                left: 0 !important;
+                height: 100vh !important;
+                height: 100dvh !important;
+                width: 290px !important;
+                max-width: 86vw !important;
+                transform: translateX(-100%);
+                box-shadow: 4px 0 24px rgba(0, 0, 0, 0.35);
+                z-index: 1050 !important;
+                display: flex !important;
+                flex-direction: column !important;
+                transition: transform 0.28s cubic-bezier(0.4, 0, 0.2, 1);
+            }
+
+            .sidebar-mobile-header {
+                display: flex !important;
             }
 
             body.sidebar-mobile-open .sidebar-wrapper {
                 transform: translateX(0);
+                touch-action: pan-y !important;
+            }
+
+            /* Izinkan scroll yang mulus hanya pada menu sidebar */
+            .sidebar-menu-scrollable {
+                flex: 1 1 auto;
+                overflow-y: auto !important;
+                -webkit-overflow-scrolling: touch !important;
+                overscroll-behavior-y: contain !important;
+                touch-action: pan-y !important;
             }
 
             body.sidebar-mobile-open::after {
                 content: '';
                 position: fixed;
                 inset: 0;
-                background: rgba(0,0,0,0.5);
-                z-index: 1010;
+                background: rgba(0,0,0,0.55);
+                backdrop-filter: blur(2px);
+                -webkit-backdrop-filter: blur(2px);
+                z-index: 1040;
+                touch-action: none !important;
+            }
+
+            /* Mobile UI optimization */
+            .card-custom {
+                border-radius: 12px;
+                padding: 14px 12px !important;
+            }
+
+            .dashboard-clock-box {
+                padding: 12px !important;
+                border-radius: 12px !important;
+            }
+
+            .nav-link-item {
+                min-height: 42px;
+            }
+
+            .sidebar-group-header {
+                min-height: 42px;
+            }
+
+            input.form-control, select.form-select, textarea.form-control {
+                font-size: 16px !important;
+            }
+
+            .modal-dialog {
+                margin: 10px !important;
+                max-width: calc(100vw - 20px) !important;
+            }
+
+            .table-responsive {
+                -webkit-overflow-scrolling: touch;
+                scrollbar-width: thin;
+                margin-bottom: 0.75rem;
             }
         }
 
@@ -2995,7 +6407,7 @@ class LocalHttpServer(
             transform: scale(0.95);
         }
 
-        /* Quran Arabic Text */
+        /* Quran Arabic Text & Tajwid Colors */
         .quran-arabic-text {
             font-family: 'Amiri', 'Traditional Arabic', 'Scheherazade New', serif;
             font-size: 1.75rem;
@@ -3003,6 +6415,107 @@ class LocalHttpServer(
             direction: rtl;
             text-align: right;
             color: var(--text-main);
+        }
+        .tajwid-ghunnah { color: #E91E63 !important; font-weight: bold; }
+        .tajwid-qalqalah { color: #1E88E5 !important; font-weight: bold; }
+        .tajwid-ikhfa { color: #EF6C00 !important; font-weight: bold; }
+        .tajwid-mad { color: #2E7D32 !important; }
+
+        .quran-tab-btn {
+            color: var(--text-muted);
+            border-bottom: 2px solid transparent;
+            border-radius: 0;
+            transition: all 0.2s ease;
+        }
+        .quran-tab-btn:hover {
+            color: #00796B;
+        }
+        .quran-tab-btn.active {
+            color: #00796B !important;
+            border-bottom: 3px solid #00796B !important;
+        }
+        body.dark .quran-tab-btn.active,
+        [data-theme="dark"] .quran-tab-btn.active {
+            color: #4DB6AC !important;
+            border-bottom: 3px solid #4DB6AC !important;
+        }
+
+        .quran-id-badge {
+            width: 42px;
+            height: 42px;
+            min-width: 42px;
+            border-radius: 10px;
+            background: rgba(0, 121, 107, 0.1);
+            border: 1px solid rgba(0, 121, 107, 0.25);
+            font-size: 13px;
+        }
+        body.dark .quran-id-badge,
+        [data-theme="dark"] .quran-id-badge {
+            background: rgba(0, 121, 107, 0.2);
+            border: 1px solid rgba(0, 121, 107, 0.4);
+            color: #4DB6AC !important;
+        }
+
+        .quran-juz-badge {
+            width: 42px;
+            height: 42px;
+            min-width: 42px;
+            border-radius: 10px;
+            background: rgba(2, 136, 209, 0.1);
+            border: 1px solid rgba(2, 136, 209, 0.25);
+            color: #0288D1;
+        }
+        body.dark .quran-juz-badge,
+        [data-theme="dark"] .quran-juz-badge {
+            background: rgba(2, 136, 209, 0.2);
+            border: 1px solid rgba(2, 136, 209, 0.4);
+            color: #4FC3F7 !important;
+        }
+
+        .quran-surah-card, .quran-juz-card, .quran-verse-card, .quran-history-item, .quran-bookmark-item {
+            transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+            border: 1px solid var(--border-color) !important;
+        }
+        .quran-surah-card:hover, .quran-juz-card:hover, .quran-history-item:hover, .quran-bookmark-item:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 16px rgba(0,0,0,0.08);
+            border-color: rgba(0, 121, 107, 0.4) !important;
+        }
+
+        body.dark .quran-arabic-text,
+        [data-theme="dark"] .quran-arabic-text {
+            color: #F8FAFC !important;
+        }
+
+        body.dark .quran-verse-card,
+        [data-theme="dark"] .quran-verse-card {
+            background-color: var(--bg-card) !important;
+            color: #F8FAFC !important;
+        }
+
+        body.dark .quran-translation,
+        [data-theme="dark"] .quran-translation {
+            color: #CBD5E1 !important;
+        }
+
+        .active-playing-verse {
+            border: 2px solid #00796B !important;
+            background: rgba(0, 121, 107, 0.05) !important;
+            box-shadow: 0 0 16px rgba(0, 121, 107, 0.25) !important;
+        }
+        body.dark .active-playing-verse,
+        [data-theme="dark"] .active-playing-verse {
+            border: 2px solid #4DB6AC !important;
+            background: rgba(0, 121, 107, 0.15) !important;
+            box-shadow: 0 0 20px rgba(77, 182, 172, 0.3) !important;
+        }
+
+        .verse-highlight-flash {
+            animation: verseFlash 2s ease forwards;
+        }
+        @keyframes verseFlash {
+            0% { background: rgba(0, 121, 107, 0.25); }
+            100% { background: transparent; }
         }
 
         /* Retro Gimbot Brick Game LCD casing - Synchronized with Web Connect */
@@ -3502,11 +7015,148 @@ class LocalHttpServer(
             background: rgba(0, 255, 210, 0.18);
         }
 
+        /* Responsive Breakpoints for Mobile Screen Displays (Brick Game) */
+        @media (max-width: 480px) {
+            .brick-game-casing {
+                padding: 12px 10px !important;
+                border-radius: 26px;
+                max-width: 100%;
+            }
+            .brick-game-lcd-frame {
+                padding: 8px !important;
+                border-radius: 12px 12px 26px 12px;
+                margin-bottom: 0.75rem !important;
+            }
+            .brick-game-lcd {
+                padding: 6px !important;
+                gap: 6px !important;
+            }
+            #brickGameCanvas {
+                width: 200px !important;
+                height: 400px !important;
+            }
+            .brick-game-lcd > div:nth-child(2) {
+                min-height: 400px !important;
+                font-size: 10px !important;
+            }
+            .brick-dpad-well {
+                width: 128px;
+                height: 128px;
+            }
+            .brick-dpad-cross {
+                width: 110px;
+                height: 110px;
+            }
+            .brick-dpad-up, .brick-dpad-down {
+                left: 37px; width: 36px; height: 38px;
+            }
+            .brick-dpad-left, .brick-dpad-right {
+                top: 37px; width: 38px; height: 36px;
+            }
+            .brick-dpad-center {
+                top: 37px; left: 37px; width: 36px; height: 36px;
+            }
+            .brick-action-pill-well {
+                width: 136px;
+                height: 86px;
+                padding: 0 6px;
+            }
+            .brick-action-btn-circle {
+                width: 48px;
+                height: 48px;
+            }
+            .brick-action-btn-circle .brick-btn-label {
+                font-size: 13.5px;
+            }
+            .brick-action-btn-circle .brick-btn-sub {
+                font-size: 7.5px;
+            }
+            .brick-pill-btn {
+                width: 74px;
+                height: 25px;
+                font-size: 9px;
+            }
+        }
+
+        @media (max-width: 380px) {
+            .brick-game-casing {
+                padding: 10px 6px !important;
+                border-radius: 22px;
+            }
+            .brick-game-lcd-frame {
+                padding: 6px !important;
+                border-radius: 10px 10px 20px 10px;
+            }
+            .brick-game-lcd {
+                padding: 4px !important;
+                gap: 4px !important;
+            }
+            #brickGameCanvas {
+                width: 170px !important;
+                height: 340px !important;
+            }
+            .brick-game-lcd > div:nth-child(2) {
+                min-height: 340px !important;
+                font-size: 9.5px !important;
+            }
+            .brick-dpad-well {
+                width: 114px;
+                height: 114px;
+            }
+            .brick-dpad-cross {
+                width: 98px;
+                height: 98px;
+            }
+            .brick-dpad-up, .brick-dpad-down {
+                left: 33px; width: 32px; height: 34px;
+            }
+            .brick-dpad-left, .brick-dpad-right {
+                top: 33px; width: 34px; height: 32px;
+            }
+            .brick-dpad-center {
+                top: 33px; left: 33px; width: 32px; height: 32px;
+            }
+            .brick-action-pill-well {
+                width: 120px;
+                height: 76px;
+                padding: 0 4px;
+            }
+            .brick-action-btn-circle {
+                width: 42px;
+                height: 42px;
+            }
+            .brick-action-btn-circle .brick-btn-label {
+                font-size: 12px;
+            }
+            .brick-action-btn-circle .brick-btn-sub {
+                font-size: 6.5px;
+            }
+            .brick-pill-btn {
+                width: 64px;
+                height: 23px;
+                font-size: 8px;
+                padding: 0 4px;
+            }
+        }
+
         /* Block Puzzle Styles - 1:1 Match to My Singghara App */
         .puzzle-game-wrapper {
             max-width: 1080px;
             margin: 0 auto;
             user-select: none;
+            -webkit-user-select: none;
+        }
+        .puzzle-stats-col {
+            max-width: 215px;
+            width: 100%;
+        }
+        .puzzle-board-col {
+            max-width: 540px;
+            width: 100%;
+        }
+        .puzzle-tray-col {
+            max-width: 200px;
+            width: 100%;
         }
         .puzzle-stats-card {
             background: linear-gradient(135deg, #183842 0%, #1F4450 100%);
@@ -3519,6 +7169,16 @@ class LocalHttpServer(
             flex-direction: column;
             justify-content: space-between;
         }
+        .puzzle-stats-grid {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+        .puzzle-booster-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 6px;
+        }
         .puzzle-board-container {
             background-color: #152A33;
             border: 3.5px solid #2C5E6A;
@@ -3530,11 +7190,13 @@ class LocalHttpServer(
             width: 100%;
             max-width: 520px;
             padding: 10px;
+            box-sizing: border-box;
         }
         .puzzle-grid {
             display: grid;
             grid-template-columns: repeat(8, 1fr);
             gap: 4px;
+            width: 100%;
         }
         .puzzle-cell {
             aspect-ratio: 1;
@@ -3596,6 +7258,15 @@ class LocalHttpServer(
             align-items: center;
             height: 100%;
             width: 100%;
+            box-sizing: border-box;
+        }
+        .puzzle-pieces-tray {
+            display: flex;
+            flex-direction: column;
+            justify-content: space-around;
+            flex-grow: 1;
+            gap: 8px;
+            width: 100%;
         }
         .puzzle-tray-card {
             background-color: rgba(0,0,0,0.20);
@@ -3614,6 +7285,7 @@ class LocalHttpServer(
             justify-content: center;
             cursor: grab;
             width: 100%;
+            box-sizing: border-box;
         }
         .puzzle-tray-card:hover {
             transform: scale(1.04);
@@ -3649,7 +7321,7 @@ class LocalHttpServer(
             transition: all 0.18s ease;
             font-size: 11.5px;
             font-weight: 600;
-            padding: 6px 9px;
+            padding: 6px 8px;
         }
         .puzzle-booster-btn:hover {
             background-color: #1F4450;
@@ -3691,6 +7363,100 @@ class LocalHttpServer(
             30% { transform: translate(-50%, -50%) scale(1.2); opacity: 1; }
             70% { transform: translate(-50%, -60%) scale(1); opacity: 1; }
             100% { transform: translate(-50%, -90%) scale(0.8); opacity: 0; }
+        }
+
+        /* Responsive Breakpoints for Block Puzzle on Mobile Screens */
+        @media (max-width: 767.98px) {
+            .puzzle-stats-col {
+                max-width: 100% !important;
+                order: 1;
+            }
+            .puzzle-board-col {
+                max-width: 100% !important;
+                order: 2;
+            }
+            .puzzle-tray-col {
+                max-width: 100% !important;
+                order: 3;
+            }
+            .puzzle-stats-grid {
+                display: grid !important;
+                grid-template-columns: repeat(3, 1fr) !important;
+                gap: 6px !important;
+            }
+            .puzzle-booster-grid {
+                display: grid !important;
+                grid-template-columns: repeat(4, 1fr) !important;
+                gap: 6px !important;
+            }
+            .puzzle-pieces-tray {
+                flex-direction: row !important;
+                justify-content: center !important;
+                gap: 8px !important;
+            }
+            .puzzle-tray-card {
+                min-height: 75px !important;
+                max-height: 95px !important;
+                padding: 4px !important;
+            }
+            .puzzle-board-container {
+                padding: 6px !important;
+                border-width: 2.5px !important;
+                border-radius: 14px !important;
+            }
+            .puzzle-grid {
+                gap: 3px !important;
+            }
+        }
+
+        @media (max-width: 480px) {
+            .puzzle-board-container {
+                padding: 5px !important;
+                border-width: 2px !important;
+                border-radius: 12px !important;
+            }
+            .puzzle-grid {
+                gap: 2.5px !important;
+            }
+            .puzzle-cell {
+                border-radius: 4px !important;
+            }
+            .puzzle-tray-card {
+                min-height: 68px !important;
+                max-height: 86px !important;
+                padding: 3px !important;
+            }
+            .puzzle-booster-btn {
+                padding: 4px 2px !important;
+                font-size: 9.5px !important;
+            }
+            .puzzle-booster-btn i {
+                font-size: 11.5px !important;
+            }
+            .puzzle-stats-card {
+                border-radius: 14px !important;
+                padding: 8px !important;
+            }
+            .puzzle-tray-container {
+                border-radius: 14px !important;
+                padding: 8px 6px !important;
+            }
+        }
+
+        @media (max-width: 360px) {
+            .puzzle-board-container {
+                padding: 3.5px !important;
+            }
+            .puzzle-grid {
+                gap: 2px !important;
+            }
+            .puzzle-cell {
+                border-radius: 3px !important;
+            }
+            .puzzle-tray-card {
+                min-height: 60px !important;
+                max-height: 75px !important;
+            }
         }
 
         /* Pull To Refresh Indicator */
@@ -3962,6 +7728,111 @@ class LocalHttpServer(
         }
         .btn-retry-auth:active {
             transform: translateY(0);
+        }
+
+        /* --- AUTH LOGGED OUT / ACCESS REVOKED SPECIAL PAGE --- */
+        .auth-logged-out-container {
+            text-align: center;
+            padding: 30px 20px;
+            animation: fadeInRejection 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        .auth-logged-out-icon-wrapper {
+            position: relative;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 104px;
+            height: 104px;
+            margin-bottom: 22px;
+        }
+
+        .auth-logged-out-icon-badge {
+            width: 82px;
+            height: 82px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #0F766E 0%, #0d9488 100%);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #ffffff;
+            font-size: 2.3rem;
+            box-shadow: 0 10px 25px rgba(15, 118, 110, 0.35);
+        }
+
+        .auth-logged-out-icon-badge.is-rejected {
+            background: linear-gradient(135deg, #ef4444 0%, #b91c1c 100%);
+            box-shadow: 0 10px 25px rgba(239, 68, 68, 0.4);
+        }
+
+        .auth-logged-out-title {
+            color: #0F766E;
+            font-size: 1.65rem;
+            font-weight: 800;
+            letter-spacing: -0.5px;
+            margin-bottom: 8px;
+        }
+        body.dark .auth-logged-out-title,
+        [data-theme="dark"] .auth-logged-out-title {
+            color: #2dd4bf;
+        }
+
+        .auth-logged-out-desc {
+            color: #64748b;
+            max-width: 480px;
+            margin: 0 auto 20px auto;
+            font-size: 0.95rem;
+            line-height: 1.5;
+        }
+        body.dark .auth-logged-out-desc,
+        [data-theme="dark"] .auth-logged-out-desc {
+            color: #cbd5e1;
+        }
+
+        .auth-logged-out-box {
+            background: rgba(15, 118, 110, 0.06);
+            border: 1px dashed rgba(15, 118, 110, 0.35);
+            border-radius: 16px;
+            padding: 16px;
+            margin-bottom: 24px;
+            display: inline-block;
+            max-width: 460px;
+            width: 100%;
+            text-align: left;
+        }
+        body.dark .auth-logged-out-box,
+        [data-theme="dark"] .auth-logged-out-box {
+            background: rgba(15, 118, 110, 0.12);
+            border-color: rgba(15, 118, 110, 0.45);
+        }
+
+        /* CUSTOM DATE TIME PICKER MODAL DARK MODE STYLING */
+        body.dark #anggotaDatePickerModal .modal-content,
+        [data-theme="dark"] #anggotaDatePickerModal .modal-content {
+            background-color: var(--card-bg, #1e293b) !important;
+            color: var(--text-main, #f8fafc) !important;
+        }
+        body.dark #anggotaDatePickerModal .card-custom,
+        [data-theme="dark"] #anggotaDatePickerModal .card-custom {
+            background-color: var(--input-bg, #0f172a) !important;
+            border-color: var(--border-color, #334155) !important;
+        }
+        body.dark #anggotaDatePickerModal .btn-light,
+        [data-theme="dark"] #anggotaDatePickerModal .btn-light {
+            background-color: #334155 !important;
+            color: #f8fafc !important;
+            border-color: #475569 !important;
+        }
+        body.dark #anggotaDatePickerModal select,
+        [data-theme="dark"] #anggotaDatePickerModal select {
+            color: #f8fafc !important;
+            background-color: #1e293b !important;
+        }
+        body.dark #anggotaDatePickerModal input[type="number"],
+        [data-theme="dark"] #anggotaDatePickerModal input[type="number"] {
+            background-color: #0f172a !important;
+            color: #f8fafc !important;
+            border-color: #475569 !important;
         }
 
         .auth-title {
@@ -4524,25 +8395,408 @@ class LocalHttpServer(
             box-shadow: 0 2px 8px rgba(198, 40, 40, 0.35);
         }
 
-        body.dark .savings-legend-chip.chip-sisa {
+        body.dark .savings-legend-chip.chip-sisa,
+        [data-theme="dark"] .savings-legend-chip.chip-sisa {
             color: #4ade80;
             border-color: rgba(74, 222, 128, 0.35);
             background-color: rgba(74, 222, 128, 0.12);
         }
-        body.dark .savings-legend-chip.chip-masuk {
+        body.dark .savings-legend-chip.chip-masuk,
+        [data-theme="dark"] .savings-legend-chip.chip-masuk {
             color: #fbbf24;
             border-color: rgba(251, 191, 36, 0.35);
             background-color: rgba(251, 191, 36, 0.12);
         }
-        body.dark .savings-legend-chip.chip-keluar {
+        body.dark .savings-legend-chip.chip-keluar,
+        [data-theme="dark"] .savings-legend-chip.chip-keluar {
             color: #f87171;
             border-color: rgba(248, 113, 113, 0.35);
             background-color: rgba(248, 113, 113, 0.12);
         }
 
+        /* --- MANAJEMEN KEUANGAN & SAVINGS DARK MODE SYNC --- */
+        .card-savings-goal {
+            background: linear-gradient(135deg, rgba(54, 116, 181, 0.08) 0%, rgba(16, 185, 129, 0.08) 100%);
+            border: 1px solid var(--border-color);
+            border-radius: 18px;
+        }
+        body.dark .card-savings-goal,
+        [data-theme="dark"] .card-savings-goal {
+            background: linear-gradient(135deg, rgba(56, 189, 248, 0.12) 0%, rgba(16, 185, 129, 0.12) 100%) !important;
+            border-color: rgba(255, 255, 255, 0.1) !important;
+        }
+
+        .donut-center-circle {
+            fill: var(--card-bg, #ffffff);
+            transition: fill 0.2s ease;
+        }
+        body.dark .donut-center-circle,
+        [data-theme="dark"] .donut-center-circle {
+            fill: #1e293b !important;
+        }
+
+        .donut-empty-circle {
+            stroke: var(--border-color, #e2e8f0);
+        }
+        body.dark .donut-empty-circle,
+        [data-theme="dark"] .donut-empty-circle {
+            stroke: #334155 !important;
+        }
+
+        .donut-center-label,
+        .donut-center-percent,
+        .cashflow-axis-text {
+            fill: var(--text-sub, #64748b);
+            transition: fill 0.2s ease;
+        }
+        body.dark .donut-center-label,
+        [data-theme="dark"] .donut-center-label,
+        body.dark .donut-center-percent,
+        [data-theme="dark"] .donut-center-percent,
+        body.dark .cashflow-axis-text,
+        [data-theme="dark"] .cashflow-axis-text {
+            fill: #94a3b8 !important;
+        }
+
+        .cashflow-gridline {
+            stroke: rgba(0, 0, 0, 0.06);
+        }
+        body.dark .cashflow-gridline,
+        [data-theme="dark"] .cashflow-gridline {
+            stroke: rgba(255, 255, 255, 0.08) !important;
+        }
+
+        /* Dark mode table headers */
+        body.dark .table thead.table-light,
+        [data-theme="dark"] .table thead.table-light,
+        body.dark .table thead.table-light th,
+        [data-theme="dark"] .table thead.table-light th {
+            background-color: rgba(15, 23, 42, 0.75) !important;
+            color: #94a3b8 !important;
+            border-color: var(--border-color) !important;
+        }
+
+        /* Dark mode list group items */
+        body.dark .list-group-item,
+        [data-theme="dark"] .list-group-item {
+            background-color: transparent !important;
+            color: var(--text-main) !important;
+            border-color: var(--border-color) !important;
+        }
+
+        /* Adaptive Telegram AI & Profile Menu */
+        .profile-menu-tg-icon {
+            background: rgba(34, 158, 217, 0.12) !important;
+            color: #0288D1 !important;
+            transition: all 0.2s ease;
+        }
+        body.dark .profile-menu-tg-icon,
+        [data-theme="dark"] .profile-menu-tg-icon,
+        :root:not([data-theme="light"]):not(.dark) .profile-menu-tg-icon {
+            background: rgba(56, 189, 248, 0.2) !important;
+            color: #38BDF8 !important;
+        }
+
+        .list-group-item-action:hover {
+            background-color: var(--bg-hover) !important;
+            color: var(--text-main) !important;
+        }
+        body.dark .list-group-item-action:hover,
+        [data-theme="dark"] .list-group-item-action:hover {
+            background-color: var(--bg-hover) !important;
+            color: var(--text-main) !important;
+        }
+
+        .tg-ai-circle-btn:hover {
+            background-color: var(--border-color) !important;
+        }
+        .tg-ai-dropdown-item:hover {
+            background-color: var(--bg-hover) !important;
+        }
+        .tg-ai-chip:hover {
+            background-color: var(--bg-hover) !important;
+            border-color: #0288D1 !important;
+            color: #0288D1 !important;
+        }
+        body.dark .tg-ai-chip:hover,
+        [data-theme="dark"] .tg-ai-chip:hover {
+            border-color: #38BDF8 !important;
+            color: #38BDF8 !important;
+        }
+
+        /* Telegram AI Fixed / Sticky Bottom Form Layout */
+        .tg-ai-root {
+            display: flex !important;
+            flex-direction: column !important;
+            height: calc(100vh - 112px) !important;
+            max-height: calc(100vh - 112px) !important;
+            min-height: 500px !important;
+            overflow: hidden !important;
+            position: relative !important;
+            background: var(--bg-main) !important;
+            border: 1px solid var(--border-color) !important;
+            border-radius: 18px !important;
+            box-shadow: var(--card-shadow) !important;
+        }
+        @media (max-width: 768px) {
+            .tg-ai-root {
+                height: calc(100vh - 80px) !important;
+                max-height: calc(100vh - 80px) !important;
+                min-height: 420px !important;
+                border-radius: 14px !important;
+            }
+        }
+        .tg-ai-messages-scroll {
+            flex: 1 1 0 !important;
+            min-height: 0 !important;
+            overflow-y: auto !important;
+            overflow-x: hidden !important;
+            -webkit-overflow-scrolling: touch;
+            scroll-behavior: smooth;
+        }
+        .tg-ai-bottom-bar {
+            position: sticky !important;
+            bottom: 0 !important;
+            left: 0 !important;
+            right: 0 !important;
+            z-index: 50 !important;
+            background: var(--card-bg) !important;
+            border-top: 1px solid var(--border-color) !important;
+            box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.08) !important;
+            backdrop-filter: blur(8px);
+            -webkit-backdrop-filter: blur(8px);
+        }
+        body.dark .tg-ai-bottom-bar,
+        [data-theme="dark"] .tg-ai-bottom-bar {
+            box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.35) !important;
+        }
+
+        /* Dark mode progress bar track */
+        body.dark .progress,
+        [data-theme="dark"] .progress {
+            background-color: rgba(255, 255, 255, 0.1) !important;
+        }
+
+        /* Dark mode calendar date picker icon */
+        body.dark input[type="date"]::-webkit-calendar-picker-indicator,
+        [data-theme="dark"] input[type="date"]::-webkit-calendar-picker-indicator {
+            filter: invert(1) brightness(1.8);
+        }
+
+        /* --- SAVINGS STAT CARDS (HARMONIZED LIGHT & DARK MODES) --- */
+        .stat-card-saldo {
+            border: 1px solid rgba(54, 116, 181, 0.18);
+            border-left: 4px solid #3674B5 !important;
+            background: #ffffff;
+            border-radius: 12px;
+            transition: all 0.2s ease;
+        }
+        .stat-card-masuk {
+            border: 1px solid rgba(16, 185, 129, 0.18);
+            border-left: 4px solid #10b981 !important;
+            background: #ffffff;
+            border-radius: 12px;
+            transition: all 0.2s ease;
+        }
+        .stat-card-keluar {
+            border: 1px solid rgba(239, 68, 68, 0.18);
+            border-left: 4px solid #ef4444 !important;
+            background: #ffffff;
+            border-radius: 12px;
+            transition: all 0.2s ease;
+        }
+        body.dark .stat-card-saldo,
+        [data-theme="dark"] .stat-card-saldo {
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-left: 4px solid #38bdf8 !important;
+            background: var(--card-bg, #1e293b) !important;
+        }
+        body.dark .stat-card-masuk,
+        [data-theme="dark"] .stat-card-masuk {
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-left: 4px solid #34d399 !important;
+            background: var(--card-bg, #1e293b) !important;
+        }
+        body.dark .stat-card-keluar,
+        [data-theme="dark"] .stat-card-keluar {
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            border-left: 4px solid #f87171 !important;
+            background: var(--card-bg, #1e293b) !important;
+        }
+
+        .savings-trx-card {
+            border: 1px solid rgba(0, 0, 0, 0.08);
+            background: #ffffff;
+            border-radius: 12px;
+            transition: transform 0.15s ease, box-shadow 0.15s ease;
+        }
+        .savings-trx-card:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+        }
+        body.dark .savings-trx-card,
+        [data-theme="dark"] .savings-trx-card {
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            background: var(--card-bg, #1e293b) !important;
+        }
+        body.dark .savings-trx-card:hover,
+        [data-theme="dark"] .savings-trx-card:hover {
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+        }
+
+        .savings-filter-panel,
+        .shopping-filter-panel {
+            border: 1px solid rgba(0, 0, 0, 0.08);
+            background: #ffffff;
+            border-radius: 14px;
+        }
+        body.dark .savings-filter-panel,
+        body.dark .shopping-filter-panel,
+        [data-theme="dark"] .savings-filter-panel,
+        [data-theme="dark"] .shopping-filter-panel {
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            background: var(--card-bg, #1e293b) !important;
+        }
+
+        /* --- SAVINGS & SHOPPING MENU LIST & RESPONSIVE TABLE STYLES --- */
+        .savings-menu-nav,
+        .shopping-menu-nav {
+            display: flex;
+            gap: 8px;
+            border-bottom: 2px solid rgba(0, 0, 0, 0.06);
+            padding-bottom: 8px;
+            overflow-x: auto;
+            -webkit-overflow-scrolling: touch;
+        }
+        body.dark .savings-menu-nav,
+        body.dark .shopping-menu-nav,
+        [data-theme="dark"] .savings-menu-nav,
+        [data-theme="dark"] .shopping-menu-nav {
+            border-bottom-color: rgba(255, 255, 255, 0.08);
+        }
+
+        .savings-menu-item,
+        .shopping-menu-item {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 8px 16px;
+            border-radius: 10px;
+            font-weight: 600;
+            font-size: 0.88rem;
+            color: var(--text-sub, #64748b);
+            background: transparent;
+            border: 1px solid transparent;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            white-space: nowrap;
+            text-decoration: none;
+        }
+        .savings-menu-item:hover,
+        .shopping-menu-item:hover {
+            background-color: rgba(0, 0, 0, 0.04);
+            color: var(--text-main, #1e293b);
+        }
+        body.dark .savings-menu-item:hover,
+        body.dark .shopping-menu-item:hover,
+        [data-theme="dark"] .savings-menu-item:hover,
+        [data-theme="dark"] .shopping-menu-item:hover {
+            background-color: rgba(255, 255, 255, 0.06);
+            color: #f8fafc;
+        }
+
+        .savings-menu-item.active-all,
+        .shopping-menu-item.active-cat {
+            background-color: #3674B5;
+            color: #ffffff !important;
+            box-shadow: 0 2px 8px rgba(54, 116, 181, 0.25);
+        }
+        .savings-menu-item.active-masuk {
+            background-color: #10b981;
+            color: #ffffff !important;
+            box-shadow: 0 2px 8px rgba(16, 185, 129, 0.25);
+        }
+        .savings-menu-item.active-keluar {
+            background-color: #ef4444;
+            color: #ffffff !important;
+            box-shadow: 0 2px 8px rgba(239, 68, 68, 0.25);
+        }
+
+        .table-savings,
+        .table-shopping {
+            font-size: 0.9rem;
+            min-width: 620px;
+        }
+        @media (max-width: 576px) {
+            .table-savings,
+            .table-shopping {
+                font-size: 0.82rem;
+                min-width: 520px;
+            }
+            .table-savings th, 
+            .table-savings td,
+            .table-shopping th,
+            .table-shopping td {
+                padding: 8px 6px !important;
+            }
+        }
+
         /* ==================================================== */
         /* --- SHARE SCREEN (GOOGLE DRIVE CLOUD SYNC) --- */
         /* ==================================================== */
+        @keyframes floatOffline {
+            0% { transform: translateY(-10px); }
+            100% { transform: translateY(10px); }
+        }
+        @keyframes rotateSpin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        @keyframes pulseGlow {
+            0% { opacity: 0.18; transform: scale(0.95); }
+            100% { opacity: 0.35; transform: scale(1.05); }
+        }
+        .share-offline-container {
+            width: 160px;
+            height: 160px;
+            margin: 0 auto;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            animation: floatOffline 1.4s ease-in-out infinite alternate;
+        }
+        .share-offline-glow {
+            position: absolute;
+            width: 120px;
+            height: 120px;
+            border-radius: 50%;
+            background-color: var(--primary-color);
+            animation: pulseGlow 1.2s ease-in-out infinite alternate;
+        }
+        .share-offline-spin-ring {
+            position: absolute;
+            width: 120px;
+            height: 120px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            animation: rotateSpin 4s linear infinite;
+        }
+        .share-offline-center-circle {
+            position: absolute;
+            width: 76px;
+            height: 76px;
+            border-radius: 50%;
+            background-color: var(--card-bg);
+            border: 2px solid var(--primary-color);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 2;
+        }
+        .spinning {
+            animation: rotateSpin 1s linear infinite;
+        }
         .share-header-banner {
             background-color: rgba(54, 116, 181, 0.08);
             border: 1px solid rgba(54, 116, 181, 0.2);
@@ -4707,6 +8961,535 @@ class LocalHttpServer(
         }
 
         /* ==================================================== */
+        /* --- TRANSFER FILE (100% OFFLINE) DARK MODE SUPPORT --- */
+        /* ==================================================== */
+        .transfer-sub-menu-bar {
+            background-color: #e2e8f0;
+            border: 1px solid #cbd5e1;
+            transition: all 0.2s ease;
+        }
+        body.dark .transfer-sub-menu-bar,
+        [data-theme="dark"] .transfer-sub-menu-bar,
+        :root:not([data-theme="light"]):not(.dark) .transfer-sub-menu-bar {
+            background-color: #1e293b !important;
+            border-color: #334155 !important;
+        }
+        .transfer-sub-btn-active {
+            background-color: #0284c7 !important;
+            color: #ffffff !important;
+            border: none !important;
+        }
+        .transfer-sub-btn-inactive {
+            color: #475569 !important;
+            border: none !important;
+            background: transparent !important;
+        }
+        body.dark .transfer-sub-btn-inactive,
+        [data-theme="dark"] .transfer-sub-btn-inactive,
+        :root:not([data-theme="light"]):not(.dark) .transfer-sub-btn-inactive {
+            color: #94a3b8 !important;
+        }
+        body.dark .transfer-sub-btn-inactive:hover,
+        [data-theme="dark"] .transfer-sub-btn-inactive:hover,
+        :root:not([data-theme="light"]):not(.dark) .transfer-sub-btn-inactive:hover {
+            color: #f8fafc !important;
+            background-color: rgba(255, 255, 255, 0.06) !important;
+        }
+
+        .transfer-header-card {
+            background: linear-gradient(135deg, #0284C7 0%, #0369A1 100%);
+            color: #ffffff;
+            border: 1px solid transparent;
+        }
+        body.dark .transfer-header-card,
+        [data-theme="dark"] .transfer-header-card,
+        :root:not([data-theme="light"]):not(.dark) .transfer-header-card {
+            background: linear-gradient(135deg, #075985 0%, #0f172a 100%) !important;
+            border-color: rgba(56, 189, 248, 0.3) !important;
+        }
+
+        .transfer-badge-offline {
+            background-color: #ffffff;
+            color: #0284c7;
+            border: 1px solid transparent;
+        }
+        body.dark .transfer-badge-offline,
+        [data-theme="dark"] .transfer-badge-offline,
+        :root:not([data-theme="light"]):not(.dark) .transfer-badge-offline {
+            background-color: rgba(56, 189, 248, 0.2) !important;
+            color: #38bdf8 !important;
+            border-color: rgba(56, 189, 248, 0.4) !important;
+        }
+
+        .transfer-btn-refresh {
+            background-color: #ffffff;
+            color: #0369a1;
+            border: 1px solid transparent;
+        }
+        body.dark .transfer-btn-refresh,
+        [data-theme="dark"] .transfer-btn-refresh,
+        :root:not([data-theme="light"]):not(.dark) .transfer-btn-refresh {
+            background-color: rgba(15, 23, 42, 0.6) !important;
+            color: #f8fafc !important;
+            border-color: rgba(255, 255, 255, 0.15) !important;
+        }
+        body.dark .transfer-btn-refresh:hover,
+        [data-theme="dark"] .transfer-btn-refresh:hover,
+        :root:not([data-theme="light"]):not(.dark) .transfer-btn-refresh:hover {
+            background-color: rgba(56, 189, 248, 0.2) !important;
+            color: #38bdf8 !important;
+            border-color: #38bdf8 !important;
+        }
+
+        .transfer-tabs-nav {
+            border-bottom: 1px solid #e2e8f0;
+        }
+        body.dark .transfer-tabs-nav,
+        [data-theme="dark"] .transfer-tabs-nav,
+        :root:not([data-theme="light"]):not(.dark) .transfer-tabs-nav {
+            border-bottom-color: #334155 !important;
+        }
+        body.dark .transfer-tabs-nav .btn-outline-secondary,
+        [data-theme="dark"] .transfer-tabs-nav .btn-outline-secondary,
+        :root:not([data-theme="light"]):not(.dark) .transfer-tabs-nav .btn-outline-secondary {
+            background-color: #1e293b !important;
+            color: #cbd5e1 !important;
+            border-color: #334155 !important;
+        }
+        body.dark .transfer-tabs-nav .btn-outline-secondary:hover,
+        [data-theme="dark"] .transfer-tabs-nav .btn-outline-secondary:hover,
+        :root:not([data-theme="light"]):not(.dark) .transfer-tabs-nav .btn-outline-secondary:hover {
+            background-color: #334155 !important;
+            color: #ffffff !important;
+            border-color: #475569 !important;
+        }
+
+        .transfer-card {
+            background-color: #ffffff;
+            border: 1px solid rgba(0, 0, 0, 0.05);
+        }
+        body.dark .transfer-card,
+        [data-theme="dark"] .transfer-card,
+        :root:not([data-theme="light"]):not(.dark) .transfer-card,
+        body.dark #transferTabContent .card,
+        [data-theme="dark"] #transferTabContent .card,
+        :root:not([data-theme="light"]):not(.dark) #transferTabContent .card {
+            background-color: #1e293b !important;
+            border: 1px solid #334155 !important;
+            color: #f8fafc !important;
+            box-shadow: 0 4px 16px rgba(0,0,0,0.3) !important;
+        }
+
+        .transfer-dropzone {
+            border-color: #0284C7 !important;
+            background-color: #f8fafc;
+            color: #1e293b;
+        }
+        body.dark .transfer-dropzone,
+        [data-theme="dark"] .transfer-dropzone,
+        :root:not([data-theme="light"]):not(.dark) .transfer-dropzone {
+            border-color: #38bdf8 !important;
+            background-color: #0f172a !important;
+            color: #f8fafc !important;
+        }
+
+        .transfer-list-group {
+            border-color: #e2e8f0;
+            background-color: #ffffff;
+        }
+        body.dark .transfer-list-group,
+        [data-theme="dark"] .transfer-list-group,
+        :root:not([data-theme="light"]):not(.dark) .transfer-list-group {
+            border-color: #334155 !important;
+            background-color: #0f172a !important;
+        }
+
+        .transfer-list-item {
+            background-color: #ffffff;
+            color: #1e293b;
+            border-color: #e2e8f0;
+        }
+        body.dark .transfer-list-item,
+        [data-theme="dark"] .transfer-list-item,
+        :root:not([data-theme="light"]):not(.dark) .transfer-list-item {
+            background-color: #0f172a !important;
+            color: #f8fafc !important;
+            border-color: #334155 !important;
+        }
+        body.dark .transfer-list-item:hover,
+        [data-theme="dark"] .transfer-list-item:hover,
+        :root:not([data-theme="light"]):not(.dark) .transfer-list-item:hover {
+            background-color: #1e293b !important;
+        }
+
+        .transfer-progress {
+            background-color: #e2e8f0;
+        }
+        body.dark .transfer-progress,
+        [data-theme="dark"] .transfer-progress,
+        :root:not([data-theme="light"]):not(.dark) .transfer-progress {
+            background-color: #0f172a !important;
+            border: 1px solid #334155 !important;
+        }
+
+        .transfer-thead {
+            background-color: #f8fafc;
+            color: #475569;
+        }
+        .transfer-thead th {
+            background-color: #f8fafc;
+            color: #475569;
+            border-bottom: 1px solid #e2e8f0;
+            font-weight: 600;
+        }
+        body.dark .transfer-thead,
+        [data-theme="dark"] .transfer-thead,
+        :root:not([data-theme="light"]):not(.dark) .transfer-thead {
+            background-color: #0f172a !important;
+            color: #94a3b8 !important;
+        }
+        body.dark .transfer-thead th,
+        [data-theme="dark"] .transfer-thead th,
+        :root:not([data-theme="light"]):not(.dark) .transfer-thead th {
+            background-color: #0f172a !important;
+            color: #cbd5e1 !important;
+            border-bottom: 1px solid #334155 !important;
+            border-top: none !important;
+        }
+
+        body.dark .transfer-table,
+        [data-theme="dark"] .transfer-table,
+        :root:not([data-theme="light"]):not(.dark) .transfer-table {
+            border-color: #334155 !important;
+            color: #f8fafc !important;
+        }
+        body.dark .transfer-table td,
+        [data-theme="dark"] .transfer-table td,
+        :root:not([data-theme="light"]):not(.dark) .transfer-table td {
+            background-color: transparent !important;
+            color: #f8fafc !important;
+            border-bottom: 1px solid #334155 !important;
+        }
+        body.dark .transfer-table tr:hover td,
+        [data-theme="dark"] .transfer-table tr:hover td,
+        :root:not([data-theme="light"]):not(.dark) .transfer-table tr:hover td {
+            background-color: rgba(56, 189, 248, 0.08) !important;
+        }
+
+        body.dark .transfer-table .btn-outline-primary,
+        [data-theme="dark"] .transfer-table .btn-outline-primary,
+        :root:not([data-theme="light"]):not(.dark) .transfer-table .btn-outline-primary {
+            color: #38bdf8 !important;
+            border-color: #38bdf8 !important;
+            background-color: rgba(56, 189, 248, 0.1) !important;
+        }
+        body.dark .transfer-table .btn-outline-primary:hover,
+        [data-theme="dark"] .transfer-table .btn-outline-primary:hover,
+        :root:not([data-theme="light"]):not(.dark) .transfer-table .btn-outline-primary:hover {
+            background-color: #0284c7 !important;
+            color: #ffffff !important;
+        }
+
+        body.dark .transfer-table .btn-outline-secondary,
+        [data-theme="dark"] .transfer-table .btn-outline-secondary,
+        :root:not([data-theme="light"]):not(.dark) .transfer-table .btn-outline-secondary {
+            color: #cbd5e1 !important;
+            border-color: #475569 !important;
+            background-color: rgba(255, 255, 255, 0.05) !important;
+        }
+        body.dark .transfer-table .btn-outline-secondary:hover,
+        [data-theme="dark"] .transfer-table .btn-outline-secondary:hover,
+        :root:not([data-theme="light"]):not(.dark) .transfer-table .btn-outline-secondary:hover {
+            background-color: #334155 !important;
+            color: #ffffff !important;
+        }
+
+        .transfer-log-group {
+            border-color: #e2e8f0;
+            background-color: #ffffff;
+        }
+        body.dark .transfer-log-group,
+        [data-theme="dark"] .transfer-log-group,
+        :root:not([data-theme="light"]):not(.dark) .transfer-log-group {
+            border-color: #334155 !important;
+            background-color: #0f172a !important;
+        }
+        .transfer-log-item {
+            background-color: #ffffff;
+            color: #1e293b;
+            border-color: #e2e8f0;
+        }
+        body.dark .transfer-log-item,
+        [data-theme="dark"] .transfer-log-item,
+        :root:not([data-theme="light"]):not(.dark) .transfer-log-item {
+            background-color: #0f172a !important;
+            color: #f8fafc !important;
+            border-color: #334155 !important;
+        }
+        body.dark .transfer-log-item:hover,
+        [data-theme="dark"] .transfer-log-item:hover,
+        :root:not([data-theme="light"]):not(.dark) .transfer-log-item:hover {
+            background-color: #1e293b !important;
+        }
+
+        /* ==================================================== */
+        /* --- MANAJEMEN AKUN (KHUSUS ADMIN) DARK MODE SUPPORT --- */
+        /* ==================================================== */
+        body.dark .admin-card,
+        [data-theme="dark"] .admin-card,
+        :root:not([data-theme="light"]):not(.dark) .admin-card,
+        body.dark .admin-msg-card,
+        [data-theme="dark"] .admin-msg-card,
+        :root:not([data-theme="light"]):not(.dark) .admin-msg-card,
+        body.dark .admin-table-card,
+        [data-theme="dark"] .admin-table-card,
+        :root:not([data-theme="light"]):not(.dark) .admin-table-card {
+            background-color: #1e293b !important;
+            border: 1px solid #334155 !important;
+            color: #ffffff !important;
+            box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35) !important;
+        }
+
+        body.dark .admin-text-main,
+        [data-theme="dark"] .admin-text-main,
+        :root:not([data-theme="light"]):not(.dark) .admin-text-main,
+        body.dark .admin-section-title,
+        [data-theme="dark"] .admin-section-title,
+        :root:not([data-theme="light"]):not(.dark) .admin-section-title,
+        body.dark #adminSubTabContent .text-dark,
+        [data-theme="dark"] #adminSubTabContent .text-dark,
+        :root:not([data-theme="light"]):not(.dark) #adminSubTabContent .text-dark,
+        body.dark .admin-page-container .text-dark,
+        [data-theme="dark"] .admin-page-container .text-dark,
+        :root:not([data-theme="light"]):not(.dark) .admin-page-container .text-dark,
+        body.dark .modal .text-dark,
+        [data-theme="dark"] .modal .text-dark,
+        :root:not([data-theme="light"]):not(.dark) .modal .text-dark {
+            color: #ffffff !important;
+        }
+
+        body.dark .admin-text-sub,
+        [data-theme="dark"] .admin-text-sub,
+        :root:not([data-theme="light"]):not(.dark) .admin-text-sub,
+        body.dark #adminSubTabContent .text-secondary,
+        [data-theme="dark"] #adminSubTabContent .text-secondary,
+        :root:not([data-theme="light"]):not(.dark) #adminSubTabContent .text-secondary,
+        body.dark #adminSubTabContent .text-muted,
+        [data-theme="dark"] #adminSubTabContent .text-muted,
+        :root:not([data-theme="light"]):not(.dark) #adminSubTabContent .text-muted,
+        body.dark .admin-page-container .text-secondary,
+        [data-theme="dark"] .admin-page-container .text-secondary,
+        :root:not([data-theme="light"]):not(.dark) .admin-page-container .text-secondary,
+        body.dark .admin-page-container .text-muted,
+        [data-theme="dark"] .admin-page-container .text-muted,
+        :root:not([data-theme="light"]):not(.dark) .admin-page-container .text-muted,
+        body.dark .modal .text-secondary,
+        [data-theme="dark"] .modal .text-secondary,
+        :root:not([data-theme="light"]):not(.dark) .modal .text-secondary {
+            color: #cbd5e1 !important;
+        }
+
+        body.dark .admin-dots-btn,
+        [data-theme="dark"] .admin-dots-btn,
+        :root:not([data-theme="light"]):not(.dark) .admin-dots-btn {
+            background-color: #1e293b !important;
+            color: #ffffff !important;
+            border: 1px solid #334155 !important;
+        }
+        body.dark .admin-dots-btn:hover,
+        [data-theme="dark"] .admin-dots-btn:hover,
+        :root:not([data-theme="light"]):not(.dark) .admin-dots-btn:hover {
+            background-color: #334155 !important;
+            color: #ffffff !important;
+            border-color: #475569 !important;
+        }
+
+        body.dark .admin-badge-glow,
+        [data-theme="dark"] .admin-badge-glow,
+        :root:not([data-theme="light"]):not(.dark) .admin-badge-glow,
+        body.dark .admin-sidebar-badge,
+        [data-theme="dark"] .admin-sidebar-badge,
+        :root:not([data-theme="light"]):not(.dark) .admin-sidebar-badge {
+            background-color: rgba(52, 211, 153, 0.18) !important;
+            color: #34d399 !important;
+            border: 1px solid rgba(52, 211, 153, 0.45) !important;
+        }
+
+        body.dark .admin-search-input,
+        [data-theme="dark"] .admin-search-input,
+        :root:not([data-theme="light"]):not(.dark) .admin-search-input {
+            background-color: #0f172a !important;
+            color: #ffffff !important;
+            border: 1px solid #334155 !important;
+        }
+        body.dark .admin-search-input:focus,
+        [data-theme="dark"] .admin-search-input:focus,
+        :root:not([data-theme="light"]):not(.dark) .admin-search-input:focus {
+            background-color: #0f172a !important;
+            color: #ffffff !important;
+            border-color: #10b981 !important;
+            box-shadow: 0 0 0 0.25rem rgba(16, 185, 129, 0.25) !important;
+        }
+        body.dark .admin-search-input::placeholder,
+        [data-theme="dark"] .admin-search-input::placeholder,
+        :root:not([data-theme="light"]):not(.dark) .admin-search-input::placeholder {
+            color: #94a3b8 !important;
+        }
+
+        body.dark .admin-filter-chip-inactive,
+        [data-theme="dark"] .admin-filter-chip-inactive,
+        :root:not([data-theme="light"]):not(.dark) .admin-filter-chip-inactive {
+            background-color: #1e293b !important;
+            color: #cbd5e1 !important;
+            border: 1px solid #334155 !important;
+        }
+        body.dark .admin-filter-chip-inactive:hover,
+        [data-theme="dark"] .admin-filter-chip-inactive:hover,
+        :root:not([data-theme="light"]):not(.dark) .admin-filter-chip-inactive:hover {
+            background-color: #334155 !important;
+            color: #ffffff !important;
+            border-color: #475569 !important;
+        }
+
+        body.dark .admin-table,
+        [data-theme="dark"] .admin-table,
+        :root:not([data-theme="light"]):not(.dark) .admin-table {
+            color: #ffffff !important;
+            border-color: #334155 !important;
+        }
+        body.dark .admin-table thead th,
+        [data-theme="dark"] .admin-table thead th,
+        :root:not([data-theme="light"]):not(.dark) .admin-table thead th {
+            background-color: #0f172a !important;
+            color: #f1f5f9 !important;
+            border-bottom: 1px solid #334155 !important;
+        }
+        body.dark .admin-table tbody tr,
+        [data-theme="dark"] .admin-table tbody tr,
+        :root:not([data-theme="light"]):not(.dark) .admin-table tbody tr {
+            background-color: transparent !important;
+            color: #ffffff !important;
+        }
+        body.dark .admin-table tbody tr:hover,
+        [data-theme="dark"] .admin-table tbody tr:hover,
+        :root:not([data-theme="light"]):not(.dark) .admin-table tbody tr:hover {
+            background-color: #334155 !important;
+        }
+        body.dark .admin-table td,
+        [data-theme="dark"] .admin-table td,
+        :root:not([data-theme="light"]):not(.dark) .admin-table td {
+            background-color: transparent !important;
+            border-bottom: 1px solid #334155 !important;
+            color: #ffffff !important;
+        }
+        body.dark .admin-table .table-success,
+        [data-theme="dark"] .admin-table .table-success,
+        :root:not([data-theme="light"]):not(.dark) .admin-table .table-success {
+            background-color: rgba(5, 150, 105, 0.22) !important;
+        }
+        body.dark .admin-table .table-danger,
+        [data-theme="dark"] .admin-table .table-danger,
+        :root:not([data-theme="light"]):not(.dark) .admin-table .table-danger {
+            background-color: rgba(220, 38, 38, 0.22) !important;
+        }
+        body.dark .admin-table-footer,
+        [data-theme="dark"] .admin-table-footer,
+        :root:not([data-theme="light"]):not(.dark) .admin-table-footer {
+            background-color: #0f172a !important;
+            border-top: 1px solid #334155 !important;
+            color: #cbd5e1 !important;
+        }
+        body.dark .admin-table-footer span.fw-semibold,
+        [data-theme="dark"] .admin-table-footer span.fw-semibold {
+            color: #ffffff !important;
+        }
+
+        body.dark .admin-avatar-initials,
+        [data-theme="dark"] .admin-avatar-initials,
+        :root:not([data-theme="light"]):not(.dark) .admin-avatar-initials {
+            background-color: rgba(56, 189, 248, 0.25) !important;
+            color: #38bdf8 !important;
+            border: 1px solid rgba(56, 189, 248, 0.35) !important;
+        }
+
+        body.dark .admin-lock-circle,
+        [data-theme="dark"] .admin-lock-circle,
+        :root:not([data-theme="light"]):not(.dark) .admin-lock-circle {
+            background-color: rgba(220, 38, 38, 0.2) !important;
+            color: #f87171 !important;
+            border: 1px solid rgba(220, 38, 38, 0.35) !important;
+        }
+
+        body.dark .admin-info-box,
+        [data-theme="dark"] .admin-info-box,
+        :root:not([data-theme="light"]):not(.dark) .admin-info-box {
+            background-color: #0f172a !important;
+            border: 1px solid #334155 !important;
+            color: #ffffff !important;
+        }
+        body.dark .admin-info-box code,
+        [data-theme="dark"] .admin-info-box code,
+        :root:not([data-theme="light"]):not(.dark) .admin-info-box code {
+            color: #93c5fd !important;
+            background-color: rgba(147, 197, 253, 0.1) !important;
+        }
+
+        body.dark .admin-security-alert,
+        [data-theme="dark"] .admin-security-alert,
+        :root:not([data-theme="light"]):not(.dark) .admin-security-alert {
+            background-color: rgba(245, 158, 11, 0.15) !important;
+            color: #fde68a !important;
+            border: 1px solid rgba(245, 158, 11, 0.35) !important;
+        }
+        body.dark .admin-security-alert strong,
+        [data-theme="dark"] .admin-security-alert strong {
+            color: #ffffff !important;
+        }
+        body.dark .admin-security-alert code,
+        [data-theme="dark"] .admin-security-alert code {
+            color: #fca5a5 !important;
+            background-color: rgba(239, 68, 68, 0.15) !important;
+        }
+
+        body.dark .admin-danger-box,
+        [data-theme="dark"] .admin-danger-box,
+        :root:not([data-theme="light"]):not(.dark) .admin-danger-box {
+            background-color: rgba(220, 38, 38, 0.15) !important;
+            border: 1px solid rgba(220, 38, 38, 0.35) !important;
+            color: #fca5a5 !important;
+        }
+        body.dark .admin-danger-box .fw-bold,
+        [data-theme="dark"] .admin-danger-box .fw-bold {
+            color: #ffffff !important;
+        }
+        body.dark .admin-danger-box code,
+        [data-theme="dark"] .admin-danger-box code {
+            color: #fecaca !important;
+            background-color: rgba(220, 38, 38, 0.25) !important;
+        }
+
+        body.dark .admin-form-control,
+        [data-theme="dark"] .admin-form-control,
+        :root:not([data-theme="light"]):not(.dark) .admin-form-control {
+            background-color: #0f172a !important;
+            color: #ffffff !important;
+            border: 1px solid #334155 !important;
+        }
+        body.dark .admin-form-control:focus,
+        [data-theme="dark"] .admin-form-control:focus,
+        :root:not([data-theme="light"]):not(.dark) .admin-form-control:focus {
+            background-color: #0f172a !important;
+            color: #ffffff !important;
+            border-color: #10b981 !important;
+            box-shadow: 0 0 0 0.25rem rgba(16, 185, 129, 0.25) !important;
+        }
+        body.dark .admin-form-control::placeholder,
+        [data-theme="dark"] .admin-form-control::placeholder,
+        :root:not([data-theme="light"]):not(.dark) .admin-form-control::placeholder {
+            color: #94a3b8 !important;
+        }
+
+        /* ==================================================== */
         /* --- KASIR SCANNER & THERMAL RECEIPT PRINTING --- */
         /* ==================================================== */
         .scanner-viewport-wrapper {
@@ -4821,6 +9604,243 @@ class LocalHttpServer(
         }
         .struk-bold {
             font-weight: bold;
+        }
+
+        /* ==================================================== */
+        /* --- KASIR MODE TERANG & MODE GELAP BORDER STYLES --- */
+        /* ==================================================== */
+        .kasir-header-card {
+            border: 1.5px solid rgba(54, 116, 181, 0.22) !important;
+            background: linear-gradient(135deg, rgba(54, 116, 181, 0.08) 0%, rgba(16, 185, 129, 0.08) 100%) !important;
+            border-radius: 18px;
+            box-shadow: 0 4px 16px rgba(54, 116, 181, 0.06);
+            transition: all 0.2s ease;
+        }
+        body.dark .kasir-header-card,
+        [data-theme="dark"] .kasir-header-card {
+            border: 1.5px solid rgba(56, 189, 248, 0.25) !important;
+            background: linear-gradient(135deg, rgba(56, 189, 248, 0.12) 0%, rgba(16, 185, 129, 0.12) 100%) !important;
+            box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
+        }
+
+        /* Stat cards in Mode Terang (Border Berwarna Disesuaikan) */
+        .kasir-stat-sales {
+            border: 1.5px solid rgba(16, 185, 129, 0.28) !important;
+            border-left: 5px solid #10b981 !important;
+            background: #ffffff !important;
+            border-radius: 14px;
+            box-shadow: 0 2px 8px rgba(16, 185, 129, 0.08);
+            transition: all 0.2s ease;
+        }
+        .kasir-stat-warning {
+            border: 1.5px solid rgba(245, 158, 11, 0.32) !important;
+            border-left: 5px solid #f59e0b !important;
+            background: #ffffff !important;
+            border-radius: 14px;
+            box-shadow: 0 2px 8px rgba(245, 158, 11, 0.08);
+            transition: all 0.2s ease;
+        }
+        .kasir-stat-danger {
+            border: 1.5px solid rgba(239, 68, 68, 0.28) !important;
+            border-left: 5px solid #ef4444 !important;
+            background: #ffffff !important;
+            border-radius: 14px;
+            box-shadow: 0 2px 8px rgba(239, 68, 68, 0.08);
+            transition: all 0.2s ease;
+        }
+        body.dark .kasir-stat-sales,
+        [data-theme="dark"] .kasir-stat-sales {
+            border: 1.5px solid rgba(255, 255, 255, 0.08) !important;
+            border-left: 5px solid #34d399 !important;
+            background: var(--card-bg, #1e293b) !important;
+        }
+        body.dark .kasir-stat-warning,
+        [data-theme="dark"] .kasir-stat-warning {
+            border: 1.5px solid rgba(255, 255, 255, 0.08) !important;
+            border-left: 5px solid #fbbf24 !important;
+            background: var(--card-bg, #1e293b) !important;
+        }
+        body.dark .kasir-stat-danger,
+        [data-theme="dark"] .kasir-stat-danger {
+            border: 1.5px solid rgba(255, 255, 255, 0.08) !important;
+            border-left: 5px solid #f87171 !important;
+            background: var(--card-bg, #1e293b) !important;
+        }
+
+        /* Kasir Sub-Nav Tabs */
+        .kasir-nav-tab {
+            border: 1.5px solid rgba(54, 116, 181, 0.2) !important;
+            background: #ffffff !important;
+            color: #334155 !important;
+            border-radius: 10px;
+            font-weight: 600;
+            transition: all 0.2s ease;
+            text-decoration: none;
+        }
+        .kasir-nav-tab:hover {
+            background-color: rgba(54, 116, 181, 0.08) !important;
+            border-color: #3674B5 !important;
+            color: #3674B5 !important;
+        }
+        .kasir-nav-tab.active {
+            background-color: #3674B5 !important;
+            color: #ffffff !important;
+            border-color: #3674B5 !important;
+            box-shadow: 0 3px 10px rgba(54, 116, 181, 0.28);
+        }
+        body.dark .kasir-nav-tab,
+        [data-theme="dark"] .kasir-nav-tab {
+            border: 1.5px solid rgba(255, 255, 255, 0.1) !important;
+            background: rgba(255, 255, 255, 0.04) !important;
+            color: #cbd5e1 !important;
+        }
+        body.dark .kasir-nav-tab:hover,
+        [data-theme="dark"] .kasir-nav-tab:hover {
+            background: rgba(56, 189, 248, 0.12) !important;
+            border-color: #38bdf8 !important;
+            color: #38bdf8 !important;
+        }
+        body.dark .kasir-nav-tab.active,
+        [data-theme="dark"] .kasir-nav-tab.active {
+            background-color: #38bdf8 !important;
+            color: #0f172a !important;
+            border-color: #38bdf8 !important;
+            box-shadow: 0 3px 10px rgba(56, 189, 248, 0.28);
+        }
+
+        /* Kasir POS Product Card */
+        .kasir-product-card {
+            border: 1.5px solid rgba(54, 116, 181, 0.18) !important;
+            border-radius: 14px;
+            background: #ffffff !important;
+            transition: all 0.2s cubic-bezier(0.2, 0.8, 0.4, 1);
+            user-select: none;
+        }
+        .kasir-product-card:hover {
+            border-color: #3674B5 !important;
+            transform: translateY(-2px);
+            box-shadow: 0 6px 16px rgba(54, 116, 181, 0.16) !important;
+        }
+        body.dark .kasir-product-card,
+        [data-theme="dark"] .kasir-product-card {
+            border: 1.5px solid rgba(255, 255, 255, 0.08) !important;
+            background: var(--card-bg, #1e293b) !important;
+        }
+        body.dark .kasir-product-card:hover,
+        [data-theme="dark"] .kasir-product-card:hover {
+            border-color: #38bdf8 !important;
+            box-shadow: 0 6px 16px rgba(0, 0, 0, 0.35) !important;
+        }
+
+        /* Kasir Cart & Calculations Panel */
+        .kasir-cart-panel {
+            border: 1.5px solid rgba(16, 185, 129, 0.25) !important;
+            border-top: 4.5px solid #10b981 !important;
+            border-radius: 16px;
+            background: #ffffff;
+            box-shadow: 0 4px 16px rgba(0, 0, 0, 0.04);
+        }
+        body.dark .kasir-cart-panel,
+        [data-theme="dark"] .kasir-cart-panel {
+            border: 1.5px solid rgba(255, 255, 255, 0.08) !important;
+            border-top: 4.5px solid #34d399 !important;
+            background: var(--card-bg, #1e293b);
+        }
+
+        /* Quick Cash Chips */
+        .kasir-quick-cash-chip {
+            border: 1.5px solid rgba(54, 116, 181, 0.25) !important;
+            background: #ffffff !important;
+            color: #3674B5 !important;
+            font-weight: 600;
+            border-radius: 8px;
+            transition: all 0.15s ease;
+        }
+        .kasir-quick-cash-chip:hover {
+            background: #3674B5 !important;
+            color: #ffffff !important;
+            border-color: #3674B5 !important;
+            box-shadow: 0 2px 6px rgba(54, 116, 181, 0.25);
+        }
+        body.dark .kasir-quick-cash-chip,
+        [data-theme="dark"] .kasir-quick-cash-chip {
+            border: 1.5px solid rgba(56, 189, 248, 0.3) !important;
+            background: transparent !important;
+            color: #38bdf8 !important;
+        }
+        body.dark .kasir-quick-cash-chip:hover,
+        [data-theme="dark"] .kasir-quick-cash-chip:hover {
+            background: #38bdf8 !important;
+            color: #0f172a !important;
+            border-color: #38bdf8 !important;
+        }
+
+        /* Kasir Change Box */
+        .kasir-change-box {
+            border: 1.5px solid rgba(16, 185, 129, 0.3) !important;
+            background: rgba(16, 185, 129, 0.06) !important;
+            border-radius: 12px;
+        }
+        body.dark .kasir-change-box,
+        [data-theme="dark"] .kasir-change-box {
+            border: 1.5px solid rgba(52, 211, 153, 0.3) !important;
+            background: rgba(52, 211, 153, 0.1) !important;
+        }
+
+        /* Kasir Mobile Item Cards */
+        .kasir-mobile-card {
+            border: 1.5px solid rgba(54, 116, 181, 0.18) !important;
+            background: #ffffff !important;
+            border-radius: 14px;
+            box-shadow: 0 2px 6px rgba(0, 0, 0, 0.03);
+            transition: all 0.2s ease;
+        }
+        .kasir-mobile-card:hover {
+            border-color: rgba(54, 116, 181, 0.38) !important;
+        }
+        body.dark .kasir-mobile-card,
+        [data-theme="dark"] .kasir-mobile-card {
+            border: 1.5px solid rgba(255, 255, 255, 0.08) !important;
+            background: var(--card-bg, #1e293b) !important;
+        }
+
+        /* Kasir Dasbor Best-Seller & Warning Cards */
+        .kasir-bestseller-card {
+            border: 1.5px solid rgba(245, 158, 11, 0.25) !important;
+            border-top: 4.5px solid #f59e0b !important;
+            border-radius: 16px;
+            background: #ffffff;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.04);
+        }
+        .kasir-critical-stock-card {
+            border: 1.5px solid rgba(239, 68, 68, 0.25) !important;
+            border-top: 4.5px solid #ef4444 !important;
+            border-radius: 16px;
+            background: #ffffff;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.04);
+        }
+        body.dark .kasir-bestseller-card,
+        [data-theme="dark"] .kasir-bestseller-card {
+            border: 1.5px solid rgba(255, 255, 255, 0.08) !important;
+            border-top: 4.5px solid #fbbf24 !important;
+            background: var(--card-bg, #1e293b);
+        }
+        body.dark .kasir-critical-stock-card,
+        [data-theme="dark"] .kasir-critical-stock-card {
+            border: 1.5px solid rgba(255, 255, 255, 0.08) !important;
+            border-top: 4.5px solid #f87171 !important;
+            background: var(--card-bg, #1e293b);
+        }
+
+        .kasir-filter-card {
+            border: 1.5px solid rgba(54, 116, 181, 0.18) !important;
+            border-radius: 16px;
+            background: #ffffff;
+        }
+        body.dark .kasir-filter-card,
+        [data-theme="dark"] .kasir-filter-card {
+            border: 1.5px solid rgba(255, 255, 255, 0.08) !important;
+            background: var(--card-bg, #1e293b);
         }
 
         /* ==================================================== */
@@ -4992,10 +10012,36 @@ class LocalHttpServer(
             <div id="authPendingView">
                 <div class="row g-4 align-items-center">
                     <div class="col-12 col-md-7">
-                        <h3 class="fw-black mb-2 auth-title">Verifikasi Akses PC</h3>
-                        <p class="auth-subtitle small mb-4">Untuk membuka dashboard Singghara Web, silakan verifikasi melalui notifikasi / aplikasi <b>My Singghara</b> di smartphone Anda.</p>
+                        <div class="d-flex align-items-center gap-2 mb-2">
+                            <img src="/favicon-32x32.png" alt="My Singghara Logo" width="36" height="36" class="rounded-circle shadow-sm app-brand-logo">
+                            <div>
+                                <h3 class="fw-black mb-0 auth-title" style="font-size: 1.35rem;">My Singghara</h3>
+                                <div class="d-flex align-items-center gap-1 flex-wrap mt-1">
+                                    <span class="badge bg-success bg-opacity-10 text-success border border-success border-opacity-25 rounded-pill" style="font-size: 10px;"><i class="bi bi-shield-check"></i> 100% Offline</span>
+                                    <span class="badge bg-primary bg-opacity-10 text-primary border border-primary border-opacity-25 rounded-pill" style="font-size: 10px;"><i class="bi bi-globe"></i> mysingghara.com</span>
+                                </div>
+                            </div>
+                        </div>
+                        <p class="auth-subtitle small mb-3">Untuk membuka dashboard Singghara Web, silakan konfirmasi notifikasi di HP atau masukkan kode PIN akses di bawah ini.</p>
                         
-                        <div class="d-flex flex-column gap-3 mb-4">
+                        <!-- DIRECT PIN ENTRY FORM ON PC BROWSER -->
+                        <div class="p-3 mb-3 rounded-4 bg-light border border-success border-opacity-25" style="background: rgba(0, 168, 132, 0.06) !important;">
+                            <label class="form-label small fw-bold text-success mb-1 d-flex align-items-center gap-1">
+                                <i class="bi bi-key-fill"></i> Masukkan Kode PIN Akses PC (6 Digit)
+                            </label>
+                            <div class="input-group mb-1">
+                                <input type="text" id="authPinInput" class="form-control form-control-lg text-center fw-bold" placeholder="Contoh: 123456" maxlength="8" onkeydown="if(event.key==='Enter') verifyPinFromWeb()" style="font-family: monospace; font-size: 20px; letter-spacing: 4px;">
+                                <button class="btn btn-success px-3 fw-bold" type="button" id="authPinVerifyBtn" onclick="verifyPinFromWeb()">
+                                    <i class="bi bi-shield-check me-1"></i> Masuk
+                                </button>
+                            </div>
+                            <div id="authPinErrorMsg" class="text-danger small mt-1 d-none fw-semibold"></div>
+                            <small class="text-muted d-block mt-1" style="font-size: 11px;">
+                                *PIN dapat dilihat pada pop-up notifikasi atau menu <b>Web Connect</b> di aplikasi smartphone Anda.
+                            </small>
+                        </div>
+
+                        <div class="d-flex flex-column gap-2 mb-3">
                             <div class="auth-step-item d-flex align-items-start gap-3">
                                 <div class="auth-step-circle">1</div>
                                 <div>
@@ -5007,29 +10053,33 @@ class LocalHttpServer(
                                 <div class="auth-step-circle">2</div>
                                 <div>
                                     <span class="auth-step-title small d-block">Pindai QR Barcode / Cek PIN</span>
-                                    <small class="auth-step-desc">Pilih <b>"Ya"</b> di HP untuk melihat PIN atau langsung memindai QR Code di samping.</small>
-                                </div>
-                            </div>
-                            <div class="auth-step-item d-flex align-items-start gap-3">
-                                <div class="auth-step-circle">3</div>
-                                <div>
-                                    <span class="auth-step-title small d-block">Dashboard Otomatis Terbuka</span>
-                                    <small class="auth-step-desc">Browser PC akan mendeteksi persetujuan dan membuka dashboard secara otomatis.</small>
+                                    <small class="auth-step-desc">Scan kode QR di samping melalui tombol <b>"Scan QR Barcode PC"</b> di HP.</small>
                                 </div>
                             </div>
                         </div>
 
                         <div class="d-flex align-items-center gap-2 auth-subtitle small" id="authPollStatus">
                             <div class="spinner-grow spinner-grow-sm text-success" role="status"></div>
-                            <span id="authPollStatusText">Menunggu konfirmasi dari smartphone...</span>
+                            <span id="authPollStatusText">Menunggu persetujuan HP atau masukkan PIN di atas...</span>
                         </div>
 
-                        <div class="mt-4 p-3 rounded-4 bg-success bg-opacity-10 border border-success border-opacity-25 text-start">
-                            <div class="d-flex align-items-center gap-2 mb-1 text-success fw-bold small">
-                                <i class="bi bi-hdd-network"></i> Bebas Kuota Internet (Akses Jaringan Lokal)
+                        <div class="mt-3 p-3 rounded-4 bg-success bg-opacity-10 border border-success border-opacity-25 text-start">
+                            <div class="d-flex align-items-center justify-content-between flex-wrap gap-2 mb-2">
+                                <span class="text-success fw-bold small"><i class="bi bi-hdd-network"></i> Bebas Kuota (100% Offline PC)</span>
+                                <div class="d-flex gap-1 flex-wrap">
+                                    <button type="button" class="btn btn-sm btn-outline-primary py-1 px-3 rounded-pill fw-bold pwa-install-trigger d-none" onclick="triggerPwaInstall()" style="font-size: 11px;" title="Pasang Progressive Web App langsung dari browser">
+                                        <i class="bi bi-box-arrow-in-down me-1"></i> Pasang PWA
+                                    </button>
+                                    <a href="/installer.exe" download="MySingghara_PWA_Setup.exe" class="btn btn-sm btn-primary py-1 px-3 rounded-pill fw-bold" style="font-size: 11px;" title="Unduh Installer PWA Windows (.exe) - Pasang Standalone Desktop & Domain Otomatis">
+                                        <i class="bi bi-windows me-1"></i> Installer PWA (.exe)
+                                    </a>
+                                    <a href="/setup_hosts.bat" download="setup_domain_mysingghara.bat" class="btn btn-sm btn-outline-success py-1 px-2 rounded-pill fw-bold" style="font-size: 11px;" title="Download script setup domain mysingghara.com untuk PC Windows">
+                                        <i class="bi bi-download me-1"></i> Script .bat
+                                    </a>
+                                </div>
                             </div>
                             <small class="auth-subtitle d-block" style="font-size: 11px; line-height: 1.4;">
-                                Web Connect terhubung langsung melalui jaringan lokal Wi-Fi / Hotspot tanpa menyedot kuota data. Data tersimpan secara otomatis di LocalStorage browser untuk akses offline.
+                                Akses offline melalui domain <b>http://mysingghara.com:8080</b> atau <b>http://mysingghara.com</b>. Unduh <b>Installer PWA (.exe)</b> untuk otomatis mendaftarkan domain dan memasang Progressive Web App (PWA) di Desktop PC Windows Anda!
                             </small>
                         </div>
                     </div>
@@ -5041,7 +10091,7 @@ class LocalHttpServer(
                             </div>
                         </div>
                         <div>
-                            <small class="auth-subtitle d-block mb-1 fw-semibold">Atau Gunakan Kode PIN di Aplikasi:</small>
+                            <small class="auth-subtitle d-block mb-1 fw-semibold">Kode PIN Sesi Ini:</small>
                             <span class="qr-pin-badge d-inline-block" id="authPinDisplay">------</span>
                         </div>
                     </div>
@@ -5078,18 +10128,70 @@ class LocalHttpServer(
                     </button>
                 </div>
             </div>
+
+            <!-- 3. SPECIAL LOGGED OUT VIEW (HALAMAN KHUSUS KELUAR DARI WEB - TANPA MEMINTA VERIFIKASI) -->
+            <div id="authLoggedOutView" class="auth-logged-out-container d-none">
+                <div class="auth-logged-out-icon-wrapper">
+                    <div class="auth-logged-out-icon-badge" id="authLoggedOutIconBadge">
+                        <i class="bi bi-box-arrow-right" id="authLoggedOutIcon"></i>
+                    </div>
+                </div>
+
+                <div class="mb-2">
+                    <span class="badge rounded-pill px-3 py-1 fw-bold" id="authLoggedOutStatusBadge" style="background: rgba(15, 118, 110, 0.15); color: #0F766E;">
+                        <i class="bi bi-check2-circle me-1"></i> Sesi Telah Berakhir
+                    </span>
+                </div>
+
+                <h3 class="auth-logged-out-title" id="authLoggedOutTitle">Anda Telah Keluar dari Web Connect</h3>
+                <p class="auth-logged-out-desc" id="authLoggedOutDesc">
+                    Sesi akses komputer (PC) telah diakhiri. Sambungan antara browser ini dan smartphone My Singghara telah ditutup dengan aman.
+                </p>
+
+                <div class="auth-logged-out-box mx-auto text-start">
+                    <div class="d-flex align-items-center gap-2 fw-bold small mb-1" id="authLoggedOutBoxHeader" style="color: #0F766E;">
+                        <i class="bi bi-shield-check"></i> Privasi & Keamanan Terlindungi
+                    </div>
+                    <small class="text-secondary d-block" id="authLoggedOutBoxDesc" style="font-size: 12px; line-height: 1.45;">
+                        Sistem tidak meminta verifikasi ulang secara otomatis. Anda dapat menutup tab browser ini atau menghubungkan kembali sewaktu-waktu jika ingin melanjutkan pekerjaan.
+                    </small>
+                </div>
+
+                <div class="d-flex flex-wrap justify-content-center gap-2 mt-2">
+                    <button type="button" class="btn btn-outline-secondary rounded-pill px-4 py-2 fw-bold" onclick="window.close()" title="Tutup Halaman Ini">
+                        <i class="bi bi-x-circle me-1"></i> Tutup Tab Browser
+                    </button>
+                    <button type="button" class="btn btn-primary rounded-pill px-4 py-2 fw-bold shadow-sm" onclick="requestConnectAgain()" style="background-color: #0F766E; border-color: #0F766E;">
+                        <i class="bi bi-arrow-repeat me-1"></i> Hubungkan Kembali
+                    </button>
+                </div>
+            </div>
         </div>
     </div>
     <!-- HEADER NAVBAR -->
     <nav class="navbar navbar-main sticky-top">
-        <div class="container-fluid px-3 py-1">
-            <div class="d-flex align-items-center gap-3">
+        <div class="container-fluid px-3 py-1 d-flex align-items-center justify-content-between">
+            <div class="d-flex align-items-center gap-2 gap-sm-3">
                 <button class="btn-toggle-menu" id="toggleSidebarBtn" onclick="toggleSidebar()" title="Toggle Menu" aria-label="Toggle Menu">
                     <i class="bi bi-list"></i>
                 </button>
-                <div>
-                    <h5 class="mb-0 fw-bold">Singghara Web</h5>
-                    <small class="text-secondary d-none d-sm-inline">Dashboard Web Synchronized PC</small>
+                <div class="d-flex flex-column">
+                    <div class="d-flex align-items-center gap-2">
+                        <img src="/favicon-32x32.png" alt="My Singghara Logo" width="26" height="26" class="rounded-circle shadow-sm app-brand-logo">
+                        <h5 class="mb-0 fw-bold fs-6 fs-sm-5 text-main">My Singghara</h5>
+                        <span class="badge bg-success bg-opacity-10 text-success border border-success border-opacity-25 rounded-pill d-none d-md-inline" style="font-size: 10px;"><i class="bi bi-globe me-1"></i>mysingghara.com</span>
+                    </div>
+                    <small class="text-secondary d-none d-sm-inline" style="font-size: 11px;">mysingghara.com:8080 â€¢ Akses Jaringan Lokal 100% Offline</small>
+                </div>
+            </div>
+            <div class="d-flex align-items-center gap-2">
+                <div class="position-relative d-inline-flex align-items-center">
+                    <button type="button" class="btn btn-icon rounded-circle position-relative d-flex align-items-center justify-content-center" id="navNotificationBtn" onclick="openNotificationModal()" title="Pesan Notifikasi Cloud Messaging & Agenda" aria-label="Notifikasi" style="width: 38px; height: 38px; background: var(--card-bg, rgba(255,255,255,0.08)); border: 1px solid var(--border-color, rgba(148,163,184,0.2)); transition: all 0.2s ease;">
+                        <i class="bi bi-bell" id="navNotificationIcon" style="font-size: 1.15rem; color: #64748B;"></i>
+                        <span id="navNotificationBadge" class="position-absolute top-0 start-100 translate-middle badge rounded-pill" style="display: none; font-size: 10px; padding: 0.22em 0.5em; border: 2px solid var(--header-bg, #ffffff); font-weight: 700; color: #ffffff; transform: translate(-35%, -20%);">
+                            0
+                        </span>
+                    </button>
                 </div>
             </div>
         </div>
@@ -5097,6 +10199,22 @@ class LocalHttpServer(
 
     <!-- SIDEBAR -->
     <div class="sidebar-wrapper" id="appSidebar">
+        <!-- MOBILE SIDEBAR HEADER (Hanya tampil di layar mobile) -->
+        <div class="sidebar-mobile-header align-items-center justify-content-between px-3 py-3 border-bottom border-secondary border-opacity-25" style="background: var(--sidebar-bg); flex-shrink: 0;">
+            <div class="d-flex align-items-center gap-2">
+                <img src="/favicon-32x32.png" alt="My Singghara Logo" width="32" height="32" class="rounded-circle shadow-sm app-brand-logo">
+                <div>
+                    <div class="fw-bold text-main" style="font-size: 14px; line-height: 1.2;">My Singghara</div>
+                    <div class="text-success fw-semibold d-flex align-items-center gap-1" style="font-size: 10px;">
+                        <i class="bi bi-shield-check"></i> 100% Akses Offline
+                    </div>
+                </div>
+            </div>
+            <button type="button" class="btn btn-sm btn-outline-secondary rounded-circle d-flex align-items-center justify-content-center p-0" style="width: 32px; height: 32px;" onclick="closeMobileSidebar()" aria-label="Tutup Menu">
+                <i class="bi bi-x fs-5"></i>
+            </button>
+        </div>
+
         <div class="sidebar-menu-scrollable">
             <div class="nav flex-column gap-1">
                 <!-- DASHBOARD MENU -->
@@ -5104,6 +10222,54 @@ class LocalHttpServer(
                     <i class="bi bi-grid-1x2 fs-5"></i>
                     <span class="nav-text">Dashboard</span>
                 </div>
+
+                <hr class="my-2 border-secondary opacity-25 sidebar-divider">
+
+                <!-- MENU MY APLIKASI -->
+                <div class="sidebar-group">
+                    <div class="sidebar-group-header d-flex align-items-center justify-content-between text-uppercase fw-bold mb-1" onclick="toggleSidebarGroup('grp-my-apps')" title="My Aplikasi">
+                        <span class="d-flex align-items-center gap-2">
+                            <i class="bi bi-grid-3x3-gap-fill text-warning fs-5 sidebar-group-icon"></i>
+                            <span class="nav-text">My Aplikasi</span>
+                        </span>
+                        <i class="bi bi-chevron-right nav-text group-chevron" id="chevron-grp-my-apps"></i>
+                    </div>
+                    <div class="sidebar-sub-items ps-2" id="grp-my-apps" style="display: none;">
+                        <div class="sidebar-popover-title d-none fw-bold text-uppercase px-2 py-1 mb-2 border-bottom border-secondary border-opacity-25 small text-warning">
+                            <i class="bi bi-grid-3x3-gap-fill me-1"></i> My Aplikasi
+                        </div>
+                        <div class="nav-link-item" onclick="switchTab('my_apps', this)" data-title="Semua Aplikasi">
+                            <i class="bi bi-grid-3x3-gap-fill fs-5 text-warning"></i>
+                            <span class="nav-text">Semua Aplikasi</span>
+                        </div>
+                        <div class="nav-link-item" onclick="switchTab('block', this)" data-title="Block Puzzle">
+                            <i class="bi bi-grid-fill fs-5" style="color: #2C5E6A;"></i>
+                            <span class="nav-text">Block Puzzle</span>
+                        </div>
+                        <div class="nav-link-item" onclick="switchTab('brick_game', this)" data-title="Brick Game">
+                            <i class="bi bi-controller fs-5" style="color: #306230;"></i>
+                            <span class="nav-text">Brick Game</span>
+                        </div>
+                        <div class="nav-link-item" onclick="switchTab('quran', this)" data-title="Al-Qur'an">
+                            <i class="bi bi-journal-bookmark-fill fs-5" style="color: #00796B;"></i>
+                            <span class="nav-text">Al-Qur\'an</span>
+                        </div>
+                        <div class="nav-link-item" onclick="switchTab('pembukuan', this)" data-title="Pembukuan">
+                            <i class="bi bi-graph-up-arrow fs-5" style="color: #E65100;"></i>
+                            <span class="nav-text">Pembukuan</span>
+                        </div>
+                        <div class="nav-link-item" onclick="switchTab('musik', this)" data-title="Musik">
+                            <i class="bi bi-music-note-beamed fs-5" style="color: #E91E63;"></i>
+                            <span class="nav-text">Musik</span>
+                        </div>
+                        <div class="nav-link-item" onclick="switchTab('spinner', this)" data-title="Spinner">
+                            <i class="bi bi-arrow-repeat fs-5" style="color: #8338EC;"></i>
+                            <span class="nav-text">Spinner</span>
+                        </div>
+                    </div>
+                </div>
+
+                <hr class="my-2 border-secondary opacity-25 sidebar-divider">
 
                 <!-- MENU COMPANY -->
                 <div class="sidebar-group">
@@ -5126,83 +10292,53 @@ class LocalHttpServer(
                             <i class="bi bi-calendar-check-fill fs-5" style="color: #0F766E;"></i>
                             <span class="nav-text">Absensi</span>
                         </div>
+                        <div class="nav-link-item" onclick="switchTab('gaji', this)" data-title="Gaji">
+                            <i class="bi bi-cash-stack fs-5" style="color: #0F766E;"></i>
+                            <span class="nav-text">Gaji</span>
+                        </div>
                     </div>
                 </div>
 
                 <hr class="my-2 border-secondary opacity-25 sidebar-divider">
 
-                <!-- MENU MY APLIKASI -->
+                <!-- MENU ARISAN KELUARGA (Tepat di bawah menu Company) -->
                 <div class="sidebar-group">
-                    <div class="sidebar-group-header d-flex align-items-center justify-content-between text-uppercase fw-bold mb-1" onclick="toggleSidebarGroup('grp-my-apps')" title="My Aplikasi">
+                    <div class="nav-link-item py-2 px-3 rounded-3 d-flex align-items-center" onclick="switchTab('arisan_keluarga', this)" data-title="Arisan Keluarga" style="cursor: pointer;">
                         <span class="d-flex align-items-center gap-2">
-                            <i class="bi bi-grid-3x3-gap-fill text-warning fs-5 sidebar-group-icon"></i>
-                            <span class="nav-text">My Aplikasi</span>
+                            <i class="bi bi-wallet2 fs-5 text-primary"></i>
+                            <span class="nav-text fw-medium">Arisan Keluarga</span>
                         </span>
-                        <i class="bi bi-chevron-right nav-text group-chevron" id="chevron-grp-my-apps"></i>
-                    </div>
-                    <div class="sidebar-sub-items ps-2" id="grp-my-apps" style="display: none;">
-                        <div class="sidebar-popover-title d-none fw-bold text-uppercase px-2 py-1 mb-2 border-bottom border-secondary border-opacity-25 small text-warning">
-                            <i class="bi bi-grid-3x3-gap-fill me-1"></i> My Aplikasi
-                        </div>
-                        <div class="nav-link-item" onclick="switchTab('my_apps', this)">
-                            <i class="bi bi-grid-3x3-gap-fill fs-5 text-warning"></i>
-                            <span class="nav-text">Semua Aplikasi</span>
-                        </div>
-                        <div class="nav-link-item" onclick="switchTab('karyawan_murid', this)">
-                            <i class="bi bi-person-badge-fill fs-5" style="color: #0F766E;"></i>
-                            <span class="nav-text">Company</span>
-                        </div>
-                        <div class="nav-link-item" onclick="switchTab('block', this)">
-                            <i class="bi bi-grid-fill fs-5" style="color: #2C5E6A;"></i>
-                            <span class="nav-text">Block Puzzle</span>
-                        </div>
-                        <div class="nav-link-item" onclick="switchTab('brick_game', this)">
-                            <i class="bi bi-controller fs-5" style="color: #306230;"></i>
-                            <span class="nav-text">Brick Game</span>
-                        </div>
-                        <div class="nav-link-item" onclick="switchTab('quran', this)">
-                            <i class="bi bi-journal-bookmark-fill fs-5" style="color: #00796B;"></i>
-                            <span class="nav-text">Al-Qur\'an</span>
-                        </div>
-                        <div class="nav-link-item" onclick="switchTab('pembukuan', this)">
-                            <i class="bi bi-graph-up-arrow fs-5" style="color: #E65100;"></i>
-                            <span class="nav-text">Pembukuan</span>
-                        </div>
-                        <div class="nav-link-item" onclick="switchTab('musik', this)">
-                            <i class="bi bi-music-note-beamed fs-5" style="color: #E91E63;"></i>
-                            <span class="nav-text">Musik</span>
-                        </div>
-                        <div class="nav-link-item" onclick="switchTab('spinner', this)">
-                            <i class="bi bi-arrow-repeat fs-5" style="color: #8338EC;"></i>
-                            <span class="nav-text">Spinner</span>
-                        </div>
                     </div>
                 </div>
 
                 <hr class="my-2 border-secondary opacity-25 sidebar-divider">
 
-                <!-- MENU MANAJEMEN KEUANGAN -->
+                <!-- MENU MANAJEMEN MANDIRI -->
                 <div class="sidebar-group">
-                    <div class="sidebar-group-header d-flex align-items-center justify-content-between text-uppercase fw-bold mb-1" onclick="toggleSidebarGroup('grp-manajemen')" title="Manajemen Keuangan">
+                    <div class="sidebar-group-header d-flex align-items-center justify-content-between text-uppercase fw-bold mb-1" onclick="toggleSidebarGroup('grp-manajemen')" title="Manajemen Mandiri">
                         <span class="d-flex align-items-center gap-2">
                             <i class="bi bi-wallet2 text-success fs-5 sidebar-group-icon"></i>
-                            <span class="nav-text">Manajemen Keuangan</span>
+                            <span class="nav-text">Manajemen Mandiri</span>
                         </span>
                         <i class="bi bi-chevron-right nav-text group-chevron" id="chevron-grp-manajemen"></i>
                     </div>
                     <div class="sidebar-sub-items ps-2" id="grp-manajemen" style="display: none;">
                         <div class="sidebar-popover-title d-none fw-bold text-uppercase px-2 py-1 mb-2 border-bottom border-secondary border-opacity-25 small text-success">
-                            <i class="bi bi-wallet2 me-1"></i> Manajemen Keuangan
+                            <i class="bi bi-wallet2 me-1"></i> Manajemen Mandiri
                         </div>
-                        <div class="nav-link-item" onclick="switchTab('kasir', this)">
+                        <div class="nav-link-item" onclick="switchTab('kasir', this)" data-title="Kasir">
                             <i class="bi bi-shop fs-5"></i>
-                            <span class="nav-text">Halaman Kasir</span>
+                            <span class="nav-text">Kasir</span>
                         </div>
-                        <div class="nav-link-item" onclick="switchTab('shopping', this)">
+                        <div class="nav-link-item" onclick="switchTab('shopping', this)" data-title="Daftar Belanja">
                             <i class="bi bi-cart3 fs-5"></i>
                             <span class="nav-text">Daftar Belanja</span>
                         </div>
-                        <div class="nav-link-item" onclick="switchTab('savings', this)">
+                        <div class="nav-link-item" onclick="switchTab('rekap_belanja', this)" data-title="Rekap Belanja Pasar">
+                            <i class="bi bi-basket3-fill fs-5" style="color: #10B981;"></i>
+                            <span class="nav-text">Rekap Belanja Pasar</span>
+                        </div>
+                        <div class="nav-link-item" onclick="switchTab('savings', this)" data-title="Catatan Tabungan">
                             <i class="bi bi-wallet2 fs-5"></i>
                             <span class="nav-text">Catatan Tabungan</span>
                         </div>
@@ -5263,23 +10399,23 @@ class LocalHttpServer(
 
                 <!-- MENU NOTE -->
                 <div class="sidebar-group">
-                    <div class="sidebar-group-header d-flex align-items-center justify-content-between text-uppercase fw-bold mb-1" onclick="toggleSidebarGroup('grp-rekap')" title="Note">
+                    <div class="sidebar-group-header d-flex align-items-center justify-content-between text-uppercase fw-bold mb-1" onclick="toggleSidebarGroup('grp-note')" title="Note">
                         <span class="d-flex align-items-center gap-2">
                             <i class="bi bi-journal-text text-primary fs-5 sidebar-group-icon"></i>
                             <span class="nav-text">Note</span>
                         </span>
-                        <i class="bi bi-chevron-right nav-text group-chevron" id="chevron-grp-rekap"></i>
+                        <i class="bi bi-chevron-right nav-text group-chevron" id="chevron-grp-note"></i>
                     </div>
-                    <div class="sidebar-sub-items ps-2" id="grp-rekap" style="display: none;">
+                    <div class="sidebar-sub-items ps-2" id="grp-note" style="display: none;">
                         <div class="sidebar-popover-title d-none fw-bold text-uppercase px-2 py-1 mb-2 border-bottom border-secondary border-opacity-25 small text-primary">
                             <i class="bi bi-journal-text me-1"></i> Note
                         </div>
-                        <div class="nav-link-item" onclick="switchTab('notes', this)">
-                            <i class="bi bi-journal-text fs-5"></i>
+                        <div class="nav-link-item" onclick="switchTab('notes', this)" data-title="Catatan">
+                            <i class="bi bi-journal-text fs-5" style="color: #6366F1;"></i>
                             <span class="nav-text">Catatan</span>
                         </div>
-                        <div class="nav-link-item" onclick="switchTab('jadwal', this)">
-                            <i class="bi bi-clock-history fs-5"></i>
+                        <div class="nav-link-item" onclick="switchTab('jadwal', this)" data-title="Jadwal Harian">
+                            <i class="bi bi-clock-history fs-5" style="color: #43A047;"></i>
                             <span class="nav-text">Jadwal Harian</span>
                         </div>
                     </div>
@@ -5287,10 +10423,32 @@ class LocalHttpServer(
 
                 <hr class="my-2 border-secondary opacity-25 sidebar-divider">
 
-                <!-- SHARE MENU -->
-                <div class="nav-link-item" onclick="switchTab('share', this)" data-title="Share">
-                    <i class="bi bi-share fs-5"></i>
-                    <span class="nav-text">Share</span>
+                <!-- MENU KONEKSI DAN BERBAGI -->
+                <div class="sidebar-group">
+                    <div class="sidebar-group-header d-flex align-items-center justify-content-between text-uppercase fw-bold mb-1" onclick="toggleSidebarGroup('grp-koneksi-berbagi')" title="Koneksi dan Berbagi">
+                        <span class="d-flex align-items-center gap-2">
+                            <i class="bi bi-broadcast-pin fs-5 sidebar-group-icon" style="color: #0284C7;"></i>
+                            <span class="nav-text">Koneksi dan Berbagi</span>
+                        </span>
+                        <i class="bi bi-chevron-right nav-text group-chevron" id="chevron-grp-koneksi-berbagi"></i>
+                    </div>
+                    <div class="sidebar-sub-items ps-2" id="grp-koneksi-berbagi" style="display: none;">
+                        <div class="sidebar-popover-title d-none fw-bold text-uppercase px-2 py-1 mb-2 border-bottom border-secondary border-opacity-25 small" style="color: #0284C7 !important;">
+                            <i class="bi bi-broadcast-pin me-1"></i> Koneksi dan Berbagi
+                        </div>
+                        <div class="nav-link-item" onclick="switchTab('share', this)" data-title="Share">
+                            <i class="bi bi-share fs-5" style="color: #3674B5;"></i>
+                            <span class="nav-text">Share</span>
+                        </div>
+                        <div class="nav-link-item" onclick="switchTab('transfer_file', this)" data-title="Transfer File">
+                            <i class="bi bi-arrow-left-right fs-5" style="color: #0284C7;"></i>
+                            <span class="nav-text">Transfer File</span>
+                        </div>
+                        <div class="nav-link-item" onclick="switchTab('handy_talky', this)" data-title="Handy Talky (HT)">
+                            <i class="bi bi-broadcast fs-5" style="color: #10B981;"></i>
+                            <span class="nav-text">Handy Talky (HT)</span>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
@@ -5298,7 +10456,7 @@ class LocalHttpServer(
         <!-- SIDEBAR BOTTOM FOOTER (PROFIL & LOGOUT) -->
         <div class="sidebar-footer" id="sidebarFooter">
             <div class="sidebar-user-section">
-                <div class="sidebar-profile-info" onclick="showProfileModal()" role="button" title="Profil Pengguna" data-title="Profil Pengguna">
+                <div class="sidebar-profile-info" onclick="switchTab('profil', this)" role="button" title="Profil Pengguna" data-title="Profil Pengguna">
                     <div class="sidebar-avatar-icon" id="sidebarAvatarContainer">
                         <i class="bi bi-person-fill"></i>
                     </div>
@@ -5319,55 +10477,21 @@ class LocalHttpServer(
         <div id="tab-content"></div>
     </div>
 
-    <!-- USER PROFILE MODAL -->
-    <div class="modal fade" id="profileModal" tabindex="-1" aria-hidden="true">
-        <div class="modal-dialog modal-dialog-centered modal-sm">
-            <div class="modal-content card-custom p-3" style="border-radius: 20px; border: 1px solid var(--border-color); box-shadow: 0 12px 35px rgba(0,0,0,0.35);">
-                <div class="modal-header border-bottom-0 pb-0">
-                    <h5 class="modal-title fw-bold text-main">Profil Web Connect</h5>
-                    <button type="button" class="btn-close btn-close-custom" data-bs-dismiss="modal"></button>
-                </div>
-                <div class="modal-body text-center pt-2">
-                    <div class="rounded-circle d-flex align-items-center justify-content-center mx-auto mb-3 shadow-sm" id="profileModalAvatarContainer" style="width: 72px; height: 72px; background: linear-gradient(135deg, #2A84EB, #1456A5); color: #ffffff; font-size: 2.2rem; overflow: hidden; border: 2px solid rgba(255,255,255,0.25);">
-                        <i class="bi bi-person-fill"></i>
-                    </div>
-                    <h6 class="fw-bold mb-1 text-main" id="profileModalName">Pengguna Singghara</h6>
-                    <span class="badge bg-success bg-opacity-25 text-success rounded-pill px-3 py-1 mb-3">
-                        <i class="bi bi-shield-check me-1"></i> Sesi PC Terverifikasi
-                    </span>
-                    
-                    <div class="p-2 mb-3 rounded-3 text-start small" style="background-color: var(--sidebar-bg); border: 1px solid var(--border-color);">
-                        <div class="d-flex justify-content-between mb-1">
-                            <span class="text-secondary">Aplikasi:</span>
-                            <span class="fw-semibold text-main">My Singghara Suite</span>
-                        </div>
-                        <div class="d-flex justify-content-between mb-1">
-                            <span class="text-secondary">Koneksi:</span>
-                            <span class="fw-semibold text-success"><i class="bi bi-wifi me-1"></i> Sinkron Otomatis</span>
-                        </div>
-                        <div class="d-flex justify-content-between">
-                            <span class="text-secondary">Tema:</span>
-                            <span class="fw-semibold text-main" id="profileModalTheme">Terang / Gelap</span>
-                        </div>
-                    </div>
-
-                    <div class="d-flex flex-column gap-2">
-                        <button type="button" class="btn btn-outline-secondary w-100 py-2 rounded-3 fw-semibold d-flex align-items-center justify-content-center gap-2" onclick="toggleTheme(); updateProfileModalTheme();">
-                            <i class="bi bi-circle-half"></i> Ganti Tema Tampilan
-                        </button>
-                        <button type="button" class="btn btn-outline-danger w-100 py-2 rounded-3 fw-bold d-flex align-items-center justify-content-center gap-2" onclick="closeProfileModalAndLogout()">
-                            <i class="bi bi-box-arrow-right"></i> Keluar / Putuskan Sesi
-                        </button>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-
     <!-- GLOBAL CONFIRMATION MODAL -->
     <div class="modal fade" id="customConfirmModal" tabindex="-1" aria-hidden="true">
         <div class="modal-dialog modal-dialog-centered modal-sm">
-            <div class="modal-content card-custom text-center p-3" style="border-radius: 20px; border: 1px solid var(--border-color); box-shadow: 0 12px 35px rgba(0,0,0,0.35);">
+            <div class="modal-content card-custom text-center p-3 position-relative" style="border-radius: 20px; border: 1px solid var(--border-color); box-shadow: 0 12px 35px rgba(0,0,0,0.35); overflow: hidden;">
+                <!-- SWITCH ON/OFF MODE TERANG DAN GELAP (POJOK KANAN ATAS POP UP KELUAR DARI WEB CONNECT) -->
+                <div id="confirmThemeToggleContainer" class="position-absolute d-none" style="top: 14px; right: 14px; z-index: 25;">
+                    <div class="d-flex align-items-center gap-1 p-1 px-2 rounded-pill shadow-sm" style="background: var(--bg-hover); border: 1px solid var(--border-color); cursor: pointer;" onclick="toggleTheme()" title="Switch Mode Terang / Gelap">
+                        <i class="bi bi-sun-fill" id="confirmThemeSunIcon" style="font-size: 13px; color: #f59e0b; transition: all 0.2s ease;"></i>
+                        <div class="form-check form-switch p-0 m-0 d-flex align-items-center" style="min-height: auto;">
+                            <input class="form-check-input m-0" type="checkbox" role="switch" id="confirmThemeSwitch" style="cursor: pointer; width: 32px; height: 17px;" onchange="event.stopPropagation(); toggleTheme();">
+                        </div>
+                        <i class="bi bi-moon-stars-fill" id="confirmThemeMoonIcon" style="font-size: 11px; color: #94a3b8; transition: all 0.2s ease;"></i>
+                    </div>
+                </div>
+
                 <div class="modal-body p-3">
                     <div id="confirmIconContainer" class="rounded-circle d-flex align-items-center justify-content-center mx-auto mb-3" style="width: 64px; height: 64px; background: rgba(220, 53, 69, 0.12); color: #dc3545; font-size: 1.85rem; transition: transform 0.2s ease;">
                         <i class="bi bi-exclamation-triangle-fill" id="confirmIcon"></i>
@@ -5473,7 +10597,7 @@ class LocalHttpServer(
     <!-- THERMAL RECEIPT PRINTABLE CONTAINER (FOR @media print) -->
     <div id="thermal-receipt-printable" style="display: none;"></div>
 
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="/assets/js/bootstrap.bundle.min.js"></script>
     <script>
         // ==========================================
         // --- OFFLINE LOCALSTORAGE CACHE ENGINE ---
@@ -5516,8 +10640,41 @@ class LocalHttpServer(
             },
             has: function(key) {
                 return localStorage.getItem(this.PREFIX + key) !== null;
+            },
+            remove: function(key) {
+                try {
+                    localStorage.removeItem(this.PREFIX + key);
+                } catch(e) {}
+            },
+            clear: function() {
+                try {
+                    for (let i = localStorage.length - 1; i >= 0; i--) {
+                        const k = localStorage.key(i);
+                        if (k && k.startsWith(this.PREFIX)) {
+                            localStorage.removeItem(k);
+                        }
+                    }
+                } catch(e) {}
             }
         };
+        window.StorageCache = StorageCache;
+
+        function invalidateApiCache(cacheKey) {
+            try {
+                if (typeof StorageCache !== 'undefined' && StorageCache) {
+                    if (cacheKey) {
+                        StorageCache.remove(cacheKey);
+                    } else {
+                        StorageCache.clear();
+                    }
+                } else if (cacheKey) {
+                    localStorage.removeItem('singghara_offline_cache_' + cacheKey);
+                }
+            } catch(e) {
+                console.warn('Error invalidating cache:', e);
+            }
+        }
+        window.invalidateApiCache = invalidateApiCache;
 
         function updateConnectionStatus(isOnline, fromCache = false) {
             const badge = document.getElementById('liveSyncStatusBadge');
@@ -5641,6 +10798,37 @@ class LocalHttpServer(
                 iconContainer.style.backgroundColor = opts.iconBg;
             }
 
+            // Tampilkan fitur switch on/off mode terang & gelap di pojok kanan atas pop up Keluar dari Web Connect
+            const themeToggleContainer = document.getElementById('confirmThemeToggleContainer');
+            if (themeToggleContainer) {
+                const isKeluarTitle = opts.title && (
+                    opts.title.toLowerCase().indexOf('keluar') !== -1 ||
+                    opts.title.toLowerCase().indexOf('logout') !== -1
+                );
+                if (isKeluarTitle || opts.isLogout || opts.showThemeSwitch) {
+                    themeToggleContainer.classList.remove('d-none');
+                } else {
+                    themeToggleContainer.classList.add('d-none');
+                }
+            }
+
+            // Sinkronkan status switch dengan mode aktif saat ini
+            const currentActiveTheme = document.documentElement.getAttribute('data-theme') || 'light';
+            const confirmThemeSwitch = document.getElementById('confirmThemeSwitch');
+            const confirmThemeSunIcon = document.getElementById('confirmThemeSunIcon');
+            const confirmThemeMoonIcon = document.getElementById('confirmThemeMoonIcon');
+            if (confirmThemeSwitch) {
+                confirmThemeSwitch.checked = (currentActiveTheme === 'dark');
+            }
+            if (confirmThemeSunIcon) {
+                confirmThemeSunIcon.style.opacity = (currentActiveTheme === 'dark') ? '0.4' : '1.0';
+                confirmThemeSunIcon.style.color = (currentActiveTheme === 'dark') ? '#94a3b8' : '#f59e0b';
+            }
+            if (confirmThemeMoonIcon) {
+                confirmThemeMoonIcon.style.opacity = (currentActiveTheme === 'dark') ? '1.0' : '0.4';
+                confirmThemeMoonIcon.style.color = (currentActiveTheme === 'dark') ? '#38bdf8' : '#94a3b8';
+            }
+
             if (btnAction) {
                 btnAction.className = 'btn w-50 py-2 rounded-3 fw-bold ' + opts.confirmBtnClass;
                 const iconName = opts.confirmBtnClass && opts.confirmBtnClass.indexOf('danger') !== -1 ? 'bi-trash-fill' : 'bi-check-lg';
@@ -5707,9 +10895,62 @@ class LocalHttpServer(
                 }
             }
 
+            const navThemeIcon = document.getElementById('navThemeIcon');
+            if (navThemeIcon) {
+                navThemeIcon.className = (actualTheme === 'dark') ? 'bi bi-sun-fill text-warning' : 'bi bi-moon-stars';
+            }
+
+            const confirmThemeSwitch = document.getElementById('confirmThemeSwitch');
+            const confirmThemeSunIcon = document.getElementById('confirmThemeSunIcon');
+            const confirmThemeMoonIcon = document.getElementById('confirmThemeMoonIcon');
+            if (confirmThemeSwitch) {
+                confirmThemeSwitch.checked = (actualTheme === 'dark');
+            }
+            if (confirmThemeSunIcon) {
+                confirmThemeSunIcon.style.opacity = (actualTheme === 'dark') ? '0.4' : '1.0';
+                confirmThemeSunIcon.style.color = (actualTheme === 'dark') ? '#94a3b8' : '#f59e0b';
+            }
+            if (confirmThemeMoonIcon) {
+                confirmThemeMoonIcon.style.opacity = (actualTheme === 'dark') ? '1.0' : '0.4';
+                confirmThemeMoonIcon.style.color = (actualTheme === 'dark') ? '#38bdf8' : '#94a3b8';
+            }
+
+            document.body.classList.toggle('dark', actualTheme === 'dark');
+
             if (typeof syncBrickGameWithAppTheme === 'function') {
                 syncBrickGameWithAppTheme(actualTheme);
             }
+            if (typeof renderDashboardPrayerTimes === 'function') {
+                renderDashboardPrayerTimes();
+            }
+            if (typeof renderTelegramAiView === 'function' && (currentTab === 'telegram_ai' || currentTab === 'telegram' || currentTab === 'tg')) {
+                renderTelegramAiView();
+            }
+            if (typeof renderProfileUI === 'function' && (currentTab === 'profil' || currentTab === 'profile')) {
+                renderProfileUI();
+            }
+            updateRoundFaviconTheme(actualTheme);
+        }
+
+        function updateRoundFaviconTheme(theme) {
+            const isDark = (theme === 'dark');
+            const fav32 = isDark ? '/favicon-dark-32x32.png' : '/favicon-light-32x32.png';
+            const fav16 = isDark ? '/favicon-dark-16x16.png' : '/favicon-light-16x16.png';
+            const favIco = isDark ? '/favicon-dark.ico' : '/favicon-light.ico';
+
+            const favDefault = document.getElementById('favDefault');
+            if (favDefault) favDefault.href = fav32;
+            const favShortcut = document.getElementById('favShortcut');
+            if (favShortcut) favShortcut.href = favIco;
+
+            // Update in-page round brand logos
+            const brandLogos = document.querySelectorAll('.app-brand-logo');
+            brandLogos.forEach(img => {
+                img.src = fav32;
+            });
+
+            const metaTheme = document.getElementById('metaThemeColor');
+            if (metaTheme) metaTheme.content = isDark ? '#0f172a' : '#3674B5';
         }
 
         function toggleTheme() {
@@ -5721,6 +10962,57 @@ class LocalHttpServer(
 
         initTheme();
 
+        // Progressive Web App (PWA) Service Worker Registration & Install Prompt
+        let deferredPwaPrompt = null;
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('/sw.js').then((reg) => {
+                    console.log('[PWA] Service Worker terdaftar:', reg.scope);
+                }).catch((err) => {
+                    console.warn('[PWA] Service Worker gagal didaftarkan:', err);
+                });
+            });
+        }
+
+        window.addEventListener('beforeinstallprompt', (e) => {
+            e.preventDefault();
+            deferredPwaPrompt = e;
+            const pwaBtns = document.querySelectorAll('.pwa-install-trigger');
+            pwaBtns.forEach(btn => btn.classList.remove('d-none'));
+        });
+
+        window.addEventListener('appinstalled', () => {
+            deferredPwaPrompt = null;
+            const pwaBtns = document.querySelectorAll('.pwa-install-trigger');
+            pwaBtns.forEach(btn => btn.classList.add('d-none'));
+            console.log('[PWA] My Singghara berhasil dipasang di desktop!');
+        });
+
+        function triggerPwaInstall() {
+            if (deferredPwaPrompt) {
+                deferredPwaPrompt.prompt();
+                deferredPwaPrompt.userChoice.then((choiceResult) => {
+                    if (choiceResult.outcome === 'accepted') {
+                        console.log('[PWA] Pengguna menyetujui instalasi PWA');
+                    }
+                    deferredPwaPrompt = null;
+                });
+            } else {
+                // Unduh executable installer jika prompt native tidak tersedia
+                window.location.href = '/installer.exe';
+            }
+        }
+
+        // Listen for system theme changes
+        if (window.matchMedia) {
+            window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', e => {
+                const saved = localStorage.getItem('theme');
+                if (!saved) {
+                    applyTheme(e.matches ? 'dark' : 'light');
+                }
+            });
+        }
+
         // Profile Modal & Web Logout Functions
         const AVATAR_PRESETS = [
             { bg: 'linear-gradient(135deg, #2A84EB, #1456A5)', icon: 'bi-person-fill' },
@@ -5730,31 +11022,115 @@ class LocalHttpServer(
             { bg: 'linear-gradient(135deg, #8A2387, #E94057)', icon: 'bi-palette-fill' }
         ];
 
+        function getInitialsFromName(name) {
+            if (!name || !name.trim()) return 'PS';
+            const parts = name.trim().split(/\s+/).filter(Boolean);
+            if (parts.length === 1) {
+                return parts[0].substring(0, Math.min(2, parts[0].length)).toUpperCase();
+            }
+            return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+        }
+
+        function getGradientForName(name) {
+            const gradients = [
+                'linear-gradient(135deg, #2563EB, #1D4ED8)',
+                'linear-gradient(135deg, #059669, #047857)',
+                'linear-gradient(135deg, #7C3AED, #6D28D9)',
+                'linear-gradient(135deg, #D97706, #B45309)',
+                'linear-gradient(135deg, #DC2626, #B91C1C)',
+                'linear-gradient(135deg, #0891B2, #0E7490)',
+                'linear-gradient(135deg, #4F46E5, #4338CA)'
+            ];
+            if (!name) return gradients[0];
+            let hash = 0;
+            for (let i = 0; i < name.length; i++) {
+                hash = name.charCodeAt(i) + ((hash << 5) - hash);
+            }
+            const idx = Math.abs(hash) % gradients.length;
+            return gradients[idx];
+        }
+
+        function renderInitialsAvatar(container, name, fontSize) {
+            if (!container) return;
+            const initials = getInitialsFromName(name);
+            const gradient = getGradientForName(name);
+            container.style.background = gradient;
+            container.innerHTML = `<span style="font-size: ${dol}{fontSize}; font-weight: 700; color: #ffffff; line-height: 1; user-select: none;">${dol}{initials}</span>`;
+        }
+
         function applyUserProfileData(data) {
             if (!data) return;
             const profName = data.profileName || 'Singghara User';
             const sNameEl = document.getElementById('sidebarUserName');
-            if (sNameEl) sNameEl.textContent = profName;
+            if (sNameEl) {
+                sNameEl.textContent = profName;
+                sNameEl.title = profName;
+                const len = profName.length;
+                if (len > 28) {
+                    sNameEl.style.fontSize = '0.68rem';
+                } else if (len > 20) {
+                    sNameEl.style.fontSize = '0.73rem';
+                } else if (len > 14) {
+                    sNameEl.style.fontSize = '0.78rem';
+                } else {
+                    sNameEl.style.fontSize = '0.82rem';
+                }
+            }
             const pNameEl = document.getElementById('profileModalName');
             if (pNameEl) pNameEl.textContent = profName;
 
             const sAvatar = document.getElementById('sidebarAvatarContainer');
             const mAvatar = document.getElementById('profileModalAvatarContainer');
 
-            const hasCustomImage = !!(data.hasCustomImage || (data.profileAvatarIndex === -1 && data.profileImageUrl));
-            const imgUrl = data.profileImageUrl || ('/api/profile/image?t=' + Date.now());
+            const hasCustomImage = !!(data.hasCustomImage || (data.profileAvatarIndex === -1 && (data.profileImageUrl || data.remotePhotoUrl)));
+            const primaryImgUrl = data.profileImageUrl || (data.remotePhotoUrl || ('/api/profile/image?t=' + Date.now()));
 
             if (hasCustomImage) {
-                const imgHtmlSidebar = `<img src="${dol}{imgUrl}" alt="Avatar" class="sidebar-avatar-img" onerror="this.onerror=null; this.parentElement.innerHTML='<i class=\\'bi bi-person-fill text-white\\'></i>'; this.parentElement.style.background='linear-gradient(135deg, #2A84EB, #1456A5)';">`;
-                const imgHtmlModal = `<img src="${dol}{imgUrl}" alt="Avatar" style="width:100%;height:100%;object-fit:cover;border-radius:50%;" onerror="this.onerror=null; this.parentElement.innerHTML='<i class=\\'bi bi-person-fill text-white\\'></i>'; this.parentElement.style.background='linear-gradient(135deg, #2A84EB, #1456A5)';">`;
-                if (sAvatar) {
-                    sAvatar.style.background = 'transparent';
-                    sAvatar.innerHTML = imgHtmlSidebar;
-                }
-                if (mAvatar) {
-                    mAvatar.style.background = 'transparent';
-                    mAvatar.innerHTML = imgHtmlModal;
-                }
+                // Tampilkan foto profil tersinkronisasi (Google / Facebook / Foto Kustom)
+                const sImg = new Image();
+                sImg.className = 'sidebar-avatar-img';
+                sImg.alt = profName;
+                sImg.onload = function() {
+                    if (sAvatar) {
+                        sAvatar.style.background = 'transparent';
+                        sAvatar.innerHTML = '';
+                        sAvatar.appendChild(sImg);
+                    }
+                };
+                sImg.onerror = function() {
+                    if (data.remotePhotoUrl && sImg.src !== data.remotePhotoUrl) {
+                        sImg.src = data.remotePhotoUrl;
+                    } else {
+                        renderInitialsAvatar(sAvatar, profName, '1.1rem');
+                    }
+                };
+                sImg.src = primaryImgUrl;
+
+                const mImg = new Image();
+                mImg.style.width = '100%';
+                mImg.style.height = '100%';
+                mImg.style.objectFit = 'cover';
+                mImg.style.borderRadius = '50%';
+                mImg.alt = profName;
+                mImg.onload = function() {
+                    if (mAvatar) {
+                        mAvatar.style.background = 'transparent';
+                        mAvatar.innerHTML = '';
+                        mAvatar.appendChild(mImg);
+                    }
+                };
+                mImg.onerror = function() {
+                    if (data.remotePhotoUrl && mImg.src !== data.remotePhotoUrl) {
+                        mImg.src = data.remotePhotoUrl;
+                    } else {
+                        renderInitialsAvatar(mAvatar, profName, '2.1rem');
+                    }
+                };
+                mImg.src = primaryImgUrl;
+            } else if (data.profileAvatarIndex === -2 || !data.profileAvatarIndex || data.profileAvatarIndex === 0) {
+                // Avatar inisial nama seperti di aplikasi Android My Singghara
+                renderInitialsAvatar(sAvatar, profName, '1.1rem');
+                renderInitialsAvatar(mAvatar, profName, '2.1rem');
             } else {
                 const idx = (typeof data.profileAvatarIndex === 'number' && data.profileAvatarIndex >= 0) ? data.profileAvatarIndex : 0;
                 const preset = AVATAR_PRESETS[idx] || AVATAR_PRESETS[0];
@@ -5767,6 +11143,48 @@ class LocalHttpServer(
                     mAvatar.innerHTML = `<i class="bi ${dol}{preset.icon} text-white" style="font-size: 2.2rem;"></i>`;
                 }
             }
+
+            // Sembunyikan atau tampilkan tombol Manajemen Akun khusus Admin UID 'UiDpHxawlBQ17mxTUHIXvhxRR3b2'
+            const targetAdminUid = 'UiDpHxawlBQ17mxTUHIXvhxRR3b2';
+            const isRealAdmin = !!(data && (data.currentUid === targetAdminUid || data.isAdmin === true));
+            if (!window.adminAuthStatus) {
+                window.adminAuthStatus = {};
+            }
+            window.adminAuthStatus.isAdmin = isRealAdmin;
+            window.adminAuthStatus.currentUid = isRealAdmin ? targetAdminUid : ((data && data.currentUid) || '');
+            window.adminAuthStatus.isLoggedIn = !!(data && (data.currentUid || data.profileName));
+            window.adminAuthStatus.adminUid = targetAdminUid;
+
+            const btnAdmin = document.getElementById('btnProfileManajemenAkun');
+            if (btnAdmin) {
+                if (isRealAdmin) {
+                    btnAdmin.classList.add('d-flex');
+                    btnAdmin.style.display = 'flex';
+                } else {
+                    btnAdmin.classList.remove('d-flex');
+                    btnAdmin.style.display = 'none';
+                }
+            }
+        }
+
+        async function openManajemenAkunFromProfileModal() {
+            const targetAdminUid = 'UiDpHxawlBQ17mxTUHIXvhxRR3b2';
+            let isRealAdmin = window.adminAuthStatus && window.adminAuthStatus.isAdmin && (window.adminAuthStatus.currentUid === targetAdminUid);
+            if (!isRealAdmin && typeof fetchAdminStatus === 'function') {
+                const updated = await fetchAdminStatus();
+                isRealAdmin = updated && updated.isAdmin && (updated.currentUid === targetAdminUid);
+            }
+            if (!isRealAdmin) {
+                if (typeof showAdminToast === 'function') {
+                    showAdminToast('Akses ditolak: Khusus UID Admin UiDpHxawlBQ17mxTUHIXvhxRR3b2', 'bi-shield-slash-fill', '#DC2626');
+                } else {
+                    alert('Akses ditolak: Khusus UID Admin UiDpHxawlBQ17mxTUHIXvhxRR3b2');
+                }
+                return;
+            }
+            setTimeout(() => {
+                switchTabByName('manajemen_akun');
+            }, 100);
         }
 
         async function refreshUserProfile() {
@@ -5781,34 +11199,8 @@ class LocalHttpServer(
             }
         }
 
-        let profileModalInstance = null;
-        function getProfileModal() {
-            if (!profileModalInstance) {
-                const el = document.getElementById('profileModal');
-                if (el) profileModalInstance = new bootstrap.Modal(el);
-            }
-            return profileModalInstance;
-        }
-
         function showProfileModal() {
-            updateProfileModalTheme();
-            refreshUserProfile();
-            const modal = getProfileModal();
-            if (modal) modal.show();
-        }
-
-        function updateProfileModalTheme() {
-            const curTheme = document.documentElement.getAttribute('data-theme') || 'light';
-            const el = document.getElementById('profileModalTheme');
-            if (el) el.innerText = curTheme === 'dark' ? 'Mode Gelap (Aktif)' : 'Mode Terang (Aktif)';
-        }
-
-        function closeProfileModalAndLogout() {
-            const modal = getProfileModal();
-            if (modal) modal.hide();
-            setTimeout(() => {
-                handleWebLogout();
-            }, 300);
+            switchTab('profil');
         }
 
         function handleWebLogout() {
@@ -5834,9 +11226,329 @@ class LocalHttpServer(
                     } catch(e) {
                         console.warn('Logout request failed:', e);
                     }
-                    lockWebSession(authData);
+                    showLoggedOutScreen(false, 'Sesi Web Connect Berhasil Diakhiri');
                 }
             });
+        }
+
+        // ==========================================
+        // WEB CONNECT AUTH & SECURITY ENGINE
+        // ==========================================
+        let activeAuthToken = sessionStorage.getItem('singghara_auth_token') || '';
+        let authPollInterval = null;
+        let qrCodeInstance = null;
+        let isWebAuthenticated = false;
+
+        function renderAuthQrCode(qrPayload) {
+            const container = document.getElementById('authQrCode');
+            if (!container) return;
+            container.innerHTML = '';
+            if (typeof QRCode !== 'undefined' && qrPayload) {
+                try {
+                    qrCodeInstance = new QRCode(container, {
+                        text: qrPayload,
+                        width: 170,
+                        height: 170,
+                        colorDark: '#0f172a',
+                        colorLight: '#ffffff',
+                        correctLevel: QRCode.CorrectLevel.M
+                    });
+                } catch(e) {
+                    console.warn('QRCode render fallback:', e);
+                    container.innerHTML = `<div class="p-3 text-center text-muted small"><i class="bi bi-qr-code fs-1"></i><br><code class="d-block mt-2 text-break">${dol}{escapeHtml(qrPayload)}</code></div>`;
+                }
+            } else if (qrPayload) {
+                container.innerHTML = `<div class="p-3 text-center text-muted small"><i class="bi bi-qr-code fs-1"></i><br><code class="d-block mt-2 text-break">${dol}{escapeHtml(qrPayload)}</code></div>`;
+            }
+        }
+
+        function showLoggedOutScreen(isRejected = false, customMessage = '') {
+            isWebAuthenticated = false;
+            sessionStorage.removeItem('singghara_auth_token');
+            activeAuthToken = '';
+
+            const overlay = document.getElementById('authOverlay');
+            const pendingView = document.getElementById('authPendingView');
+            const rejectedView = document.getElementById('authRejectedView');
+            const loggedOutView = document.getElementById('authLoggedOutView');
+
+            if (overlay) {
+                overlay.classList.remove('d-none');
+                overlay.classList.remove('hidden');
+            }
+            if (pendingView) pendingView.classList.add('d-none');
+            if (rejectedView) rejectedView.classList.add('d-none');
+            if (loggedOutView) loggedOutView.classList.remove('d-none');
+
+            const badgeText = document.getElementById('authBadgeText');
+            const badgeIcon = document.getElementById('authBadgeIcon');
+            const badgeStatus = document.getElementById('authBadgeStatus');
+            const outBadge = document.getElementById('authLoggedOutStatusBadge');
+            const outIconBadge = document.getElementById('authLoggedOutIconBadge');
+            const outIcon = document.getElementById('authLoggedOutIcon');
+            const outTitle = document.getElementById('authLoggedOutTitle');
+            const outDesc = document.getElementById('authLoggedOutDesc');
+            const outBoxHeader = document.getElementById('authLoggedOutBoxHeader');
+            const outBoxDesc = document.getElementById('authLoggedOutBoxDesc');
+
+            if (isRejected) {
+                if (badgeText) badgeText.textContent = 'Akses Ditolak';
+                if (badgeIcon) badgeIcon.className = 'bi bi-shield-x me-1 text-danger';
+                if (badgeStatus) badgeStatus.style.background = 'rgba(239, 68, 68, 0.15)';
+
+                if (outIconBadge) {
+                    outIconBadge.classList.add('is-rejected');
+                }
+                if (outIcon) {
+                    outIcon.className = 'bi bi-shield-x';
+                }
+                if (outBadge) {
+                    outBadge.style.background = 'rgba(239, 68, 68, 0.15)';
+                    outBadge.style.color = '#ef4444';
+                    outBadge.innerHTML = '<i class="bi bi-shield-x me-1"></i> Akses Ditolak';
+                }
+                if (outTitle) {
+                    outTitle.textContent = 'Akses Web Connect Ditolak';
+                    outTitle.style.color = '#ef4444';
+                }
+                if (outDesc) {
+                    outDesc.textContent = customMessage || 'Permintaan akses Singghara Web PC telah ditolak oleh pemilik smartphone. Halaman ini aman dan tidak meminta verifikasi.';
+                }
+                if (outBoxHeader) {
+                    outBoxHeader.style.color = '#ef4444';
+                    outBoxHeader.innerHTML = '<i class="bi bi-shield-lock-fill"></i> Proteksi Keamanan Aktif';
+                }
+                if (outBoxDesc) {
+                    outBoxDesc.textContent = 'Akses ke data dan sistem diblokir demi menjaga privasi. Halaman ini tidak lagi meminta verifikasi atau kode PIN. Tekan "Hubungkan Kembali" jika ingin mengajukan izin ulang.';
+                }
+            } else {
+                if (badgeText) badgeText.textContent = 'Sesi Berakhir';
+                if (badgeIcon) badgeIcon.className = 'bi bi-box-arrow-right me-1 text-secondary';
+                if (badgeStatus) badgeStatus.style.background = 'rgba(15, 118, 110, 0.15)';
+
+                if (outIconBadge) {
+                    outIconBadge.classList.remove('is-rejected');
+                }
+                if (outIcon) {
+                    outIcon.className = 'bi bi-box-arrow-right';
+                }
+                if (outBadge) {
+                    outBadge.style.background = 'rgba(15, 118, 110, 0.15)';
+                    outBadge.style.color = '#0F766E';
+                    outBadge.innerHTML = '<i class="bi bi-check2-circle me-1"></i> Sesi Telah Berakhir';
+                }
+                if (outTitle) {
+                    outTitle.textContent = 'Anda Telah Keluar dari Web Connect';
+                    outTitle.style.color = '';
+                }
+                if (outDesc) {
+                    outDesc.textContent = customMessage || 'Sesi akses komputer (PC) telah diakhiri. Sambungan antara browser ini dan smartphone My Singghara telah ditutup dengan aman.';
+                }
+                if (outBoxHeader) {
+                    outBoxHeader.style.color = '#0F766E';
+                    outBoxHeader.innerHTML = '<i class="bi bi-shield-check"></i> Privasi & Keamanan Terlindungi';
+                }
+                if (outBoxDesc) {
+                    outBoxDesc.textContent = 'Sistem tidak meminta verifikasi ulang secara otomatis. Anda dapat menutup tab browser ini atau menghubungkan kembali sewaktu-waktu jika ingin melanjutkan pekerjaan.';
+                }
+            }
+
+            if (authPollInterval) {
+                clearInterval(authPollInterval);
+                authPollInterval = null;
+            }
+        }
+
+        async function checkAuthStatus(isManualRetry = false) {
+            try {
+                const urlParams = new URLSearchParams(window.location.search);
+                const queryToken = urlParams.get('token') || '';
+                const tokenToCheck = activeAuthToken || queryToken || sessionStorage.getItem('singghara_auth_token') || '';
+                const res = await fetch('/api/auth?token=' + encodeURIComponent(tokenToCheck));
+                if (!res.ok) return;
+                const data = await res.json();
+
+                if (data.token && !activeAuthToken) {
+                    activeAuthToken = data.token;
+                }
+
+                const overlay = document.getElementById('authOverlay');
+                const pendingView = document.getElementById('authPendingView');
+                const rejectedView = document.getElementById('authRejectedView');
+                const loggedOutView = document.getElementById('authLoggedOutView');
+                const pinDisplay = document.getElementById('authPinDisplay');
+                const badgeText = document.getElementById('authBadgeText');
+                const badgeIcon = document.getElementById('authBadgeIcon');
+                const badgeStatus = document.getElementById('authBadgeStatus');
+
+                if (data.authenticated === true) {
+                    isWebAuthenticated = true;
+                    activeAuthToken = data.token || tokenToCheck || activeAuthToken;
+                    sessionStorage.setItem('singghara_auth_token', activeAuthToken);
+
+                    if (overlay) {
+                        overlay.classList.add('hidden');
+                        setTimeout(() => {
+                            overlay.classList.add('d-none');
+                        }, 300);
+                    }
+
+                    if (authPollInterval) {
+                        clearInterval(authPollInterval);
+                        authPollInterval = null;
+                    }
+
+                    applyUserProfileData(data);
+                    loadCurrentTab();
+
+                    if (!window._authHeartbeatStarted) {
+                        window._authHeartbeatStarted = true;
+                        setInterval(async () => {
+                            try {
+                                if (!isWebAuthenticated) return;
+                                const hRes = await fetch('/api/auth?token=' + encodeURIComponent(activeAuthToken));
+                                if (hRes.ok) {
+                                    const hData = await hRes.json();
+                                    if (hData.logged_out === true || hData.rejected === true || hData.authenticated === false) {
+                                        lockWebSession(hData);
+                                    }
+                                }
+                            } catch(e) {}
+                        }, 2000);
+                    }
+                    return;
+                }
+
+                if (data.logged_out === true || data.rejected === true || (isWebAuthenticated && data.authenticated === false)) {
+                    const isRejected = data.rejected === true;
+                    showLoggedOutScreen(isRejected, isRejected ? 'Permintaan akses Singghara Web PC telah ditolak oleh pemilik smartphone.' : 'Sesi akses PC telah diakhiri.');
+                    return;
+                }
+
+                isWebAuthenticated = false;
+                if (overlay) {
+                    overlay.classList.remove('d-none');
+                    overlay.classList.remove('hidden');
+                }
+                if (pendingView) pendingView.classList.remove('d-none');
+                if (rejectedView) rejectedView.classList.add('d-none');
+                if (loggedOutView) loggedOutView.classList.add('d-none');
+                if (badgeText) badgeText.textContent = 'Proteksi Web Connect';
+                if (badgeIcon) badgeIcon.className = 'bi bi-shield-lock-fill me-1';
+                if (badgeStatus) badgeStatus.style.background = '';
+
+                if (pinDisplay && data.pin) {
+                    pinDisplay.textContent = data.pin;
+                }
+                if (data.qrPayload) {
+                    renderAuthQrCode(data.qrPayload);
+                }
+
+                if (!authPollInterval) {
+                    authPollInterval = setInterval(() => checkAuthStatus(false), 1500);
+                }
+            } catch(e) {
+                console.warn('Auth check error:', e);
+            }
+        }
+
+        async function verifyPinFromWeb() {
+            const pinInput = document.getElementById('authPinInput');
+            const pinVal = (pinInput ? pinInput.value : '').trim();
+            const btn = document.getElementById('authPinVerifyBtn');
+            const errorEl = document.getElementById('authPinErrorMsg');
+            if (errorEl) errorEl.classList.add('d-none');
+
+            if (!pinVal) {
+                if (errorEl) {
+                    errorEl.textContent = 'Silakan masukkan 6 digit kode PIN PC.';
+                    errorEl.classList.remove('d-none');
+                }
+                if (pinInput) pinInput.focus();
+                return;
+            }
+
+            if (btn) {
+                btn.disabled = true;
+                btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Verifikasi...';
+            }
+
+            try {
+                const token = activeAuthToken || sessionStorage.getItem('singghara_auth_token') || '';
+                const res = await fetch('/api/auth', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'verify_pin', pin: pinVal, token: token })
+                });
+                const data = await res.json();
+                if (data.authenticated === true || data.success === true) {
+                    activeAuthToken = data.token || token;
+                    sessionStorage.setItem('singghara_auth_token', activeAuthToken);
+                    checkAuthStatus(true);
+                } else {
+                    if (errorEl) {
+                        errorEl.textContent = data.message || 'Kode PIN tidak sesuai! Periksa PIN di aplikasi smartphone.';
+                        errorEl.classList.remove('d-none');
+                    }
+                }
+            } catch(err) {
+                if (errorEl) {
+                    errorEl.textContent = 'Gagal memverifikasi: ' + err.message;
+                    errorEl.classList.remove('d-none');
+                }
+            } finally {
+                if (btn) {
+                    btn.disabled = false;
+                    btn.innerHTML = '<i class="bi bi-shield-check me-1"></i> Masuk';
+                }
+            }
+        }
+
+        async function requestRetryAuth() {
+            const statusEl = document.getElementById('authPollStatusText');
+            if (statusEl) statusEl.textContent = 'Meminta izin ulang ke smartphone...';
+            try {
+                const res = await fetch('/api/auth', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'request_retry' })
+                });
+                const data = await res.json();
+                const pendingView = document.getElementById('authPendingView');
+                const rejectedView = document.getElementById('authRejectedView');
+                if (pendingView) pendingView.classList.remove('d-none');
+                if (rejectedView) rejectedView.classList.add('d-none');
+                if (data.pin) {
+                    const pinDisplay = document.getElementById('authPinDisplay');
+                    if (pinDisplay) pinDisplay.textContent = data.pin;
+                }
+                if (data.qrPayload) {
+                    renderAuthQrCode(data.qrPayload);
+                }
+            } catch(e) {
+                console.error('Retry request failed:', e);
+            }
+            if (authPollInterval) clearInterval(authPollInterval);
+            authPollInterval = setInterval(() => checkAuthStatus(false), 1500);
+        }
+
+        async function requestConnectAgain() {
+            const loggedOutView = document.getElementById('authLoggedOutView');
+            const pendingView = document.getElementById('authPendingView');
+            const rejectedView = document.getElementById('authRejectedView');
+            if (loggedOutView) loggedOutView.classList.add('d-none');
+            if (rejectedView) rejectedView.classList.add('d-none');
+            if (pendingView) pendingView.classList.remove('d-none');
+            await requestRetryAuth();
+        }
+
+        function lockWebSession(authData) {
+            const isRejected = (authData && authData.rejected === true) || false;
+            showLoggedOutScreen(isRejected, isRejected ? 'Akses Singghara Web PC telah ditolak oleh pemilik smartphone.' : 'Sesi akses PC telah diakhiri.');
+        }
+
+        function initAuth() {
+            checkAuthStatus(false);
         }
 
         // Default desktop sidebar to collapsed state
@@ -5844,22 +11556,78 @@ class LocalHttpServer(
             document.body.classList.add('sidebar-collapsed');
         }
 
+        function closeAllSubmenus() {
+            document.querySelectorAll('#appSidebar .sidebar-sub-items').forEach(subItem => {
+                subItem.style.display = 'none';
+                const chevron = document.getElementById('chevron-' + subItem.id);
+                if (chevron) {
+                    chevron.classList.remove('bi-chevron-down');
+                    chevron.classList.add('bi-chevron-right');
+                }
+            });
+        }
+
+        function openMobileSidebar() {
+            document.body.classList.add('sidebar-mobile-open');
+            document.documentElement.classList.add('sidebar-mobile-locked');
+        }
+
+        function closeMobileSidebar() {
+            document.body.classList.remove('sidebar-mobile-open');
+            document.documentElement.classList.remove('sidebar-mobile-locked');
+            closeAllSubmenus();
+        }
+
         function toggleSidebar() {
             if (window.innerWidth <= 768) {
-                document.body.classList.toggle('sidebar-mobile-open');
+                if (document.body.classList.contains('sidebar-mobile-open')) {
+                    closeMobileSidebar();
+                } else {
+                    openMobileSidebar();
+                }
             } else {
+                const willCollapse = !document.body.classList.contains('sidebar-collapsed');
                 document.body.classList.toggle('sidebar-collapsed');
+                if (willCollapse) {
+                    closeAllSubmenus();
+                }
             }
         }
 
         function toggleSidebarGroup(grpId) {
-            if (document.body.classList.contains('sidebar-collapsed')) return;
+            // Jika sidebar sedang collapsed di desktop dan user klik grup, buka/expand sidebar dan tampilkan sub menu
+            if (document.body.classList.contains('sidebar-collapsed')) {
+                document.body.classList.remove('sidebar-collapsed');
+                closeAllSubmenus();
+                const targetEl = document.getElementById(grpId);
+                if (targetEl) {
+                    targetEl.style.display = 'block';
+                    const chevron = document.getElementById('chevron-' + grpId);
+                    if (chevron) {
+                        chevron.classList.remove('bi-chevron-right');
+                        chevron.classList.add('bi-chevron-down');
+                    }
+                }
+                return;
+            }
+
             const targetEl = document.getElementById(grpId);
             if (!targetEl) return;
 
             const isCurrentlyOpen = (targetEl.style.display !== 'none' && targetEl.style.display !== '');
 
-            // Automatically close all other submenu groups (Accordion behavior)
+            // Jika sub menu sedang terbuka, tutup sub menu
+            if (isCurrentlyOpen) {
+                targetEl.style.display = 'none';
+                const chevron = document.getElementById('chevron-' + grpId);
+                if (chevron) {
+                    chevron.classList.remove('bi-chevron-down');
+                    chevron.classList.add('bi-chevron-right');
+                }
+                return;
+            }
+
+            // Jika sub menu sedang tertutup, tutup sub menu lainnya (accordion) dan buka sub menu ini
             document.querySelectorAll('#appSidebar .sidebar-sub-items').forEach(subItem => {
                 if (subItem.id !== grpId) {
                     subItem.style.display = 'none';
@@ -5871,29 +11639,58 @@ class LocalHttpServer(
                 }
             });
 
+            targetEl.style.display = 'block';
             const chevron = document.getElementById('chevron-' + grpId);
-            if (isCurrentlyOpen) {
-                targetEl.style.display = 'none';
-                if (chevron) {
-                    chevron.classList.remove('bi-chevron-down');
-                    chevron.classList.add('bi-chevron-right');
-                }
-            } else {
-                targetEl.style.display = 'block';
-                if (chevron) {
-                    chevron.classList.remove('bi-chevron-right');
-                    chevron.classList.add('bi-chevron-down');
-                }
+            if (chevron) {
+                chevron.classList.remove('bi-chevron-right');
+                chevron.classList.add('bi-chevron-down');
             }
         }
+
+        // Cegah scroll halaman latar belakang saat sidebar mobile terbuka, kecuali scrolling di dalam sidebar menu
+        let touchStartY = 0;
+        document.addEventListener('touchstart', function(e) {
+            if (document.body.classList.contains('sidebar-mobile-open') && e.touches && e.touches.length > 0) {
+                touchStartY = e.touches[0].clientY;
+            }
+        }, { passive: true });
+
+        document.addEventListener('touchmove', function(e) {
+            if (document.body.classList.contains('sidebar-mobile-open')) {
+                const sidebar = document.getElementById('appSidebar');
+                // Jika sentuhan di luar sidebar (misal pada backdrop, header, atau background), cegah scroll sepenuhnya
+                if (!sidebar || !sidebar.contains(e.target)) {
+                    e.preventDefault();
+                    return;
+                }
+
+                // Di dalam sidebar: hanya izinkan scrolling pada .sidebar-menu-scrollable
+                const scrollable = sidebar.querySelector('.sidebar-menu-scrollable');
+                if (scrollable && scrollable.contains(e.target)) {
+                    const isAtTop = scrollable.scrollTop <= 0;
+                    const isAtBottom = scrollable.scrollTop + scrollable.clientHeight >= scrollable.scrollHeight - 1;
+                    const currentY = (e.touches && e.touches[0]) ? e.touches[0].clientY : touchStartY;
+                    const isSwipingDown = currentY > touchStartY;
+                    const isSwipingUp = currentY < touchStartY;
+
+                    // Cegah overscroll bouncing agar tidak merembet ke scroll halaman belakang
+                    if ((isAtTop && isSwipingDown) || (isAtBottom && isSwipingUp)) {
+                        e.preventDefault();
+                    }
+                } else {
+                    // Sentuhan pada header mobile atau footer sidebar (non-scrollable), cegah default scroll
+                    e.preventDefault();
+                }
+            }
+        }, { passive: false });
 
         // Close mobile sidebar on backdrop tap
         document.addEventListener('click', (e) => {
             if (window.innerWidth <= 768 && document.body.classList.contains('sidebar-mobile-open')) {
                 const sidebar = document.getElementById('appSidebar');
                 const toggleBtn = document.getElementById('toggleSidebarBtn');
-                if (!sidebar.contains(e.target) && !toggleBtn.contains(e.target)) {
-                    document.body.classList.remove('sidebar-mobile-open');
+                if (sidebar && toggleBtn && !sidebar.contains(e.target) && !toggleBtn.contains(e.target)) {
+                    closeMobileSidebar();
                 }
             }
         });
@@ -5924,7 +11721,7 @@ class LocalHttpServer(
                 }
             }
             if (window.innerWidth <= 768) {
-                document.body.classList.remove('sidebar-mobile-open');
+                closeMobileSidebar();
             }
             loadCurrentTab();
         }
@@ -5946,6 +11743,15 @@ class LocalHttpServer(
                 else window.anggotaActiveTab = 'presensi';
                 loadKaryawanMurid();
             }
+            else if (currentTab === 'gaji') {
+                if (window.loadGajiPage) window.loadGajiPage();
+            }
+            else if (currentTab === 'arisan_keluarga' || currentTab === 'arisan') {
+                if (window.loadArisanKeluarga) window.loadArisanKeluarga();
+            }
+            else if (currentTab === 'rekap_belanja' || currentTab === 'belanja_pasar') {
+                if (window.loadRekapBelanjaPasar) window.loadRekapBelanjaPasar();
+            }
             else if (currentTab === 'my_apps') loadMyApps();
             else if (currentTab === 'quran') loadQuran();
             else if (currentTab === 'pembukuan') loadPembukuan();
@@ -5954,13 +11760,24 @@ class LocalHttpServer(
             else if (currentTab === 'puzzle') loadPuzzle();
             else if (currentTab === 'brick_game') loadBrickGame();
             else if (currentTab === 'spinner') loadSpinner();
-            else if (currentTab === 'notes') loadNotes();
-            else if (currentTab === 'shopping') loadShopping();
+            else if (currentTab === 'notes' || currentTab === 'catatan') loadNotes();
+            else if (currentTab === 'manajemen_keuangan' || currentTab === 'kasir') loadKasir();
+            else if (currentTab === 'shopping' || currentTab === 'daftar_belanja') loadShopping();
+            else if (currentTab === 'savings' || currentTab === 'catatan_tabungan' || currentTab === 'tabungan') loadSavings();
             else if (currentTab === 'agenda') loadAgenda();
-            else if (currentTab === 'jadwal') loadJadwal();
-            else if (currentTab === 'kasir') loadKasir();
-            else if (currentTab === 'savings') loadSavings();
+            else if (currentTab === 'jadwal' || currentTab === 'jadwal_harian') loadJadwal();
             else if (currentTab === 'share') loadShare();
+            else if (currentTab === 'transfer_file') loadTransferFile();
+            else if (currentTab === 'handy_talky' || currentTab === 'ht') {
+                if (window.loadHandyTalky) window.loadHandyTalky();
+            }
+            else if (currentTab === 'telegram_ai' || currentTab === 'telegram' || currentTab === 'tg') {
+                if (window.loadTelegramAi) window.loadTelegramAi();
+            }
+            else if (currentTab === 'manajemen_akun' || currentTab === 'admin') loadManajemenAkun();
+            else if (currentTab === 'profil' || currentTab === 'profile') {
+                if (window.loadProfile) window.loadProfile();
+            }
             // Laporan Keuangan Sub-Menus
             else if (currentTab === 'laporan_keuangan' || currentTab === 'jurnal_umum') loadJurnalUmum();
             else if (currentTab === 'buku_besar') loadBukuBesar();
@@ -5992,11 +11809,16 @@ class LocalHttpServer(
         }
 
         // ==========================================
+        // --- 0. DASHBOARD UTAMA (OVERVIEW & STATS) ---
+        // ==========================================
+        ${DashboardWebScript.getScript(dol)}
+
+        // ==========================================
         // --- MY APLIKASI HUB & SEMUA APLIKASI ---
         // ==========================================
         function loadMyApps() {
             const apps = [
-                { id: 'karyawan_murid', title: "Company", desc: "Manajemen data karyawan & murid, generator ID Card profesional otomatis dengan QR Code, dan sistem presensi terintegrasi.", icon: "bi-person-badge-fill", color: "#0F766E", badge: "ID Card & Presensi" },
+                { id: 'rekap_belanja', title: "Rekap Belanja Pasar", desc: "Daftar belanja pasar harian/mingguan dalam satuan kg, pcs, ikat, liter, dll. dengan checklist, estimasi harga, dan rekap per satuan.", icon: "bi-basket3-fill", color: "#10B981", badge: "Belanja Pasar" },
                 { id: 'block', title: "Block Puzzle", desc: "Game susun balok 8x8 asah otak seru dengan combo eliminasi, power-up palu/bom/refresh, dan high score.", icon: "bi-grid-fill", color: "#2C5E6A", badge: "Game Hiburan" },
                 { id: 'brick_game', title: "Brick Game", desc: "Game retro arcade klasik LCD 9999-in-1 dengan 4 mode seru (Tetris, Mobil Balap, Ular Snake, Tembak Tank) dan kontrol gimbot.", icon: "bi-controller", color: "#306230", badge: "Game Retro" },
                 { id: 'quran', title: "Al-Qur'an", desc: "Kitab suci 114 Surah lengkap dengan teks Arab indah, terjemahan Indonesia, dan audio murattal.", icon: "bi-journal-bookmark-fill", color: "#00796B", badge: "Ibadah & Spiritual" },
@@ -6004,11 +11826,14 @@ class LocalHttpServer(
                 { id: 'jurnal_umum', title: "Laporan Keuangan", desc: "Siklus akuntansi lengkap: Jurnal Umum, Buku Besar, Neraca Saldo, Penyesuaian, Laba Rugi, hingga Jurnal Penutup.", icon: "bi-file-earmark-spreadsheet", color: "#00838F", badge: "Laporan Keuangan" },
                 { id: 'musik', title: "Musik", desc: "Pemutar file musik audio MP3/WAV/AAC lokal dengan kontrol pemutaran lengkap dan daftar putar.", icon: "bi-music-note-beamed", color: "#E91E63", badge: "Pemutar Audio" },
                 { id: 'spinner', title: "Spinner", desc: "Roda putar keberuntungan serbaguna untuk undian, arisan, doorprize, atau pembagian kelompok.", icon: "bi-arrow-repeat", color: "#8338EC", badge: "Undian Acak" },
-                { id: 'kasir', title: "Halaman Kasir", desc: "Sistem kasir Point of Sale (POS) cepat dengan pemindai barcode kamera, manajemen stok, dan struk belanja.", icon: "bi-shop", color: "#00897B", badge: "Point of Sale" },
+                { id: 'kasir', title: "Kasir", desc: "Sistem kasir Point of Sale (POS) cepat dengan pemindai barcode kamera, manajemen stok, dan struk belanja.", icon: "bi-shop", color: "#00897B", badge: "Point of Sale" },
                 { id: 'shopping', title: "Daftar Belanja", desc: "Daftar belanja kebutuhan harian dan pencatatan riwayat transaksi belanja.", icon: "bi-cart3", color: "#3949AB", badge: "Manajemen Belanja" },
                 { id: 'savings', title: "Catatan Tabungan", desc: "Tracking target tabungan, impian finansial, dan riwayat setoran/penarikan dana.", icon: "bi-wallet2", color: "#1E88E5", badge: "Tabungan" },
                 { id: 'notes', title: "Catatan", desc: "Catatan harian, ide penting, dan dokumen teks pribadi.", icon: "bi-journal-text", color: "#43A047", badge: "Produktivitas" },
-                { id: 'jadwal', title: "Jadwal Harian", desc: "Agenda aktivitas, pengingat jadwal, dan rutinitas harian terstruktur.", icon: "bi-clock-history", color: "#FB8C00", badge: "Perencana Waktu" }
+                { id: 'jadwal', title: "Jadwal Harian", desc: "Agenda aktivitas, pengingat jadwal, dan rutinitas harian terstruktur.", icon: "bi-clock-history", color: "#FB8C00", badge: "Perencana Waktu" },
+                { id: 'share', title: "Share Cloud", desc: "Berbagi dan sinkronisasi file cloud terpusat via Google Drive terintegrasi.", icon: "bi-share", color: "#3674B5", badge: "Cloud Share" },
+                { id: 'transfer_file', title: "Transfer File", desc: "Transfer berkas cepat 100% offline antara aplikasi My Singghara dan browser PC tanpa kuota internet.", icon: "bi-arrow-left-right", color: "#0284C7", badge: "100% Offline" },
+                { id: 'profil', title: "Profil Pengguna", desc: "Kelola profil akun, keamanan & App Lock, backup data, GPS, status Membership VIP, dan informasi aplikasi.", icon: "bi-person-circle", color: "#6366F1", badge: "Profil & Akun" }
             ];
 
             let html = `
@@ -6054,187 +11879,9 @@ class LocalHttpServer(
         }
 
         // ==========================================
-        // --- 1. AL-QUR'AN (114 SURAH & READER) ---
+        // --- 1. AL-QUR'AN (114 SURAH, JUZ, BOOKMARKS, TAJWID & READER) ---
         // ==========================================
-        window.quranSurahsCache = null;
-        window.quranAudioPlayer = new Audio();
-        window.currentPlayingSurah = null;
-        window.quranFontSize = 28;
-
-        async function loadQuran(surahId = null) {
-            if (surahId) {
-                await loadQuranSurahDetail(surahId);
-                return;
-            }
-
-            try {
-                if (!window.quranSurahsCache) {
-                    const fetchRes = await fetchApiWithCache('/api/quran', 'quran_list');
-                    window.quranSurahsCache = fetchRes.data;
-                }
-                const surahs = window.quranSurahsCache || [];
-
-                let html = `
-                    <div class="d-flex flex-wrap justify-content-between align-items-center mb-4 gap-2">
-                        <div>
-                            <h4 class="fw-bold mb-0 text-success d-flex align-items-center gap-2">
-                                <i class="bi bi-journal-bookmark-fill" style="color: #00796B;"></i> Al-Qur'an Al-Karim
-                            </h4>
-                            <small class="text-secondary">Daftar 114 Surah Lengkap beserta Terjemahan Bahasa Indonesia</small>
-                        </div>
-                        <div class="d-flex align-items-center gap-2">
-                            <input type="text" id="quranSearchInput" class="form-control form-control-sm form-control-dark" placeholder="Cari Surah / Arti / No..." oninput="filterQuranSurahs()" style="max-width: 240px;">
-                            <button class="btn btn-sm btn-brand" onclick="window.quranSurahsCache=null;loadQuran()"><i class="bi bi-arrow-clockwise"></i></button>
-                        </div>
-                    </div>
-
-                    <div class="row g-3" id="quranSurahGrid">
-                `;
-
-                surahs.forEach(s => {
-                    html += `
-                        <div class="col-12 col-md-6 col-lg-4 quran-surah-item" data-search="${dol}{s.id} ${dol}{s.nameLatin.toLowerCase()} ${dol}{s.translation.toLowerCase()} ${dol}{s.nameArabic}">
-                            <div class="card card-custom h-100 p-3 cursor-pointer" onclick="loadQuran(${dol}{s.id})" style="border-radius: 16px;">
-                                <div class="d-flex justify-content-between align-items-center">
-                                    <div class="d-flex align-items-center gap-3">
-                                        <div class="d-flex align-items-center justify-content-center fw-bold text-success border border-success border-opacity-25 rounded-circle" style="width: 42px; height: 42px; background: rgba(0, 121, 107, 0.1);">
-                                            ${dol}{s.id}
-                                        </div>
-                                        <div>
-                                            <h6 class="fw-bold mb-0">${dol}{escapeHtml(s.nameLatin)}</h6>
-                                            <small class="text-secondary">${dol}{escapeHtml(s.translation)} &bull; ${dol}{s.verseCount} Ayat</small>
-                                        </div>
-                                    </div>
-                                    <div class="text-end">
-                                        <h5 class="fw-bold text-success mb-0" style="font-family: serif;">${dol}{s.nameArabic}</h5>
-                                        <span class="badge bg-secondary bg-opacity-25 text-secondary" style="font-size: 10px;">${dol}{s.type}</span>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    `;
-                });
-
-                html += `</div>`;
-                document.getElementById('tab-content').innerHTML = html;
-            } catch (e) {
-                document.getElementById('tab-content').innerHTML = `<div class="alert alert-danger">Gagal memuat Al-Qur'an: ${dol}{e.message}</div>`;
-            }
-        }
-
-        function filterQuranSurahs() {
-            const query = (document.getElementById('quranSearchInput').value || '').toLowerCase().trim();
-            document.querySelectorAll('.quran-surah-item').forEach(el => {
-                const searchData = el.getAttribute('data-search') || '';
-                el.style.display = searchData.includes(query) ? '' : 'none';
-            });
-        }
-
-        async function loadQuranSurahDetail(surahId) {
-            document.getElementById('tab-content').innerHTML = `
-                <div class="text-center py-5 text-secondary">
-                    <div class="spinner-border text-success mb-2" role="status"></div>
-                    <div>Memuat Surah...</div>
-                </div>
-            `;
-
-            try {
-                const fetchRes = await fetchApiWithCache('/api/quran?surahId=' + surahId, 'quran_surah_' + surahId);
-                const data = fetchRes.data || {};
-
-                let html = `
-                    <div class="d-flex flex-wrap justify-content-between align-items-center mb-3 gap-2">
-                        <button class="btn btn-outline-secondary btn-sm" onclick="loadQuran()">
-                            <i class="bi bi-arrow-left me-1"></i> Daftar Surah
-                        </button>
-                        <div class="text-center">
-                            <h4 class="fw-bold mb-0 text-success">${dol}{surahId}. ${dol}{escapeHtml(data.nameLatin || '')} (${dol}{data.nameArabic || ''})</h4>
-                            <small class="text-secondary">${dol}{escapeHtml(data.translation || '')} &bull; ${dol}{data.verseCount || 0} Ayat &bull; ${dol}{data.type || ''}</small>
-                        </div>
-                        <div class="d-flex align-items-center gap-1">
-                            <button class="btn btn-sm btn-outline-secondary" onclick="adjustQuranFontSize(-2)" title="Perkecil Font Arab">A-</button>
-                            <button class="btn btn-sm btn-outline-secondary" onclick="adjustQuranFontSize(2)" title="Perbesar Font Arab">A+</button>
-                            <button class="btn btn-sm btn-brand ms-2" onclick="playSurahAudio(${dol}{surahId})" id="btnPlaySurahAudio">
-                                <i class="bi bi-play-fill me-1"></i> Audio Murattal
-                            </button>
-                        </div>
-                    </div>
-
-                    <div class="card card-custom p-4 mb-4 text-center" style="border-radius: 20px;">
-                        <h3 class="mb-0 text-success" style="font-family: serif; letter-spacing: 1px;">Ø¨ÙØ³Ù’Ù…Ù Ø§Ù„Ù„ÙŽÙ‘Ù‡Ù Ø§Ù„Ø±ÙŽÙ‘Ø­Ù’Ù…ÙŽÙ°Ù†Ù Ø§Ù„Ø±ÙŽÙ‘Ø­ÙÙŠÙ…Ù</h3>
-                        <small class="text-secondary mt-1">Dengan nama Allah Yang Maha Pengasih, Maha Penyayang</small>
-                    </div>
-
-                    <div class="d-flex flex-column gap-3" id="quranVersesContainer">
-                `;
-
-                (data.verses || []).forEach(v => {
-                    html += `
-                        <div class="card card-custom p-3 p-md-4" style="border-radius: 16px;">
-                            <div class="d-flex justify-content-between align-items-center mb-3 pb-2 border-bottom border-secondary border-opacity-25">
-                                <span class="badge bg-success bg-opacity-25 text-success fs-6 fw-bold px-3 py-1 rounded-pill">
-                                    Ayat ${dol}{v.verseNumber}
-                                </span>
-                                <button class="btn btn-sm btn-outline-secondary" onclick="copyAyahText('${dol}{escapeJs(v.textArabic)} - ${dol}{escapeJs(v.translation)}')">
-                                    <i class="bi bi-copy me-1"></i> Salin
-                                </button>
-                            </div>
-                            <div class="quran-arabic-text mb-3" style="font-size: ${dol}{window.quranFontSize}px;">
-                                ${dol}{v.textArabic}
-                            </div>
-                            <div class="text-secondary small">
-                                <strong class="text-main d-block mb-1">Artinya:</strong>
-                                ${dol}{escapeHtml(v.translation)}
-                            </div>
-                        </div>
-                    `;
-                });
-
-                html += `</div>`;
-                document.getElementById('tab-content').innerHTML = html;
-            } catch (e) {
-                document.getElementById('tab-content').innerHTML = `<div class="alert alert-danger">Gagal memuat ayat: ${dol}{e.message}</div>`;
-            }
-        }
-
-        function adjustQuranFontSize(delta) {
-            window.quranFontSize = Math.max(18, Math.min(48, window.quranFontSize + delta));
-            document.querySelectorAll('.quran-arabic-text').forEach(el => {
-                el.style.fontSize = window.quranFontSize + 'px';
-            });
-        }
-
-        function playSurahAudio(surahId) {
-            const btn = document.getElementById('btnPlaySurahAudio');
-            const paddedId = String(surahId).padStart(3, '0');
-            const audioUrl = `https://cdn.islamic.network/quran/audio-surah/128/ar.alafasy/${dol}{surahId}.mp3`;
-
-            if (window.currentPlayingSurah === surahId && !window.quranAudioPlayer.paused) {
-                window.quranAudioPlayer.pause();
-                if (btn) btn.innerHTML = `<i class="bi bi-play-fill me-1"></i> Audio Murattal`;
-                return;
-            }
-
-            window.quranAudioPlayer.src = audioUrl;
-            window.quranAudioPlayer.play().then(() => {
-                window.currentPlayingSurah = surahId;
-                if (btn) btn.innerHTML = `<i class="bi bi-pause-fill me-1"></i> Jeda Audio`;
-            }).catch(e => {
-                alert('Audio sedang dimuat atau periksa koneksi internet untuk streaming murattal.');
-            });
-
-            window.quranAudioPlayer.onended = () => {
-                if (btn) btn.innerHTML = `<i class="bi bi-play-fill me-1"></i> Audio Murattal`;
-            };
-        }
-
-        function copyAyahText(text) {
-            navigator.clipboard.writeText(text).then(() => {
-                alert('Ayat berhasil disalin ke clipboard');
-            }).catch(() => {
-                prompt('Salin ayat:', text);
-            });
-        }
+        ${QuranWebScript.getScript(dol)}
 
         // ==========================================
         // --- 2. PEMBUKUAN USAHA & MODAL (LIVE SYNC DENGAN APLIKASI ANDROID) ---
@@ -7210,384 +12857,19 @@ class LocalHttpServer(
 
         ${KeuanganWebScript.getScript(dol)}
         ${KaryawanMuridWebScript.getScript(dol)}
-
-        // ==========================================
-        // --- 3. PEMUTAR MUSIK AUDIO ---
-        // ==========================================
-        window.musicPlaylist = window.musicPlaylist || [];
-        window.currentMusicIndex = window.currentMusicIndex || 0;
-        window.musicPlayerAudio = window.musicPlayerAudio || new Audio();
-        window.isMusicShuffle = window.isMusicShuffle || false;
-        window.isMusicRepeat = window.isMusicRepeat || false;
-        window.isSeekingMusic = false;
-
-        // Setup audio event listeners once
-        if (!window.musicAudioEventsBound) {
-            window.musicAudioEventsBound = true;
-            
-            window.musicPlayerAudio.addEventListener('timeupdate', () => {
-                if (window.isSeekingMusic) return;
-                const cur = window.musicPlayerAudio.currentTime || 0;
-                const dur = window.musicPlayerAudio.duration || 0;
-                
-                const seekEl = document.getElementById('musicSeekBar');
-                if (seekEl && dur > 0) {
-                    seekEl.max = dur;
-                    seekEl.value = cur;
-                }
-                const curText = document.getElementById('musicCurrentTimeText');
-                if (curText) curText.innerText = formatAudioTime(cur);
-            });
-
-            window.musicPlayerAudio.addEventListener('loadedmetadata', () => {
-                const dur = window.musicPlayerAudio.duration || 0;
-                const durText = document.getElementById('musicDurationText');
-                if (durText) durText.innerText = formatAudioTime(dur);
-                const seekEl = document.getElementById('musicSeekBar');
-                if (seekEl) {
-                    seekEl.max = dur;
-                    seekEl.value = 0;
-                }
-            });
-
-            window.musicPlayerAudio.addEventListener('ended', () => {
-                if (window.isMusicRepeat) {
-                    window.musicPlayerAudio.currentTime = 0;
-                    window.musicPlayerAudio.play().catch(e => {});
-                } else {
-                    nextMusicTrack(false);
-                }
-            });
-
-            window.musicPlayerAudio.addEventListener('play', () => {
-                updateMusicPlayPauseUI(true);
-            });
-
-            window.musicPlayerAudio.addEventListener('pause', () => {
-                updateMusicPlayPauseUI(false);
-            });
-        }
-
-        function formatAudioTime(secs) {
-            if (isNaN(secs) || secs < 0) return '00:00';
-            const m = Math.floor(secs / 60);
-            const s = Math.floor(secs % 60);
-            return String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
-        }
-
-        function updateMusicPlayPauseUI(isPlaying) {
-            const btn = document.getElementById('btnPlayPauseMusic');
-            if (btn) {
-                btn.innerHTML = `<i class="bi ${dol}{isPlaying ? 'bi-pause-fill' : 'bi-play-fill'} fs-3"></i>`;
-            }
-            const badge = document.getElementById('musicPlayingStatusBadge');
-            if (badge) {
-                badge.innerText = isPlaying ? 'Memutar' : 'Dijeda';
-                badge.className = isPlaying ? 'badge bg-success' : 'badge bg-secondary';
-            }
-        }
-
-        function loadMusik() {
-            const hasTracks = window.musicPlaylist.length > 0;
-            const currentTrack = hasTracks ? (window.musicPlaylist[window.currentMusicIndex] || window.musicPlaylist[0]) : null;
-            const isPlaying = !window.musicPlayerAudio.paused && !window.musicPlayerAudio.ended && window.musicPlayerAudio.currentTime > 0;
-
-            let html = `
-                <div class="d-flex flex-wrap justify-content-between align-items-center mb-4 gap-2">
-                    <div>
-                        <h4 class="fw-bold mb-0 text-success d-flex align-items-center gap-2">
-                            <i class="bi bi-music-note-beamed" style="color: #E91E63;"></i> Pemutar Musik
-                        </h4>
-                        <small class="text-secondary">Putar dan kelola file musik audio (MP3, WAV, M4A, AAC, FLAC)</small>
-                    </div>
-                    <div class="d-flex align-items-center gap-2">
-                        <input type="file" id="localAudioInput" accept="audio/*" multiple class="d-none" onchange="handleMusicFilesUpload(event)">
-                        <button class="btn btn-sm btn-brand" onclick="document.getElementById('localAudioInput').click()">
-                            <i class="bi bi-folder-plus me-1"></i> Tambah File Musik
-                        </button>
-                    </div>
-                </div>
-            `;
-
-            if (!hasTracks) {
-                html += `
-                    <div class="card card-custom p-5 text-center my-4" style="border-radius: 20px;">
-                        <div class="rounded-circle d-flex align-items-center justify-content-center mx-auto mb-3" style="width: 80px; height: 80px; background-color: rgba(233, 30, 99, 0.15); color: #E91E63;">
-                            <i class="bi bi-music-note-beamed fs-1"></i>
-                        </div>
-                        <h5 class="fw-bold mb-2">Belum Ada File Musik Dimuat</h5>
-                        <p class="text-secondary small mb-4" style="max-width: 480px; margin-inline: auto;">
-                            Pilih satu atau beberapa file audio dari komputer/perangkat Anda untuk mulai memutar musik langsung di web connect.
-                        </p>
-                        <div>
-                            <button class="btn btn-brand px-4 py-2" onclick="document.getElementById('localAudioInput').click()">
-                                <i class="bi bi-file-earmark-music me-2"></i> Pilih File Musik (MP3 / WAV / M4A)
-                            </button>
-                        </div>
-                    </div>
-                `;
-            } else {
-                html += `
-                    <div class="row g-4">
-                        <!-- DECK PEMUTAR UTAMA -->
-                        <div class="col-12 col-lg-5">
-                            <div class="card card-custom p-4 text-center h-100 d-flex flex-column justify-content-between" style="border-radius: 20px;">
-                                <div>
-                                    <div class="d-flex justify-content-between align-items-center mb-3">
-                                        <span id="musicPlayingStatusBadge" class="badge ${dol}{isPlaying ? 'bg-success' : 'bg-secondary'}">${dol}{isPlaying ? 'Memutar' : 'Dijeda'}</span>
-                                        <small class="text-secondary">Trek ${dol}{window.currentMusicIndex + 1} dari ${dol}{window.musicPlaylist.length}</small>
-                                    </div>
-
-                                    <!-- ICON BANNER MUSIK -->
-                                    <div class="my-4 d-flex align-items-center justify-content-center mx-auto rounded-4 shadow-sm" 
-                                         style="width: 140px; height: 140px; background: linear-gradient(135deg, #E91E63, #880e4f); color: white;">
-                                        <i class="bi bi-music-note-beamed" style="font-size: 64px;"></i>
-                                    </div>
-
-                                    <h5 class="fw-bold mb-1 text-truncate" id="musicTitleText" title="${dol}{escapeHtml(currentTrack ? currentTrack.title : '')}">
-                                        ${dol}{escapeHtml(currentTrack ? currentTrack.title : 'Pilih Lagu')}
-                                    </h5>
-                                    <small class="text-secondary d-block mb-3" id="musicArtistText">
-                                        ${dol}{escapeHtml(currentTrack ? currentTrack.artist : '')}
-                                    </small>
-                                </div>
-
-                                <div>
-                                    <!-- PROGRESS / SEEK BAR -->
-                                    <div class="mb-3">
-                                        <input type="range" class="form-range" id="musicSeekBar" min="0" max="${dol}{window.musicPlayerAudio.duration || 100}" value="${dol}{window.musicPlayerAudio.currentTime || 0}"
-                                               onmousedown="window.isSeekingMusic = true"
-                                               ontouchstart="window.isSeekingMusic = true"
-                                               onchange="handleMusicSeek(this.value)"
-                                               oninput="handleMusicSeekInput(this.value)">
-                                        <div class="d-flex justify-content-between text-secondary" style="font-size: 12px;">
-                                            <span id="musicCurrentTimeText">${dol}{formatAudioTime(window.musicPlayerAudio.currentTime || 0)}</span>
-                                            <span id="musicDurationText">${dol}{formatAudioTime(window.musicPlayerAudio.duration || 0)}</span>
-                                        </div>
-                                    </div>
-
-                                    <!-- KONTROL PEMUTAR -->
-                                    <div class="d-flex align-items-center justify-content-center gap-3 my-2">
-                                        <button class="btn btn-sm ${dol}{window.isMusicShuffle ? 'btn-success' : 'btn-outline-secondary'} rounded-circle" 
-                                                style="width: 38px; height: 38px;" onclick="toggleMusicShuffle()" title="Acak / Shuffle">
-                                            <i class="bi bi-shuffle"></i>
-                                        </button>
-                                        <button class="btn btn-outline-secondary rounded-circle" style="width: 44px; height: 44px;" onclick="prevMusicTrack()" title="Lagu Sebelumnya">
-                                            <i class="bi bi-skip-start-fill fs-5"></i>
-                                        </button>
-                                        <button class="btn btn-success rounded-circle shadow" style="width: 56px; height: 56px;" onclick="togglePlayMusic()" id="btnPlayPauseMusic" title="Putar / Jeda">
-                                            <i class="bi ${dol}{isPlaying ? 'bi-pause-fill' : 'bi-play-fill'} fs-3"></i>
-                                        </button>
-                                        <button class="btn btn-outline-secondary rounded-circle" style="width: 44px; height: 44px;" onclick="nextMusicTrack(true)" title="Lagu Berikutnya">
-                                            <i class="bi bi-skip-end-fill fs-5"></i>
-                                        </button>
-                                        <button class="btn btn-sm ${dol}{window.isMusicRepeat ? 'btn-success' : 'btn-outline-secondary'} rounded-circle" 
-                                                style="width: 38px; height: 38px;" onclick="toggleMusicRepeat()" title="Ulangi / Repeat">
-                                            <i class="bi bi-repeat"></i>
-                                        </button>
-                                    </div>
-
-                                    <!-- VOLUME CONTROL -->
-                                    <div class="d-flex align-items-center justify-content-center gap-2 mt-3 px-3">
-                                        <i class="bi bi-volume-down text-secondary fs-5"></i>
-                                        <input type="range" class="form-range" style="max-width: 160px;" min="0" max="1" step="0.05" value="${dol}{window.musicPlayerAudio.volume}" oninput="setMusicVolume(this.value)">
-                                        <i class="bi bi-volume-up text-secondary fs-5"></i>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-
-                        <!-- DAFTAR PUTAR / PLAYLIST -->
-                        <div class="col-12 col-lg-7">
-                            <div class="card card-custom p-4 h-100" style="border-radius: 20px;">
-                                <div class="d-flex justify-content-between align-items-center mb-3">
-                                    <h6 class="fw-bold mb-0 d-flex align-items-center gap-2">
-                                        <i class="bi bi-music-note-list text-primary"></i>
-                                        <span>Daftar Putar Musik</span>
-                                        <span class="badge bg-secondary bg-opacity-25 text-secondary">${dol}{window.musicPlaylist.length} Trek</span>
-                                    </h6>
-                                    <div class="d-flex gap-1">
-                                        <button class="btn btn-sm btn-outline-secondary" onclick="document.getElementById('localAudioInput').click()">
-                                            <i class="bi bi-plus-lg me-1"></i> Tambah
-                                        </button>
-                                        <button class="btn btn-sm btn-outline-danger" onclick="clearMusicPlaylist()" title="Kosongkan Daftar Putar">
-                                            <i class="bi bi-trash"></i>
-                                        </button>
-                                    </div>
-                                </div>
-
-                                <div class="d-flex flex-column gap-2 overflow-auto" style="max-height: 480px;" id="musicPlaylistContainer">
-                `;
-
-                window.musicPlaylist.forEach((item, idx) => {
-                    const isActive = (idx === window.currentMusicIndex);
-                    html += `
-                        <div class="p-3 rounded-3 d-flex align-items-center justify-content-between cursor-pointer ${dol}{isActive ? 'border border-success bg-success bg-opacity-10' : 'dashboard-subcard'}" onclick="selectMusicTrack(${dol}{idx})">
-                            <div class="d-flex align-items-center gap-3 overflow-hidden">
-                                <div class="text-success fw-bold flex-shrink-0" style="width: 24px; text-align: center;">
-                                    ${dol}{isActive && isPlaying ? '<i class="bi bi-play-circle-fill fs-5"></i>' : (idx + 1)}
-                                </div>
-                                <div class="overflow-hidden">
-                                    <h6 class="fw-bold mb-0 text-truncate ${dol}{isActive ? 'text-success' : ''}" title="${dol}{escapeHtml(item.title)}">${dol}{escapeHtml(item.title)}</h6>
-                                    <small class="text-secondary text-truncate d-block">${dol}{escapeHtml(item.artist || 'File Audio')} &bull; ${dol}{item.size || ''}</small>
-                                </div>
-                            </div>
-                            <div class="d-flex align-items-center gap-2 flex-shrink-0 ms-2">
-                                <button class="btn btn-sm ${dol}{isActive ? 'btn-success' : 'btn-outline-secondary'} rounded-circle" style="width: 34px; height: 34px;" onclick="event.stopPropagation(); selectMusicTrack(${dol}{idx})">
-                                    <i class="bi ${dol}{(isActive && isPlaying) ? 'bi-pause-fill' : 'bi-play-fill'}"></i>
-                                </button>
-                                <button class="btn btn-sm text-danger p-1" onclick="event.stopPropagation(); removeMusicTrack(${dol}{idx})" title="Hapus dari daftar putar">
-                                    <i class="bi bi-x-lg"></i>
-                                </button>
-                            </div>
-                        </div>
-                    `;
-                });
-
-                html += `
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                `;
-            }
-
-            document.getElementById('tab-content').innerHTML = html;
-        }
-
-        function handleMusicFilesUpload(event) {
-            const files = event.target.files;
-            if (!files || files.length === 0) return;
-
-            const startIndex = window.musicPlaylist.length;
-            for (let i = 0; i < files.length; i++) {
-                const file = files[i];
-                const url = URL.createObjectURL(file);
-                const sizeMb = (file.size / (1024 * 1024)).toFixed(1) + ' MB';
-                window.musicPlaylist.push({
-                    id: Date.now() + '_' + i,
-                    title: file.name.replace(/\.[^/.]+$/, ""),
-                    artist: file.type || "Berkas Audio",
-                    size: sizeMb,
-                    url: url
-                });
-            }
-
-            if (startIndex === 0 && window.musicPlaylist.length > 0) {
-                window.currentMusicIndex = 0;
-                playTrackByIndex(0);
-            } else {
-                loadMusik();
-            }
-            event.target.value = '';
-        }
-
-        function playTrackByIndex(idx) {
-            if (idx < 0 || idx >= window.musicPlaylist.length) return;
-            window.currentMusicIndex = idx;
-            const track = window.musicPlaylist[idx];
-            if (track && track.url) {
-                window.musicPlayerAudio.src = track.url;
-                window.musicPlayerAudio.play().then(() => {
-                    loadMusik();
-                }).catch(e => {
-                    loadMusik();
-                });
-            }
-        }
-
-        function togglePlayMusic() {
-            if (window.musicPlaylist.length === 0) return;
-            if (window.musicPlayerAudio.paused) {
-                if (!window.musicPlayerAudio.src && window.musicPlaylist[window.currentMusicIndex]) {
-                    playTrackByIndex(window.currentMusicIndex);
-                } else {
-                    window.musicPlayerAudio.play().catch(e => {});
-                }
-            } else {
-                window.musicPlayerAudio.pause();
-            }
-            loadMusik();
-        }
-
-        function selectMusicTrack(idx) {
-            if (idx === window.currentMusicIndex && window.musicPlayerAudio.src) {
-                togglePlayMusic();
-            } else {
-                playTrackByIndex(idx);
-            }
-        }
-
-        function prevMusicTrack() {
-            if (window.musicPlaylist.length === 0) return;
-            let prevIdx = window.currentMusicIndex - 1;
-            if (prevIdx < 0) prevIdx = window.musicPlaylist.length - 1;
-            playTrackByIndex(prevIdx);
-        }
-
-        function nextMusicTrack(manualClick = true) {
-            if (window.musicPlaylist.length === 0) return;
-            let nextIdx;
-            if (window.isMusicShuffle && window.musicPlaylist.length > 1) {
-                do {
-                    nextIdx = Math.floor(Math.random() * window.musicPlaylist.length);
-                } while (nextIdx === window.currentMusicIndex);
-            } else {
-                nextIdx = (window.currentMusicIndex + 1) % window.musicPlaylist.length;
-            }
-            playTrackByIndex(nextIdx);
-        }
-
-        function toggleMusicShuffle() {
-            window.isMusicShuffle = !window.isMusicShuffle;
-            loadMusik();
-        }
-
-        function toggleMusicRepeat() {
-            window.isMusicRepeat = !window.isMusicRepeat;
-            loadMusik();
-        }
-
-        function handleMusicSeek(val) {
-            window.isSeekingMusic = false;
-            window.musicPlayerAudio.currentTime = parseFloat(val);
-        }
-
-        function handleMusicSeekInput(val) {
-            const curText = document.getElementById('musicCurrentTimeText');
-            if (curText) curText.innerText = formatAudioTime(parseFloat(val));
-        }
-
-        function setMusicVolume(val) {
-            window.musicPlayerAudio.volume = parseFloat(val);
-        }
-
-        function removeMusicTrack(idx) {
-            if (idx < 0 || idx >= window.musicPlaylist.length) return;
-            const isCurrentlyPlaying = (idx === window.currentMusicIndex);
-            window.musicPlaylist.splice(idx, 1);
-
-            if (window.musicPlaylist.length === 0) {
-                window.musicPlayerAudio.pause();
-                window.musicPlayerAudio.src = '';
-                window.currentMusicIndex = 0;
-            } else if (isCurrentlyPlaying) {
-                window.currentMusicIndex = Math.min(idx, window.musicPlaylist.length - 1);
-                playTrackByIndex(window.currentMusicIndex);
-            } else if (idx < window.currentMusicIndex) {
-                window.currentMusicIndex--;
-            }
-            loadMusik();
-        }
-
-        function clearMusicPlaylist() {
-            if (!confirm('Kosongkan seluruh daftar lagu?')) return;
-            window.musicPlayerAudio.pause();
-            window.musicPlayerAudio.src = '';
-            window.musicPlaylist = [];
-            window.currentMusicIndex = 0;
-            loadMusik();
-        }
+        ${GajiWebScript.getScript(dol)}
+        ${ArisanWebScript.getScript(dol)}
+        ${RekapBelanjaPasarWebScript.getScript(dol)}
+        ${ManajemenKeuanganWebScript.getScript(dol)}
+        ${NoteWebScript.getScript(dol)}
+        ${ShareWebScript.getScript(dol)}
+        ${TransferFileWebScript.getScript(dol)}
+        ${HandyTalkyWebScript.getScript(dol)}
+        ${TelegramAiWebScript.getScript(dol)}
+        ${ManajemenAkunWebScript.getScript(dol)}
+        ${SpinnerWebScript.getScript(dol)}
+        ${MusikWebScript.getScript(dol)}
+        ${ProfilWebScript.getScript(dol)}
 
         // ==========================================
         // --- 4. BLOCK PUZZLE CLASSIC (8x8) ---
@@ -7791,115 +13073,110 @@ class LocalHttpServer(
 
             let html = `
                 <div class="puzzle-game-wrapper">
-                    <!-- MAIN 3-COLUMN LAYOUT: 
-                         LEFT: COMPACT VERTICAL STATS CARD
-                         CENTER: GAME BOARD & BOOSTERS
-                         RIGHT: COMPACT VERTICAL BLOCKS TRAY (KARTU BLOCK)
+                    <!-- MAIN RESPONSIVE 3-COLUMN / STACKED LAYOUT: 
+                         COLUMN 1: STATS & BOOSTERS (HORIZONTAL GRID ON MOBILE, COMPACT VERTICAL CARD ON DESKTOP)
+                         COLUMN 2: 8x8 BOARD & GAMEPLAY AREA
+                         COLUMN 3: BLOCKS TRAY (HORIZONTAL ROW ON MOBILE, COMPACT VERTICAL COLUMN ON DESKTOP)
                     -->
                     <div class="row g-2 g-md-3 justify-content-center align-items-stretch">
-                        <!-- LEFT COLUMN: COMPACT VERTICAL STATS & PROGRESS CARD -->
-                        <div class="col-12 col-sm-6 col-md-3 col-lg-3 d-flex flex-column" style="max-width: 210px;">
+                        <!-- COLUMN 1: STATS & BOOSTERS CARD -->
+                        <div class="col-12 col-md-3 puzzle-stats-col d-flex flex-column">
                             <div class="puzzle-stats-card p-2.5 d-flex flex-column justify-content-between h-100" style="border-radius: 16px;">
-                                <!-- TOP SECTION: HEADER & STATS & PROGRESS -->
-                                <div class="d-flex flex-column gap-2">
+                                <!-- TOP SECTION: HEADER & STATS -->
+                                <div>
                                     <!-- HEADER BADGE -->
-                                    <div class="d-flex align-items-center justify-content-between pb-1 border-bottom border-white border-opacity-10">
+                                    <div class="d-flex align-items-center justify-content-between pb-1 mb-2 border-bottom border-white border-opacity-10">
                                         <span class="fw-bold text-warning d-flex align-items-center gap-1" style="font-size: 10px;">
                                             <i class="bi bi-bar-chart-fill"></i> STATISTIK
                                         </span>
-                                        <span class="badge bg-dark bg-opacity-50 text-white-50 px-1 py-0.5" style="font-size: 8px;">8x8</span>
+                                        <span class="badge bg-dark bg-opacity-50 text-white-50 px-1 py-0.5" style="font-size: 8px;">8x8 JEWEL</span>
                                     </div>
 
-                                    <!-- 1. REKOR TERTINGGI (COMPACT) -->
-                                    <div class="p-1.5 px-2 rounded-2" style="background: rgba(0,0,0,0.22); border: 1px solid rgba(251, 192, 45, 0.3);">
-                                        <div class="d-flex align-items-center gap-1 mb-0.5">
-                                            <div class="rounded-circle d-flex align-items-center justify-content-center flex-shrink-0" style="width: 22px; height: 22px; background: rgba(251, 192, 45, 0.18); border: 1px solid #FBC02D;">
-                                                <i class="bi bi-trophy-fill text-warning" style="font-size: 10px;"></i>
+                                    <!-- 3 STATS BOXES -->
+                                    <div class="puzzle-stats-grid mb-2">
+                                        <!-- 1. REKOR TERTINGGI -->
+                                        <div class="p-1.5 px-2 rounded-2" style="background: rgba(0,0,0,0.22); border: 1px solid rgba(251, 192, 45, 0.3);">
+                                            <div class="d-flex align-items-center gap-1 mb-0.5">
+                                                <div class="rounded-circle d-flex align-items-center justify-content-center flex-shrink-0" style="width: 20px; height: 20px; background: rgba(251, 192, 45, 0.18); border: 1px solid #FBC02D;">
+                                                    <i class="bi bi-trophy-fill text-warning" style="font-size: 9.5px;"></i>
+                                                </div>
+                                                <small class="text-white-50 text-truncate" style="font-size: 8.5px; font-weight: 700; text-transform: uppercase;">Rekor</small>
                                             </div>
-                                            <small class="text-white-50" style="font-size: 9px; font-weight: 700; text-transform: uppercase;">Rekor Tertinggi</small>
+                                            <h4 class="fw-black text-warning mb-0 text-end pe-1" id="puzzleHighScoreText" style="font-size: 17px; letter-spacing: -0.5px; line-height: 1.2;">${dol}{window.puzzleHighScore}</h4>
                                         </div>
-                                        <h4 class="fw-black text-warning mb-0 text-end pe-1" id="puzzleHighScoreText" style="font-size: 18px; letter-spacing: -0.5px; line-height: 1.2;">${dol}{window.puzzleHighScore}</h4>
-                                    </div>
 
-                                    <!-- 2. SKOR SEKARANG (COMPACT) -->
-                                    <div class="p-1.5 px-2 rounded-2" style="background: rgba(0,0,0,0.22); border: 1px solid rgba(0, 188, 212, 0.3);">
-                                        <div class="d-flex align-items-center gap-1 mb-0.5">
-                                            <div class="rounded-circle d-flex align-items-center justify-content-center flex-shrink-0" style="width: 22px; height: 22px; background: rgba(0, 188, 212, 0.18); border: 1px solid #00BCD4;">
-                                                <i class="bi bi-lightning-charge-fill" style="color: #81D4FA; font-size: 10px;"></i>
+                                        <!-- 2. SKOR SEKARANG -->
+                                        <div class="p-1.5 px-2 rounded-2" style="background: rgba(0,0,0,0.22); border: 1px solid rgba(0, 188, 212, 0.3);">
+                                            <div class="d-flex align-items-center gap-1 mb-0.5">
+                                                <div class="rounded-circle d-flex align-items-center justify-content-center flex-shrink-0" style="width: 20px; height: 20px; background: rgba(0, 188, 212, 0.18); border: 1px solid #00BCD4;">
+                                                    <i class="bi bi-lightning-charge-fill" style="color: #81D4FA; font-size: 9.5px;"></i>
+                                                </div>
+                                                <small class="text-white-50 text-truncate" style="font-size: 8.5px; font-weight: 700; text-transform: uppercase;">Skor</small>
                                             </div>
-                                            <small class="text-white-50" style="font-size: 9px; font-weight: 700; text-transform: uppercase;">Skor Sekarang</small>
+                                            <h4 class="fw-black mb-0 text-end pe-1" style="color: #81D4FA; font-size: 17px; letter-spacing: -0.5px; line-height: 1.2;" id="puzzleScoreText">${dol}{window.puzzleScore}</h4>
                                         </div>
-                                        <h4 class="fw-black mb-0 text-end pe-1" style="color: #81D4FA; font-size: 18px; letter-spacing: -0.5px; line-height: 1.2;" id="puzzleScoreText">${dol}{window.puzzleScore}</h4>
-                                    </div>
 
-                                    <!-- 3. PROGRESS TARGET (COMPACT) -->
-                                    <div class="p-1.5 px-2 rounded-2" style="background: rgba(0,0,0,0.22); border: 1px solid rgba(255, 255, 255, 0.1);">
-                                        <div class="d-flex justify-content-between align-items-center mb-1">
-                                            <small class="text-white-50 fw-bold" style="font-size: 8.5px; text-transform: uppercase;">Progress Target</small>
-                                            <span class="badge" id="puzzleProgressPercentText" style="background: rgba(0, 188, 212, 0.2); color: #81D4FA; border: 1px solid #00BCD4; font-size: 8.5px; padding: 1px 4px;">${dol}{milestone.percent}%</span>
-                                        </div>
-                                        <div class="puzzle-progress-bar mb-1" style="height: 5px; background: rgba(0,0,0,0.45); border-radius: 4px; overflow: hidden; border: 1px solid rgba(255,255,255,0.08);">
-                                            <div class="puzzle-progress-fill" id="puzzleProgressFillBar" style="width: ${dol}{milestone.percent}%; height: 100%; background: linear-gradient(90deg, #00BCD4, #4CAF50); border-radius: 4px; transition: width 0.3s ease;"></div>
-                                        </div>
-                                        <div class="d-flex justify-content-between text-white-50" style="font-size: 8.5px;">
-                                            <span id="puzzleCurrentScoreStatText">Skor: ${dol}{window.puzzleScore}</span>
-                                            <span id="puzzleTargetScoreText" style="color: #81D4FA; font-weight: 600;">Target: ${dol}{milestone.nextMilestone}</span>
+                                        <!-- 3. PROGRESS TARGET -->
+                                        <div class="p-1.5 px-2 rounded-2" style="background: rgba(0,0,0,0.22); border: 1px solid rgba(255, 255, 255, 0.1);">
+                                            <div class="d-flex justify-content-between align-items-center mb-1">
+                                                <small class="text-white-50 fw-bold text-truncate" style="font-size: 8px; text-transform: uppercase;">Target</small>
+                                                <span class="badge" id="puzzleProgressPercentText" style="background: rgba(0, 188, 212, 0.2); color: #81D4FA; border: 1px solid #00BCD4; font-size: 8px; padding: 1px 3.5px;">${dol}{milestone.percent}%</span>
+                                            </div>
+                                            <div class="puzzle-progress-bar mb-1" style="height: 4.5px; background: rgba(0,0,0,0.45); border-radius: 4px; overflow: hidden; border: 1px solid rgba(255,255,255,0.08);">
+                                                <div class="puzzle-progress-fill" id="puzzleProgressFillBar" style="width: ${dol}{milestone.percent}%; height: 100%; background: linear-gradient(90deg, #00BCD4, #4CAF50); border-radius: 4px; transition: width 0.3s ease;"></div>
+                                            </div>
+                                            <div class="d-flex justify-content-between text-white-50" style="font-size: 8px;">
+                                                <span id="puzzleCurrentScoreStatText">${dol}{window.puzzleScore}</span>
+                                                <span id="puzzleTargetScoreText" style="color: #81D4FA; font-weight: 600;">Tgt: ${dol}{milestone.nextMilestone}</span>
+                                            </div>
                                         </div>
                                     </div>
                                 </div>
 
                                 <!-- BOTTOM SECTION: 4 BOOSTER ITEM / POWER-UPS -->
-                                <div class="pt-2 mt-2 border-top border-white border-opacity-10">
-                                    <div class="d-flex align-items-center justify-content-between mb-1.5 px-0.5">
-                                        <small class="text-white-50 fw-bold" style="font-size: 8.5px; text-transform: uppercase; letter-spacing: 0.5px;">Booster Power-Up</small>
-                                        <span class="badge bg-dark bg-opacity-50 text-white-50" style="font-size: 7.5px;">Item</span>
+                                <div class="pt-1.5 border-top border-white border-opacity-10">
+                                    <div class="d-flex align-items-center justify-content-between mb-1 px-0.5">
+                                        <small class="text-white-50 fw-bold" style="font-size: 8px; text-transform: uppercase; letter-spacing: 0.5px;">Booster Power-Up</small>
+                                        <span class="badge bg-dark bg-opacity-50 text-white-50" style="font-size: 7px;">Item</span>
                                     </div>
-                                    <div class="row g-1.5">
-                                        <div class="col-6">
-                                            <button class="btn puzzle-booster-btn w-100 p-1.5 d-flex flex-column align-items-center justify-content-center position-relative" onclick="usePuzzleRotate()" title="Putar 90Â° Balok yang Dipilih">
-                                                <i class="bi bi-arrow-repeat text-warning" style="font-size: 13.5px;"></i>
-                                                <span style="font-size: 8.5px; margin-top: 1px;">Putar</span>
-                                                <span class="badge rounded-pill bg-warning text-dark position-absolute top-0 end-0 m-0.5" id="puzzleBoosterRotateCount" style="font-size: 7.5px; padding: 1px 3.5px;">${dol}{window.puzzleBoosters.rotate}</span>
-                                            </button>
-                                        </div>
-                                        <div class="col-6">
-                                            <button class="btn puzzle-booster-btn ${dol}{window.puzzleActiveMode === 'singleClear' ? 'active' : ''} w-100 p-1.5 d-flex flex-column align-items-center justify-content-center position-relative" onclick="usePuzzleSingleClear()" title="Hapus 1 Balok di Kotak Papan">
-                                                <i class="bi bi-eraser-fill text-info" style="font-size: 13.5px;"></i>
-                                                <span style="font-size: 8.5px; margin-top: 1px;">Hapus 1x1</span>
-                                                <span class="badge rounded-pill bg-info text-dark position-absolute top-0 end-0 m-0.5" id="puzzleBoosterClearCount" style="font-size: 7.5px; padding: 1px 3.5px;">${dol}{window.puzzleBoosters.clear}</span>
-                                            </button>
-                                        </div>
-                                        <div class="col-6">
-                                            <button class="btn puzzle-booster-btn ${dol}{window.puzzleActiveMode === 'hammer' ? 'active' : ''} w-100 p-1.5 d-flex flex-column align-items-center justify-content-center position-relative" onclick="usePuzzleHammer()" title="Palu: Hancurkan Area 3x3">
-                                                <i class="bi bi-hammer text-danger" style="font-size: 13.5px;"></i>
-                                                <span style="font-size: 8.5px; margin-top: 1px;">Palu 3x3</span>
-                                                <span class="badge rounded-pill bg-danger text-white position-absolute top-0 end-0 m-0.5" id="puzzleBoosterHammerCount" style="font-size: 7.5px; padding: 1px 3.5px;">${dol}{window.puzzleBoosters.hammer}</span>
-                                            </button>
-                                        </div>
-                                        <div class="col-6">
-                                            <button class="btn puzzle-booster-btn w-100 p-1.5 d-flex flex-column align-items-center justify-content-center position-relative" onclick="usePuzzleRefresh()" title="Acak Ulang 3 Pilihan Balok">
-                                                <i class="bi bi-shuffle text-success" style="font-size: 13.5px;"></i>
-                                                <span style="font-size: 8.5px; margin-top: 1px;">Acak</span>
-                                                <span class="badge rounded-pill bg-success text-white position-absolute top-0 end-0 m-0.5" id="puzzleBoosterRefreshCount" style="font-size: 7.5px; padding: 1px 3.5px;">${dol}{window.puzzleBoosters.refresh}</span>
-                                            </button>
-                                        </div>
+                                    <div class="puzzle-booster-grid">
+                                        <button class="btn puzzle-booster-btn w-100 p-1.5 d-flex flex-column align-items-center justify-content-center position-relative" onclick="usePuzzleRotate()" title="Putar 90Â° Balok yang Dipilih">
+                                            <i class="bi bi-arrow-repeat text-warning" style="font-size: 13px;"></i>
+                                            <span style="font-size: 8px; margin-top: 1px;">Putar</span>
+                                            <span class="badge rounded-pill bg-warning text-dark position-absolute top-0 end-0 m-0.5" id="puzzleBoosterRotateCount" style="font-size: 7px; padding: 1px 3px;">${dol}{window.puzzleBoosters.rotate}</span>
+                                        </button>
+                                        <button class="btn puzzle-booster-btn ${dol}{window.puzzleActiveMode === 'singleClear' ? 'active' : ''} w-100 p-1.5 d-flex flex-column align-items-center justify-content-center position-relative" onclick="usePuzzleSingleClear()" title="Hapus 1 Balok di Kotak Papan">
+                                            <i class="bi bi-eraser-fill text-info" style="font-size: 13px;"></i>
+                                            <span style="font-size: 8px; margin-top: 1px;">Hapus 1x1</span>
+                                            <span class="badge rounded-pill bg-info text-dark position-absolute top-0 end-0 m-0.5" id="puzzleBoosterClearCount" style="font-size: 7px; padding: 1px 3px;">${dol}{window.puzzleBoosters.clear}</span>
+                                        </button>
+                                        <button class="btn puzzle-booster-btn ${dol}{window.puzzleActiveMode === 'hammer' ? 'active' : ''} w-100 p-1.5 d-flex flex-column align-items-center justify-content-center position-relative" onclick="usePuzzleHammer()" title="Palu: Hancurkan Area 3x3">
+                                            <i class="bi bi-hammer text-danger" style="font-size: 13px;"></i>
+                                            <span style="font-size: 8px; margin-top: 1px;">Palu 3x3</span>
+                                            <span class="badge rounded-pill bg-danger text-white position-absolute top-0 end-0 m-0.5" id="puzzleBoosterHammerCount" style="font-size: 7px; padding: 1px 3px;">${dol}{window.puzzleBoosters.hammer}</span>
+                                        </button>
+                                        <button class="btn puzzle-booster-btn w-100 p-1.5 d-flex flex-column align-items-center justify-content-center position-relative" onclick="usePuzzleRefresh()" title="Acak Ulang 3 Pilihan Balok">
+                                            <i class="bi bi-shuffle text-success" style="font-size: 13px;"></i>
+                                            <span style="font-size: 8px; margin-top: 1px;">Acak</span>
+                                            <span class="badge rounded-pill bg-success text-white position-absolute top-0 end-0 m-0.5" id="puzzleBoosterRefreshCount" style="font-size: 7px; padding: 1px 3px;">${dol}{window.puzzleBoosters.refresh}</span>
+                                        </button>
                                     </div>
                                 </div>
                             </div>
                         </div>
 
                         <!-- CENTER COLUMN: PUZZLE BOARD & GAMEPLAY AREA -->
-                        <div class="col-12 col-md-6 col-lg-6 d-flex flex-column align-items-center" style="max-width: 560px;">
-                            <div class="card card-custom p-2.5 p-md-3 position-relative h-100 w-100 d-flex flex-column justify-content-center align-items-center" style="border-radius: 18px;">
+                        <div class="col-12 col-md-6 puzzle-board-col d-flex flex-column align-items-center">
+                            <div class="card card-custom p-2 p-md-3 position-relative h-100 w-100 d-flex flex-column justify-content-center align-items-center" style="border-radius: 18px;">
                                 
                                 <!-- CENTER TITLE & CONTROLS (DIATAS PAPAN GAME) -->
-                                <div class="d-flex align-items-center justify-content-between w-100 mb-2.5 px-1">
+                                <div class="d-flex align-items-center justify-content-between w-100 mb-2 px-1">
                                     <div class="d-none d-sm-block" style="width: 76px;"></div>
                                     <div class="text-center flex-grow-1">
-                                        <h4 class="fw-bold mb-0 text-success d-flex align-items-center justify-content-center gap-2">
+                                        <h4 class="fw-bold mb-0 text-success d-flex align-items-center justify-content-center gap-1.5" style="font-size: clamp(16px, 4vw, 20px);">
                                             <i class="bi bi-grid-fill" style="color: #4CAF50;"></i> Block Puzzle Classic
                                         </h4>
-                                        <small class="text-white-50" style="font-size: 11.5px;">Susun balok 8x8, eliminasi baris &amp; kolom!</small>
+                                        <small class="text-white-50" style="font-size: 11px;">Susun balok 8x8, eliminasi baris &amp; kolom!</small>
                                     </div>
                                     <div class="d-flex align-items-center justify-content-end gap-1.5" style="min-width: 76px;">
                                         <button class="btn btn-sm ${dol}{window.puzzleSoundEnabled ? 'btn-outline-success' : 'btn-outline-secondary'} rounded-circle d-flex align-items-center justify-content-center" style="width: 32px; height: 32px; padding: 0;" onclick="togglePuzzleSound()" title="Efek Suara">
@@ -7919,14 +13196,14 @@ class LocalHttpServer(
 
                                 <!-- MODE INDICATOR BANNER IF POWERUP ACTIVE -->
                                 ${dol}{window.puzzleActiveMode === 'singleClear' ? `
-                                    <div class="alert alert-info py-1.5 px-2.5 mb-2 d-flex align-items-center justify-content-between rounded-pill small" style="font-size: 11px;">
+                                    <div class="alert alert-info py-1 px-2.5 mb-2 d-flex align-items-center justify-content-between rounded-pill small w-100" style="font-size: 11px;">
                                         <span><i class="bi bi-eraser-fill me-1 fs-6"></i> <strong>Hapus 1x1:</strong> Klik 1 balok pada kotak papan!</span>
                                         <button class="btn btn-sm btn-link text-dark p-0 fw-bold" onclick="cancelPuzzlePowerup()">Batal</button>
                                     </div>
                                 ` : ''}
 
                                 ${dol}{window.puzzleActiveMode === 'hammer' ? `
-                                    <div class="alert alert-warning py-1.5 px-2.5 mb-2 d-flex align-items-center justify-content-between rounded-pill small" style="font-size: 11px;">
+                                    <div class="alert alert-warning py-1 px-2.5 mb-2 d-flex align-items-center justify-content-between rounded-pill small w-100" style="font-size: 11px;">
                                         <span><i class="bi bi-hammer me-1 fs-6"></i> <strong>Palu 3x3:</strong> Klik kotak di papan untuk hancurkan 3x3!</span>
                                         <button class="btn btn-sm btn-link text-dark p-0 fw-bold" onclick="cancelPuzzlePowerup()">Batal</button>
                                     </div>
@@ -7966,8 +13243,8 @@ class LocalHttpServer(
                             </div>
                         </div>
 
-                        <!-- RIGHT COLUMN: COMPACT VERTICAL BLOCKS TRAY (KARTU BLOCK) -->
-                        <div class="col-12 col-sm-6 col-md-3 col-lg-3 d-flex flex-column" style="max-width: 195px;">
+                        <!-- RIGHT COLUMN: BLOCKS TRAY (KARTU BLOCK) -->
+                        <div class="col-12 col-md-3 puzzle-tray-col d-flex flex-column">
                             <div class="puzzle-tray-container p-2.5 d-flex flex-column justify-content-between h-100 w-100" id="puzzleTrayArea" style="border-radius: 16px;">
                                 <div class="d-flex align-items-center justify-content-between pb-1 border-bottom border-white border-opacity-10 w-100 px-1">
                                     <span class="fw-bold text-info d-flex align-items-center gap-1" style="font-size: 10px;">
@@ -7976,7 +13253,7 @@ class LocalHttpServer(
                                     <span class="badge bg-dark bg-opacity-50 text-white-50 px-1 py-0.5" style="font-size: 8px;">3 OPSI</span>
                                 </div>
 
-                                <div class="d-flex flex-column justify-content-around flex-grow-1 my-2 gap-2 w-100" id="puzzlePiecesTray">
+                                <div class="puzzle-pieces-tray my-2" id="puzzlePiecesTray">
                     `;
 
                     window.puzzleCandidates.forEach((cand, idx) => {
@@ -9140,48 +14417,6 @@ class LocalHttpServer(
                                         </button>
                                     </div>
                                     <span class="text-muted fw-bold mt-2" style="font-size: 9px; letter-spacing: 1px;">ACTION (A & B)</span>
-                                </div>
-                            </div>
-                        </div>
-
-                        <!-- CONTROLS GUIDE CARD (KEYBOARD & GAMEPAD) -->
-                        <div class="card card-custom p-3 mt-3 text-start" style="border-radius: 16px;">
-                            <div class="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-1">
-                                <h6 class="fw-bold mb-0 text-success d-flex align-items-center gap-2">
-                                    <i class="bi bi-controller"></i> Kontrol Gamepad & Keyboard
-                                </h6>
-                                <span id="brickGamepadStatusBadge" class="badge bg-secondary text-light px-2 py-1" style="font-size: 11px;">
-                                    <i class="bi bi-controller me-1"></i> Gamepad Siap (USB / Bluetooth)
-                                </span>
-                            </div>
-
-                            <div class="row g-3 small text-secondary" style="font-size: 12px;">
-                                <!-- GAMEPAD CONTROLS -->
-                                <div class="col-12 col-md-6 border-end-md">
-                                    <div class="fw-bold text-dark mb-1 d-flex align-items-center gap-1">
-                                        <i class="bi bi-joystick text-primary"></i> Gamepad (USB / Bluetooth):
-                                    </div>
-                                    <ul class="list-unstyled mb-0 d-flex flex-column gap-1">
-                                        <li><span class="badge bg-primary me-1">Start</span> Pause / Play / Mulai Game</li>
-                                        <li><span class="badge bg-secondary me-1">Select</span> Pilihan Game (1-5) / Menu</li>
-                                        <li><span class="badge bg-dark me-1">D-Pad / Stick</span> Arah Kiri/Kanan & Pilih Game â†‘/â†“</li>
-                                        <li><span class="badge bg-danger me-1">Tombol X / âœ–</span> Drop Block (B)</li>
-                                        <li><span class="badge bg-success me-1">Tombol O / â­•</span> Putar Balok (A) / Tembak</li>
-                                    </ul>
-                                </div>
-
-                                <!-- KEYBOARD CONTROLS -->
-                                <div class="col-12 col-md-6">
-                                    <div class="fw-bold text-dark mb-1 d-flex align-items-center gap-1">
-                                        <i class="bi bi-keyboard text-success"></i> Keyboard Komputer / Laptop:
-                                    </div>
-                                    <ul class="list-unstyled mb-0 d-flex flex-column gap-1">
-                                        <li><span class="badge bg-secondary me-1">â† / â†’ (A / D)</span> Kiri / Kanan</li>
-                                        <li><span class="badge bg-secondary me-1">â†‘ / â†“ (W / S)</span> Pilih Game (1-5) / Putar / Turun</li>
-                                        <li><span class="badge bg-secondary me-1">Enter / X</span> Tombol A (Putar / Tembak / Mulai)</li>
-                                        <li><span class="badge bg-secondary me-1">Spasi / Z</span> Tombol B (Drop Block)</li>
-                                        <li><span class="badge bg-secondary me-1">P / Esc</span> Pause / Menu Utama | <span class="badge bg-secondary">M / T</span> Suara / Tema</li>
-                                    </ul>
                                 </div>
                             </div>
                         </div>
@@ -10507,607 +15742,812 @@ class LocalHttpServer(
         }
 
         // ==========================================
-        // --- 7. SPINNER RODA KEBERUNTUNGAN ---
+        // --- AGENDA KEGIATAN ---
         // ==========================================
-        window.spinnerOptions = ["Peserta 1", "Peserta 2", "Peserta 3", "Peserta 4", "Peserta 5", "Peserta 6"];
-        window.spinnerAngle = 0;
-        window.isSpinning = false;
-
-        function loadSpinner() {
-            let html = `
-                <div class="d-flex flex-wrap justify-content-between align-items-center mb-4 gap-2">
-                    <div>
-                        <h4 class="fw-bold mb-0 text-success d-flex align-items-center gap-2">
-                            <i class="bi bi-arrow-repeat" style="color: #8338EC;"></i> Spinner Roda Keberuntungan
-                        </h4>
-                        <small class="text-secondary">Undian Acak, Arisan, Doorprize, dan Pemilihan Pemenang</small>
-                    </div>
-                </div>
-
-                <div class="row g-4 justify-content-center align-items-center">
-                    <!-- RODA SPINNER -->
-                    <div class="col-12 col-md-6 text-center">
-                        <div class="card card-custom p-4 d-inline-block shadow" style="border-radius: 24px; position: relative;">
-                            <div style="position: relative; display: inline-block;">
-                                <!-- POINTER ARROW -->
-                                <div style="position: absolute; top: -14px; left: 50%; transform: translateX(-50%); width: 0; height: 0; border-left: 14px solid transparent; border-right: 14px solid transparent; border-top: 26px solid #e11d48; z-index: 10;"></div>
-                                <canvas id="spinnerWheelCanvas" width="320" height="320"></canvas>
-                            </div>
-                            <div class="mt-4">
-                                <button class="btn btn-lg btn-brand px-5 fw-bold shadow-lg" onclick="spinWheel()" id="btnSpinWheel" style="border-radius: 30px;">
-                                    <i class="bi bi-play-fill me-1"></i> PUTAR SEKARANG
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-
-                    <!-- PENGATURAN PESERTA / DAFTAR PILIHAN -->
-                    <div class="col-12 col-md-6">
-                        <div class="card card-custom p-4" style="border-radius: 20px;">
-                            <h6 class="fw-bold mb-3 d-flex align-items-center justify-content-between">
-                                <span><i class="bi bi-people me-2 text-warning"></i> Daftar Pilihan (${dol}{window.spinnerOptions.length})</span>
-                                <button class="btn btn-sm btn-outline-secondary" onclick="addSpinnerItem()"><i class="bi bi-plus-lg me-1"></i> Tambah</button>
-                            </h6>
-
-                            <div class="d-flex flex-column gap-2 mb-3" style="max-height: 280px; overflow-y: auto;" id="spinnerOptionsList">
-            `;
-
-            window.spinnerOptions.forEach((opt, idx) => {
-                html += `
-                    <div class="d-flex align-items-center gap-2 dashboard-subcard p-2 rounded-3">
-                        <input type="text" class="form-control form-control-sm form-control-dark" value="${dol}{escapeHtml(opt)}" onchange="updateSpinnerItem(${dol}{idx}, this.value)">
-                        <button class="btn btn-sm text-danger p-0 px-2" onclick="deleteSpinnerItem(${dol}{idx})"><i class="bi bi-trash"></i></button>
-                    </div>
-                `;
-            });
-
-            html += `
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            `;
-
-            document.getElementById('tab-content').innerHTML = html;
-            drawSpinnerWheel();
-        }
-
-        function drawSpinnerWheel() {
-            const canvas = document.getElementById('spinnerWheelCanvas');
-            if (!canvas) return;
-            const ctx = canvas.getContext('2d');
-            const centerX = canvas.width / 2;
-            const centerY = canvas.height / 2;
-            const radius = centerX - 10;
-            const options = window.spinnerOptions;
-            const sliceAngle = (2 * Math.PI) / options.length;
-            const colors = ['#E91E63', '#9C27B0', '#673AB7', '#3F51B5', '#2196F3', '#009688', '#4CAF50', '#FF9800', '#FF5722'];
-
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
-            ctx.save();
-            ctx.translate(centerX, centerY);
-            ctx.rotate(window.spinnerAngle);
-
-            options.forEach((opt, i) => {
-                const angle = i * sliceAngle;
-                ctx.beginPath();
-                ctx.moveTo(0, 0);
-                ctx.arc(0, 0, radius, angle, angle + sliceAngle);
-                ctx.fillStyle = colors[i % colors.length];
-                ctx.fill();
-                ctx.lineWidth = 2;
-                ctx.strokeStyle = '#ffffff';
-                ctx.stroke();
-
-                ctx.save();
-                ctx.rotate(angle + sliceAngle / 2);
-                ctx.textAlign = 'right';
-                ctx.fillStyle = '#ffffff';
-                ctx.font = 'bold 13px sans-serif';
-                ctx.fillText(opt, radius - 18, 5);
-                ctx.restore();
-            });
-
-            ctx.restore();
-
-            // Draw center peg
-            ctx.beginPath();
-            ctx.arc(centerX, centerY, 18, 0, 2 * Math.PI);
-            ctx.fillStyle = '#ffffff';
-            ctx.fill();
-            ctx.lineWidth = 3;
-            ctx.strokeStyle = '#333333';
-            ctx.stroke();
-        }
-
-        function spinWheel() {
-            if (window.isSpinning) return;
-            window.isSpinning = true;
-            const btn = document.getElementById('btnSpinWheel');
-            if (btn) btn.disabled = true;
-
-            const extraRotations = 5 + Math.random() * 5;
-            const totalRadian = extraRotations * 2 * Math.PI + Math.random() * 2 * Math.PI;
-            const duration = 4000;
-            const startTime = performance.now();
-            const startAngle = window.spinnerAngle;
-
-            function animate(now) {
-                const elapsed = now - startTime;
-                const progress = Math.min(elapsed / duration, 1);
-                // Ease-out cubic
-                const easeOut = 1 - Math.pow(1 - progress, 3);
-                window.spinnerAngle = startAngle + totalRadian * easeOut;
-                drawSpinnerWheel();
-
-                if (progress < 1) {
-                    requestAnimationFrame(animate);
-                } else {
-                    window.isSpinning = false;
-                    if (btn) btn.disabled = false;
-                    // Determine winner (pointer is at top: -PI/2)
-                    const normalized = ( (3 * Math.PI / 2) - (window.spinnerAngle % (2 * Math.PI)) + 2 * Math.PI ) % (2 * Math.PI);
-                    const slice = (2 * Math.PI) / window.spinnerOptions.length;
-                    const winningIndex = Math.floor(normalized / slice) % window.spinnerOptions.length;
-                    const winner = window.spinnerOptions[winningIndex];
-
-                    setTimeout(() => {
-                        alert('ðŸŽ‰ SELAMAT! Pemenang undian adalah:\n\nâœ¨ ' + winner + ' âœ¨');
-                    }, 100);
-                }
-            }
-            requestAnimationFrame(animate);
-        }
-
-        function addSpinnerItem() {
-            const name = prompt('Masukkan nama pilihan / peserta baru:');
-            if (name && name.trim()) {
-                window.spinnerOptions.push(name.trim());
-                loadSpinner();
-            }
-        }
-
-        function updateSpinnerItem(idx, val) {
-            if (val && val.trim()) {
-                window.spinnerOptions[idx] = val.trim();
-                drawSpinnerWheel();
-            }
-        }
-
-        function deleteSpinnerItem(idx) {
-            if (window.spinnerOptions.length <= 2) return alert('Minimal harus ada 2 pilihan!');
-            const item = window.spinnerOptions[idx] || 'pilihan';
-            showCustomConfirm({
-                title: 'Hapus Pilihan Spinner',
-                message: 'Apakah Anda yakin ingin menghapus "' + item + '" dari daftar roda putar?',
-                confirmText: 'Hapus',
-                onConfirm: () => {
-                    window.spinnerOptions.splice(idx, 1);
-                    loadSpinner();
-                }
-            });
-        }
-
-
-        // --- CATATAN (NOTES) ---
-        async function loadNotes() {
+        async function loadAgenda() {
             try {
-                const fetchRes = await fetchApiWithCache('/api/notes', 'notes');
+                const fetchRes = await fetchApiWithCache('/api/agenda', 'agenda');
                 const data = fetchRes.data || [];
                 let html = `
                     <div class="d-flex flex-wrap justify-content-between align-items-center mb-4 gap-2">
-                        <h4 class="fw-bold mb-0"><i class="bi bi-journal-text me-2 text-success"></i> Kelola Catatan</h4>
-                        <button class="btn btn-brand" onclick="openAddNoteModal()"><i class="bi bi-plus-lg me-1"></i> Catatan Baru</button>
+                        <h4 class="fw-bold mb-0"><i class="bi bi-calendar-event me-2 text-warning"></i> Agenda Kegiatan</h4>
+                        <button class="btn btn-brand" onclick="openAddAgendaModal()"><i class="bi bi-plus-lg me-1"></i> Tambah Agenda</button>
                     </div>
                     <div class="row g-3">
                 `;
                 if (data.length === 0) {
-                    html += `<div class="text-center py-5 text-secondary">Belum ada catatan. Klik tombol + untuk membuat catatan baru.</div>`;
+                    html += `<div class="col-12 text-center py-5 text-secondary">Belum ada agenda terdaftar.</div>`;
                 } else {
-                    data.forEach(note => {
+                    data.forEach(item => {
                         html += `
-                            <div class="col-12 col-md-6 col-lg-4">
-                                <div class="card card-custom h-100 p-3 position-relative">
+                            <div class="col-12 col-md-6">
+                                <div class="card card-custom h-100 p-3">
                                     <div class="d-flex justify-content-between align-items-center mb-2">
-                                        <span class="badge bg-secondary">${dol}{escapeHtml(note.category || 'Umum')}</span>
-                                        <div>
-                                            <button class="btn btn-sm text-info p-0 me-2" onclick="openEditNoteModal(${dol}{note.id}, '${dol}{escapeJs(note.title)}', '${dol}{escapeJs(note.content)}', '${dol}{escapeJs(note.category)}')"><i class="bi bi-pencil-square"></i> Edit</button>
-                                            <button class="btn btn-sm text-danger p-0" onclick="deleteNote(${dol}{note.id})"><i class="bi bi-trash"></i> Hapus</button>
-                                        </div>
+                                        <span class="badge bg-warning text-dark">${dol}{escapeHtml(item.date || '')}</span>
+                                        <button class="btn btn-sm text-danger p-0" onclick="deleteAgendaItem(${dol}{item.id})"><i class="bi bi-trash"></i></button>
                                     </div>
-                                    <h6 class="fw-bold text-light">${dol}{escapeHtml(note.title)}</h6>
-                                    <p class="text-secondary small mb-2" style="white-space: pre-line; max-height: 120px; overflow: hidden;">${dol}{escapeHtml(note.content)}</p>
-                                    <small class="text-muted text-end mt-auto">${dol}{new Date(note.lastSaved).toLocaleString('id-ID')}</small>
+                                    <h5 class="fw-bold mb-1">${dol}{escapeHtml(item.title)}</h5>
+                                    <p class="text-muted small mb-0">${dol}{escapeHtml(item.description || '')}</p>
                                 </div>
                             </div>
                         `;
                     });
                 }
                 html += `</div>`;
-                document.getElementById('tab-content').innerHTML = html;
-            } catch(e) {
-                document.getElementById('tab-content').innerHTML = `<div class="alert alert-danger">Gagal memuat catatan: ${dol}{e.message}</div>`;
+                const container = document.getElementById('tab-content') || document.getElementById('main-content');
+                if (container) container.innerHTML = html;
+            } catch (e) {
+                const container = document.getElementById('tab-content') || document.getElementById('main-content');
+                if (container) container.innerHTML = `<div class="alert alert-danger">Gagal memuat agenda: ${dol}{escapeHtml(e.message)}</div>`;
             }
         }
 
-        function openAddNoteModal() {
-            document.getElementById('modalTitle').innerText = 'Tambah Catatan Baru';
-            document.getElementById('modalBody').innerHTML = `
-                <div class="mb-3">
-                    <label class="form-label text-secondary">Judul Catatan</label>
-                    <input type="text" id="noteTitle" class="form-control form-control-dark" placeholder="Judul catatan...">
-                </div>
-                <div class="mb-3">
-                    <label class="form-label text-secondary">Kategori</label>
-                    <input type="text" id="noteCategory" class="form-control form-control-dark" value="Umum">
-                </div>
-                <div class="mb-3">
-                    <label class="form-label text-secondary">Isi Catatan</label>
-                    <textarea id="noteContent" class="form-control form-control-dark" rows="5" placeholder="Tulis catatan di sini..."></textarea>
-                </div>
-            `;
-            window.submitAction = async () => {
-                const title = document.getElementById('noteTitle').value.trim();
-                const category = document.getElementById('noteCategory').value.trim();
-                const content = document.getElementById('noteContent').value;
-                if (!title) return alert('Judul tidak boleh kosong');
-                await fetch('/api/notes', {
+        function openAddAgendaModal() {
+            const title = prompt('Judul Agenda:');
+            if (title && title.trim()) {
+                const date = prompt('Tanggal (YYYY-MM-DD):', new Date().toISOString().split('T')[0]);
+                const desc = prompt('Deskripsi / Lokasi:', '');
+                fetch('/api/agenda', {
                     method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({title, category, content})
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ title: title.trim(), date: date || '', description: desc || '' })
+                }).then(() => {
+                    invalidateApiCache('agenda');
+                    loadAgenda();
                 });
-                modalInstance.hide();
-                loadNotes();
-            };
-            modalInstance.show();
+            }
         }
 
-        function openEditNoteModal(id, title, content, category) {
-            document.getElementById('modalTitle').innerText = 'Edit Catatan';
-            document.getElementById('modalBody').innerHTML = `
-                <div class="mb-3">
-                    <label class="form-label text-secondary">Judul Catatan</label>
-                    <input type="text" id="noteTitle" class="form-control form-control-dark" value="${dol}{escapeHtml(title)}">
-                </div>
-                <div class="mb-3">
-                    <label class="form-label text-secondary">Kategori</label>
-                    <input type="text" id="noteCategory" class="form-control form-control-dark" value="${dol}{escapeHtml(category)}">
-                </div>
-                <div class="mb-3">
-                    <label class="form-label text-secondary">Isi Catatan</label>
-                    <textarea id="noteContent" class="form-control form-control-dark" rows="5">${dol}{escapeHtml(content)}</textarea>
-                </div>
-            `;
-            window.submitAction = async () => {
-                const newTitle = document.getElementById('noteTitle').value.trim();
-                const newCat = document.getElementById('noteCategory').value.trim();
-                const newCont = document.getElementById('noteContent').value;
-                await fetch('/api/notes', {
-                    method: 'PUT',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({id, title: newTitle, category: newCat, content: newCont})
-                });
-                modalInstance.hide();
-                loadNotes();
-            };
-            modalInstance.show();
+        async function deleteAgendaItem(id) {
+            await fetch(`/api/agenda?id=${dol}{id}`, { method: 'DELETE' });
+            invalidateApiCache('agenda');
+            loadAgenda();
         }
 
-        async function deleteNote(id) {
-            showCustomConfirm({
-                title: 'Hapus Catatan',
-                message: 'Apakah Anda yakin ingin menghapus catatan ini secara permanen?',
-                confirmText: 'Hapus Catatan',
-                onConfirm: async () => {
-                    await fetch('/api/notes?id=' + id, {method: 'DELETE'});
-                    loadNotes();
+        // ==========================================
+        // --- NOTIFIKASI & CLOUD MESSAGING (100% OFFLINE) ---
+        // ==========================================
+        window.allNotificationsData = null;
+        window.currentNotifTab = 'pesan';
+        window.currentHolidayCategory = 'Semua';
+
+        async function loadNotifications(silent = false) {
+            try {
+                let data = null;
+                try {
+                    const res = await fetch('/api/notifications');
+                    if (res.ok) {
+                        data = await res.json();
+                        localStorage.setItem('singghara_notifications_cache', JSON.stringify(data));
+                    }
+                } catch(netErr) {
+                    console.warn('Gagal fetch /api/notifications langsung, memuat cache offline...', netErr);
+                }
+
+                if (!data) {
+                    const cached = localStorage.getItem('singghara_notifications_cache');
+                    if (cached) {
+                        data = JSON.parse(cached);
+                    }
+                }
+
+                if (!data) return;
+                window.allNotificationsData = data;
+                updateNotificationNavbarBadge(data);
+
+                const modalEl = document.getElementById('notificationModal');
+                if (modalEl && modalEl.classList.contains('show')) {
+                    renderNotificationModal(data);
+                }
+            } catch(e) {
+                console.error('Error loadNotifications:', e);
+            }
+        }
+
+        function updateNotificationNavbarBadge(data) {
+            const btn = document.getElementById('navNotificationBtn');
+            const icon = document.getElementById('navNotificationIcon');
+            const badge = document.getElementById('navNotificationBadge');
+            if (!btn || !icon || !badge) return;
+
+            const total = data.totalNotificationsCount || 0;
+            const unreadFcm = data.unreadFcmCount || 0;
+            const hasHoliday = !!data.todayHolidayName;
+            const hasOngoing = !!data.ongoingJadwal && data.ongoingJadwal !== null && typeof data.ongoingJadwal === 'object';
+            const hasObservance = !!data.todayObservanceName;
+            const hasAgenda = Array.isArray(data.activeAgendas) && data.activeAgendas.length > 0;
+
+            if (total > 0) {
+                badge.style.display = 'inline-block';
+                badge.textContent = total > 99 ? '99+' : total;
+                icon.className = 'bi bi-bell-fill bell-active';
+
+                let color = '#EF4444';
+                if (unreadFcm > 0) {
+                    color = '#EF4444';
+                } else if (hasHoliday) {
+                    color = '#DC2626';
+                } else if (hasOngoing) {
+                    color = '#0284C7';
+                } else if (hasObservance) {
+                    color = '#0F766E';
+                } else if (hasAgenda) {
+                    color = '#EF4444';
+                }
+
+                badge.style.backgroundColor = color;
+                icon.style.color = color;
+                btn.style.borderColor = color;
+            } else {
+                badge.style.display = 'none';
+                icon.className = 'bi bi-bell';
+                icon.style.color = '#64748B';
+                btn.style.borderColor = 'var(--border-color, rgba(148,163,184,0.2))';
+            }
+        }
+
+        function openNotificationModal() {
+            if (!window.allNotificationsData) {
+                loadNotifications().then(() => {
+                    doOpenNotificationModal();
+                });
+            } else {
+                doOpenNotificationModal();
+                loadNotifications(true);
+            }
+        }
+
+        function doOpenNotificationModal() {
+            const data = window.allNotificationsData || {};
+            const unreadFcm = data.unreadFcmCount || 0;
+            
+            if (unreadFcm > 0) {
+                switchNotifTab('pesan');
+            } else if (data.todayHolidayName || data.todayObservanceName || data.ongoingJadwal || (data.activeAgendas && data.activeAgendas.length > 0)) {
+                switchNotifTab('agenda');
+            } else {
+                switchNotifTab('pesan');
+            }
+
+            renderNotificationModal(data);
+            const modalEl = document.getElementById('notificationModal');
+            if (modalEl) {
+                const modal = bootstrap.Modal.getOrCreateInstance(modalEl);
+                modal.show();
+            }
+        }
+
+        function switchNotifTab(tabName) {
+            window.currentNotifTab = tabName;
+            const tabPesanBtn = document.getElementById('notifTabPesanBtn');
+            const tabAgendaBtn = document.getElementById('notifTabAgendaBtn');
+            const panePesan = document.getElementById('notifPanePesan');
+            const paneAgenda = document.getElementById('notifPaneAgenda');
+            const titleEl = document.getElementById('notifModalTitle');
+            const headerIcon = document.getElementById('notifModalHeaderIcon');
+            const headerIconContainer = document.getElementById('notifModalHeaderIconContainer');
+
+            if (tabName === 'pesan') {
+                if (tabPesanBtn) { tabPesanBtn.classList.add('active'); }
+                if (tabAgendaBtn) { tabAgendaBtn.classList.remove('active'); }
+                if (panePesan) panePesan.style.display = 'block';
+                if (paneAgenda) paneAgenda.style.display = 'none';
+                if (titleEl) titleEl.textContent = 'Pesan Cloud Messaging';
+                if (headerIcon) headerIcon.className = 'bi bi-cloud-check-fill fs-5';
+                if (headerIconContainer) {
+                    headerIconContainer.style.background = 'rgba(14, 165, 233, 0.12)';
+                    headerIconContainer.style.color = '#0284c7';
+                }
+            } else {
+                if (tabAgendaBtn) { tabAgendaBtn.classList.add('active'); }
+                if (tabPesanBtn) { tabPesanBtn.classList.remove('active'); }
+                if (panePesan) panePesan.style.display = 'none';
+                if (paneAgenda) paneAgenda.style.display = 'block';
+                if (titleEl) titleEl.textContent = 'Notifikasi & Pengingat';
+                const hasHoliday = window.allNotificationsData && !!window.allNotificationsData.todayHolidayName;
+                if (headerIcon) headerIcon.className = 'bi bi-bell-fill fs-5';
+                if (headerIconContainer) {
+                    headerIconContainer.style.background = hasHoliday ? 'rgba(220, 38, 38, 0.12)' : 'rgba(14, 165, 233, 0.12)';
+                    headerIconContainer.style.color = hasHoliday ? '#DC2626' : '#0284c7';
+                }
+            }
+        }
+
+        function renderNotificationModal(data) {
+            if (!data) return;
+
+            const unreadFcm = data.unreadFcmCount || 0;
+            const pesanLabel = document.getElementById('notifTabPesanLabel');
+            if (pesanLabel) {
+                pesanLabel.textContent = unreadFcm > 0 ? `Pesan Cloud (${dol}{unreadFcm})` : 'Pesan Cloud';
+            }
+
+            const activeAgendas = data.activeAgendas || [];
+            const hasOngoing = !!data.ongoingJadwal && data.ongoingJadwal !== null && typeof data.ongoingJadwal === 'object';
+            const agendaBadgeCount = activeAgendas.length + (hasOngoing ? 1 : 0);
+            const agendaLabel = document.getElementById('notifTabAgendaLabel');
+            if (agendaLabel) {
+                agendaLabel.textContent = agendaBadgeCount > 0 ? `Agenda & Info (${dol}{agendaBadgeCount})` : 'Agenda & Info';
+            }
+
+            const fcmList = data.fcmNotifications || [];
+            const emptyPesan = document.getElementById('notifPesanEmpty');
+            const listWrapper = document.getElementById('notifPesanListWrapper');
+            const pesanListEl = document.getElementById('notifPesanList');
+            const pesanCountTitle = document.getElementById('notifPesanCountTitle');
+            const btnMarkAllRead = document.getElementById('btnMarkAllRead');
+
+            if (fcmList.length === 0) {
+                if (emptyPesan) emptyPesan.style.display = 'block';
+                if (listWrapper) listWrapper.style.display = 'none';
+            } else {
+                if (emptyPesan) emptyPesan.style.display = 'none';
+                if (listWrapper) listWrapper.style.display = 'block';
+                if (pesanCountTitle) pesanCountTitle.textContent = `Riwayat Pesan (${dol}{fcmList.length})`;
+                if (btnMarkAllRead) btnMarkAllRead.style.display = unreadFcm > 0 ? 'inline-block' : 'none';
+
+                if (pesanListEl) {
+                    pesanListEl.innerHTML = fcmList.map(item => {
+                        const isUnread = !item.isRead;
+                        const dateFormatted = item.timestamp ? new Date(item.timestamp).toLocaleString('id-ID', {
+                            day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit'
+                        }) : '';
+                        
+                        return `
+                            <div class="card card-custom p-3 position-relative ${dol}{isUnread ? 'border-primary border-opacity-50' : 'border-secondary border-opacity-25'}" 
+                                 style="border-radius: 12px; cursor: pointer; transition: all 0.2s ease; background: ${dol}{isUnread ? 'rgba(2, 132, 199, 0.06)' : 'var(--card-bg)'};"
+                                 onclick="handleNotifItemClick(${dol}{item.id}, ${dol}{isUnread})">
+                                <div class="d-flex align-items-start justify-content-between gap-2 mb-1">
+                                    <div class="d-flex align-items-center gap-2 flex-grow-1">
+                                        <div class="rounded-circle d-flex align-items-center justify-content-center" style="width: 28px; height: 28px; background: ${dol}{isUnread ? 'rgba(2, 132, 199, 0.15)' : 'rgba(148, 163, 184, 0.15)'}; color: ${dol}{isUnread ? '#0284c7' : '#94a3b8'}; flex-shrink: 0;">
+                                            <i class="bi ${dol}{isUnread ? 'bi-bell-fill' : 'bi-bell'} small"></i>
+                                        </div>
+                                        <h6 class="fw-bold mb-0 text-main small text-truncate" style="max-width: 260px;">${dol}{escapeHtml(item.title)}</h6>
+                                    </div>
+                                    <div class="d-flex align-items-center gap-1">
+                                        ${dol}{isUnread ? '<span class="badge bg-danger text-white rounded-pill px-2 py-1" style="font-size: 8.5px; font-weight: 800;">BARU</span>' : ''}
+                                        <button type="button" class="btn btn-sm btn-icon text-secondary hover-danger p-0" onclick="event.stopPropagation(); deleteNotificationItem(${dol}{item.id})" title="Hapus pesan" style="width: 24px; height: 24px; border: none; background: transparent;">
+                                            <i class="bi bi-x-lg" style="font-size: 12px;"></i>
+                                        </button>
+                                    </div>
+                                </div>
+                                ${dol}{item.body ? `<p class="mb-1 text-secondary" style="font-size: 12px; line-height: 1.45;">${dol}{escapeHtml(item.body)}</p>` : ''}
+                                ${dol}{item.dataPayload ? `<div class="p-1 px-2 rounded mb-1 font-monospace text-secondary bg-dark bg-opacity-10" style="font-size: 10px; word-break: break-all;">Data: ${dol}{escapeHtml(item.dataPayload)}</div>` : ''}
+                                <small class="text-muted" style="font-size: 10.5px;">${dol}{dateFormatted}</small>
+                            </div>
+                        `;
+                    }).join('');
+                }
+            }
+
+            const subTitleEl = document.getElementById('notifKalenderSubtitle');
+            if (subTitleEl) {
+                subTitleEl.textContent = `${dol}{data.hijriDate || '-'} â€¢ ${dol}{data.jawaDate || '-'}`;
+            }
+
+            const holidayTodaySection = document.getElementById('notifHolidayTodaySection');
+            const holidayTodayCard = document.getElementById('notifHolidayTodayCard');
+            const holidayTodayName = document.getElementById('notifHolidayTodayName');
+            const observanceTodayCard = document.getElementById('notifObservanceTodayCard');
+            const observanceTodayName = document.getElementById('notifObservanceTodayName');
+
+            const hasHolidayToday = !!data.todayHolidayName;
+            const hasObservanceToday = !!data.todayObservanceName;
+
+            if (holidayTodaySection) {
+                if (hasHolidayToday || hasObservanceToday) {
+                    holidayTodaySection.style.display = 'flex';
+                    if (holidayTodayCard) {
+                        holidayTodayCard.style.display = hasHolidayToday ? 'block' : 'none';
+                        if (holidayTodayName && hasHolidayToday) holidayTodayName.textContent = data.todayHolidayName;
+                    }
+                    if (observanceTodayCard) {
+                        observanceTodayCard.style.display = hasObservanceToday ? 'block' : 'none';
+                        if (observanceTodayName && hasObservanceToday) observanceTodayName.textContent = data.todayObservanceName;
+                    }
+                } else {
+                    holidayTodaySection.style.display = 'none';
+                }
+            }
+
+            const accordionTitle = document.getElementById('notifHolidaysAccordionTitle');
+            if (accordionTitle) {
+                accordionTitle.textContent = `Daftar Hari Libur & Hari Besar (${dol}{data.todayYear || new Date().getFullYear()})`;
+            }
+            renderHolidaysList();
+
+            const ongoingSection = document.getElementById('notifOngoingJadwalSection');
+            const ongoingTitle = document.getElementById('notifOngoingJadwalTitle');
+            const ongoingSubtitle = document.getElementById('notifOngoingJadwalSubtitle');
+
+            if (ongoingSection) {
+                if (hasOngoing) {
+                    ongoingSection.style.display = 'flex';
+                    if (ongoingTitle) ongoingTitle.textContent = data.ongoingJadwal.kegiatan || '-';
+                    if (ongoingSubtitle) ongoingSubtitle.textContent = `Pukul ${dol}{data.ongoingJadwal.waktu} â€¢ Kategori: ${dol}{data.ongoingJadwal.kategori}`;
+                } else {
+                    ongoingSection.style.display = 'none';
+                }
+            }
+
+            const activeAgendaSection = document.getElementById('notifActiveAgendaSection');
+            const activeAgendaTitle = document.getElementById('notifActiveAgendaCountTitle');
+            const activeAgendaListEl = document.getElementById('notifActiveAgendaList');
+
+            if (activeAgendaSection) {
+                if (activeAgendas.length > 0) {
+                    activeAgendaSection.style.display = 'flex';
+                    if (activeAgendaTitle) activeAgendaTitle.textContent = `Agenda Kegiatan Hari Ini (${dol}{activeAgendas.length})`;
+                    if (activeAgendaListEl) {
+                        activeAgendaListEl.innerHTML = activeAgendas.map(agenda => `
+                            <div class="p-2 px-3 rounded-3" style="background: var(--sidebar-bg); border: 1px solid var(--border-color);">
+                                <div class="fw-bold text-primary small mb-0">${dol}{escapeHtml(agenda.judul)}</div>
+                                ${dol}{agenda.detail ? `<div class="text-secondary small" style="font-size: 11.5px;">${dol}{escapeHtml(agenda.detail)}</div>` : ''}
+                            </div>
+                        `).join('');
+                    }
+                } else {
+                    activeAgendaSection.style.display = 'none';
+                }
+            }
+        }
+
+        function toggleHolidaysAccordion() {
+            const body = document.getElementById('notifHolidaysAccordionBody');
+            const chevron = document.getElementById('notifHolidaysAccordionChevron');
+            if (!body || !chevron) return;
+            const isHidden = body.style.display === 'none';
+            body.style.display = isHidden ? 'block' : 'none';
+            chevron.className = isHidden ? 'bi bi-chevron-up text-secondary' : 'bi bi-chevron-down text-secondary';
+        }
+
+        function setHolidayCategoryFilter(cat) {
+            window.currentHolidayCategory = cat;
+            document.querySelectorAll('.filter-holiday-chip').forEach(btn => {
+                if (btn.dataset.cat === cat) {
+                    btn.className = 'btn btn-sm btn-primary rounded-pill px-2 py-0 small filter-holiday-chip';
+                } else {
+                    btn.className = 'btn btn-sm btn-outline-secondary rounded-pill px-2 py-0 small filter-holiday-chip';
                 }
             });
+            renderHolidaysList();
         }
 
-        // --- DAFTAR BELANJA ---
-        const SHOPPING_CATEGORIES = [
-            { name: "Pakaian & Fashion", icon: "bi-tag-fill", color: "#9C27B0" },
-            { name: "Perlengkapan Sekolah", icon: "bi-mortarboard-fill", color: "#2196F3" },
-            { name: "Supermarket", icon: "bi-cart3", color: "#4CAF50" },
-            { name: "Perawatan & Kecantikan", icon: "bi-stars", color: "#E91E63" },
-            { name: "Elektronik", icon: "bi-laptop", color: "#FF9800" },
-            { name: "Mainan & Anak", icon: "bi-controller", color: "#00BCD4" },
-            { name: "Perabotan Rumah", icon: "bi-house-door-fill", color: "#795548" },
-            { name: "Lainnya", icon: "bi-box-seam", color: "#607D8B" }
-        ];
-
-        function getShoppingCategoryBadge(jenis) {
-            const found = SHOPPING_CATEGORIES.find(c => (c.name || '').toLowerCase() === (jenis || '').toLowerCase());
-            const icon = found ? found.icon : 'bi-bag-check';
-            const color = found ? found.color : '#607D8B';
-            return `<span class="badge" style="background-color: ${dol}{color}18; color: ${dol}{color}; border: 1px solid ${dol}{color}40; font-weight: 600; font-size: 0.75rem;"><i class="bi ${dol}{icon} me-1"></i>${dol}{escapeHtml(jenis || 'Umum')}</span>`;
+        function filterHolidayList() {
+            renderHolidaysList();
         }
 
-        async function loadShopping() {
-            try {
-                const fetchRes = await fetchApiWithCache('/api/shopping', 'shopping');
-                const data = fetchRes.data;
-                window.rawShoppingList = Array.isArray(data) ? data : [];
-            } catch(e) {
-                const cached = StorageCache.get('shopping');
-                window.rawShoppingList = Array.isArray(cached) ? cached : [];
+        function renderHolidaysList() {
+            const container = document.getElementById('notifHolidaysListContainer');
+            if (!container || !window.allNotificationsData) return;
+            const allHolidays = window.allNotificationsData.allHolidays || [];
+            const query = (document.getElementById('notifHolidaySearchInput')?.value || '').toLowerCase().trim();
+            const cat = window.currentHolidayCategory || 'Semua';
+
+            const filtered = allHolidays.filter(item => {
+                const matchesCat = (cat === 'Semua') || (cat === item.type);
+                const matchesQuery = !query || item.name.toLowerCase().includes(query) || item.date.includes(query);
+                return matchesCat && matchesQuery;
+            });
+
+            if (filtered.length === 0) {
+                container.innerHTML = `<div class="text-muted small py-2 text-center" style="font-size: 11.5px;">Tidak ada hari libur / peringatan yang cocok.</div>`;
+                return;
             }
-            renderShoppingView();
+
+            container.innerHTML = filtered.map(item => {
+                const isLibur = item.type === 'Libur Nasional';
+                const bg = isLibur ? 'rgba(220, 38, 38, 0.08)' : 'rgba(15, 118, 110, 0.08)';
+                const border = isLibur ? 'rgba(220, 38, 38, 0.3)' : 'rgba(15, 118, 110, 0.3)';
+                const color = isLibur ? '#DC2626' : '#0F766E';
+
+                return `
+                    <div class="p-2 rounded-2 d-flex align-items-center gap-2" style="background: ${dol}{bg}; border: 1px solid ${dol}{border};">
+                        <span class="fw-bold" style="font-size: 11px; color: ${dol}{color}; min-width: 78px;">${dol}{item.date}</span>
+                        <div class="d-flex flex-column flex-grow-1">
+                            <span class="fw-semibold text-main" style="font-size: 11.5px; line-height: 1.2;">${dol}{escapeHtml(item.name)}</span>
+                            <span style="font-size: 9.5px; color: ${dol}{color}; font-weight: 600;">${dol}{item.type}</span>
+                        </div>
+                    </div>
+                `;
+            }).join('');
         }
 
-        function renderShoppingView() {
-            let html = `
-                <div class="d-flex flex-wrap justify-content-between align-items-center mb-4 gap-2">
-                    <div>
-                        <h4 class="fw-bold mb-0 text-success d-flex align-items-center gap-2">
-                            <i class="bi bi-cart3"></i> Daftar Belanja
-                        </h4>
-                        <small class="text-secondary">Kelola daftar kebutuhan barang, estimasi pengeluaran, dan cetak daftar belanja</small>
+        async function handleNotifItemClick(id, isUnread) {
+            if (!isUnread) return;
+            await markNotificationRead(id);
+        }
+
+        async function markNotificationRead(id) {
+            try {
+                await fetch('/api/notifications?action=read&id=' + id, { method: 'POST' });
+                if (window.allNotificationsData && window.allNotificationsData.fcmNotifications) {
+                    const item = window.allNotificationsData.fcmNotifications.find(n => n.id === id);
+                    if (item && !item.isRead) {
+                        item.isRead = true;
+                        window.allNotificationsData.unreadFcmCount = Math.max(0, (window.allNotificationsData.unreadFcmCount || 1) - 1);
+                        window.allNotificationsData.totalNotificationsCount = Math.max(0, (window.allNotificationsData.totalNotificationsCount || 1) - 1);
+                        localStorage.setItem('singghara_notifications_cache', JSON.stringify(window.allNotificationsData));
+                        updateNotificationNavbarBadge(window.allNotificationsData);
+                        renderNotificationModal(window.allNotificationsData);
+                    }
+                }
+            } catch(e) {
+                console.error('Error markNotificationRead:', e);
+            }
+        }
+
+        async function markAllNotificationsRead() {
+            try {
+                await fetch('/api/notifications?action=read_all', { method: 'POST' });
+                if (window.allNotificationsData && window.allNotificationsData.fcmNotifications) {
+                    window.allNotificationsData.fcmNotifications.forEach(n => n.isRead = true);
+                    const diff = window.allNotificationsData.unreadFcmCount || 0;
+                    window.allNotificationsData.unreadFcmCount = 0;
+                    window.allNotificationsData.totalNotificationsCount = Math.max(0, (window.allNotificationsData.totalNotificationsCount || diff) - diff);
+                    localStorage.setItem('singghara_notifications_cache', JSON.stringify(window.allNotificationsData));
+                    updateNotificationNavbarBadge(window.allNotificationsData);
+                    renderNotificationModal(window.allNotificationsData);
+                    showToast('Semua pesan ditandai sudah dibaca');
+                }
+            } catch(e) {
+                console.error('Error markAllNotificationsRead:', e);
+            }
+        }
+
+        async function deleteNotificationItem(id) {
+            try {
+                await fetch('/api/notifications?id=' + id, { method: 'DELETE' });
+                if (window.allNotificationsData && window.allNotificationsData.fcmNotifications) {
+                    const idx = window.allNotificationsData.fcmNotifications.findIndex(n => n.id === id);
+                    if (idx !== -1) {
+                        const wasUnread = !window.allNotificationsData.fcmNotifications[idx].isRead;
+                        window.allNotificationsData.fcmNotifications.splice(idx, 1);
+                        if (wasUnread) {
+                            window.allNotificationsData.unreadFcmCount = Math.max(0, (window.allNotificationsData.unreadFcmCount || 1) - 1);
+                            window.allNotificationsData.totalNotificationsCount = Math.max(0, (window.allNotificationsData.totalNotificationsCount || 1) - 1);
+                        }
+                        localStorage.setItem('singghara_notifications_cache', JSON.stringify(window.allNotificationsData));
+                        updateNotificationNavbarBadge(window.allNotificationsData);
+                        renderNotificationModal(window.allNotificationsData);
+                    }
+                }
+            } catch(e) {
+                console.error('Error deleteNotificationItem:', e);
+            }
+        }
+
+        async function clearAllNotifications() {
+            if (!confirm('Hapus seluruh riwayat pesan notifikasi?')) return;
+            try {
+                await fetch('/api/notifications?action=clear_all', { method: 'DELETE' });
+                if (window.allNotificationsData) {
+                    const diff = window.allNotificationsData.unreadFcmCount || 0;
+                    window.allNotificationsData.fcmNotifications = [];
+                    window.allNotificationsData.unreadFcmCount = 0;
+                    window.allNotificationsData.totalNotificationsCount = Math.max(0, (window.allNotificationsData.totalNotificationsCount || diff) - diff);
+                    localStorage.setItem('singghara_notifications_cache', JSON.stringify(window.allNotificationsData));
+                    updateNotificationNavbarBadge(window.allNotificationsData);
+                    renderNotificationModal(window.allNotificationsData);
+                    showToast('Riwayat notifikasi berhasil dibersihkan');
+                }
+            } catch(e) {
+                console.error('Error clearAllNotifications:', e);
+            }
+        }
+
+        // --- INITIALIZATION ---
+        window.addEventListener('DOMContentLoaded', () => {
+            initAuth();
+            refreshUserProfile();
+            if (typeof fetchAdminStatus === 'function') {
+                fetchAdminStatus();
+            }
+            try {
+                const urlParams = new URLSearchParams(window.location.search);
+                const tabParam = urlParams.get('tab');
+                const hash = window.location.hash ? window.location.hash.substring(1).toLowerCase() : '';
+                const path = window.location.pathname.toLowerCase();
+                if (tabParam === 'ht' || tabParam === 'handy_talky' || hash === 'ht' || hash === 'handy_talky' || path === '/ht' || path === '/handy_talky' || path === '/walkie_talkie') {
+                    switchTabByName('handy_talky');
+                } else if (tabParam === 'telegram_ai' || tabParam === 'telegram' || tabParam === 'tg' || hash === 'telegram_ai' || hash === 'telegram' || hash === 'tg' || path === '/telegram_ai' || path === '/telegram' || path === '/tg') {
+                    switchTabByName('telegram_ai');
+                } else {
+                    loadCurrentTab();
+                }
+            } catch (_) {
+                loadCurrentTab();
+            }
+            loadNotifications();
+            setInterval(loadNotifications, 30000);
+        });
+    </script>
+    <div class="modal fade" id="noteModal" tabindex="-1">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content card-custom">
+                <div class="modal-header border-bottom-0 pb-0">
+                    <h5 class="modal-title fw-bold" id="noteModalTitle">Catatan</h5>
+                    <button type="button" class="btn-close btn-close-custom" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body pt-3">
+                    <input type="hidden" id="noteId">
+                    <div class="mb-3">
+                        <label class="form-label small fw-bold">Judul Catatan</label>
+                        <input type="text" class="form-control" id="noteTitle" placeholder="Masukkan judul catatan...">
                     </div>
-                    <div class="d-flex gap-2 flex-wrap">
-                        <button class="btn btn-outline-secondary btn-sm" onclick="printShoppingListReport()"><i class="bi bi-printer me-1"></i> Cetak Daftar Belanja</button>
-                        <button class="btn btn-brand btn-sm" onclick="openAddShoppingModal()"><i class="bi bi-plus-lg me-1"></i> Tambah Barang</button>
+                    <div class="mb-3">
+                        <label class="form-label small fw-bold">Kategori</label>
+                        <select class="form-select" id="noteCategory">
+                            <option value="Umum">Umum</option>
+                            <option value="Pribadi">Pribadi</option>
+                            <option value="Pekerjaan">Pekerjaan</option>
+                            <option value="Ide">Ide & Gagasan</option>
+                            <option value="Pengingat">Pengingat</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label class="form-label small fw-bold">Isi Catatan</label>
+                        <textarea class="form-control" id="noteContent" rows="5" placeholder="Tulis isi catatan di sini..."></textarea>
                     </div>
                 </div>
+                <div class="modal-footer border-top-0 pt-0">
+                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Batal</button>
+                    <button type="button" class="btn btn-brand" onclick="saveNote()"><i class="bi bi-save me-1"></i> Simpan</button>
+                </div>
+            </div>
+        </div>
+    </div>
 
-                <!-- 1. KARTU RINGKASAN JUMLAH ITEM & TOTAL BELANJA -->
-                <div class="row g-3 mb-4" id="shopping-summary-cards">
-                    <!-- Dynamic Summary Cards Container -->
+    <!-- MODAL KONFIRMASI HAPUS FILE TUNGGAL PERSIS SHARESCREEN.KT -->
+    <div class="modal fade" id="shareDeleteConfirmModal" tabindex="-1">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content card-custom">
+                <div class="modal-header border-bottom-0 pb-0">
+                    <div class="d-flex align-items-center gap-2">
+                        <i class="bi bi-trash3-fill text-danger fs-5"></i>
+                        <h5 class="modal-title fw-bold">Hapus Permanen?</h5>
+                    </div>
+                    <button type="button" class="btn-close btn-close-custom" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body pt-3">
+                    <p class="text-main mb-0" style="font-size: 13.5px;">
+                        Apakah Anda yakin ingin menghapus <strong id="shareDeleteTargetName">berkas ini</strong> secara permanen dari folder Google Drive Anda?
+                    </p>
+                </div>
+                <div class="modal-footer border-top-0 pt-0">
+                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Batal</button>
+                    <button type="button" class="btn btn-danger" onclick="executeDeleteShareFile()">Hapus Permanen</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL KONFIRMASI HAPUS FILE MASSAL (BULK DELETE) PERSIS SHARESCREEN.KT -->
+    <div class="modal fade" id="shareBulkDeleteConfirmModal" tabindex="-1">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content card-custom">
+                <div class="modal-header border-bottom-0 pb-0">
+                    <div class="d-flex align-items-center gap-2">
+                        <i class="bi bi-trash3-fill text-danger fs-5"></i>
+                        <h5 class="modal-title fw-bold">Hapus Berkas Terpilih?</h5>
+                    </div>
+                    <button type="button" class="btn-close btn-close-custom" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body pt-3">
+                    <p class="text-main mb-0" style="font-size: 13.5px;">
+                        Apakah Anda yakin ingin menghapus <strong id="shareBulkDeleteCount">0</strong> file terpilih secara permanen dari Google Drive?
+                    </p>
+                </div>
+                <div class="modal-footer border-top-0 pt-0">
+                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Batal</button>
+                    <button type="button" class="btn btn-danger" onclick="executeBulkDeleteShareFiles()">Hapus Semua</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- MODAL KONFIGURASI URL CLOUD STORAGE APPS SCRIPT -->
+    <div class="modal fade" id="shareConfigModal" tabindex="-1">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content card-custom">
+                <div class="modal-header border-bottom-0 pb-0">
+                    <div class="d-flex align-items-center gap-2">
+                        <i class="bi bi-cloud-gear text-primary fs-5"></i>
+                        <h5 class="modal-title fw-bold">Pengaturan Cloud Storage</h5>
+                    </div>
+                    <button type="button" class="btn-close btn-close-custom" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body pt-3">
+                    <label class="form-label small fw-bold">URL Google Apps Script</label>
+                    <input type="url" class="form-control mb-2" id="shareConfigUrlInput" placeholder="https://script.google.com/macros/s/.../exec">
+                    <small class="text-muted d-block mb-3" style="font-size: 11.5px;">
+                        URL Web App Google Apps Script yang terhubung ke Google Drive Anda. Kosongkan untuk menggunakan URL default bawaan aplikasi.
+                    </small>
+                    <button type="button" class="btn btn-sm btn-outline-secondary" onclick="document.getElementById('shareConfigUrlInput').value = window.shareDefaultUrl">
+                        <i class="bi bi-arrow-counterclockwise me-1"></i> Pulihkan URL Default
+                    </button>
+                </div>
+                <div class="modal-footer border-top-0 pt-0">
+                    <button type="button" class="btn btn-outline-secondary" data-bs-dismiss="modal">Batal</button>
+                    <button type="button" class="btn btn-primary" onclick="saveShareConfigUrl()">Simpan Perubahan</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- NOTIFIKASI & CLOUD MESSAGING MODAL (100% OFFLINE) -->
+    <div class="modal fade" id="notificationModal" tabindex="-1" aria-labelledby="notifModalTitle" aria-hidden="true">
+        <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable modal-md">
+            <div class="modal-content card-custom" style="border-radius: 20px; border: 1px solid var(--border-color); box-shadow: var(--card-shadow);">
+                <!-- Modal Header -->
+                <div class="modal-header border-bottom-0 pb-1 d-flex align-items-center justify-content-between">
+                    <div class="d-flex align-items-center gap-2">
+                        <div id="notifModalHeaderIconContainer" class="rounded-circle d-flex align-items-center justify-content-center" style="width: 38px; height: 38px; background: rgba(14, 165, 233, 0.12); color: #0284c7; flex-shrink: 0;">
+                            <i id="notifModalHeaderIcon" class="bi bi-cloud-check-fill fs-5"></i>
+                        </div>
+                        <div>
+                            <h5 class="modal-title fw-bold mb-0 text-main" id="notifModalTitle" style="font-size: 1.1rem;">Pesan Cloud Messaging</h5>
+                        </div>
+                    </div>
+                    <button type="button" class="btn-close btn-close-custom" data-bs-dismiss="modal" aria-label="Close"></button>
                 </div>
 
-                <!-- 2. FILTER & SEARCH BAR -->
-                <div class="card card-custom p-3 mb-4">
-                    <div class="row g-2 align-items-center">
-                        <div class="col-12 col-md-5">
-                            <div class="input-group input-group-sm">
-                                <span class="input-group-text bg-transparent text-secondary border-secondary border-opacity-25"><i class="bi bi-search"></i></span>
-                                <input type="text" id="shopSearchInput" class="form-control form-control-dark form-control-sm" placeholder="Cari nama barang..." oninput="onShoppingFilterChange()">
+                <!-- Modal Body with Tabs -->
+                <div class="modal-body pt-2 px-3 pb-3">
+                    <!-- Nav Tabs (Pills: Pesan Cloud & Agenda & Info) -->
+                    <ul class="nav nav-pills nav-fill mb-3 p-1 rounded-3" id="notifTabs" style="background-color: var(--sidebar-bg); border: 1px solid var(--border-color);">
+                        <li class="nav-item">
+                            <button class="nav-link active py-2 px-2 d-flex align-items-center justify-content-center gap-1 fw-semibold small" id="notifTabPesanBtn" onclick="switchNotifTab('pesan')" type="button">
+                                <i class="bi bi-cloud-arrow-down-fill me-1"></i>
+                                <span id="notifTabPesanLabel">Pesan Cloud</span>
+                            </button>
+                        </li>
+                        <li class="nav-item">
+                            <button class="nav-link py-2 px-2 d-flex align-items-center justify-content-center gap-1 fw-semibold small" id="notifTabAgendaBtn" onclick="switchNotifTab('agenda')" type="button">
+                                <i class="bi bi-calendar-check-fill me-1"></i>
+                                <span id="notifTabAgendaLabel">Agenda & Info</span>
+                            </button>
+                        </li>
+                    </ul>
+
+                    <!-- TAB CONTENT 1: PESAN CLOUD -->
+                    <div id="notifPanePesan" style="display: block;">
+                        <div id="notifPesanEmpty" class="text-center py-4 px-2" style="display: none;">
+                            <div class="rounded-circle d-flex align-items-center justify-content-center mx-auto mb-3" style="width: 60px; height: 60px; background: rgba(148, 163, 184, 0.15); color: #94a3b8; font-size: 1.8rem;">
+                                <i class="bi bi-cloud-slash"></i>
+                            </div>
+                            <h6 class="fw-bold text-main mb-1">Belum Ada Pesan Masuk</h6>
+                            <p class="text-secondary small mb-0 px-3" style="font-size: 12px; line-height: 1.5;">
+                                Pesan pengumuman atau broadcast yang dikirim melalui Firebase Console akan tampil secara otomatis di sini.
+                            </p>
+                        </div>
+
+                        <div id="notifPesanListWrapper" style="display: none;">
+                            <div class="d-flex align-items-center justify-content-between mb-2">
+                                <h6 class="fw-bold mb-0 text-main small" id="notifPesanCountTitle">Riwayat Pesan (0)</h6>
+                                <div class="d-flex align-items-center gap-2">
+                                    <button type="button" class="btn btn-sm btn-link text-decoration-none p-0 fw-semibold text-primary" id="btnMarkAllRead" onclick="markAllNotificationsRead()" style="font-size: 11.5px;">
+                                        <i class="bi bi-check2-all me-1"></i> Baca Semua
+                                    </button>
+                                    <span class="text-muted small">â€¢</span>
+                                    <button type="button" class="btn btn-sm btn-link text-decoration-none p-0 fw-semibold text-danger" onclick="clearAllNotifications()" style="font-size: 11.5px;">
+                                        <i class="bi bi-trash me-1"></i> Bersihkan
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="d-flex flex-column gap-2" id="notifPesanList" style="max-height: 380px; overflow-y: auto;">
+                                <!-- Injected by JS -->
                             </div>
                         </div>
-                        <div class="col-6 col-md-3">
-                            <select id="shopCategoryFilter" class="form-select form-select-dark form-select-sm" onchange="onShoppingFilterChange()">
-                                <option value="Semua">Semua Kategori</option>
-                                ${dol}{SHOPPING_CATEGORIES.map(c => `<option value="${dol}{c.name}">${dol}{c.name}</option>`).join('')}
-       xœì½ûvÛFò0øÿ>E[Ù1ÉX¤DÙrY²—ºØ–/²G”'gÖ?Ÿ$@&	0¸XÒdtÎ>ÄwÎ÷@û&û$[UÝ4€n ¤(ÇIÌÌX$Ð×êêêªêº0¦ùìn„ÎÔFOþÝ[^Âv¿”¼†·l8µÂpomèOÛþ;³Û÷×Ì•ò]oGíóÀçLùÞgPCáÜò4-µ#ç2bƒóvX”	/bø¬:Cß³­àŠüÀv‚ânÝèª½µ½öd×•\6pÛCkê`a˜àî†ÿÇþk“†Æ¢«¹³·f[‘³Æ\{o-ûóCøõÌFN°&»ùÁ¬ƒŠÊÔmèy’}Pb¾7[Þ94í{}hrîzç¼ÉzÞl­±È¦P€?f'°­àEPäÜšV­X&,†(Ý-‰)]¾* Ôªâ(ò“µDƒÿÃüéGS×s”Å¼hw77	6Sw8Ù[œÐ‰²Ð	Àœâk&¢°ìVø óØƒ×Ã©?œ\¸¡#q€l)à^‰ÇÅçwÚmv¿ÃÎzûG¯ÙaïÙYï”Á×ÞÉËk·5©€·›á?íaFþŒÍûT­f·GSç’}†:îèŠ6S{àDŽã1kêž{m7rfa{è |ØlPJ 2{6·'Ã™5œ¿hü©n\³vd¦°Â‘ÅáÚ“7Î,¶"›Éêt:e±üÊ<yó€&sßÝ/NÙ¨l¦"ãÕqƒJðrÈÌ\Û†× “Í*ÆŽe× &QP]H4ÈÂè
-ÑûÂµ£ñÛþÇãµäùŠ­=ùaw#/Ûê6ûäÄšYlßz{~“Æº°±—Žç†lƒ½êxîîZ,Ìš¨Í+8·X°ÉònÒü#Lÿ]ÝhØ›Úa¿³>[“µû@Ûî™YÓµ»…wÆO“•”Æ×›„5± JUll§r«íFß¾Ò‘ |^‡7Ab}xåY3wÈNý‹PK¡sãÂ¶ËNÁ2g‰úèÓãÌOÛÆ3@ÚÎ¹Müºul7Ð™¤÷VÇõ<'xqöæ5Ûcãh6Í6bb=ÒR×éy6Š½aäÂi=òâŽ-«ãQÒl±ß3ÍÃ0ÂˆÖt~áz¶Ñ²Îk^þ÷¿ìÃÇÇšZ¡cÃ1TlgŠ+Ü§bÇÈ©5ZO;_¬iì`£˜{ä¿ö/`RVSêD;Sg–v5„#iÏPìæ€“´+>ïlO}<Ôº†‘i¬j9e%sãœå$'ŠÙQñ&ßlïIæiï3+ŽûŒw@¡m-"RsÏƒ»wYò#D8³ØvÂ&o­Õªhï3	²AúUÕâã²éÐR5iÅöö$ìi5;¤zP?û´¼×C¾Žwh=“®žt&~w€Ù	¢ð77±‚®m±˜ê
-A+Éåwì7[ùºbkš6´vcŽÄ&†©™·t¶±‹‡q€ÂY¾
-4$ÛÌaïøô«}gjyŸ-(¹ùX_‚ÎÊ’÷pBß&™véòü!”úý:79¼ÈcGÖp\¹‰ÆÄpì1FCçÙÔ·"¾øôœó!„}›&ú†KÕ=QžQ¥®©Òað¤”€‹Óëòn©È	0´{b
-?ÒH~dÍLÛÀ±l‘Ÿà­éŸžóM§6~/éµõ¸(e–ÿÞÿ]ìYÁ{{Iƒ†rˆP
-:×t¨w…6 q}?‹gÍ¬3øó~~Ô¦ðaß‚w‹û3ó`cƒXË&‚'É9XÞ•5)`÷Ìº”ÇôÚøÿþŸÿÕ(n,„Ã(nÀh*ÍùÃp‘Üû‘ù#övðÙFXîÀ:›M+OðãŽ°%ìåIÒ¡®~”Q•"Te©tnÃb¡ë,@|?'âÛg39¦v¨¥ ðü ¸Ë¾§êì%ö0äM¶©j#·™6upÈ–Èð\Ÿ*EXEµÎ„6nz^.ŒW(Ø˜ô(õÕyK©ºµT}¤Ðê@`ŒgSkÌð¤ÙÝ ’u´rY-ÏÀ¿„&­WI¹ÞÈg£°½ÍÕ<7ÑŽQ‘ñƒD¿ÇÕJ7\;ðþnûÓëß“ƒeêxçÑøš‘0¼»1~PÑC	€Ø,jw™Ý î*éI¾köÞs#F" tµŠ‹kµèU5º>ø ëb NÚÌ!ìÔr¢-¡ØŽ‡C'¿ÊÊž8ÖžÎ™ŠNbNÄ£¶¼G…wÞl¸vûø°Ñº^)ÁªÍ¬ÐìÅ6Œ3QõÇ¡ïÖß}…*jIäœ¡ãÎÅ­Ì…xÈõ¯y·µÈ+{Ò"/Í¨u·WºóZP¼5tý;0R‹ÌÎ$Ç¼4ÖFÖ9Ç£yàû¸JŒ}¨ÅXÙb, ¤Ó-¢¸½8ì„Ckî¼ˆfÓ¦Â%·®“ßT 0ûáª™‹„›Â6ÙÓ”¹¿Ç$C±?)l‡K(×·°	ršN£0pFw8û¾}¥‘¸"¸Ž ê‡óÜ¿ÐDÒåÕk¦¾@{¼–NžPÚÓ	Êk.Iœá­8HoÏšÍÝ)Þÿš¸NeMñ²Y¦rm%UÔe-‡<žÀj’sÃ!UÛ¦Ip¤–²²^’íF6R9¼Ü[ûYwIÃæWím–'ù=ïz àF¿/‘÷¢`»fqäØœ œ¹¶5a–mÑ­¤»²à¸úCÂl˜€ø ¤.|Ûj¤ÎîFd?¡›‹O‰–9ÓÐ1LEùÀ¿qW£°¯QFà§ ®"ýË:síË–^k%?7Ö^eZP‹•­|m–¦¥åµZÙÆn¢Ý*o›yú4þ²ÿö¤O‡'uÐêÎ|jæÆÚÆù:kÜý-ö£ÇÒL~\¹gR)ÈO­‹fÚdÅ•ßS‚ ¶¡¦ëšÐ}‘¶¥I€æ$K.Zõ›•Íœ§6!ò4Ü·ìsG¹X Õâ­eÊ_Òú—°–Ët!oš3?š>‘±·iª´uÚÞdóK i@»	ŒU¯…aÅÒ È]Ñ	ŸôÙjœOÈn?`þÁš Å†²iLPÄÒ-ø“òËZ'î„…/¦	FyL—wE¨|n/Ý[µÁURSáßÑÔŠ[ê%ßêÙé%é­¸¤ù*ÃR›­†å‘í&[ôo[Ó¦$%‚2^·’Æ²Â¥xŠã¡ëNëÚl-8pïÆÅÜÌvà\väÀÕ1w\û:µ;{aÍãÐ8æ(°Âñ2C®!nðbU¸SnL¡áUðsm8ÖŠ|š<Œªµøé·âU¥Þ¶O{Q™ØÔ7XÑ=ÿ*nõ5 ¿êó—þE._>D-º®N
-éÌ°$Ý5ÓàŒ.gîÁíiKðà°N¬™³ŽC;°Ð—êîG#êÚÀFWAtæz O+Å/¥cË!’ eÀÒ…üXóyù/([tÊ§×ÓLà/ T,?5	ÓTìK„"•¼’$ ~ÍfN{kMšbþ;JZëÇœ¥qL×Q¯€y*”´·^j¡c»!°¶WâÖ;âv¯-˜ÓZj<e’ÆHƒàùžÓ0Dkß BÏ¶³g‹å"xw§<ŒÅs.îH´òûoÅÙßêÀ`Ý¨Ù8k´>læ¬ŒH1Ã>Ïð æUB@oœY³¸Î’·¹Éé‰a™[q°ÿâí»wÇ'Ï=è={z|ÔïÌ¬ysˆ2_‘ýßôX»V¢Ãü¹í_p==æXIÀ§qàŒöÖ>[_¬p¸óhç‹ïÚÍÍ–rTêˆBC¢2öÎuD›ä‰‹èšyBØzÝh•©2u¨Ï›*Å|Ñöc&m]7ç—+ô}ÄŽ?ÉÎ Ü@ÙÒ™íå—âS«óÙw½f£ Þ•#Ø>©£*®’U.¯Ä~{—OÕQ?Ñ³°ŠM0ûf„E«ØXjüÔôXc$ww‚½5¼G÷aÑöà£Øö$ä7.ªÙs?p<øi‡ÍLÜÓWZÞö¹
-rª~]ìÍ²Pdd+üMWÚ'$"òÏÏÑ6žæ‰¶l‚*ðeæ#IZîþCQ}?‚—¨JkBÑ”2E†´¶s	ÛÊv …‘5ËŒöiò$(Sº3^çïD÷s·žH-ˆ ôc8­f "'ªrªá$O6rÌ2¿øŠoÇ<%`–L{pUPAçfÖe{ì¸çãˆÚ#¤jÌÿâ£©Ñ¾ÚaVù+ ™²Ùcçº±	‹KTû*iàlQŠ3´YÖ±I{kÊŠ”y¶`e-C–™Y¤	‚ÙaÈc”¥„ˆPwb´KúyehÛY<*ÁíÐ‹°	õÒétL³_ÐÝH!- ©±óöV™sOÁ°T‹ÑDÕYõA­
-¢XX/žp}åzPƒµO^›klæzø÷Æ7±+„0}jþ•è7´±(Pº(¦kÚ?-ÎqËÑæ?Z7)5³<¦ræð¥³ |o8ÂÏ'5aZDYXÑÔ¢ JT±\6»^
-ýÔGŸr\µ¸óãÁÌz\hÜcVxåYÓpgÆ1r}¨PP W\9MFëP‚¼Ûã$¾žº£¢9”ÅEsYIZù§ª8*µ]éù–8ŸÇ!ÇÂ›n%Sä¿«téÐ”»Çìå[éP‰ôKX-dq_Ú,ÎL£åùŒ—H½ñÊ»ŠÅ;N¶‰MÊm¤¹8Ä•ºC÷kÒÙÄš:AÔlt7àÒÝ…õÙ0ÛuC÷N^­•4ÂïÓr­$bŽlbîNÝñí¦ua¹9ÑpÜllXswCšJ4ÖMFåN4öíÖx÷¶ÖX×–Ag@'wØï!Ýœ¡j@-`§.p¸°ù7>‡¾×¸Ö7šíüíïµuŽÞë*¶®#f­sLX—«vÝ*"¾’$ÓÃj[ÞÐé ?ìh)‡o%ª­üûëìÏlƒ Ð‹*5®þ^†.¤s«°„ê‹.qT|q¢†"hëF~ìÙ¼¦NW6‚C€+Ë¸"Gç–ô^êÆ»³ ‚_Ô¸¢‡“ìûiò•TR¨ÏD{të¼=;Ã‰và¼%ÒËš"Õ¶õÃƒƒÞ³íMm3nøÊÑšØ÷ý©cyMY?¿¿+¿+¿+‹¨ÎEøë˜ÒïÊÅïÊÅ”<¤çA)‰Pˆ}îNÁ¾ô j•’ìw…$Ãí*$¥Ý‡8dŸª¬ÊN*…×›h+Eßwdç@’TFI• 5W©×ß²¢5œ9ßIa¬ß833 ÿ¬JªoC1ªš7©B9Êª×ß•¦å C%ê®¿+RW¯HUÍ/Yœü®^­8ÕätIª>ú®hÕNæ»¢õï hU7Ôª”­«Õ“¾ÿêjRú¦Ñëì¯¥3åT,ÑœæÌÂ];O°)¾ÅÄ#7˜5‹ËE¦ã tn;žQ•¡>sÂÐ:Çâ½¹5–§»²&.Èª JxçcjJ —p\CaÖs¹ m@Â~ªiÈ‡‰ÚÛÌ4E}OÌi§‚¸àŒ(üN6tAdù=AÛÃ£×GgG“éyÙÚò%ËüªP€Ïuí7zBž:sv©Þ|”ÔiÜ:SÄ+ ‹F¶çœàVQè­}çcy‡C$KÕÔd5O*n#”Váu‰o"¦àèÙŽÉ%ñ{ ­¿D -jÛS7ó.`hÖýIãvÍýÀÔ7%®`×­OÒL3ŠjÈR×G“žd™kx9*nˆFrµƒWI+é%X­f2s
-P·*ÿÅ
-€q?Ã%F§"š€,ÓˆT›€£i_ý#:ÿ=^•Ã_É
-Õ÷åÓûaå=/ò{¹INd«Üè*]ô¤p,!7·lÀ!®­˜P\ÿðèÑ# á!1‰/üÄæðÜìí~­»rÄ`³‚áÔ_+Ý9|{pöïwGTR#‚šc ï[a±áil´·G£ö#“ØKÜ˜œ§¤¥möæŠõ*ÀY ¾óBúŒfô¡à¿3ÂÏ‘5s§À@‡–¶C'pG™ü÷ïßÌf°i]oŽ$àí†tØô€Yúa4‚Šf­ø¸ÒRÓýËã+ž6¾µµ%oü¸Õ¶½Ó(C÷?ŽŽ¹“yE>Lúˆüy±ƒn·¼—ýw–ÄÓÞüÇcé÷L­y­ÈoÙ¾øàél2‰½ñ Âü’…þÔµÙ¶m+ËôR'>uFQyÓØl²|m	 ÑOøŸe†r•4ÖII_þô¬ºª¸…Ó¯]Ye¤ mTDþ®±n~þWÖèÿ5sl×âÜxI üˆ]”¬Â&»ãÎO¶¼ÒIS7s  ²ÜMÝ­ÙŒu·g³ÇŒ#ÝM•4¢³»aØù»zÊ´k¾;îV‘ (¡¯:rèÞM:Vro¤Êp0ÍMäÏœ¿¯i½Vœ‰U'3XY"CÊ'"nãšÐ1=‹ç-¸œ†øÿº/±@Óê}C«ä+¸q®‚r'øÊl»Qýñ#6dÃÊ	l˜$’¬Ö	’¦òt÷µP=z1±€½àÁ@w–.!éëfqM
-aJéFÿFcZ0àßò=åì8~ØÜüi \×ñ2ë†´©îJT.9cLÉ'v7ô•àÌ)0Þù»:»¹ÆêPhÒ›
-¿¯×Ãml°v»ÍzÏN{ì.{Ù;ü¥÷Ÿ™ô®¨þëcê®‚Ž.
-®Œš&R?ž:¨¼Sô‘½¹‹!ù¬áØºI‹ÚF{AñÍ¨¿¡Ð`{IËú­QðáÕgc!”é—¤[ÿi_Ö|Á(‹Ø¹5/^ZËƒhš’¤µ/(²¡YS.’Ú/1¾°|gñ¹UßØ~e ‡´­Xy
-Ÿ~Þ²ðè×D‚™Æa{zŽëŠ±{^±Ü6ªæ…0¿r×Ý¶k‚¦ˆ V­hwc©¹Êd¯ª
-jt&žQp:Ž¡=>Øò:|F‹Æ£ñVç>(Œºœ<ÅÕ
-­mfÙÀ¥ºÆ–
-`Z¶©
-iCy%§\TmöWèÎ˜Uð‡‡5ˆmB	jZlTÃˆÑõÐ­D2¢¢† ªÓŒ¶° %íxZ'jÒÍ¼,nW6–{¾3ä,—z3ÈSN½¢Èñ™ŠgJgLôa%‰£®Ñ¥ Hˆ££wKô!‹tyÎ¯ÐeŒ®'Ï-T¹Îxþ@N¡×éˆûÒkí¤kE”Éœ>æx2_=˜Œ8oA²‹´ù˜ö+²Y]sþÔèÉ:_Gé–û«žúK$H	+²¸;ƒuN-,2åÔš[xùÊ9wá€÷ô±¾$‰Z²H„ÊŽ2X`]+p,^µ6Pî&™8×b”^N$ ‰Žêšº©?—·t«ap”à½472‰ tâ•·DTiæ&$¾J¥íñå¨e7w‡È9ó'¾)ëªØ?é­¢éH"ž}ƒ>¢be×ù²¬p®³È£ÕŽúÊ¤4|‹fN¢‹U9õÄ'¼€y“Àž‰ mhÝT×¢ÉØÿmšø–¶hÒ/"_›Ì¯Z«†-¾´ìß²%Égj•$âÛßZI‚î6í±» 3(t$|9@nÂhñ«T‘ð†—P‘ðŠ+Q‘,<_udÝTõVvó–ë%íæek&î?ùÅšDqýTÊ²šäÝ–¨¹pºmQ³[º~¾fj¢2g³(U7Eº^#½:Õ[ÞDæ)½Äƒ"Ï÷ô˜g€À@ãJ»üüÚ¸ èÃ¦çi‹5µ‚™FÏ *¹@ä_â¦*S€<þ¹Z1hå
-é
-}‰ýÔºqýººJ£>¯F´rqö/¤Ò«¯ÌûŠ±ÆKuYœ4ÈË,~Tý•5\œ×Z©†+Ã<Ü<âK†³¼Î·¯¡¢Ã™5_Z³r¿Æ¬–Æ	-Õg›X80Ü£íÅÅWÒÈ¤¬Åâz©Ï¶¬½œjŠìr&ß‚^*e“–‚‚¨½èÒc¦ézs^™Ö‰Îà2ÍŽÀâ*S"r—6%Ñ£¦Þ)‰zZÞ¨(UO÷”0ù er«ž¡÷T=Ñò®'«³ž€tåÚ&©V¸Em“èbÚ¦ìIt3¥_v¿¸‘.¢uz)pgÕZ'>¦¥µNúÅäk”ùUj½óª×?>eg§½“~ïUÿ˜5a°»¬ööU‹<ï°þAïääèõ^ÁËÓ÷¯ØÛ³·ozgÇýŒÁªæ~ØZÈ¼QQ	oÚâ©Â”‰²§<m­²ÖÌ	¬~`~pCìû?…¶@öûBÊúb9 ùÑ»±ï9XúØèw6‡¢xØñ²8/+ðYÙûV0ômke]ñ°œp+|ãˆüáÕqªºL)òZ<,/´äYP¦+!Ù£ÈC¨ŒÃH5L!æPS ^à‰°–FÇ—¬¢s”Ì€„YóïÍHúsÍ4òñø²¸*È½¡ïroPèYE%# tøf €	5€ÚLm èú6mäþ•´‚g¸}÷gÎúhÅ_„%°ÅbÍQàüSê>ØÜ\gvX7;›?/¢~F—22Ki/¶]ŸNÊËHñª½pà”—-3sá‡CŒ“]v†°å#çm8t§S+òssËõ2•žÃ]qh¼ƒ|!
-?¡[È[#‹ „bÇ^uB'ú2/½÷>n÷Ãw4>ÕôƒêÐ?¹6;÷«ï\Îdy‘kMO\ùÙÖ6»…æà`‘‹j€  Ís†Q;0u.Ë`ã6J×+k‘¢À™ À¼Y{Bfgz¡0?ƒdž±0ž£«c3? ’ÂvrÕrlÃ¾Ëí%àSØ=zÑ|Ài=6íŽ‹WÜTÈÛà¦:QJ5gáù:p‘°b¶O\˜†´D³@e 9â
-:Òl€h‘gs©J‡Dž”‰}â:ˆ$Ö™ìø)ð§¤—ª@
-.ÆŸˆ,ìk$8.Žº=r/v´„˜Ž2Â
-6œ#òíK_¯%ÌAé~æ“nÄ<«Ô0¥Ú½~"G¯ÿ´Éi—œÄà“¸‰–íÆÀxß§R‰óP~²­‰‹XÖ•ÉòÜ-:—Í~~³ng;DÙ&n‡ºV¦êÊ@¯06l{èC ÏÈSCŽu.¡.Cæõµ¸ÊÉÄUs‚‡ç‰¦2ÃA(…†Ÿóìƒ±;µ›4øŽ ¹ÁíåÇQ“s¦|†3ó¿€Œ°Îº3.î¹@ÁS0À‘)`‚/Ù0h ø3öâ]ÆÓ‰5¿¸{ßßgì÷™ÛÒìì aÂe#³«¼Ü R,”‹PÍÍ±6ÛFœÊÔÓs‹ 6ù«YÎ×ëDüð}ä¯c›ŸˆóŸX¡l ð¸qvøÎŸ¡³'pA?ëO%¡…î@W"f}ÁÌ­.VC‰µ,l]jðq²»w™òSÞÖ<1ßÕàG­!/Gœ/åW#²sçK'Jô‰a¥Ë:—#Ž¨=è ~Æ–dPˆ ‡ ðb„Q¥Øë 5æwì‚Ú:]…ú)ñ]4Ô,ÖHÌ “üådAØó[¦=¯lLÝ–Ó°Óšý£Í+8u¬ ÙRºJÅÉÕä² ÈR¯çS U ‰ÅbÏc•	 5KðÊ¹bÕÅjÏšð˜y¬B<9AJ­P
-Kõ÷ém.†Šá=´“Š…IÁùÂ¹u„›@vÛlLœ+Œ¿ÚX'§°’è2¹4-c»£‚Š¶sc)RÊÌ8¡JÎIÿÄ£˜˜-Œ2,,ý‡FìŽ"4#9àjRüÚ›Ò“7ND^8Ö<|ñL×ñza€Žèœk|„sv8™l:è •R®BWT€‡p;ò(«Ç°`~ò´ÇîåB(íâ(r9 Sh±,Ä[šäG+z)£]jˆù£ŒmŸ|F¢™¨`?Iu€€üÞqmPØfb{ü3v‡‘k·‚œ–1ø1“1§3è 8tFV<ÕJ	ò£§´j„kVÄF°gnèNXSÝç°ïÔVG3Kîôk.k±U˜®{íxD.`eœ dV žç‹œE ¬‚=½bÍ]öp{"S<FJ P0r9­*ìæ·Mû„6”jiÑ5­xaî÷à¼ÄÚ•JGDoØ¿¹û•/¡r²¨]øž$µ©’hÕ|™Úkû 0{cM,þÞ…gG1>ã
-íµ¬>yí™ŽáðÍ?~øv<Ú€è‘;M…Î˜nðr…L€{î¤ÐŒ ¼'ZPœÆ3kÌ¸™r¾àw ¢¸·#wùÀiŸQøç|Ù—Vh±¾sÞƒ§°©­i¾]–åž‰0œkÉÓ:u&ßý¯Q–ñ¶Erk“¡FîVv5xÊË(~¡Kÿ|'iKÏQcâHªâŠ&ípQ~)5ì6…øÖ)²’Z#˜GX¸°1áº®7à:L]iy§lx<Z€~<ø—ë Ò°@~}Œd‹¾±ÿ²FHjnú¥Úì°‘o9jíËœ•Ó0ŸN¦ÓfÈÿæ[:LQ';[(g;•|\ïJ¯Y¨‚F*ÕÊ®9…Â*ÌuIVDÎ‰Ñ`‹À³ÝLaÍõ#?°Îîª¦êvg„;ìÃGL”ƒïàŒ¡ö>Z¸Ãïû½=Öïý»×È_:æµàÕK•,R®°–4™W;µU_ðòÆ‡^úe)ºIŠ‹ßÚ
-Å;%Þ•®Ý©‘+ÕQŒËfˆFˆãš°]`‰µ’ECè[SÂL9F Yv<tšÀK×i8$­À/vQtXˆEÁà‹À¨äƒ'
-%›´dc 6¢4Å8–_à=£›b$H‡0Ä&Ìï#´Lé£p5cÔ\>Î%2Ý²{$Ü‚té6A¾›Wã8ŒC8=ë3ž&pâ‰@?}§8¥7DÀš†–^úÏÐËFqê^XWp(Ÿ ÌñR–¢½ŸbÐØ~À8Þ9ÞçØšì·®‹ð4Úì5{}MG&r™Yúv›QB¯3ø$øÞ`–”w€d˜`àÐFÃßÙ+7pEIâ·X»]ÏØ½FâªR°ýl¡lÛ~æÓæèÒäPiüa’gÁ9ÜŽbo pb}qÏ¡I`;Qíñ­QÇ¦>on:‡fÑñ$r‡Ö´"9µRË2Õ˜åF€.ó¬<Á|2µëµeˆ©‡t•»_ènQÂ¯jÈ˜2§
-.œIÍ´±p²ÙèÒÀºNÚ54å¬4ÞUøq”xœÔšMEµ½®Ü¦ºîâ¢¯@t>6ÜbˆJ#MèQ´…*”ÅoÀ¯þÜº u;7–woû‹t¦ÍçV,Ta«vÇAc€¹6Ò+îT·­?CÅFæ”#A/!I÷Ô	€êeÌŠÔÔ×CÚpî8¶?s ˆØ{®7òº&|Ç¢¨Y¢Â¶¡3=ç}
-Ðýxù­à’6WƒN’ÿûj5ð/Û¡cÍ"(®à¬*ð”w“ ˆ7Ç3|ßQ­Õ2ÌùŠ.Ëð5´¸)Y{Gþh¤;|¥D‘Â‰±
-¼+Àò›Ã>sBþVŸÜ+y_!Hï\eB³›Žù9tKœaÿY³hvBZˆDßÑÒŸgARæM%x &m¦ÄUO•pÑæ«T®Ã‚¯ôåQ^^û$¡„¬™ãA×Ù©ƒ*@ Á”ÇÃ,+. Ã¦Rôb\/réJXÕÏü²}_ka:Çji ‘ã©å–3äUBpÿ?
-1M[µð¨’½Ä£ôF’BŒ«&^Øi§Â²Š¾8fß9·¼·!ecá»à©°„©àÂÅü·å©W8A
-ªÌ¯‚§ âüÄÃ‡xýÐl!1/Q{eë)öð/xLÞ€¡éÖufŽKÃ˜ÚG§ÍÀvùÔ{ÜÚ.
-Y?žÍ0†Ý©Ášo½éydÑžÕK…¶Á
-D–^”TD£c,÷A×ÄÒ$^Í ”QÆŽ,‹*Q¨¨9ŒƒÐ¬ôùZÕáì%z¼šº{0ÔSwl‘®~ÂæÄb/Érà“tKT×g¼ô¸¤8ÐR$@ñ ò¬Ì´mCòRmFªVH·3‹P…!©¿œàf ×ì½çF5˜ŠòT½þó æ$p#7ü3 &	«¯h¸¬yw=Æ«¥¡§j8¡­D’`^ºÖ-dÍö*Íså[‚»|_þ°7'Áq8e$yµ?&s"›°—7Âa!sk”<_•È&7¸UñÎð;¢¦ˆú§BÐ·3˜gF5³<‚"fàÐ†¶àëÑÖ¤Û\B2A(IÇp{lxUž"9ø£ƒ³ã·'lsGáÓOÑÚ5vÐ£šÌAÆ€pN¢—™Ç.Æºª‹€¥êEn‡¡G½Ç¾ÀaÝÝaÏkä’½€gAJ­£áXRQä§ç¥)Ú5ãÅõ­¼ÅM#€‹Ê_ª¹µ]žš;TQ9µ£TÀÅ°êú†+h£Eq¤Ü2 ‹¯ÄúÒ¬ûtW¡\Fu°Ó JÉÕOdêÊÎœÀšŒÝ`1rµ@Àyíe/MYsÓËŸg0Gy¤çÖ°Î“é•ØÆÄ ìc’YàSÜa@½6ëjÊëÒNÄC™ÜQ¸gî°À™Zxñ˜…»ãÖ6Ù2¨ùõê"àÐò¾`,iuò‹:Y"Uˆ/¼ÔJæµZ¾â;A)vtå<°æãvœ½U(§&ûñÍÞWILÎ€OÂúÀ·€÷’\e(aüÏèY<þÛ±‚fëzAaô¦„§ÚÊ$g™§
-4— 3k{
-ô&3Ùo‹•Ý*lÕVÂV‘f„ßÞH¾UR…÷Íú³SÅ¬UHøª¨ Á*Éá«ý0’u€ÚS6ÀHß&¤Vêk?	ñK^eÐ)û´@üH[JtgfNSÈrÍñŸò‘|øö‹ è÷m>zýÊTvtT&²ÎCEŽ›.ÝÉLæt¹ËN\¼Âï…N´J¢sèbØÂAº¢ƒcyéØkúÿ7#'¯ÌsI¸hÈNò*ƒ_Ù§²CƒÃ¨b•Ç…`ý«0\ïøL	}¾-ªsS=\w‡‰É‹Œ©„ÒííÉë“ÒMZ.„ñ ]CßVâ-Tÿ]K `ðnè‰s¿–YY=Z¶8§”¦×ÈR—˜¼Ö!]QáK/E‡gN`Ó0êìç:H_\±ú¶_I#µ‚È$yEâ—'á1©4ÉE$ãX;¦|­‘ÊK°ì`OZãHy¸”ëµÑÐW/?ô¸9Äj›zépµ6HØrS"uœÒ8)Áôš^Q+ãØþ‰Z(4¹DÞ¯–tå	÷z}×ÉaŸ¯Ûw1„aÄ¢UE¸“¿p’˜Â3:“U
-¾lž˜‡õóÄ¤›¹µ7ÏQÓ6/›,Fzg‹ˆha4)‰Æ¨Ýð5„‚â©+wIÛL1£Ë¸‚ãB+ò[Nì‚Ý$¡çÑ_C4–Ïð¢Oš“^JS‡ãÔ¿½äjú³NBLâcxÉsa|ÄcJ&ÊeŒ!™p4®YœêADAà›Å‘cÏµx>TÎ4ýŠÈ¸¸ m¾$~	w%]7±<ñŸL°#%LÊ3_ÊLÍ†²®}Ý01Zám-f®KgŒÅX–ú3”÷¼éôŽl7ÊÍeÄü<ÖY#³¼/CeW›Þ¦I– „Ò í™ëÌ#BWC3ƒZzh:ÞÐ.šò¨>ødF&;
-ÿ_ÈÏ´Àêÿ=24™Eð­†aÌ=éXÆÍ±âxÖ- ¦P^Bã»h^&šK+ÅT2Ïú£–ú®\87+ÞªH¾2A¼\bÔ9¶, :Öá» Yãóµ2}£ëñ™|^Jä:å}Xß`ñÊïñnù,ö¬U$Í¸Ñ}{â`þ9’±¬<¸½Œ<˜˜³¹$Š7“™„@;œææ:»R†›Ñå:síË’CÔ1) †ð‚Š:jx`±VgfÍ›.¶âC'Ìî±kR¢ÎoÑþ¼l5ZÏ¾ë5‘ã+‹ÓºR	s¥/\îXZ*› ’D¦J$ºMñÆ”n”C% [‹ìÂP¥l
-ÓËÇ_[|šë ‰ÌªÚþbžr¬}ë‹c+'q’cÕ¾¼^(CÍc»&ýü»+Éâš„pŒ@&?4UñJ¸Bm¹‰Rxps1‰vÀ5Hi|GMòZ¶÷…ŒzRíz.gU;·09ÌÖ…jP·0ël;XÑ¯öG­…Iá{ýûo{§‡ìôè_G'ïxF¸ƒWìàEïô,›òm¹žÒ„TVò8¿g—d¾yTE›»‹¿²Š™ 0š¡-rP¥ibûº€'MÑ'µ’àóÌÖ…¬œa¬Ô¿9Ä˜•Ðd‡~77šÿcÿþàºõ¡½ñ¿v×·r?64Ë¶tÈ#g&ÇO9ö¢¤Ò‡îÇÖ:+>ÞúˆéMººW÷?–çSfxøæßš§%<(™!´µø¡Ž7?|l˜!¾êVÌP‹/º8²u7¥6À,w8àÆ%á§föyþJ,7†­ÙªÆtVß,Í£f£E«4}›Â`¦f«£]nŒŒé¸Ç§º±g;#8áíFI¶Aî@Se™þ*ªPÊ³À¿Ò%+¨¨Z‘²D7f±ŒZW§î¨uu—6!ÊBƒ.Ö¨;äbÍ%,pp¡!ëêÔ´®®aØšýå†‡V0Q7e #6”Â¼#ÿd¹^Øl †…GåNÊÊ/b'â¦ìEdÉazŒ.âùÌj´Ñ¨	mthà×ü©Äž²ÆÃ½ítéŽê‡?mo?üY[û<píbíà|`5·¶·×YúÏfgóüBoAÿël>liÛb»ï@&‰"ë‡Æ£íŸMÊ9óÃýG{ôˆ¾v7??êÒWëÑööè'úê<úùgú:úù§ûÝ‡ôõáý‡G¼l÷Áà‘õ°ñ±¸ù¥nX¦³{s|òüùûÞ	kþÄ€Q:fgG§½W/ŽO[Ž)AGåÐÐ&±Ë¯¤0ÿ¡ñÆÅlA¾#þPÖSžZç•5Ã?/cúÓ‡‡‹(©W¯1ln>C­® ¥™,/È³¥>8ÅrÈŸñæ¸Æ+›#I~0»\“RßB‡áÏ,ÈÜv»<iO²¯açê8`XYo u&ÝS~óa—át¼›+Lä˜t•m»¬Þ¬PO ¬’jIè–Ô¢hÈÓ[ˆ·>ä[šõ1½™³£ëñuÆî±îµA^Tq§3Ãq“:4‰ØrëªÏ²É’ÕOÂdI%•T{aRÙj}Wt)–½ K$zŸòI¢»wESÙe%šx•}+^Í²¯"á;ªJ¥$ s+êòJœES,™²Ä©»˜/ï·´8ß¥÷öÄuJÑ ké2.ÐàU«S3¡¤·-Ñ0×Èü¡?\Ôb*30)«4èZ•Îq]rå$…vãôDÚfcË6)KkðŠ@¶èY3éj½CF³+Ð$§—<Ýw*°6p¸“ÙÚæe«¡AåM'ÍÃ@Qž‰5Oç­’±gç bqu4q)±’•Ø~¸Îº~>ãÁ#ä'~Ú®3 î& Jø‰šõ~vúíº5NEDú‡ÕÆ>Hgû…ÉÊ1–Ö¿þh&0æžý9]·W!UzY¸C©Ë§2æØ^8w†Ñ)ÚáÉîËëÍ§ñ¹[=üLs@@()ƒê‰Êæ*?‘ïO#w^§ü ½™"ÖW2>¾M¤B¢9éÑh?BáÑPü±º(ÛìÖE¹.ß|ôä?õâôV—*/Q±F!N¡´/ë.	J+ˆ,C¾£Rá¥ºà'rùúËÙiÒUã›ÐýlŽn—]×Ou·Wuç6p`Óô¢ÿÛ	ü:›S~V’Ú¸U ]íšE×¯+w¯²¿à©³èNYâbežÓ|3Q5‹7ÉØ‰Ï0ùz³Û¢ëØÏ‘!yhíîô}¥mòŽ‚Á‚‰V©ÑoŽN¬€eVÓ£ëçOŽ~Ðlì0z¶Ò¶Óz\È©Sl	EÁþû×½Ôt·øwvÖ{ñþ„í¾ìÁO½¾ £6+¨Xª2xi‘®à™CJ‚7%“ëÍž¨×å*ÿáI|Ïc®\˜ãŸ·Jé{âÁ?‡NhÖ*ˆñ%j…t 5ý2À½  É´»ÕÂ¼eÓ¦N
-ª«ry!äx²ã*‰ÅU1ª25ÅRë¥Õš’ª˜nu^aRIä%ÚrAyFÚì~F‰”«(bf}?Ì>..è*­$éJDåâ®×‰„R•­)H‹I¢	‰vf”h‘]“˜T:aáT`¬V¶7rãÞ@º5Ý)¨â­(SC¾E£Ž	¸
-u»®´˜ˆ›Ù/KË¸÷€ŒûóOëìç(âv—q·¶†ÛÛe`ÏÖ"îVÉz]®3r@‚D'øÍÎýMS`P0\{6¼,(FôY¬ò""?U“ÿƒšå_ ØŸ¨	¾KùÉç»”ÿ]Êÿ.åÓç»”_Úëw)¿ôów–ò%+¼¤˜¿ÃžŸöž¿B«ÉWl¿wÚ;yÎš¯Þ¾y÷¶Ü?†5:{ûŽ^ê%}ÅDË,ç‡2
-E’é[—<<-Ó%Ë™7Öjü~­~£$ØšAôMºM=×«D^è]ÂÔc$ÈôW¥Y³ÕbO‹Ñ„\»ËîÉÑea/µä9ÎÉÆpá¬€â|ÿˆ£+<£“ö´®oEH¥ÚbZ¡ÁÌ¡(5%oŸêLœ«P‡A?Au‰¨Kû4_»Pô¥;±X² ÏZ¬Ë€ˆYèØîÄÖYdÍæî“VaHAÊ¬(‚Dþœ=ÒJ´Ê„¤3Î.(ZécÄ‹'f,\Òš‰WÌ#îÂ"’Ù£7oó°&Ž&±ŠVµx¤5’¯ˆR¯¤ìŒ?4¸ƒQÏ–¡Ltú¶âœ>ljŠoèÃJ…†.ð¢I™
-eFhTfðPÈ›¦{ÆÄ“Òi…%òVøø©¡Æàö÷T3×%TzCUA%¾êõ¼‚)· »ÈEmâÔ×\(Ø¸„ÞBÝ3¸›¿¦ÞnªeßxÈþ‘y$öØGD›á°ÑZPÓ±‚žkwy;€ï~òù»	øIˆ¨…{•Öíõ»˜¯ÿ|óŸ•ƒä•ø8×°¤¼÷ ‘÷ŽOÞ½?cïNß¾…ax_÷ŽY¯toþutrÖ;=îk%¾ŒÍJe>
-b[Cæ£r™ÏÂáþ‹.h›zŽý(Þ<›ú¾£PDFvžšNÁ¥Ê…ÙgR.”#(9LA84—5JˆTÅ$!Ê$DÙABTjE	Q™ÐM$Ä,\V%!f!VÑê2W_€ÔÀ©T€Ì¤¾ ™òbä¼R€Ô‡Ð6‰s!BÎ"dt;‘"©éÕ^Ë€Ñ{Y‡Æ%äG“»—*AŠ25dHÛÏÇ^­HT0æÉ4öüb—ß
->.!Bª»æëŠŠ#\×Ùúùþ€;ÂÕ¾6ÎÞ ×´ø~;Ñ†ø.¦ŸD2¬Å¿¦öÆs©±RÔ‰ØC_ãzkà_JA¼Ÿ"÷½*¡î¯)`“¥•ª¹ïœjoõ—½LÆ‘¢4nþÃì&²éJž«5ä«ô[òõF±Lö{§oXÿ wrr|ò¤²½ÓÃ_z§G “àF±*WÒdlyöÔñ¹èc7Ä£uúq0tÐ4œþÐB~§Q†³%2¦.ˆ"iÄÑ6ZB`Ê.9‘qTõTZ2 …¯ºf°D6\ñ1Ú¢{Œ›ÂvÙÃôöù1Ívp"L;†Úd›jó0ögÞì>ØäNß?çù9è¬ÛN
-Á@ã¥ãˆ®É„[1kæÓ;´ÖE¼ÕÀ"à!~Å¦e¬m¶¬.vE¾5}0”l.ŸA¿béŠ;Œã•FÜw Ø¸)×Ùh»iÊå3‚³PÀ
-/z’¶Pf“?´QÂ±Ñh™h2ô¯ö×luÆ®­5á¦‰LýÐ9€ÍX¢–®d‘RIÔÏ–ÊãÑ–†q p¦W„Q™´„ZkÌÅVOÍˆ%ˆbT,´T‚SÙ†tÍ–¨Æ'E¥„ ˜ô;À…š%çŽ?œ¢ŒêŒ@"Y» KjFÊ ñCP1:W/€­‘CØ²'Ô7(P›š'iŸÚÆo‹6\hU·­p-ÔÉïua ºžø‘;r‡ñ*Ÿ$ýcP*’”‰…ÎÀ:±iMTz ¹\¯uØS¬À£Þe‚™[¼8É/w:OëÄˆ¶f¾páˆ.MR6C´eð3!òcWúÙÔ‹l†ŸBZ—”FéŠ_¯3 óZ†¢,\&?Á 0Õ›
-ã¾™Ø³dLªÛAP›Ú¡Ó’ÐïÿÚ©4(+€UTÁ8BŒNÑÝ2é*x„ÉÁDOŒý”óÊ¼A9ŠrÆV”)ð9e…¯Kg³Ä’{Eà×õˆ<ÖœÙ.ßS¸Kä¶ÊÉîó.Ñ¨»`Ó€³ÅÃ/¦ðô›Î	Dõu~>17ú~çŸÔ;ïwØ;´igþˆõ-O2 +ÛàÑS[ì êˆ¢æ˜]èãUF¨=ªstÝâ±µÚ#+\!ÆÐ,ÍJòœ9¶/)‚fa4kcÏv.›CŠ<TÃkFGÝˆd¨ÇcµÛ;P½Ý5F÷‘Cú ÔùÈ£ï±î¢ÇF2A
-ƒb¦‚édw”¹™%jy]"KsÓ˜ëÂ\vX×üž®dÃô£¾P^x¢'©d2‹D0½þÈîuel ×¨ÓÍ>¦c·Rrk ®´ÃY²åsÄ5À°óžM·LÆë§$6)f"®j;°!•ŸKX>hš›œÚûã¦9°k–Fšp¸ô@ÜÑœˆºJùLÛ¥…t¯F§Yè(žÚ=	$<¹Á¬ìààÌ@ã ²Ï]è•ú âìíü÷?^onM€ííy¶’Õ¹‹Ùü¼ô´VNif#¯ë%Ú×sŸ~2Šr¬¦µÐdEüÅÆb:%üi=åÔkkŽ·žìÝã‡$§dRÊ
-¯¼aª!ÂåŽS­î‡ï…½âi*ë näßX&÷ç1FLæ]:_Ü¡SàëxÑ–"Ê6´ce”LÊìsó2t¤g+x"1*ªŠïðVZZNƒ¿Ë”nìòËîÖ°·¶öä`¬…!Êh{L¨?¥v7xÁ'9#ý%¢×ÆçÝpXzÖ÷ÜŠü 3slW‚£Rv9†…Hü,™˜´*ÚG¿xØÐMÏe8i\äb0l#wQú7Q8µÁzÆÉu@øŠãü¡3²âiÄš¿8`˜[&ÊnÉðS<³Ð¤A\JÁ 2“ «>{¹%RM6,ž-”üp0#—qà)ì‡Ç‹ÁÔ‡ÓØ†UjàE…¬Yx[õ·O1Â¾3*çó –¬yèÌ-oC ¥a
-«'®#>å ›Œ†/þ±}­Ë;À#ð]'×%ŸÙt¸¡YfïïÎuüÀ¿Ú K ‹	K´Ä6OF=A£8™8cþ®¦„T~€.©V‡Ð¡ú$ßÎmÑ¹„¸“´Â›{*aÍµ|;š@²Õó­9ÙJ‰8¶…ù+RcáIgFû¹žlü/,ª=¨‘ÒÛú7À[h$"EÜ¥vX2§§ha,~àuªsi#åý5ü‡ÏGÖX™7ÄýÎ  ï‹øN¢E‹Ü½ÛÉxósÃ×9)Òh«€éûØ|ÖT@¡!ˆN¹ÝÃdû2VÉ„ÆËœÐõxôÌÔk­ø¨yXEwºrý{€_P§­Ë±àªžð‡ß¼!ƒœ_AÅäå%&i6ž[ç¨!„psö€®.ƒ|nóRáØÄgâ²Õ¯À»CùéjhkÞd¡—XMö”3]bùñSgñSw-ñSs=ñ“¬éH@ùH¿¶4Ô©DÍÆ—YÐyÅsu‰[@ž~ãÝA‡½³ÂÈEñÄý,â}‡üÄœÐ»9f„þÀ¾£Ãó¢DBp5„3Ÿ£ EZÔ"aÌ­$¹"”#@£Œ¦Ö ‡E_Ðèq®Õí‘µ,.{ÕÜMçjÙ¹Rrf›°I{lßôT’VÐU	Òf¸­¡ùtCÎóŽh¿æpÀpøáI®7ûc`Y2sÖ{wìªj§àÃ¦qCÆó¹DŽ]J#W¼7¤ÜðQ‡[U6—€_3+JE¦\ë­¾Ë3^¶"d¶¨)l-síA=îÈ/ŠÅ1ùr<;ìCã·àWº‹…ÃË±¼_»÷å7Š$¯~ín¥ßïSüøx>üÕ’_œÆG#™U‡ûÚ÷Ñ<ŸãkÕýŒÈacXû²Zœ8Ã†±¯úÅ ÛÒTçEï_G¿¼}ÿüÅ¯¡®Ê˜Ê¼®Å9
-õJºÈr:üWó)å<Dü^Ãh\?2aW#Ûù°ù­¼þU?â¥ $3›ú¶gzë nÔ²ÑkyúÔµ*»±­XÂÁTõµÁéOóHY”Àù-1ªç¹3ÒcYn¦;bñ˜n&Éz©~Œê	3¨ŠW[	ÏGâ@VÈÃÐœSMRcÏH	£ úé«]åÙãìÏ…ê¯Êj¯Ûag½7û½Ò—j¿wúÎª£×ïß`VÃÞ³³^.­Æ­öj*‰së¡©•? jÜ½BI–;KšIÄà˜ö[m”ÃkŒ™¾©_æ2ø™4"Ög?òÊ&:ˆ<ÌÖ¨½®!•?oB«ƒâ¯²J¨¾;ÃDÔŠ	—F))kÒe4Î”I&Ðí‚ŽJËòÑÍßÕÛDaùª×?>ýõ wvôüíéñQŸ”–ä÷„aP *Ê>¨Ùº^cIÒl‘kß‚“…½AÕ#ü½Ë^9 ‡Çã$Ø~µ“\iäØ¤šl\kT‰ÔzªHÌŒOU!f^”ÄÅ„<s£©#3;&^=£ºpËÛÜ÷í«\²ÈbZ5ƒ5	}\ôk»ÞÈÇì¾[l~É“¼ßg<Ë«H^LÑnHšOŠ-·‡n0œ:mŒsÈ3«Âö6Oªosg"wË&ã8ŒC{Q<É^íb’)ïüÉ€ç”ÝPïÊv7ÄKv…ïI†bå®Ã½úDõœõÙ:;=DnR¶k±qàŒöÖ>[ kwí|ñ]%µ–g{êzž–Öv†~@çCÓ´¨öQ2°lÂZkOËµÝëIÇŒÜôXYY\>ÓòpU¿Ì£ nó'ù¬Îh"&q1“³žOõÊ€?Šdô»ÔŠ	%ˆŠ£ç¯¾Æ\sÁsC´µÌhð69ð§LýA9Ò×ÐzèŒý) so½Ïüñ{åÏ]Ö$a[Û›³©fÚ_	`¯¤}Z9D„ÎZ‚AÖÍ‚BR¾@ ‘bo³ÎüN]PY¡óÆn(¬íJù¦$S¥Ðzf–š±ð"ËÙP’ûšËÍfÐ	»íù¸m2KOA"'+¡Ä¨dÀí=—[þÀ¿`çÐ[(Å‡0Ä‡%@­2<ZóË˜`ô¼é>+,ƒÏP;Yê¯övÇ-ÅéË­ f€”Þ·Ä—ñD;{ÊFW·KìoqPà¸¿)C-€4mÙ`ÿ<eÍ·sŒ:lM[åtM¯©ó²e6“1€åŽ‡WNäN„‹>H…Ìóg~X¡(Ñ¼þ!% ”$ÀÃ]zÌM	Êæ£OÈ.3±Ë\õbÂ¼pŽ+È©zMÊ±TÂöVI®Ž…ËÓ¦—íJÎè©[EÝ^‚IRlôsŒÔ:ÝãH~é
-Y*üNVM°k€ykÌóabÏµÐ<w/ËÃx0s£·ªÔ…©|=óx¾øZ‡2ü 	FrüT4(O@Ù¨^PM[Céåµ¬ü•¥ÍªŽŸEûæ§onZ©1f«A²n”Ñ%y`‡ÒÐ©#û5Å L½Ô¸•5œê4›:ÖÓ#T¬<i›’@³âþŒxf!†\XŸÝl7tµ±¸âwä ƒhcÃš»%¡aŠ}0s¢±ocDý·ý3ƒéìØ±€ø¡ëpƒ‚3xQûèLjYóùTXGn|}¯að…Å$º;ìeÿíI'$»UwtÕüÝ
-¿pTü*"AÀPÉ8ÁÄuŽ”|².¡~]t"ÒÝ ›¤6™Þ¶ÙÄíê^êMA…#ÕÜs©ÒÚ™¢…&ÉÝÂƒ(±ÑÄ9ÜÑ;FäÔÙ‘ëlkë»J5@eŽ;älÓbžÞAåzmm´U7RJnu’x¾ïYS(&ûï{/V«’DZ+ÜúB_#dç4>	¿VÕkáTAû™/C‘ÈSEÃ¨¢p¾ä‚r‰©–ó¬”ÞâI®±l¯Ü:QquL¦¨WéçhÉa)…ÊÊ´ Xºž¹ýFå†ÁÏûÐŠX-¼(ê«ÃÅµ§ÄËÉXTwŠ†4@\…¦ÅÝÑE{ ¼k}êbž=‹m›´©ÒVx%1Ÿê*jÃŽ«·Ñäþ=­kÖ$8ö-+ÛÝaIE$Â×,„aÿe©—…$õßÿšcO\·¾‚Ê–_O”ù×=®D©Å´¸)ÖÔçüË¶þEÛõÚÀƒ{õºoý‡ÝŸUêJ=.À‚+À‰	Üàþ¸“T“+µWmm‡Ä“xÎ%=Éì‘ì7wQôà,Ù:ã²æ?£+6³B|0Dé÷r…ºõ–enÜþ¡3s‘¬=évØ;p,WÂßÑLòøµŒ4Žx±µ¸HžÎ°œTŽÜ_˜	Éçª<n¼ÝÉžxÑã{4D)¹gã?ÔS|þqrº\ÓÈë©òXÇ;,©DÎ25¡˜·dž°‡ËË±õÐñôû‘ÌmJÚÎn§rneäÂ]¥¶ÎQ‹j­Kwv¸‡Nd¹Óð€{»™ï¿”M7o?àû\¥µéžçaÎÄŸÂó¶?·†nÔ|›QX7Çr>8çìüMß—næ,NÆóa›È$ì.ƒ)Å< ŠÀG'OÙøOeT=?_…ˆñÖ¦FlíÉ~rÿ&„c"â¶KÔ¹Ó©}®#ê‰ ÒáD5IèE›
-½'8/È•s'<ŒßgÖ<)xQãñ§±ŒVŠ”	¥LšÙŸRÕ=ô]ò±HŸ9(ä-î¥ç­weÕ°ÑÅO’_„{BV«jÄ.ú'Õh´žÖQØxÎÅ‹´L¢¡hR{(,g"Mc ˆšÈÚõ&c7H¹mC[ÄµÜ€1IPÛC]NÄÃ¯Yu•ß ß‚«÷™ßz^	YZY˜¹«Æ©	äð§Ò@éƒA5e,!¾ËWÒµÍµ‘²TÕ¯ë_ÞÊ"îòÂ^îsÁ‚æg1Û\z ¨ËG*)`Ó6fP~= Ih’µ¬^=®äñž¨Æ÷)«}7R³ÀäÂjË¬8¬¡9,(1r°ÖË°V0»œk\C9ÖYw;¤ÆìŽ_o$©yßòaåTaK-jÏ¢§ ­¢‡¥º«’ørÿŒàJ¯·ú_¡µªZ4Ÿ0Dãßð›®yüð(
-Y¤=°»Iþ†:cW]À™â ¿©p1bö7ÃÉê~s{Ü‚®–q5ªZã¢óÁ×Ü›¥¨³ÎLÁ,}ëE´ÈÇ£Xhwå”Ïyÿ.ÜÆ·•Óû6vC](!§IÉ^#oN5s3‹™ãü¦¨XºþÆ¦8ë<(î›ð\CP¡ÖÆ&´îgR|¯¿Ÿó‚¿Ö-i×àtF!žÄ„KËëWhñcÒ s'EœÑý~ŽC`‰®H=‡|ùÀ‰.Ç«oÙ+».è¹œKøÉ]!ÚVŸ«¶¾\PTë%Ð¸®Ò èUuá,£±ãª†¬†®Äy¡öîÒ¤8¾‹J¾ù45DEcî¥ô}š°5"È%´r•˜ö]™õRf-‡W‚„
-Ò+lu0+©!Š
-éÑIaM¸¾¨[V„ç5ÙËôpO©_¼§¬…É³S8_0æÝ’=›#fpWbMs·7Ë.NÔ> ¸H¤òB¦§¨„jì: D4°§ÒMtu7°´xEM’d2‘-íTQÂ'LÃSöI?¾Ï4 Ñ-RVØÝ
-E5^:¡Éân<åÐo+›<·ÁV›h|n¿µÞÝo—¬Y!PÐ…úV¨ø›Í4%í.$ò&½”2¤íêÖkRÝK†í‡œ™@¶"weIóqaM`){—+CªP©ì¦ËpCCïÆA2è<>)‡ÍìŠ¶–¾‰Ò»YI$ŠðMºÕa‰µ®üœ'÷²¾Æ…¾ -\í«ÙÞù*UÆóÕ³KE(²öD0,8'žíö^¹©wÒÉH>£÷¯ëô‘#Áöh]Y•üuqzF€ :s½½µ®rMÏAP•‚æ5bH>Tjp¶ôº³þ¦¾…R¼E0Åæ1%·‘•,ÓR®!ê	À­‚‘¸^‚¥›=Ã‡néG8žc¹ +ºRÑ¨ÔŒþ•5 Ö….O\[I™sœhzH	Ë"Ì™TðºÏfÔkó;C°ï±â†žJÚèd_»–y^â+_ãqþÂµ¶æoÑU-ž¼¥ÔëL¨ÓE½,Ï‹˜ãÂ­+·ª¬+¤-³AE}÷·B]Æ‘¯¸‹8«5â”-šub‘ä¬•›Ø|…¤µ¬ÔÚ¥PÊV?…miðÿSØL®ïwØÑáq’QCÓ¬:æfqÉ-píz¦þßŒ¯nà1qg·ÚÀû‘…$Ýlt’€¨r† X‹DH0mŒP‡BÙ‘=eM!HJÉÃÔÛÈ¤X8ƒ2šeÂ,ä€¿J«]%KÆ·k£»bgü¯âio\b.ú~w²ÿK9Ù§6C1Üù^ìØ<RJc9S2s]í½ÿgwÜÿ¼òÅ*Ð)l¸þHO|²Iûúö
-· Tþ ×úo×•ÞHÿuë7iZ¿ÔÛ­:›;'«ô7‡ö8Ÿ¹osÙV_óÅú]™§ù‚fÀ:›CëòkÅþæÐ2ì¸eÝÍþ©uM®âR†Ü‘›b]1…åøµ^0d«b¥ÖS‹Tá¯ãZ¾»·9Ø²|]äH×c·p7-ñs ²W7Bq`ûÂšÇ¡à5<újcA5½Ð•5q½4ÉÐù˜Îè–g£»ŽÌ¾‰;ƒÐì©¦‘ÿªêÑøž˜ÐNx¾\
-'æG,ú=ÁïÃ£×GgGS@áRCáœ®íœãI„g/Ž^½}Æî²³G§oz¯ÙéÑÁÑñ»³¨m4I”2ùµ1'eÊ7 Pzûµ@‰M\¤;úlVd%u ~I‡>½EbP‡u:<ëªÙs95·“ötÚÓyî£ÇzZcK6í%èðé÷^ôX¿÷ï^ãæ:ž¢í,°¼Ðš„®.\cE¾³LYŠIŽ"%C=Tä³µ'²PMÄ“µoC¹V°€
-(”obñ%92eä‹êßX®[ÖÛ*Íx˜Í÷”õ´yü¥÷YDÄoè3ŒaŒ|ÀësžLh¢cÏrë2,~x†Åëq‘uyäYƒ)©÷JÛ´.	á(ýR½‚
-t -ïÈ´	†AÀÎžÃ§„<|“l‰QZIø•¡Ø£e¾Cˆ5;)ý4—$,ØáJJ%+º£|/-
-<ÓÛìt»ÚRu=m’ÅÄôd
-Õ¦µÕ’nªUrpàGÏhŠ±;uBg$™Cš
-R(ó£±Ì%j·n	©ÂOÙ]€!J‡Z­öU µ8¯¿¡?8púxlâ“¼òÃïµFgiiX±	ý¤l7Ä¤3ÀùõâÈ‡4úÔ:î<Ò¢’?Z’ÎÙzCýµQ<·z)ÅàžfDƒ‘x˜Âæ@XüÈ˜·µÎòn>ò‚(Þ× žÅ®aëöf~ìEt5ƒÃxÊÞXÑ¸CFÍd²?ÒÞÆ»íåjrÏ)ËßK[Îáê¸.ÙÂeéˆ-m%KX‘ï–‡wÉGuQÂ³ïvp
-cèWÇrxìÆîp’DÉàáXîÊ\£L0(‹·Ûåº=4µ­p<ðÑ6ÀK†¢A%gN"ì/Jìškh¢¥âzaã{UiÛÝbøgf·ZÖÒˆÛ¬hL¸Íhi³Ô´É&Ûö˜SìÒ„Ê¨½©Å“™Ãëç±×Ú)ŸN-‹§…¨IMÕ"R©Ú¦ƒJÚe€•·5ÒZ³rhÔ1­å€Õ«sýp_úeîÊ/ŒEZ¡'Á=Å®¡ 8Gˆ‹"NêÄ¹Â@?ò"2ê—ë•sÕt¾ â–Ý%3º™b˜3úÔµôâÐh†yl"ÎË·§Î(Ê8d”kˆ“VØù-f˜nÓÄàìÜšç6ûßZÐcí.†k¾¹r½ ÏÑöéxÞTCri‹/=©!x¥‹7.¨¤ëKÜÖ#«oò€8bÅ¸8Õ7eêe¶/L+,ê]hW`—&’O&äT°<ø‘§¼Êy˜Íñ+®»¸À”kVêH±ØšÝìS.´²pœðÄ†yup¹¯‹WNu‡$¢
-:cÙ¶´þ9ó€}×Ó™ "ÿ9•ÊHëú›Üåé	Ž±+©F„¥ÚBÆl’Ä.l_¼÷Õà3³.ÛcÝKvØÖÖæüò1ó¿8Áh
-GÕÕ³@B{lZkKf`ŒQFz1ñE¹¶=¥ÁšâÊóQËRA¢ ÆyŸ XÆö¹†lwÔ©%ÁráÚÑx‡ý„ Û­fO„‹EÝâ}!/-;Ä|ˆÕÕ¡D	ä°~)ìw#T_•=—é0‹Ê’Ÿî …KºÙHÝ[ÛNÈ’êÖ9¿’~ž%Ì,íÜK´A¿¯º]Š=\®:íì` Üüý¹H²#YÏBÌÆ‚“#@Ð~B@Î[š¢¤ ’©[›Cï#/Ë"¥H¨•¬TÅ!XgøuõÐ%‘zŸü;Ñþ1ªÜ™¨PÑQú¹Ð:"µXË	;¥…óËvqi3s( £’aØêÒ÷Öázµ»p>´ëqçÉT1MŠ°Øoê‹æ¢:¨–3ãWš'Nó^ýiVH¼HŒIµ5 “ruM­³n.Ò%E¢¹©WvÇ~d|5Ì{ï˜Ø¹bYN¤|ýD*˜tÉgò³ÀŸ³¢¬™†o‰+Ka^,eùàÍ§‚Æ;Ó4× MšSDy‰ÜÃ‚¼÷Ì¾ËÞYW¨e"&ÆMÔj‹sS+õ¼4°ÊõºEH9%SÁðxÙ©ôsÕ+u«H•nÉþ0wPS"X=|T75’gP^%kr™©P­íreßÉôhà_&â”T¸+\Þúwa©¬Xnëoò†Uº+ØÈÇ["<¢t—õ“wïN0Ž³õÙš°f·ûfÃUÑ$4`ISK.
-VŽa©+6º[·òíîáºÛ—œˆ“Ç)Ú;g6°(_Ñ‚û7.Y§6Ï |ÕÛ¹N,r¡ðZX×µp©7y¬?6°CX(Œ$pS3ya(Q×­A]êìòänº¸Ÿâ*+5|…H1u­Ä?œ—2‘‰´1·îd¸K 9s¯4´<˜÷ü Ä\ß›^IxÃ®¸y®»¼$¼°§òN¹kÕÌzÓB/›ëå·êdÕš»£¯±ÈZÍÿ.ž×'eOi£‰±G/:çŠ[†Ó=Ö.œœô÷{„k#²j®m‰§«¯5pW~žIžƒ^‰wõ….áÝ4s¸ÖjÛúRôÀÆ>å ^gº•·¥ÏcO‹!™¤åº8}n	Ú”Â;+½‚´Ž¦Ë‘¥È˜(W>@ÁeÊ ˆâµY„—¦ð®A³•*vB´søX»ÆÉâ§&CX¾£t4C‹‘ËÙVzØO‚¿ÇmHfÖess]t×f:*&jÖ!QÉÔt{c"ÈRq9ø›'â£Åv2X#´n®ô¶Cü¬|ž™;4½Q3 _ˆ%=úVP•yLá@©œÎ)'éNõF‘½+øÐÕP+Þ¼!îä-‡0]&~©sékïÛ—Û.ìâ¶çesèbGÕ¨&¾/WÊc «/ªÚí¨Þîmï¤ÔIüÑèlLÚçL{yŽKlQÓéî(³«Kž—^$f<Lcÿ©Œ*Ï›¦Ú¢:ï‹â…o…1¼¾²Þ0£©#5¾Á½¡ô\¨wðýqÎ!ïNOÎŽOž³»‰;ÈéÑÉáÑ)>[a<AìNmaøIQ^I^\é<…²¾:‹œKêußÏçúæ¼‹kÅÐ<´Î¿Bžs¦¹Eð>î¿‡CÍú¹ù6žlÝ‡­NàõR³qÖ &‰éI­+¬“¡þÕHß¤-è;P65¾ÖG´I,QÝR+T*õBÂ*˜¥íRë‡6ù`Ñ
-œØ´­4Å:Ù‘éÌGõ#6A_¡6Õ,áK*¸’LE´ð$˜¾àfž¾hŸêR¨“òÐ!ú–.¨ø&ñRÕÛð¦Ë87Ê]Æé545\Ås#“·És`` ¥É.m‡=D;€¡?õƒöÃýû÷& 4©ôŒèN‹]&W,n¤_+»^)Ñ7©=`ƒ9|Iºø‘ñþ[‹÷£“ç–¿2æL £ê:¨„¸,Sz‰ -éwWš ž¯9ò½¨ºÿqvXwWŽ\«D©ÇˆÎè	¢¾ñÍÎ6Ùè©­mÃ¦Š=ÛÛÛÙ–ÈõÚ‘?ßa[ÔoßŸÆ¡Ë8Á¾Ë^91 6ì†L·.`ÇÈA\®7²º¸’qü(ògrèåyìþÄ‡‰Ÿü«-µt—È™>%ÚogÏGH#ñ˜éxèª ¸«9gV.EÒõ/x|%íÊ²Ò¹V¿b?vXïðÍñ	{óï>þÏ_ôN{«3@­¿p•ñ[&\-¢^pìT‡½IÈ»)àM½°ú‰Ô¬VqDP%¢ZýxÀï:ë]|…ë»Ü]WuœögŒ·RtµðŒWqŸT®Ù<)¦ã::séŒÄÓUxÊçuöö¬÷ší½î¼ì-‹Û¾¹]pUÏÞŸôŽŸ²j_oê2VòÕÑ›ýÞëÅ§$xÒ›Ljå¤ÉÌŠ0ãìaæ€X~JÒñ‚† Q¾éQ,‚ðãuïàø©@s2ê^æ$ÿ9Ý`|4÷i4û…Í¶;p@"©ƒ¬¹a¡xbÐ/¬Íÿ  ÿÿì½[w9Ò ø¾¿¥>m’m‘"©«eË5Ô¥lYÖå“äö©ñÔ©É”˜VòÒy±¬ªÖ9ó°3ó<`wÏžÙÝo¯göìëüŠî×ï—lD ÈDf™IJöWÝ]¬n‹Ì â‚sCÆ¾V}5)ô“ð™ÇÝ	ºòÿvþjg\ÛaTµü¯uü) ÃOeª•7É˜ja=4ÃR¿%Ã‰	å¾ F±\n­¸0Žiy•¨ÍŽžM(µVh–|rÝ”9®k	jªÀ'ßäpžÇ>=À¶Ã²:Èb4ßäQéi7ß\Vë¹ðX¨ŠBþ` U•*ì póÏ‚*ÜÚí´ ¶Ý¨²-õñÉ7µ‰õ.{ìèÝÉ›w'¯z'¬w²Ÿ§L©>€úÅ{B“¼ac°¹ä‡ŸÍ1tb¥+”1éaMµ*å'ƒGmdBùQ˜›LKMfÎ˜£aj¼=¢ /{UÃøcî5%Dõª&¼Ò`™fæÂì= à#FF>2„-0çY]YaH˜ÅhÚ»c@Ô×”M±BáÞôš‚T@‹ÖXö–É 8xy]]Ùõ"'œNÃQ:G;Ùæ¥€Käh0ùØ(5ù0Â1\ß›)Ú~s÷abÈ-%K7Šì ”—bãuÿtv'›#‘ÑlaJ»‰;ÌRi¥Mø'÷š‡S¿5ðÜYX·n}Ø[¥`‚9r&Vj“Ž.›@œÄ0éñ6ù"pø	&&‹a“»ªo´ƒÿ”4ðŠ_st$žÜÌ0n/°,†Í³jÃb¼”aÕƒ‘ëø(Ë	÷@¶Fãñü­…¬"q(®§EQ2G1\¾ã6ašãâåÝ'²óƒ³ÓóËV?þžÅrÛ?¸8|uÒxÌkE´äÐ£ÙÔ©sthÉ]úÇ¡áœÓþGäé3ŽiÔÇ°æG`¨ö†OðlóÓÇ?ÇCKÕz3úsì¸øçM4<zwáŸg†No0îdídú	ÿì;AÍ8ÍCŽFRˆ‘¨"?(6Z3>¼À,mõ.@i›ÏY„4@ÈÐ ã“zÃØò#‚„&¥¿‹<ï{xjšÑ4"ZÎãúßTFÖ˜¡»“–G9u;£ÒÁp±åwøö0þAèßo«‚€Å}É‘}&–Ù¾ÜiêhÂ)CƒYÌ ¯|Â)Þœ¾”ûÈ©T /‘àÓé:ðdïJá®vå~v² R…}J·ƒãTPJÜn”#ÓÒRÂ—¸B›äZc/†–<¬æÓ‹=º)Þ4Ñt+¹0Éð65°èeÔâ³™3î`«‹ÊYÙ*ôï¬"ÀB•ƒ@GÚú¿¼Z5“àM#Y˜ÌMñí‚)J1—xÓÀ¢¬b{sÏÔÇØ«ÂAÖZ9AEÿÜ3Ú‡Y=—€EÿàxO((ïn½v(–‰oéÙ6°I§ 1©µJ6Sš‚2×ûŸäöót¯Xý¶=ü$sn^Kñ*3n©AqùÒyÃOŽlâ™[f«í¬bLÿ˜¯@îÙ•;¡ãˆ}à*’ªúÉf–°°©J/aEU˜§æÍÂCœH¬ËW„
-«ëÙâéÖŒÌB#Þüƒ1‹C—£}ž c"`¨ŸGd!Ò-$ÙŠ¤º ‰V%Í’œŸ3ÿÊwfR’
-Ò6SÜùMOuÝ{U»UÛ¬BUJV)!]šÀX³)bÙvþ=áéá¼'m´…H/€Qÿ£4€ngsÕICZ©õJÒÕé†À"d^qtX˜‘“¶5—ùlõ´~ÛÌZeÒ;i‚Ÿˆ§O-0µa Àà?ÃÏ4ÿÓÛïè|!2Y™ÏÉ)Â¤Ô÷§·Ê¤,ë‘™‡:*£‹ÂAg+-6)T³p^bûD8v:CW¶þÒ^–²öîáe¤0 T¿e5zÕåòF¼ïf,'ƒ‡Q ƒ]§!^ê°^B¹qByŸÔ‚¯/9„Šž%I£ëµ]ÙŸ¢¼koÑr§ö/ÿþ?çLÄðO³Õ¾0LG6ž€ò'MÜÿ™NI`¢ß¦,ÂÌV†Ð;Ê„Œ¬Yù ã7X ˜SwÏf§BÅÔXÑ©G÷v%Z_0¸CÉDˆ ‹ HJhÉjIbœ&ô®,ìí™ƒ9î‡rÚ¢ÔFdÙ£1¯|ÔžMSÔž¬é6ë¦¬¶¶¶ðzÞñ¢1ãC.‚õSŠf§e«cbÐšc	ÍººwùýÙ•4\ÞÛ[c#½;€ñ`„|:‡WÍ-kÀ,Œ×ÿò-‡ýæžR¼HÃ„¦Áb/eˆ)ªšÁÒÛ)i¬‰\ñ±ëÝm³&Æ,wšÁ]@{Ì®çNnŽùà‚~%—ÙÒ,`‡½;\ZfçÓþ4œ.³žï¢#`À'A3p|÷ê9³Ì«f‚6à°n®Éh^^]AE»Ü>ê º&¼Ûíæl3ÃWa"Ð)h¤ki$gM«õ"eÔj‡ÝBšh† ä–tdcc#m­¢5˜Xf»Öéw­%É¢áqÉ™Kèa äì3ƒcŒ;d¿šRÓæë4}>t£@˜û–)„†³tL%M5DWÏð¿âjÙk—µC¡vTØ»NkcÞÓ/~R£<Z…™Ž	þÛ"Û¾x¢ÛíÍ>½>‹k8‹r0ê™yPc¿ß˜cægâÓMš•ñaŒàÚÚZ»nIK×> ù‹ºMØfãy66Æ6CƒsG…È(ˆ³Ž¬
-`
-EÅE¸Á_˜Œ‚×i·& ñø,€^¨oéEÖ™wA…£ebo-Ë%!ñ-³yhk ûMüÏhÊŸb±šCB gåUeœ3+ªŒ'-²¢üÅ„¾©³ÿ+š>- dY÷Ú'ºªÖŽ³q5pôé"K*ÃÓhiÆ¤íNˆ_P0Á
-HÒù%ÁÐÇ+ŽÃ•Ówž}1üþÍ˜ÆN(VËö’bDÚìwŒÇ\>)¤jfÆ¯vºã1¬¹ñø9Ë‚Š ±æŸ5Ë9/VÌÒÙ‹‚Pc£ŽQ{=†–šÝ2Ÿ(a®:‹c)ñ`éå>M0Œ4Íàt5 œ™á™Ñ­“Í Èw´úò&ù†ƒXÇ'4n+42ÐÕjþÈ¿+8ÇèÅ‘ð«DgŸÉ˜Hoœ	¬,å‡lÊyOŠµ{Q	†
-XGÐØê
-Û ÅÔ=•«ÞDE¿›ÅFGR/©<DN8¾mKÿB«@1(Ù·¬2ñ%,úoñ
-ND/s'#øÃÚ}¢9ÈÔH†]œRçô0+;q=î²œ¥âÁW=ÈÈR¹xV‰r¯È¦þqækQo%K„Ãäýã@ÎÄ	^ÿýsãùüåï<ÜE"¼$À•˜}.±CU²Ö…ñj”X­÷ lLš%a+Öÿ‚ Û¶Ù¸p.ï£ƒ&MÒ¿J èìG.[¥N*–'€àãþ(Ñ2V+™¤<çjøC…Ñ³sç=ë}t‡60, ~»<Xl®éîMçÏ-êŒèËã¬pì]„9–F¹-£Œ…‚»š+à‘SÅe£¬•YáT°á¡›BÍdïµ€ôsg¹2|˜ÙÞ#ÜÎ`ž)ï'esÆgçî-¿ãa’óÓ~ñxùYÝª®/Í—ˆÿD7M¶+Æ‹ÄOÇVDÄµÈ^?Æ˜¨‹/4o´ßwUñÂO5WüÄÃ;Aí",DìÃ´õ2_sXÒn×RÞE…Ÿñ@>Ý±¸ %m©ˆ;©øDC_Á±pÈž<a™w“ÈóÂ]=™­Í|S—
-H‚·cZ 	Éó#îyº# Uºo¥ZçÇ.®3Ã5.¶/zU›£Yþò«ÚPÆßØt+8¯0#Ë¥!5`ž’j3~‡Uõ’Üäd¯èûK¼œú6ù½jÈUD^îC}ÑB3S3W5ÆÏ°žæD˜&T¸';çI@‡M×Æ•;ZS•ôÁUÏë ±Ò|Ö´ë^Y© ³qi¼èÇ0o÷ŸÙ¿az}U J¤—|Ø_ûªB zKŠ©´‘ž¶Îøe’›6ý+ð,›o?¿’«{ÃÔéþ¸ó]Ï'¡.x—^!˜ÄƒàcxTàå
-ßuÍáj7-4k|áqûZ¸l/EvfÍvAp*+
-UŽY	ç:Ÿ’<7éCÝGja›uDb EÊJ„S9ƒÆåØ/d¤ÙM_JãaÌnfÎäcÄ=>ù;6f –ŠúsgBÁàÑo6Úg!›†Õ/aÓ°öhÓ0Ør6%F™+¶­/lÖÐ¹ÚrþæÍäÆ9Y_nðÍ¯hÙ@«ö7ËKc_ß²ÁÙºZÇKnõ»Ó_wºmãùß‡qƒXéåv3NtWa\
-FõK™6Ä‘±~1nR†õŽÉµœ!ªãüj/[ƒª¹mÇ`²Ðÿ'&ÒÈd:q~³wHžW³wÈKj_ÏÚáŒÔ×“¸äî×5õ¶¦‹ø3ûµYIœ)‰>Ö“è˜7~UF±ÚÃlÍ oî“rsÛMŽëÒñqHÌü†:úLˆ‘QšäçÌ¥ÙE…È™‹˜˜ÈLkgg'kÛÅjÅš©vŽÊîÈjaaëVM·ŠR5ÿ›½Å×°·Ö0mQ«B¤È¤sŽÈÎEFO,ÓÆÂØu,ÖMpm¬­¢…aw-°3¬óÑq?vBÜW„ÂïïÄ&cN«‡Õ*VR
-N²"Æê¥£i8õÍûï<6Õ1˜søòH,®,7NI%C”ÔÁäa»Ã?„Á‰ŒƒtÙÛqë½?ž¼ºh°ãÞIïÕÁñÁÉ%Êã*ïŠIš‰øüö‚‚ÁöÑ?nÏ­pÚ@#É_˜;„	X&ë’mV»äýˆœYß…ð ¶Ì>FcðHs¿,•ÒdégÁ?°ûçÙ¶¤7¼lï;×)PË/,p¸?¡n€¢¥ç¶4@ßI¾Ÿø¬Ñëk®j5C+L–%›Ùq?Ü@ÐÈ¤¸¯=Ç±_áP£}}»q¼ˆûµ(^Ó¤ÃI Í“ƒ3^~k³(4ër~Üë]¼:=?<¸øñð#;-½âÝ¥e¶´;D~yçf>Âoh`z/,vV™
-¾åîdrÇ—4kk{§ï.©Á#§…ÑÓ›é‚¹ä×îH@¤ˆÎ¡¢Yäîã¯WüŽ³×î0šá¯#'pFÈ3¨Ä¸ðàn2HìŸ¼)WÃŸ3w*
-Œså„ƒÑ¹ƒ68ü–»òAoæ¾wÃÑŒœzm…ÏÜ9#ËB}µÍøNyxÍ¡ ·ÐÔ|ËÛó}~×rú[5Öp¶T €[`eÙ¡¥Vœ@ÖXøÞpÍ-rwaŸåø<y"A´t¸óö]€°¶7ç@~V#”¿¿£äXƒw‡¹ ”…‡Ò±Z–Tø?àW¡p<%ÆÛKæ€CÊ
-p0"£¢@øµC4aÊê	ãý—ÛlÜòåËÆÍ´qiá3•mÁô4ËÆf_p8”iÂAëxKþ¢V«·e„«µC×ŸIóC+J'"æ›ø‘DWÈàaïRœK7Àê&“14ÉÈD±ÑzÐº¢=¾N’ ”œlð]n¸$âú`°LÑrDØõÁ ¯khá«Öd:ÆÈPÒp²0èúmã•Ñ‘»þÁ'‘zhe§â´'×Ôñ6Âñ1ì¼@ö—ŠS ôm¦µåç¼fœ9þ@X¤ sÑ€;©wÚÐ„–­žêÔJªnƒý¯–TŠ¶TÛ t|†)Àš¾‚u,š¸Šd®$æÁæ‡ÅL™X¨¶—ß¡àšN.TœQKLèpbsÐZ|8¬²é4ÍBÖB Òô¨Ì’ÉŽvã0ŽoÒ°€ÔJ<·Y·ÊÑ¼;QCÒ,EH7Wþt\ÏnP:¨‡¨äxüO/¦)“I>eû6îM‘_èÅ‹QÿeÚÔÄš
-¥î‘´¥É§¾3ÏëƒÞþÁyrôi6ç.M‹;lâ)Ý’6o}>ËÞºªëVFv”®%PWyã~s]óYsµ ÙZ‘‚-Î-/óÆÄ6“(Ä¶ºeÊ{Wí»¬ï6o¹£Ö·ŽA4ÀâÆ¼,îK³Lzµ1{GkEifÈ®K?ÆßûwhÚåM=®6Ë€hÿ¹ÌÆ0ØÌ!ŽOfÎäš¸`ô„‰ÛOÞ G»ÊÚ«H'k›…ÌtÓ@&“^tg¥p‡Íé‡ÿoN£®1ãŽÒÓ`¼Ä¦“çnv–T|fHÄ¾ÞXbd´³´GÝSdÙ‰€ùÉÌ¢
-«>vš5{"[õÅŠ@xáAKcc0´ß1Ÿ€ô)6U>îÒ»>1©Ö=; %óÝéÃ9pî½?’PD•…»ÑGJ3ò½¡:|fQ¿äcDþXÐ¤ØxW˜ØssáEAÓ»ÖqO}w¹#_œÄÇÌÕ:-vÔ;¿||íüÕÁå2;;?}u~pqÁv{ç0Þ{¯ámu¦7àþS›àvÓ1›##n&£äÊkoºÅƒ)&sïšÝuŒ8Ý8Êå«oñMì¬¹V´ò°ãGSÐ;rQÏs8!—
-d)é<a=¼5v×Øí©×ìtQ÷Ø››sÜ‚–°d»Ne´‹L0XÿZ1eüªÆ·ÓNñëì´¤žê“2ûÈÌ ><Yî+PÃ .S*Çä\‘NåTbL}.IR—3¯ç`LÐ²’¥· Úö¼ìÉÆ îÀõšÁŸ`Á;bM—s Ñ»ò;ãQ×°Í¯¦t×š˜\ »FÃ‡â¦pÉœI	YQáÒ y"ŸO š›ìÕ¥)ÅóËÒËKÇ¿‰Æ³(¹O‹JtÑÄµÃF•áŠ„X‚­Ü c™6sbºÿ={ë [šUipN›Õ1ëøš$¶¿ì¬¯ÈŠ.o¾å_÷y½»¾¾¬þßnµ·•\˜ø4û@kÀ¿”ð ?ob®¶SùJ†Îp‰ùS2u—/áÝRæJÓ6ÎÏ—÷]Þ¤³Çdz?²%õr —ì,µSOøç%8˜–fòÕæ«|âÁóÜ'èáÚ¡doäÎ0XúÛËìÃk÷#~XyV¥äñá(Âã|üTê,>ÀÑEÖtr¼ûU~-Ï9ñRëØô¨kh.7cøO¯NâÜjU.^vÔÕ†þVîs $ 1œuQ«QqoËrüë<§yåzž)mêÝ.â>PºH˜›Ì¬îÇ’QÐ,”~3ÕX9™Vž.:}Í=_òZlÞ	“Ê½_ÑŒiË.—kŽžþª&Kh#çž-©Äœ{º”òóW7_‚!æ&L<þ3VÍt¬ÒÉ$ÖÉ6ÛŸF×£I2š>öG7ˆ€Eÿìpö³Í:³sRp››ÿë¹oUB¼[ô8ÔóØuàùÅ	ý¬²µøä˜;ŒÉ_É½Y-ÀFý6o_ü •+.²\'x?˜zQ¾Cèü€žò+)fñà¹-¾bøz^-3ü·ñÜhÏ?›’¾¦‰ö(a Çu‹ª«ª@¹¦Žw0ÙdN¿¤Ÿ`„Î[ÞwŒkP¤UNûð Q²:.Ô¸å15ÈÍ±|¯pdãÎD)ZŒÑnÆÚ§ªèÿuWü¯
-Õ=Ýûîðíåªv.zç{¯IÏ³€ZgUœª©h®ç•í¨H±“­éNfQØÄãÉŒißíª¥ êôÚHyx$¡E;ãH-YB¹–+¯)&IJEP‘¾/ÞÍd¦ó˜þ/Ú!¾Žíà×¿†ƒÓ4Ç›ôÔqRêë,6ÇßYÚƒsÓò¬ÄvR­V7|Begi:IY[í‘«u½l«_|Ðëµl(b±]Ÿ$sLâ‰´KGvzÌd)í»6bòT
-SwB)}ïEhK/Ep$3².sO¤´Òˆ¯ºæ…MR3:²È›	yq€7R¯}¦]¸ÔçÂŸ†óñI¡ôv+M
-JÐý5“C\°ê|ÅPr—µ%&Ò=-Ï*O‹Îá0‹bÌá0Ö‘ivæ`på¤t¼Òt´O™ã¶´	-ÚÄæ“U5&±ÀQ©lp
-5Ûù›ÄÛ&j£’Ã™ïNÚ86Ðú|Žo™âÜvÅ}ØØa4#ÜÉ(€ÝºAe÷#‹5«-¼¢:xËŽß]ö.t_Utåþ …vÑf”62ÂDúÂEp›dÞiUÐƒ¬ÿä8YwµZE¢DÅ«mÑ
-Ë˜ÊŠú!<¾õŠÂ	œV d1>cw8„×h™PFç\›D¹
-îMà#»8™¡
-7§KÁ){^Ê˜Ä ³5PZ3¤îÖ"i-X­eŸXŸ¼êä-#à^u/¨BŸY¢ŠÛùdçW.>®" Û—ækçÓÛ \S_äN"ØÝ	‹Y°þ(ëTbOUÏûŠMÖ©Dóhu•¶XÃŒ“ºÒ±žÑsëfŒËVŒ–M½8’j®q¼XfcÑ˜p-U)•¹uŒÚ§|~dÌr¯§;Ï½6ù†˜ÄE
-RSéÖÐÁ›Ë»z’T™gsS:©b>ÒmÌS1,ðWŒ‹Éì·¡?r/P!/¥¡çÃ°þÀ¶Ù‡Î2kÃÿŒAgû×{xÇ˜ƒ•ë{íwÝƒÍýÕnm@é*,u=–ÝWûÝw»{íî¾¨!îÉX]Óâ›ªìmt·º[5²2¥;4UC’cª
-õ®f¸í4Ð«DÓ&df-²mÞAÎ­ÐòÖÀÓ@ Do³ÚPR`-ïè“µmñ™ðP×‡Fë5m Um’Ÿbj?˜I°.šÝwE £èÇî•’\Aï‰hE&UHó^neeå$Øt6_ÚU0F2åöÔk(ãw‰¸¬ú"Yr…^ú.ÈVÀp#¥‹+*¿ë8Ýg«}ºQÁ€\ð1L˜úŒ¦ŸÿôêŠrl‹Ýÿ{lpõ'ÉÀF‰ˆJëÈ1c„Ü‡¤ÌàÐxÎä6»‚I´”D!V £›Ýß[:9ó¢k×Ž~Ä­Öv*Ü¶YèÑ4z¡;+K‚ŽdVØ~Œ.”íxG©Ó¶÷9,KË·E¬îqYYP,±tM±u°Ÿâã¾„BˆÝë·[Ÿ
-\~¡J³Ÿb¥Á¼Ab9¬ÓûQÉÎmºjTšŽìàWóÜTµmûZU¡…]€Lþ2šOÐ·^3óyüjþæbó+w±1€óú^4{—Bu4,ºcË9V ÈŠh=y‚MLPÄ<ÍYíØø% ç™79%Ž˜yV¡ƒa‹lÔ°’Í/êmü4¿Í…}"äÊ¨h>³ƒ™LåÒ%´ê#4|¶¹ÙÞ˜„*Ø¸Ì18V,¬ƒ£Öý|£#ÖêÃ#…ÿÅ†§Ä¢dŽñ±¢Qx˜‹—õŸ"Ç¿» mpê÷<¯^k¬„jI xÇCæéxš KÄÏº²Ê: 	v"^¢¥¢ÎURÍ×j‘5Ræ–âþ'Ã!9×Ð@kH¡ãZŒQ±à ËXhbA@K¢’' 97ˆd–íÿÛŠ[¬¸ñÅÔ E\V»É­5¾mÑEyÝÖDlú[e2­ºã¬K¢Ü>áäWÂÌ“»Ït+"†qäa	Ìô%ZU¸C‘¢pr÷“’Ìæ#%a˜%&¸Ö¢ñ1jC.ÔÄ|#§èÏ6®G‘~è7¾;(±CúIf‚ÜÉÀ‹àe]€m4ŠÇyçÜøÆ½¬ÍÙŸ:w)h¡.hbGeÞçVÑ°¢T«‰H…UŠïM¯N#èŠ}¢Ú %ý´¸í}A7ßýÄÊkº¸=ùø(.†ù@‰Ú1Á–Ô£“@IQýÀN«ïˆD>Æ{üÝÀ},ZJ#Ó¹’l
-ºYÆ´ÒH¤ãád*b¤ùÄìûOÚërYPSj›EJqQE2gup¢’ í¥*T½23nÄ‰¢òÚÕE“ ¡½NïïÇÎ„g®‡7ÃrÿRc*»Æt¯K2Z¥¼°S;ŠÃé“Ë6±M”Î4kO€‚”RÇWÌ$€¾`ë,ë’›½$v'âú*h®&Vzý¦t†n;Cqa|éùeÈŒ»Ã”.ƒé`zÃ†=A*ô±@$ÑW{*¿¢@0%©‘Ô'Ó8E’KqùíI’ÔGæù
-ÔI:ÃQ¥$oWµ$yÂÞÀ,vØ›‹Ó“V@ò¢{uGxà	—lµê+K+×Ë¬öäOÑ4|n
-P”gÝ´n°K€9eÔ§<·ŒúT;iÊ5“#±¹RÏh°RûCµ44:ÀJº8ƒc¦ê¤‰oY-qÕ$u/üâ&à×îu×Íîº¡ªîÁF•éAR]¸wšL9|ŠfÅ£L]£hEc %ðP–$À¹'M´Ž¸¨ÇÑLDî|¯è<q¶ÅšòWî>JÈU¶ã­JfG\2?ªè½ÞÖÇÙBµ±EyÇÑ81J~ðŠHäYþ/ÿþ?/ÿ}Ó”½ö¼¤[‘Äò`Ÿ¬&Lræ–¶XÖ!êÕ¢}¯jˆ¯™Ú Ý–°WŽ¿U³VŽÇ`p'WÓÄ ¬†®ÍÃøÂ[x6ki¶pÏ¹oÔ”E•±lžÎó¸8Ï· 
-ÍtmèÀÖí¨Ê-wxŸØ°½æ³(°¢’a0Zãª¾W
-jQ™2Æá'/Ì©-º\;”|ËŸPŒf‚ÆóI¬Ñ¨¬ÐxmÅãè&A‘×RÉ¹©¨È‹™$ÓãÙšºž3éH¤¾³A§ãÒ’t´¥~X_ÈJÆÁl#ñ‡í˜¦…¹›;¾uŠÆˆ…RVfGJí›Š
-G¹©Íw—NºéãSn¥éì½À
-ôÝÎ¦,™Å“5¨LU!b©>üáÅ
-U±4`ö‰pðyœE–
-âréÓmØ¸Ïú— ô)Lí®ã¹¾(œÎ(äÍr<5ì5ÿè.³aÐ7¡Ídí‹þ"C5ìõóYcž±ŸDã>îeÉèxÿô ‹eBç7f˜`!{>uOõÇnØkGß­æNèªˆƒf¨Ó'‘×TÙåÁ%³íÉ™I_˜7®¾jÞzôÕbçâ›u c'M‡ÀËÎN/.-¶-h@
-{ê6û¥&ƒo7q«A-LèÐ€f²ò„±šÅ–wþí¬nÀ®•Ú0€û¡´ä²–N&i[û^VþäÕú/‹8“—NqÜØ„qä¬’?©@ÐEZúg^0šÞ–mzÑ7RÚêöÒ4´{ÿ‘R/J‹’=ž3øQ"8(S€*mq7f4U[Ñ|k@:Röÿ/ôS¤ßÚ‚yo›CY¦[Pí§ö?lPvDæ`‰â8 ®¤¾JÚ¨áNý”á^ÆÕ’¨Žz G)^†ž£Ÿg f5™¦°ê—›K%$¡gÄ{¤R"·RAEXaf–=cú@föMßL.BZ•*EE¤{Ýx›žÀ”·ÒÒî¥+Röf˜µU[ýÛ³pJEÓ\@>ãô…ðîî"ô¥í,Šòx‹:=¼8•J‚FðpÃzí²ÖøµI^@æL‡ü[“9…û©D¾DàI{SRÍJN”ºS^¿¹ ÓeVÃ<…ÁDJý^ßá-ƒŠÎxBÓRÁaµŠ÷+A–†k+(1ºeþµv_K‹Œû•f_q±ùf>Íûæ&Bž\0ãrÇ0d®°=o9Ö$‡N²4)Ê¹ØÄÃã±‡Ínª"6e¦8E4n ZSñ8Ñ .#XA¬…¾¡&0ÀãøtÂGrÖç»h˜æ<fËp³Îx¹IÐÏy0Ô¼¼vÁ®`h¿ð¸H—F¹Ì7.)/n	hÁc¯ÚÁm· »GdœzÐŒ}u¹²ˆ®õª~å3jYâCõ5ì¬y-j™õùìSwàÂórþ¢Jy1^( “,¡Nê† &|i>¹Üeãd™TœôFz;W‘ç*±9›Ñ˜OGH oè}Êtý	~ò¢¿¢¶$aaY5‰ººX/Qä‹R
-$BT‹Ú8¹Ÿ,QÍ«r­’A¯ƒªFã™ËHÛ/î9>ˆÿjq?
-€ÄúîHXó´söîøùSÑªKòž-+Âˆóž-'cþ7£¬1^m’µLf
-8Æi÷ ÿ(‡8Gå¹9cL¿ÃÍH™´B_èüfCDv™ÇäúÄgV$ÅÌyî(¸X²¾Ø¥”€“…æO:­«°ìÚHß¯<fsê#ö°“GÎvÐj±ôwv‘£7ÿ9¤x]§Î
-µþè+=ôÐ~VÀª@2üÑtõIüÍÖÆ|Ò{šM<šŸ^KeÃRIrÏØß”ôþî«ï˜RÚ½ÉTÆ'’|&ÃoÚàÏfÅx„$õªÓÉ•ë×ßd#®[&|~ÔÇNðk¬Ñ›ñ>b=`ªìŽß¸'èþ²½´L—•u`p'î·Ð$ž(2
-O'²OÛ%¬ŒÆÍF¾ßû®±§	å—˜d÷Þ\Ôl6…+æ+õ«0iøÞÁeïˆ½íž÷NØ^ïþ;ÑR‰îœ\1øƒ¿÷.z‡'¬wööðcúÏ.O^½zÝ;ï5R‰Åc1%F{pz×¯’×õqº{yaXšß2¾þŽâï<ã«’ŽnS×ú6ó^y¡L¹¿‡xÏVë6‡îµ‹‘­Æ°QÐHjœ~ß9˜¢§/Çwð`4ütw…ŽöÈ¼l¹ï0á\ÒtÁÏØ;±M{(,ëxšÒ–ø¯s¿ÖCÿó2ìKCÇæ¼–uZƒ
-U|Öd6tzÙÃ3º»iž>ø¼9ŽuÄï[ØM*—j·"wŸ!9Ã{ +enåŽm…mfG¶Äs¾‚ïšÙCñŸÏe-ç•$&ó”\wÇÃ]Í™ÈŽ¢Ù?i1Xóû#eg€<ÈÒÙneV
-ôMJå(r²·jöãÈzòšbã¤–h™Ë®¶Ôó~ºÆ ¶qZ>Bg¶Y—RsÈdm¿ÛÚÚÂµ±ÿ-IFÖî_k‰=åÇ’Myÿtïòû³*i8æÛ[ã¬¾ i–³Á—y¸³…WÍ-›Þ„Î /³Éma;;¾c0@ ÎûúJÅ,jqQ;õ‘·ü/ŒÈìŠ]v• &¹À¶qõœYfbuuõ9Ã&çNpSÓÂÂË«+¨hwUuPd5d‹QÀ»Ý®ÞìOC8%m³ul]K…"Ð±7ÒÂQn†.„ÅmllÄ‰Ì78Óz7Û|§SÒ|1`]Êí¦ÍbÐ£@Î>³`ê¹Cö»áph÷†NêÄÉ7 ™Âòñ,vÖËŠæs$þîêþW\-;`í²vÒévZöÒGy´
-3“$ü·ÚN&ºÝÞì#aê³¸¦eŠT¨gæA]ü~cŽ™Ÿeˆ]†“u³–Fpmm-]·¤¥kÔHzTÈÄy‡å<ãG…{/ˆ³Ž`a¤‚â"`ú/©tNj0ˆÇgôB}K/²Î¼*H½µ,—„Ä)Óg~Ð‹@#XÙoâËÔ\4†Éž™{zV^UF03­¢ÊxZjâ5Ñ/&ŒMýãø_!PM°²"“Žª5âl\}z€¨ÅÊð0ZŠ1)»âd˜]C™0FƒÃT…+§ï<ûbþ›±3t¹Pö”n´Çˆ´Ù7îõB|RH7ÔÌŒ_;ÿëtÇcXdãñs&ÖÂi«•¨Y|x±bp^Ø¹¿uÊ%(c®<‹¯™Ô¾¾ôrßÀ1¾ˆÄÉqdà™^ée ÆÅ‹®G«/sùØUç 7«Õª ß#S˜bÓU‚ñÏ„ó¥JÇ*SJ›/±-•,Ú2~™6R>†I+s§öž³ÙT¦Ù|£sdœ­Øîœyªç›(Ú1Ÿÿ{áTßL…ÈåŒnTaSb±²-cÄÈsZÙŽÊî^9›ìÈ©\¨&ì,›A·j‰SJ#åÉ„,GA{ñ¾JfJ‘;ÛÌ£dš±™#ËŒ!/L{þ3(ë‹d—±`cPUÏ-S £4ûË‹’4,øQ¬UêvJ2±…~Ü%žVá…º¢hÝ8$béç’n/þ&­rK1µ¹9ØÃ‚¨|QË'<|ÌC~;?sýBã¦p3Mœ«õ««Jy™K‡63¿k·×7ú« û‚{Ã)»à<d‡—ÕãíýQ‡\µ—;Q/,øaQ˜ËÉšÇéÅŠ¹ˆÐ9õjÖŠŠŽVâ}_šéÔ5­ná-ÿ›Þ{'Ëìõá›óÃevvÞûžò¿?è]¾†o¯Þžœ_°ïNÏáÙ.Ûï]¼Þ=íï§.õ….yÿð¤÷ã›ÞûÛa–z#>\ZfKÎÄ™ˆ/0¿;ý)þ=rÆn€_Þ8ãè–D©0ZÒœw5Ð'g—ïöú2[[f«Ëls™m-³eö,Wã¬wÑ;ï$ø¼u®]làŒ`ÆéÛ”ðzGGÂÆsoá‰’Þü3jØÊÿîè]Üjj¦–.0Ó
-6õ–O†ÎŒn\ŸZ€…®‡ß/§^„_Eã¾ï\$ð¹ç†Éë»‘náMäÁÓ[Ø‡©¯ð#à¢·¯¸GÇ2ÑÄwÀåZâphà$wGH
-X³ècf›1”Píèx[(êûüÆ¡iDçi	Ôbá›¸ñc~ÜItþÎ‘írìy¦'úü†ì]îqQç:cp£àñ[z¶ÝDr€B(6ÁŠaæ&j÷Ý[>23³AÈg\ôc(ð¸rÿ„“º€€è‘úy3ÂÎ§až;>‘¿¢õ3¹.TõýcÒ^»Cñ~×	 u{NzÇ½/{¯ßidÞó\"¬ƒíwãFöÅ]GŒ“8,…4'æÃ“ý„š‘nà$+q†ùŒ¿¸ ™ÞÐÍyÝ;?üñðâmï8?Ð=¯‰Œ‚Õÿò_þúßÿåúËÿñ—ÿ«A€¼æaL0e¼xõ?ÿåŸÿúÿúŸþúÅë0h^0ñ!œ€E†ÿÿ—¿ü3üÿhd‡[ñûî¿«ñ¸¡ÿç/ÿË_þ?Y˜
-ø6Óûÿó¯ÿá¯ÿé/ÿU½ƒi òH¾ýßÿú îÿ*ÞÍÞå›ÿ
-Pÿ·FÁ”ŸýñøôäòõE~4Ž£÷}>£z%Hïœ÷ÝZä±Þ­œÈø‰Ê$&¥ã¢4VÿÈ‰/îx­k2C§*ŒÄZ…"
-ÎþÏ‘÷'^“¤‰¿FîÇðKïlü]×ÿ(ð»Èóö–yPGÓi°ö¹àÈh'á$êT­D»þ«±&ë°múú<Wgœ¯#~=e.Ô¢ùj\YÎ\yÓ©_¿c+d®’/ØOäPpÍPl Åº€(¦Üëç_;i(«ë­î:ûƒ†Ÿ²µÍÎF6º9VºÊTj·6ÚíÖcïLU>Ñší”`ˆá_þ…ã·Þ]3¦ÌDx²ÃáçtSõ:ú=[o@}ø¿åÂÍP•ê"~PmlŠo™öA}0ÂÌ]\ÓH7õÍ&â=¸xNÀ( <fù»ò§cFûh#‡Ä-À°#±AÈw;mÄƒþÐ/˜D>¯Ý¾ËÆ|6£V§>{Ã?ñ‰8’¦žnÔÝÀãcóý¿ºƒBÚÏåèßŠŽ°ÖX>0”ýÞ!«6QŸDcC±}ŠÏ"JA«T(OßèYŒ‹Š&›ã‡ŸD.Ükù6B>ŠTmÐK§›/ˆv‰—XØ4W	”¦ ›-œ®-ñ­  Êì†ôvê»Ùà4D5îdh$›*«]ÄÿÅï@8&ŒÀJvÎª„ÜC³Ù/Ô*:qf!ÖO$ÞrqýoL.ZU'%©~HV´¡&U½¤Ý§)æù[¬¿ˆÿ1Âyãh	};%žë˜æ«àªÞN¤êr•‹Á’£)9¦êÒvòÕŠŽ,¨ÿÊ—MFl[ûnJË‰Ëk›Ö\þm¼Æ¶“¯†¶ém'_ó¥bßN¾Æ©o[üI½Ô¬-‰v°Y²È,Û±•Çñ8ÁûJ7ýçóÐ–ÝÂ_T¥ŠÉsv·»^fSÊÛ	s‹ýlv~“]¾Œìb]àk2&*f @ùgk[k«ÏÝD©"ÕÃÑÛXí˜kœÓ…Æ…ßíü^”7 ³|8ÙË·ý‡®gÀÁ0 %Ù[WÛ¼Àû`<M5 Ìcqzõ}
-“LÃÍj:Ä?dò¢¶j¢*! »Ëô1×ð¤WØú³†@5H(éùHƒH£ZOš¦Ýù [Hš+ÐTÃ2 Wx ‰WºÁ|bÛÞYfiè&¢FHÒëíg3ÏÄ{Ç¹ÑíÜ5æ‚Í¶ˆ.v $k/àýô¡0“cõ‡¼Øå¡Ú’`ËÀcUõíä«ycSÍo§~Ù7A5Lw-9ÛéI±Ä¦¶S‡ç©j¹A
-ÃÛbñäß_›ÚßmöSœH {¯tÆ-Æeþ={ýÓœÛ1ŒÛké.³ÈICjÞ|Åñ ›æxo:žùÎÈ¡ÔÒìp2œÂ¹sü¼F{4Äù	;íŽÿ	ÝVþ›oÝ~äÃ›3a“Ì	`,¸×0ŽÏ	¹'¡ö&Ã¨¡w„½y Æ"n¤ÔõS¥ÈÃ<UÖ»Ë¬Ö¶Ä”OU¤åY¥Úx<ÄLQ5x¯2%”lÊHQë>™šØË¸"ö"‚?²WÄIÅhIW°	Lfž‘LµÉÙÉ»”ÁwZì;÷³3djØYÔ÷ÜA<Åü¯°BL;>³Ôiv–¶Q9Œ'6ŽVÎÈ]Ê/Ï¥uQ–hg7ò£PZèøI3¦*Z•·|äúìU“‹ªã|ñ­fg3.äŒèÜp Ësg†½½IhÛT½Ómv×ãúçüŽãh™1Ã²Xv/
-¡;Ž UR¶¢àGdÓFøÒÊ&Çƒ4	*úÀìw[lÿn‚…IÆ’ÐA<Á}˜¹!ƒ¥*T%ÈÈr×$~¤óÁ‘s§Q»®žˆ	=­!WC¦lL@ÛÙdÖÈƒNtb­w˜Ò·6–ò ã„µÜns5ø˜Gh†{Âû.ù]ôÞC]–RÞVl¦»ÙÜÌ7søœ»5Ÿ4µÕÝd¤Ø­Ú•f§o#!ÈÃ! ýŒÇIª«â?ìîœ°;íf§[
-¼7qÀ»Í5u~žêWªM8îUSþhÿŽ}oÖþ|[Ì
-»íîz³ÝivŸe8âáØ1±»¾¹ÁŽ¦“ëŸ]ÏÈEýUYŸú\vrçÌðž=xÁo8…6³×"œµfgá¼çW<„¾QÀŽ|7áooBÖÃûÆBÝ6‚8rút£ˆ|Ðnp&¬0ÖqrSõ=wŽÃ±ñŒíÕqäL¸{“mÚRo' C|¹puÙ«wåbš¿Í²ùÛÀùëTž¿-ÛÀ1øÆEÖY[Ûd¯+w®¼õB9Äúƒ(gƒ(gm‘ùºÙ4ôHY××›«µn¶íÔ
-57$Õåö$hr«¨É-)rX÷œB ›H°í\ËŠ`·Êvi¥]™`ŸÙæ‹àt
-	¶°P¹`K*IlQ‚ ¶D°›H<b"æ"Xª'HÇB°…]_Ïq‰„`;v‚ÝD‚Í“"ØgEMnÉuYD° Lô5ì«Ô©‚\X½L0Xk	IÝpr!u*auíà›¾¡òvô:¦ôÆSÒj<K½1 Ýñ›PQ°1<j÷®á a<i4“3ÉÑÔŸ0Ç PÖJ%Üßò(dõ£Ó÷½·FúìèKó•ãs¤ÎFìMpÎ¦£iÖf@ÕKšÞÁš’^£¡ã[0ÕŽO¯ÜŸ]8ÇOà@xƒáã6’V3áA0)A2õ×g'æE'é0;‘gFçƒÓõòìà²g®­íg,8»6ã£<ŸHzXTzµ©·1q®	¥#gÈñN‡ÄA‹V¿PÑáÐWŸÁ)†ûNhìõjsKï´3žEP­ô½ªïqÀA¸ïn"´õàÐ}41Ÿ™¡¬qvùê\m"uÏŒ[Ðjs5¡Ìï\o\ˆ×ZS?ÝÎˆZ*íüš>×Gdv`DfMïön4v‹ú½¦SÂYäÅ¤ ŒZ'…¡;¤-B#sîÃ#è†qÚ×uÅÆ.ZV”4ÖÖ*ÙÒRÍÁ#{sÚ!ä-Ÿ|þò.pya«Ÿzë*û@öÚF³¢‘ÜHM¬éÐus–Lª|Bq»î°„µlè}FÛ×<=€¦e 6u•ÕˆohÅžM=ßµTI†A‰ÊiS?MgÀ€’Jªhdzä|ä7AuTÖ¶¢	/f[úÆñGá¢ï”9»tn&Soz]¼¶R¬Û‡å¦˜´¶äaVŽl».ˆTnÅ>oéG²}g ÷]ö=l;(;šj>Ó8HÐ¤Ü{‘ nùÄHÏš:GôÈ)¨˜FŸiìùÔã#ŸgHtêÛ(ôYZrºSÃ¨°úùù¡­zÂXÎ¸G~q0Í#½òÙ±­²¶/a`J:©ÌÎ¦	—U¦cà7Hø0¬Aèx¶Ö4"€½E YY›Úþb^­¶/VÎŽŒ$€ê)}ÓA¹©¡¡Ž¶‘ð°d»…â	Ë¸tÈ˜(™}m.OÌó€8nh³H|·€ã"~	‚|‚§¬µ™ÞŸÞ CBŸ‡ûV¼´)ëbÜÌÒ¡Ð&ù""&+Ú:²ªït‘èza)aøŒÐÒ»¼ŠÎq•à‘e„½»é­i|eyõ@ñŒ}—÷Ï…Ó—–³#?J¡òî’½2ó3¬™ï1Tá%äÿ’›‘Nj==?³4ÐÕVKïpÿ¢°]íXBì®˜hÆ €C¥l6(î H2¤=í<§Œ˜õÃFoÒLDàªWl^Ã¾ÙaóIDkóuïØ¼ bÒË“(àÒàÞ\4™×7¹£¸
-»#,}ÖÛ·ÕJú³û<VØn­R>ìG¹czîœž>ßÚï¨´r­YŒÌOæVs7gümöÍ7š ßCíå6+,©¡·­ÿ°é-ò¾V¯OÿxpÎÎNÏèïÞéÉåùéÛ·ðUw¤"£ÎélúÉñAv.Ý±3Âø"7.ß“;“ ò=î9BüLTÍR•`‹"9$ˆæ!4%Æ\•ðÎ4¥™¾ÃCG¶Q¯ÝOY`²RËÅ+oæ*ä(u;óÕäÃáÁ'À÷8dû˜ä#
-R¬Ô–ƒõbçó“cK+„Ÿçp_–3Uµ}* Sñ¼²)FpAÿÑONIÿ1ž´¢´×ˆ[43F6<‹	][˜Eo2Ü¹Þ&·Òõ_r¡C±b›Š*ÇÏA9œ;´ÈµúÏ?µ§Ô¦O¬-Ëb7š `Ü¥Éqël<ÀÃÑsç;§ï«ï¤9"/¦™/\W8Mä_þö®#¡–FÍYHò0þ8½	§òë	 £ïƒÔCß0á†Ú×³c~IGQ7ë(Êûôêˆ+GQÔÏï¨~ÚO?†¶Dà4N8í,5¾³`›î¥ Y,õâZd'º©z¬êá~îó›O?‚ë‰4É› õ€²Â2vŽ{^ï)—’\Ëð×ðkÔŸrHÑ¼Ÿ<a¦ç­¤*F—aÛdÒdœ“¤¼ŠÍ)²s°Í$ß0YtÂŠTÁ=s+ýÅ7¸ßôöaw¿ì¼zÕ{ËNz‡§'ðEFL¿<=Þ=}ËžÂöoðûÖ‚è›‹ŽQ$´&&TŒ´L¤;âŽÍú"QN7ÚOýJòÈÓ¸áìYbªErººmbp™Ø$€„°« óÊ¼pU¡¾ËúnSíÚ«lìÀ1àå‹÷%KläÔê¹_ÖÆ6—	{û/áÄ"“ÌæÊâÐP²…’äÍM‰w?6P ÎkC–k”ÂJœ^¬Èåà±Oö5Ÿá(Yû£ŒQ“õÛŠå`X3?¥¢
-SÔ8Ö¿nâ	
-€#+ªŒÕ\dæ
-Ýïš°L<}®È SFúI$×²v?œÈ5âGG¢Nü›Ç?}NvŒbU8ÃæÀõÑú»ú*ã.-™ƒéŸédà¹ƒ›%%£VNgg>¬Škâ}Àà)AÝ+oÚç^o8|C$©«ÅÄIœâ¾Ö¨ÐÅ«ÝY’	Æ8L?]k’rŒHì6árh™(:»O¿’zÏ1êy3UtùÆÐ˜M]
-²Xˆ-C3/
-šÞµqÁ¬Ò‚Ab±ÆŠ †EÒ1é²¦°èÂÙ;?dowßÇÌ7'ë—‹åpSe\[ÅŠ›`sjÊ&Š¢èiU‰ÉU©˜©L•ù+_›eÌ’¶Ë˜ iÂ i—Ãf{É0O:íèÜ(b¼–WÅªÕTžœÂÖ‰yHâÍt…ž\œWš_ÝêË+Öû¥9¨÷ât´1)¸(ˆ¥	Á¾5e)¤?ÞŒ¹cæßY-÷
-£xe4cØhôáÃ|íð[dl¯F^s´÷õvúô/ÿþdyâƒ¡UHõ¾ÑœÙŽ"`¼Éí¨w–*WHVZ@9¿BC¹éÙä<ÃfR_‘h&n¹?!÷Il0Ï0{„FWg¨(ÆýšÂcŒª!K&
-1É1É½@Ñˆ\›>Ì*=4ÝJuï‹Ð¨(Yh8ÉÈ€M¢‹ê}
-	ézŸîiVäÄþM0’*À«gŠ.ÀiÁ W¼kÄñçï
-¶®1{ûì[çð=9iÛûg8Wïúw«ÉbÚêc!œRÏb?êôãØqúž¨PY(êEb¯é{8?¼'Çý&øÄy­€bªI&:gqqV„oÛ÷½×À]èþë`/ñpAö2žN'´{¹íKg3¤íXŒÏ(ákrN_¹¾ÜñÑWà-)ç–wŽAÙ+ó\z@Þ³×_”) ñðµŸôOy•Þs´jKm¿÷Ýeïœõ^œì÷ðŒõîUï‚õà‡ÒÌžsèœÁ£ÃË·ªðYø¨ÿþÁyšQj¬PzT©1L47p]\m“Œ¢–:Hã?	2OJUøIt0ªÇ™tœ^mÐÇ¯Iæ+=®>P·%)‹T§B Kj·@%©ÓïÐ&Ê@,‰vÌ?«3sçYÛ˜¹¡²äÊ¯[£aä5
-’BäÞ¥HÂ´¼žé«+@èÎr£X«ŽK… à¥ò¸úHÔŒ«hµ!tVE::1YP±€A?ÍÓ­l£ÉVï™ÇÝÉäŽ·Z-¥¼+Ud=òá–î?'Ç}yü³Ÿ	N‘gd½Á ò(cµ³ià¢z
-„dë½Çê§•cò2ÎaéÈ|–&-¹ï’ìÞrì¢.ÚÙó\cBó¥ ÿ—IÈ`uX„ÔØSGE‰&ëfãàPÐD¶n%åªàÞÏ>›\žCºC¼[øµÉLQ§0Š*EßŸ²:ýaÔ¨Y»€’› AöšV:ˆ#oäðZÓÒ•Onà’u
-:ºÖFîpèLj¶~ËìX’kSu"…ˆÖ‰ZZÂ«_<2dhÃ’ÔÄ!‚UÖ1nV¹áLÕËdÿ¼Nš…PäõÃÓ|å<º45/ ½†š±ìdÆ¥ž&ôöÒHa$˜kªÃË“aÙŠ9ýT”
-¿‘šË¶UiüYT<M<ôËË†0‹­!ðBo÷ë5LP÷ÉÑ­-L·å¶ÛüŠ7âóÝï¾l€âtïbº¢uÆf²‘KX× Ç4œÉ°¦~-³ÎV»dÔ7w
-&R:^È³8©ôÀ²ä]çï[0h¢–­Àµ*€Apèl´ýóÞé+,²Ì\Poå¾	 [ÒÇÝ3À6FäÀÌ …ÉêãIIDÏÌÁ6D²öŠÀè¨ÔÄƒQSÔ38Iì`£üFAWiê²/ãè'Œ%;/­8Ãíˆñ” Ãnà>z­XyäêÈé7¢úë´Q£L)À´t”–ÛÞÌMoV&PáHü í3)…«ÙòV¬-à’–;Z†á1šŽ<EÓ‘¶"fÖfHÛz1P©ïq:ñKùìS±c½|<ó–Âûzá|¿²©FNX™3$cÖ:¾wáeû9üy‘žfxôô©ÑT¾õÓ'f&Š”ïÓ&vÖZÝ­ßcº¾äÐ'-IUD±D#)¦¼óœ¾¼ØIh‰ž˜ñÌ›ÕÓt,BâÉ€¤›ù-I]€ÄNí×5`”©Ö^çRRi]p¢E‘0×’Ó¨gÇøŒJ«'ûYJJ Â/Q¨¶’XJÚxÌ†IJº—_<¦Rª’q–`yë*}œ+i•ƒ’wpójÅ`c-tHÓ„”µT0;sØJá‡(Â¾{‹:fxˆG…µÁR—Žu´xSßXô·¬¦]‘SVq©ÃÞà%@9lÅþ41Î²Jl´D‰¡=üèx×÷ù†j÷ù1á“hI–£G+pAä2*újØÉÅ5wIµ£KÖÖh&õMÞ¦^’’šm…áßY³£ßö	Õ¦ÒpztèL[iJ9‘ê‘ŒL”IMJ-dÖšiRÉÚŸ¢¼‘#ŒÊ¡øäIwä„?´7V£‹´ÁE®«öí¯Tù<ÿžXIõ<kv™žÞ5GßÁxïŸ–"^q’‹÷Ç2_LÂ÷KÖ¶é3$¦ý;K6ëp4ù‚=$kÇµœ1—S†‡…,e—Ø¨†
-YÙï,ÙŽÞ¥@¤™Z£©úû±f3o‹¦wËn;™‘¦µZ%÷ÙZÉÝNÕÊ:®Öˆ;‰3f¯o_Hã'm©K¼’>Z1µ’Ôn:WP·›C‘—^ñ®4±›Âñ¯¢cOk¼<Á§ãûó%…MõŸš²BUBà‘õÛâ(RqH¿m(¿²ÂN²Ñ«Ñ›^3!Ñy‰=aÿé+[ÉÞp¸²«I9« ,‹#vÁø¦„½e’éèÑ$|ËîµÕ|^Yóö€ÅÒP+˜ynX¯5ÍºyäŸq?p'a=†ð¡u~Kø5:æB>4”ïþ`>ûýj|þîüø£9 ´[ì}°ß»<`ïŽ{çß—ºÌš«È®V-öv,µ¬fdš¸ôž›Ÿ&¢Þ(tAÌØæ‚ÐŒ`.c§ÙMû!h¼Xçh£ªUduÓûylíuOƒ2£ûŠãP	fB:•6'öq–©•)7E’h¹¢ý[½Ð@¯AÖ^”(göH†`)»ºÄúk.¯ìfGOX´–¡ˆ£žCƒÌrþÝRÖ¼},¤è*ë8]³ÙºÁå§ì#Uo$ŸAØlîm1õ6vŠl¯õ9-´¯6ôÉÔ¦° É¹¬K¶lØ’½ëfM9s¦Š>eóYþum<=Ï{‘Ýjl%?r§‘ŒLc¼¢øÌwÇhÏ"†QJ{O¤gŒZ½<eÉ–¯&Î\Á>u,i`RGjP¸Ä[nV‹Œ›§~´Íë‚~ˆßû7+ÃdWÅÝwéå®ãEcÆcÁ"b!u~†•xàNÜ–Ym»Ž·¢ï¹AØÄÌÀ3! 1Ì´!Æ¶©«©À#!²˜5S©Ö*)4ˆîXNIÈpœ­bÈB¶qYæX¤ï©’9¹Ô\*.i:PÜ(]_À ŒA»vU&,·*ÃZÛ-‘Ã‰ò,mKœYSÄdc6¡#à ³R«®xTÊÍÛ¨˜ôf4û/N£Ðs'ŽðµÍN¬é{u:ÖÆŒ­åïº¨šA Í(j2Ô–<¥>ñ5ŸEäªU­&3Œ;ôaa–øô%£YäÛWqÌ^x”)ðDšõU¸Á[YÁt×Ç°£ïö^Û6ÙÿÎÚFéYË°¬œ±ìÌÉµú¶œ=­æ7frç”>·š@“vUM»¨ÚF©“†]€ ¢ï;±â¶˜qS<±-}ÀìMD‘Sî³/V¨ZACîd…Ò/1w¸³ô'\‡°4	æR
-Üü©ÇôÒ#I‚žÆ3ú†¨pF;†éh›óÙÑ&ÏÅØT€ê».9ÜÐÁñ»m«Aüé-»–>ÿòÀx£lo\`NŽ€9]O}·t¨ÔˆÂÔ\Â.’YHû®¾|T±1‘†ð÷"˜|uO$	èÈ¹vÑòÅŠ(67<’Ó–^
-Yu…í;|ˆûÀÂð|¤›¥—‚|VØ±ã`Ü…Áhû¼»ôòL|AßYø‹Î+U Â^NC½§¦×_ú$WªF|yF°àª—œÙµ—˜0xwÀ/Þ÷œácªÝ³C*Øù£òW©€ßƒUþÁõÓ™L×UÎd*‡þ§–¶€·ð0—ƒZÝ,—•ØXë5úãeqnòÝÉ Xk«ÕÂMLa4ÿ ›…=¥BŠ}·ÍN»­Izpf»á?É~kâ^ÑÝb²]ÑN—Q,òO©=ýÂãàÆaG„£ã[†Æ&ÅU8a[-2Ç=ãÅÒZ#kõ§²ÄjÛ¤ÍHpÅíì¢qH#u	¥6ó%Ô9„o¨±‘V{ýé4@øµDÜ»©ét<žN¨P-›82¸…Ò{ZÜMZ`3+9-x«%ozPÖ)6œM‰Eæ;,<öU‚[»%Ïq†jP1ÚíÊÚêRL+Ê¶ˆy·Bß[ì&ñT»£zù­ü"ªá©Rví½Â>©î}Mµk2ÛH:dÒFøa½váz’xÌƒè¿ˆÞq%ÕQèøžÓwG6ûÈ‹Z&k95bú³Ì±(„íÁf±èS&A ;5'Œêµ>sWäè,[ôDc'M‡Ðû³Ó‹KCoüÛà`›ýR“<¢y	{vÇ~6~K„+ƒé¤vo‹}›½¹8=idCè^ÝÕQÚ´í$< ß²œ¤e1÷†ÛÓ)3÷ N‘çÎÌˆyÓ•b•¶Ç-‰…Î-ƒ(2wFt“©êKx-S¤Fã5èNÇ`KTê>*u!PŸÞÙgu @0hNÁÂyÅñð
-ÌåNl‚‚N¤0ÛtkçcxbJiçÔv;ÔÂPÎÇ­Ér)
-ÂéÀ•ëëw+ÜJ]ÅcXP²gP°7Î'zdwüÆ0\“ë‘\Ä`bße7r?þÖ w »„¼‰éDöc[_QÐQ3×‰‡ßÂq¾¹çGý—˜Ëì¼=¸<¨™–¯Ö‘‡¬Â<˜¹V£úÌ¿*Õ§ÒêL®¼JÕG¸¾ã„‚¹ÁÏ£.lýcÖå.}õÉ²€¹³ {ëW0³X'#A¿?Üup™¹ÃSÑ.ÎÏzûï„ºQ…ÈÅˆ–½é©ûŽLIÐ°—“ýo\#$c•º0BÉI‰…ˆ:ì9f©j_ñlÈÝIeß/2€nšn	°QˆÔÀ
-’ÿêæD¿N¯3´5VZ4·¤Bæ;WîçBg³3ØXÏÄ¡7çŠ·'û’õ¾2û¶Xk	tL®îbÑ9Ã”YžˆWî0ÿš‰K[°X©}Ç?Zt%
-+† ?eÙ“ð}’Û·W©ã;*ÆÜõÏ»îP>›¡1–ð•LØÿ˜õü)rü»R“NýžçÕk¸ ã	y¿Ù'µF|ƒŽº$£à/ŽÈ¤l·7¨²û%§«“O¸~1kû²u³‚‘dtÔÎ.âjå²?iýÄ¦”å¾}nï20ß¸)£è®^Z†¦´{6 ñ •®!`¢ÁRm_Ii¢Ê}2RŽwÍµ¬Î¶Ì¸ä1l%¬¦“ŸÑ.¡›¾£æ˜%—šeÑ_u+i{xéùn£©1qZ#[¹8…)ÌÜá·wÇT À.¦~ˆù¿‰Að ¦e˜À“D eëu¾ÌútÀ©'ÜÍ$€bÀÙÃŠ¾Sïg^›,¥gìO†ë¿œÑNŒGl±s]eAz›õÐ£Œ¢•sÎ¤² ¥=/ g=è[VK
-“Ã^9!ZÝµÈR…|ÞÒ\§Ð,YìÕìtþ¯¬RµPÉC¡øtl'Û¥Þ(Uv<\÷yW¨/c±T-‚_ÜHÞ<Ha.fà¾Àšš\ªŠM<òš#öÔ£ÄI/éeÌK-<3Ízç³zHà-B×jv¤Ûà¢;¢°ÞšÃðè-d(D>ÀXˆêW2%Kµª±˜Èkn±TŠ#¸¹à'ß¹ÌÚ,ÍÎcÒöpG®¯šPÙ¤«³WÊ_ËZ†'¡2+ ’ó§8³ip‘Õ“Ã^+œ^œÊ“WC9e]Öy?«j_Õî5i P'Š:c´ÿÚ<`×˜Å¶f6sÙ$I/ö…÷ÿ)»Š!y(¢ ¿“,!U´ÈW¤¦üÞÐ7[°Ð/2*s YŒÏÔØÌc|VhlvæOïœ@éÂñ?¹;"ræF;³¯:b•ÌÃt³°˜lªš…‰hdÿUl÷uæÜ8þG¾  ŒÁ¦µvÆÑ€4õ²›x}UYÌì(mr¤Èf.“#eb´šY[çÂï£eæM1ý°´5z^©‰‘ÙRFÿ)õ·ÂÒ£'vÆ’ë1µÊcš}÷Èð^ØCˆPl‡,e"Q
-OZ…ØPhh
-;ŠrÉH¤ÁÄ°¢š2)AQ7¶Ùå-ÑÝ â–tûlèº[3Å¹ùÛ²„c´z°=ØæãWo´¶¼BÏnµPpyzŸþYÙž+v¯EÈËÃ	þûótâÔÃŸÍÂ­ë:|º_
-Êð÷‡ µÂ)âˆÿúÃ=Ý‚§›9Á M¦·¥·Q88¦8w0´OºÌ¨kåSÂ^ým´á“‹Ië'nK€0zþÀV©n»Q2`î"ƒøüÎ¡€£A=”˜‹
-S²[MA½Éõ²Ç¼ªYÁ \Â\2F‹å(¼7×[µÍÍçcºužµÖV»ð[@‡G[-s`\cSE-­¶6ž­¯Å-u·Z­ÎšÖÒ3KKVˆ­n{k+†ØÞhm­­oh7sMWht¿£Ñ0wY¸ÌÚË¹sr»WW2,k
-X¦b0Jû"lÐ˜ú§»f‰nqzõ½¸Â¤ÓWÞtê×©µ	Í)½ÛBÈTïì¾ÕpMÖiµ cuc½Õ]7›÷<wÂåVÝnµÛÏ:[P³ÝZ}öìY§«`¦A=À•e6ÛÝõMõ"p'ø¢)*o®oé5rª^»ý¬ª¿µ»Ï6õÚ«éÚµ-½²zkê–C¡°ºÝg@x8&Ôx{s]AÚÚØÊtŒ0Xí¶7ë¬mtÖ£×kí­µgko´»ÆŽÉ×[ë¦ŽYÂpú|¸"¨4|ª–@“Õqq¬°Î:N:üÄAXÂkµ³’øÉÀÈz“kÏ©sü×Í‘Ÿsº¡ÄR¹­`´àìÊKjÁâõpW®#ô·‹x@°qìQü@Àmèƒ¦rI¾v¦0>J6KR„ÄKà<Vïˆé÷ôVÇÊN`ïññŒ®sEøxþ¹0€§ÄÑäéÂ3µ¹ûˆ.pDXÅNÐÐ¡+Ì†œqƒ¡årˆm”°Ê˜:ðpÁÅ
-#æŽ1€l|æ€ä2Îì±;‰B£AºÀKÕ&^hè8]IIAã‚) HÍ34ËGUýqÜxªÚï¡šy–Eƒ/ð²S|}ºcŽep*­~@yl5ƒ
-~ƒ3,µ—`¹ŠGÛâ/²¶¥m|¬×
-«‡Ûê[ñ]®=ôÿèS$@µ¸›]ÁeƒO—ílÙÊ^D±Ùê¥óÜEîMQ?í;œÉ²š5l7¸ãéÂOnF3~=òÝ~®¼ÀÏ¸Íý"?[Ø´™CÆükvaÁÃÄjìCAöªoùeÙ(ãwÊ +ì¾Þ ÈáÈ!…uˆ¿Óc|š`ÓÈrŽ„q´4ïTdh¿êü´ n	{•”$±Tgø,>R¬ö[–rT¨ÙhpIXH«–‰ ZËâi¤ÖqÀoDá˜Ì":m+=I†ð!Ç)~a>v¶ÙÒ!Â\Â“+þÔX¯j$Sš‡¢xO‰†
-KÌpVŽ^ f&€
-åÀ¾÷E'š@2Íü*¿OKÊ?^l©‚hR°‡3`‚§¦Æ†o9®Ç‚a˜€'¼$‹-°’b¨‡À³Œ&xY
-^’n)³1kf‘7—Ú[8ÆãLâµð'RMà¤ò<[N%Çùe-´Ç¸§>¿¦£ÍaèŒë5XÓ××0ŽüGu’ƒÃöŸÿŒG¹Ý¥<¼¬	fúÜ?âÒah_é2gcK¿d*õÓZÌ&ÇFdëfn?RtþY32G¯²a¬æBí`TzX%XD¤Ø¢×s?9Í¡{í†AˆåXÁ]ûtßÀ'@Æe›8"v˜h§N™ÿ*ÀÄ²°Ê p!ŽäÚ]n4ŠT”’`uÂ†Y¢Å~9iyD"£¼•j’4M©6ôaÉC‘òã<pg‡sA·Uáˆn[²H@gï·•©0àÿÀ†â¾£Ä–¨Åäð˜…h5=P|éÂƒì÷Ç³qÚehÜÁ×E„2ø",ìÜ&8güÚ5€‰µL
-V§£[7» *¿®-…Ú–ÚÔw,=Lh»¡Ñyf†Ô‹3eàø°tŒ¬8éF&îD|ñx€›ÉÒ9ïÓ«#>v‘¥°£2¼FÙ¤#	x™ýŠ¢¤ºŽðHwv|TH	K
-ê„ÎI4NˆÖ¤ôÍt_6"†B5#-Ú­Éè‚ICºã€?¶é´"–•,ÇDÁMN‡¸NECTqM1ƒª%|ˆS¿ ˜e– •S°°'TÀm@ ¤í£2Äeñ-ºm/²§V$m;R5cÀWßó¿ý¿qäCl¯â`‹[M¿ÿÊw‡¹›—t½”Ðb¼I%ÒbÕw¨¨Õª+äFgcñJ«¾LZêJü"íWÁ¥ANã—NƒáäêŸ¹wùàæš”JŒ»uÃÙL9Ðä ãÓ`v»4_ìý*o7¥¥?ù¿…AÙF	Öx«Ù.ƒò’=kõ¦{ÞçÍ±É AZxáq€Õß]î=ÝldvCºú9uÕ”©yÙU·JªjŠŠÏ°¢Q¥+ªáÏÂ(Ãä'a4°[Ž2"“ô~œÝÒî«'Ê"22¦	,ÄF®Š&ž>C:ƒõ7aèÈÈ Xyü…oªZ‘¿`¯"²IÖ<}(¦¥ÑˆßÌ•tPŽ*²èÃ]=ˆ.*ÓÄƒ´-b¥‘ Ì:Æ›:ñVw:†8¤Ûý…Ô8)»¾Ÿ[áôíô=@U
-¼ƒt»‹*QžÓ>¦H_btÕT[8ïjT¸³™†£°Bn‡µ]#WÜŸˆgœ{s L9#8MÜïJYÄ±8oãJ9¢¸ÀOf;†ŸIì30!­<™8À"F{,Žãéãª¸EÊ²§s›RˆòE\NV=4„¤Ðº(^`)eX½m0“d¢˜©<
-·Ì›\>Ãö;ž~8üœLë
-2åÕgÈoõ~ÌZH1öR)åÄ@wPµÞÐiWOUã#7€úl™¹ÃÏ…–|np"võº+›—MÛ½®®÷;ÕMùBe3)ŒÉ¿Ð© J~6Íë’_§Ú·DVQGƒfGzî:¾{…“;.½`j’¿ª¹FþZÁ¸r0LÌN•¸Kêî–ÊéIŒó½pâ*sÐÒU*ƒy7Š{ô•\OùJVðŽIçÊæ*MÔéèþH3L{à”çgBR{\%7Š»p§ùÈˆVÉ¥Iw&úŠn,ó$$ÊâèôóÞé¿wx8rl©q¢‹÷¯[QŸd‡æ˜»9BîNÎxV–´VÕ``IK àÕ``I3Œ+„‹j@¨¨%Õs4®
-ºC+2¸ÁVƒƒ%Í0àÜTì|'§®'1EÌ²EL™3äÚ(gÁö
-Ï[èV"vèL[ƒéxåSg¶"gÀƒð[t3£¡³#MŸxS84ÓeøDn‘?ÊNì ‡qž Ø»ÛQŽªj”ìŽ—¡ƒW|àü¨wÖŒ·„˜2øõ5c_£(­WÂ¨*ÉÏVÓ#ß
-j›Š’õˆ’Üm¿9>‡	3˜¨kM‡Ž¨ ¡ãƒ¢
-Hn²|fŽ3´„z¢üÂ°bQ°¨ŒêwUÙŒäý,å²T\€9jÿ…Yüx±ÃVahÓ2ØÁa'KÏs¼i4Ôš²lJ¢€È×Öõ&×¶ô6¡µ#ÞBks#þ³3g{ë©.nlêí½Ž>Âþ÷
-¤¼O°5:ôÝŸöæmw«­·»ÕÍ·»ckoÕç”‘º›³ágëù¦ÎœÐõ­M‘7,fgÆÍÛìÌ¢·Ç—pÎÿÎýìëÆýû¿÷*büˆ}+Z–mQ™âKoøœ$¸…Îå–”Eõ‡³`*!¥Nÿ)ë´ºjØSî^RÇ~yÇòS"Æ#nÒ•ã‡¶¼lÇ6·~oé”ØÚ,Ã/ïÙÍxediLnjÙæ:íN—ÎL™	{V~ÍHK«íÖ:¤´‘²|'¿ÇÌI	f*XÒ¨`µÛj›14ÏÍºinŒó²´Úê²ñJ`(oŸ‰Ža&ŒÊln¿wñz÷´w¾ÏÞ]öŽ{©HrùÖ›òa¬%ÊI·E²ÉçNyaZ&éÍ\ŒµG`ÇpoP«äD‚‚ÖD‹ýùÏì—{[%78½ºÂh@Ôr¦ú•?Ósó<=‹Bž/,ã òVúª¡aºÌ1”39ÍfÞÝ» UeSà³6OMXGgãûahb&*Ò#Td]¨ë!†`­'ùÇ1#ºc¢!RŽ?AÈÇ³zz¾r°ô 5FÇ/OÍÎ·ÎõäŽ'œòD^¶ÙÚgŸUæJ{@[p”l|$6Ÿb¥-ß¤b#SLqéGîÕâäÄÕ#™i0Ræ
-wè|rN3†"…d’Ç5U”Õ ’U-½<FCÎ,«¿Õ®+Ù.zÖ‚p^9Ö‹Þ@ÆMXê
-tÇÎ¨Õõ0"6ñ
-N~3r}vÇ'×Z ) ŠKýy=²,Y	ß²,pWŠn"¢ƒjEž²ZCh­î[ì½ÓgÀ¬'è–:!Ÿ1~¤‡º3În¢iˆÑt¡õ‰Æ¬ŠGaáÔHôºR–*"µ(Ò-ª*v’2™­!ü‡û0ÃÂïÖÒyœkîß {Qt—¢<O2Ô‰¹¦C|u~ppyxòŠ=a¯z"`jå´øOóÖ‡éš/ŽÒZé
--_LiÝ^†ÐS1i¢9áøî$ôŽîy«À¥—Ê,wLSEÕ7ZÍ)ú’$ŽRykŠJ£ö
-†³ú'öÙ]¢Ë6{Ó;fû‡¯/{oa¦ÏÎÏ{½¶÷®·×«4å"TíkE‡ÍõÎ/ß±N¶Y•ÌÖ\¶I-„˜w]žõ¦8ŒØš#¦é¨+f!ü"©?sêþÓ×¦ûCP1¡fN¸‰6óÄÎª†>NûÛÃ‹Kv|pòŽíŸŸžíŸ¾?aÿöô¤ÇÞ÷Ž€Šf=Jri\0O$­J¼[žj N¯ÑÉ°$:Z’¦7bDHÑªà,áÏû,Þ‚/ÑFÚì²­WŒû.o:Ÿa.`Â½ ¹‰•Ï‡nl³­bÉÈ8’¸ö¦}G%ê‡øæmGb~UÏä)·ùšnƒÛ¹½B\^YÝÐî¯YþÔæ
-éFý«õ,®yYÚ"k
-–úÕt&jŠçÈ(ˆÑóÄŒ’ÕŒçûwyb“;v'J;m³îÆ½c™éîtñáÏ eÏo½=÷ô{n®³Âj,»1š·Ï‚}g®çŽœÅ8{¢ZÄaÖ'Nàb„«Š1ë44ç«@•x®kd)¤[ÅÂYWœyÊhz·†¿o²¯‰n¥Œ§–ØÈw®v–>òO<øî,Üþ4u‡õvC1 Ä­Û×$ÁŒ%#5X”…ª°ûÙ—lSµ»xm‚`ÊÖ«3ó&Ö¹°‰cj]ØÌ2r±2‰ÌËBÌ(ˆ–Eg(±62‚íÂA)dõ4©‡ÓÔ2C›èeLÒÕç>ý…ùºnT’6Ñ®–‚×Z=;ôd¥%šjGb-§ò:EËd)‹®-2aD!Œºîçˆ~ùH#ñbÅ’ãÎ^a^÷bäçxàë"_VÃ<TÉòË2L„þÇ|Ž™ˆm¿B–y‰Ù}GÈ3=~ë`À¸]˜”evr¹‹ÿ\×OpOw,þŸýGá¢j™ýÆ1ÿö9æÃf1¿ü]>»T§Ö_#·tÇ‘+¼è&bOØ…ãE~4bg|ýãpÄ†øb%ª8‘ñ¯Xl.=)pdºYMòvÊeÖŸ~Ö4g;2êÄ|H(§ pJ¿S.”ñt2…:pD4xâ–ù¨K/Ûímúß‹•QçAZ=—LNG¿Œo†ÒFã³Ä8*O²Xýfõ°¸Ÿ÷¼[tUîõ,ï$cëÉt¬¼2Gp¾•r[­éú|šu†GÖ“wÚ9¾²ÓšŽ®=×‚˜Ëô“ŒD¡â™ì®Ã*‹7éð~[â£ŠË.²(-VaÃ’Äl½Z†îÜ€8¸¬„>,Ó±àf…†4oÑ]ðâ. ¢Ú¥[¥ëÝ*—TÝíÊ·aTó_O}+)[°ñ
--hk‘‚šÀ„¹kÚâbmÎ½{~¹ÑÂD$9süCþ³½ˆxyª’ä‚Õë ¤Y«¿:»`!ÇwÃùEµ9¤”yŠÎoþ Ä9í,’óø(5|>w"›jëyvìkAO,•Å—Â<kîn¾RyÝU]É&È˜XËl ¥æt-½"«¦†J5˜™òØª=5!±7ÏòúrúbGÌ£nRºSh´»ôRéé.Ð¤é$›M£¥·‰†¿K/S†¾‹WçÓy‹gó3‚3/[²O©&r¿î\µôR²ÜGfç©†È$zéeÞú+0ö¹ù˜Ì}ˆbÈÂ »)Y7œÎª\wÏgHcÂ€<NÄÂº,çrû\
-u{ZX§©Ž¦CZD©ð@Ï‘ã9ã>ïÓŠ^LŸcg'ÔGáZœ¢gå¦¶ôrsý÷¿nN‚´ôÿ  ÿÿì}ûwÚFÓðïÏ_±qO<5øî$nŒIBãÛ¸yÛ~9© ª©’pì>¯ÿ÷wfv%­¤•´Âv.ß)=¹¬ö2;;;÷ùq‰ÓÈŸC¾\j.&Öc Q°B&!à6äQÿ`’VŸIÞ	ƒmŒKu·ce+¿<BõÍ+cñ(”I,QQA¸ìÚË ´çëB«‡SÀ®îË^èÌu §¿²æÅIç]³×aÕ~óô¢sÒ<c=Œyºhw{PÛð¦ßaÇ¨%<Õëœ½yó¶Ùm²·ç§íš–±²Â¯ƒ5‚w¹oq†ûãöféÈ‡U‹”P‡`šÏµ)hA‹½OÈÅ}cpDy«•ùíGÃq<-;Z7›ô4?½eMgfaµbM¬úåjfÖâ*®hu‚€‚¸”„ŽÌ1zPêèžXSLŠºåp9: J›®]¬Mui5õJÅ:ˆ°i!iÀO÷ã¹S’ˆË•¶³Òßj°#RÏ^,1ØºÐ;3%ÌŽ¨å]RE™>«Çe~qòÏÇ€'©ñâhyeÄ´‚'ßûkIz+6¿©Kßæû!
-³>ÂFÌl÷€}·ÝÚkï7Ëøá¦\°]K˜•Tr–¹zäë4ÐÎ‡žëtÓç¾Ù&r+Cúm
-:2+aï6`¯˜ÁÞ`Xæ·†»8óxŸBàpMŸ}w6÷·wJ¹‘§è)/ú9H|øúK`ïNƒ5gõÿ,ÝÿW}cØû×Ò5IÄ–óYwsóÙ‹ý£û îŸöÒ]3À!ûjn¸WßŽ`þ%px·Á.Ìù`yµüöPØ	&žDãpEŸ‹Ûû{[›÷"¿Xó´¾t¸íìÛ@ßÖ_{÷ìtéYWßæÎqÒ
-¬]‚$ÀWôy1÷ÅV{ç>˜‹‚è› †ÃGßò¨¿âî7XÏ¡T‹ßêz|ÚIäVs¹YŸ™î>ßÙyÞnÝ{¹«‚k:¦¡­Eûú"ˆ+Àý%P÷YƒŽÜ#{gÝŸ|{ŒÃŸÄ,~\Î—ó$'—ö™ùàç;Ï_ß“1ÅQÝ4\â=Ç5‘75Ío« 	´~ÞH¨#¿5¤N+Y9a.«cMNkut~½÷¢½y/±ŽÔi;7;uÔ»;"] sçáy…Ÿ5ÍD;˜Ïåø}ó„õÎOšýU­=»…)d.ÑÐŽ^*°utÍ0"q\kNyôqUßi-Ó¯•‡õì™áë;Aø²bÒfcÂºX’WéàžÝÚváûc95ÑtiW;£æ~JÇ`(GÚ½ubÚXÔVöè?±‘ÄP¾‚ƒK.£Y)Ë“ìÁE¶õTyS—‚@ Ü²Ÿ{ùÞó÷¢A'í3ÌOÖ9ë·»ÍwýÎkV½höšÝæÐ¥÷MŒèüÜí<”š2ãÁèZ/päøÖéVÊÎ‹±)õ…qÍ‚÷À.^§âM[F¼ü^}Kf/fpÄNŒÙRÎ‹û>)¶3sì—öÏ³ç¤ä¾â¤ëXIPdÆY{)êP²íÍí}ÍP¦bÈa9’È¥ wlQPAŽÿ	:²u—&M}LT“]
- ^$`a>þ73{`Ìš£Qs‚ ;µGÆLSàÌ–^}6‘‰nß˜Œ)ã>@´Â‹Þ·ÛïŽ›¿Š¬Št1Eœ·bþ 
-&3rÏÒH2—Dd×ªˆIaš©Møok·±ýüûÙÜ¸	RT‰¯Ö^ž¢ã`)lñJŽÑ3?Ç³G£k}ŒwÆüÑÇøyùøcô
-a¥uèZÄ$4»ìM·s|¯#E„wÉšCs†.þŸ™-J~­*¹YMÅ7ÛQ©)Ê÷¤zÚØ`…å[@áÿ6YËvMöÞÙ÷RMÉ3)^OU-Y«¾RacY}A›àúL—ãËÉ¥¿”þHE¬!`/FKS×‘y3¤„²èçcÌ4æ˜ä±Tt=;/ßc×ÅP‡€<`é|±fàæJë¼ä˜‘,Ùô¯è]ø6ÌRŸÔÁ’)­²l,H®Ó¯åøÇïâŠþ÷áZ%¨SÁ»¼«¬}HÖ¡GÆ]ÇPiøß6Oš§èú¶Ùm³ê›óó7'mvÜíüÒf­“óËcÖûõ¬Üÿë|-›oÚÝZ,[?sxSÃ5]G_[3* ô»Tœ;lÑVp8ý.4Q›Nj‚ 0GXmÛ2GÙÐvýs‡@Íú¦;0Üe^Õ4?±žéËh¶ìx'¶1âEä)[¨²Í¥3+lÅÛ\¸ö©y‰¾ŒF=ß@†8MÇñz”£æÒMÖó]ÀI…ùÃB}Ú \çr&SŽv´Ëq+?ö½h÷pŸ„×Yåâø5þyƒ,‹ïŽí+DM|Ût=ËÁ7' «-nŠ´½rß½ónÿãùE¿s~Æ{6föÏ+¾5X³þ[øþ·zß_^¡_Ã‡LO"úêÊZ38}øÆ¶„ ‡ÀÀõ÷€´V·¾é%Õ¶¢_0ÛƒågACøÌø	¶+(|Å*›L]ró
-–·µ¹½«úÕ‘t*G¸„wôï)ýû†þíU>¨Ä2ì§@œã™D€ÞÎìI0Å~sUKP 1_Þ4héØŸªWëÌªÉb0;<%Œ§iþn}Pˆ¶@DBÀ¶o€„{ðmM}# G?PDœS‚1¨Ó<Ôêl$+oDu:}¯m'þ”½d[ì•øÊ±*®ò5õ¼Z/f«I\´@¬…Û\ŒZ¨C×¸Îæp­"ERSs^³ NñBÂ*PÌy™‹j0å#©ä>ˆÐ¦Ñ1M3SúG|îØál92½*}]SÝÖ¢ÿ¥Z@ ª¤$­? ¬°)T¾íl·ÇðÍ`ÝÉÀ¨nom­³ÝgüÿÍÆÖv¦ø‚Œ&;µ
-»Ëº[ƒeý^ù›S—Ógã¿>ÿ0ù»ò!Z"@ ¦X8>¯ú~hÏ)¾Å)Æ!V‚Œ—‚×³ÁÖØØŽÁkk{gí @¶ö·³ –l£	±›™‡Ð?7øwè]k€‰,”JH ƒ……×U „žW‚u™‚Ò¶ù+¥Ý}XüöÞ:ÛÛÌR¢‰&Œ€ß¢
-?öðF8ŸlW%Û¶°Û¶^<ÛÅ¡€«ÛÚz¾Î¶·2Ál£	‡?	ÂáOÇ¤¿Î‚þ|2tè&òŠwMßæŽ¬¬9ðÏ«ÁƒMd¼÷l¸¹È.®v{š	xMpø7>®®V‚ŠgÛs3Ç	Uæ#å£¬¢Dêl%°ø“„ÊîÞž±¿ƒÊþ‹uöV»µ™	•D“B¨M-9«Íñ‹øÅ°8¹tlkïEæŽ7IÌJuYÃ¸ Âüxßz©²`ÈY¤Ñh$$”	ÉÄ¡-tA@ù„qå5”B•” óôiJ¸i€8:¯*·œ_õ	(ý |×‹n‚¼XýmpTÇXÃ»:¦BÊJÖ!BI>É@Þ¥ ²Ý`Ä‡´³’DÜž†¢›
-ÙóÏ+’šËf5
-™¬xg³5n”`·òML
-Q!Û«Åš•Bhá(HËKÏ-¥ÉÉ.gNdÅq|ñ‡>
-2ŒüÅ:r€þXcÊÑ\ŠÉAVž"5Ò
-æ‚±´ÜÏÁµ–že µgU!ŽÎ…åµìùœ”*¿ð/ƒ^÷ØíäÀR¯_øO‚É«[ª+ÑŠg±´¢Žh!Ü[n"k1‰ýÂ)›¿T«Üz55q‹ÔM øÙr> Bh4ðDÍÌúŠØâ(zd ñHúÏ¼"òžÅá` ÒÏb"K×h]ÓðÃ"v¨‰;†ÏÕØµ ²#‰ï›yâ„Yr;M«ÚIZMh3‹vcY—PŸuP„—UÚVç²6+ê?T’@[Û˜aeCN€‹¨Ò–÷Š7­þý7sûO*ó
-‡áH]ççA¯g®Ôê¹)z>Êë9PWª{™cc9óõ6ü(¾áÍ¬OÔ*N0]AQ²ÆŠj¹Ä •ª”ë?&UÈUqé@ÁåÏA”uT¤@©ÌæÅgc_aQœOn—¢uAcÓTBïÅý¯É~•0H½5|,ÍøqŒR
-°)5˜SÃãL7§$í&üvy™$Ç¢È2±ïæèuÄÔ«%´Ä¶æVå%+ïéùqóä€½;?{ÝéžbZ”·Í‹Ëë5û—ì¨Ý}×T›~cÙÑ™…‘ÉÎ\$K	Ö ž™äí²Æ`‡©ØáZXhljFævXƒ£tj¤úÈ2fö„ÉF˜ºîmüYn²]"{ËÛrn˜gÏ¬»6Üj½.²ºP^+òüN9°G·äC¼zG/wX¦ÜÕwÂ…=*Ã65Ñ§*ø”ödçZëlÿ9ÿ³±µWû1P>|gŽwáõ#“]Áû®9×u~OZ–}×ð¦;<™¦¦±fB"¥ÝöÚË·†³ô0­ä•á½ÒtŒs2RJqG&îÞtŒ+ôÏ‚_Ø­qe-˜…ùÉ€-&Ss@c²ŸÈ«xë’²†&OÍkQÆÃŸy	„ÜµØÛF<‘Þ ‚±cº@áÌÅ+¤_¥)#ËÐ
-y‘¸x)É¤wœœL~}Â<snñ:}A…É‘åÍ­ð´¬½<‚ïgåª$jÍE¤åJO$tÚ3oÌá2 `‚˜„Vå¸ÇñYöÛ#|+øMÊ»ádù$å^ð¶—QWóV8ZÎ®þ¹þ¹¾®;eË‚~ÞËAu+®­ŠsÓ‚-ò×^nŠK%º |1ûnŠ/sSàæ$î	¯ÄEÁÃ¿áëâmçø¸}ÆØ:g—êøºŸ¬…³ôÈQà–AÆ¶:ØhÍ—3ßr ùõsÂl|…p¸f/"·¦¶2˜y¸‰9	sï(9Ê¨Úr¾àié™3¨ïeÝ=")÷‹g½>HJ=Öjv³ýuÓ”šÇjÔŠ¹åBrVL¥Ÿ{[¬¸‰úVšûáBßÔ‚Lâ¨‘«»"›ËâÖš;˜î•µp¬yDM/ PL8‡£¯.4½-RËºÓå`	þÊŒQå¬“ùs:®Ç ý¯H†Ÿ]Ï}N¿HiyÂðžž91àòY'5*Â?â9Í£‹…±wÛÖl¡Ã$;ºì÷ÏÏzìòâä¼yÌž²ãó÷gôö·Î…Ö	Ñ‡š§åKë¨Ã‰(Žˆ}Â²:\]TvPÚ,ßµ&¡âä³ª•ŒUy ù¶,*c'î'Þ)–^ ë=ÓŽ>Ü"ö¡vX×œÍ~¿YÎ½‡}Êà;c ‚=ü
-ÏÀN#Àù‹îù›n»×cÍ“v· >¼œãîÖ- s@g¥ð+¡ZM9p¿b•àÚf”qàG^á0øïò±Ò¡V¨¢^ã…ÏÂètá³ÌD$êìí¢“:¼=ßBYgs¿”,·RÎf­`CUrq)’N,XYrÉO¯Äoò;Ë}äûæù2­&O;Ó£á„˜%VÍ›6
-jÐ)\;'Dn{,8=…‡¦‹@<Â‡Âù*ðôN«êCÉè0Gt"T Iï“ Oû½›'\ïí­ÿƒl]ˆnY>$éC„BË1Gñ/@ÖÇˆ®ÊiÀŠ€Ø¯Áàê‚>†›T$äþÇµ—_6éÇnƒõÚÍnë-;jvµnvÇö,b€+2ü|ž&UÝ€ûµ…]
-ßd¾íÔ÷6y ò¨p©{Ð»YŸ[£ÑÌ¬ßb±X‘>;ÎLþ]'ÕØÛû±ˆ=’¥*ŸBµÃ}å®o$Q½¶L”\Rb»ó .“?€Ìë^1ëØ:&\c(õÐœÙ1ÝÃµªPrƒ3¿Æ®Ù2¢þIŠ!¹ÝÕîðÚ¥y†ÿ¹ER\ÕŸZ^ƒº«e¥ÐßŠé­véhÉ÷N~†}[eïÂW
-ãXºj6ƒ2Çgî·	g]½Ûf¹‚v[™jsÐËÑö3˜­±jM…#LÊíç2”èÓ
-ÍM}6yTóðŠà«á=8ÃçÀ£Pp\ÄíÖÛÎEuÏßkèÕ#ýitú¸{~2‚v4nPY«¼©xR/*Œ™c²¸Vl÷í	J‘SkdbJN{\…}ÛõÅcGþ"Òžñ.¢¹
-Õ»yw%\º@0ê.ø.Ý¥ò
-‚+àúh[ü E­–³$¸© <Ãü4n=þ¯Ø,'¢˜™£ÁmŒ4–7³^J*ˆp0®Ô‘Ï6çÒÏ¶öò²{Ù×<C»ú1&~÷¤wÐ«¡-ÈW:°17œªíøèÿ–OÉäh5¤ÆqÔ—‹ç)NS¥pÑÃC†3îQøÚ¬p*ÀJsÉIÜŽÒÃ	'åhÔjÄ#ßi$‰-“øD©‡UÊñƒC]M3~xHð|Tr(¦ræå´ÞZÈöG­ñ§mH­/8¯yÝµ’ÄH{õíy·óÛùYÓ´µºç''Ùù¨‡4¹GÚ¾ÅìkÓÏ@†0«LIž ”¾^¡Þ ƒ,.PI°'v£h_:Š>ùëœÅ´R–{ö VXN‚_IøÓ Éã¥8<ž >ª>´f‘…Õå:vi¦˜bP«ï#s`ÖãöI›ë•#HÕæYç´Ùo³öK§×9:i³÷oÛg¢uû¸ é—ÄÍ²&ý{d¤401?3Yû‚¸Ÿ¡|‰ã <ŽRãƒ'
-óûh–hZ‰c‹‘ô×d+D~æ¦Z)pUì1*ùöŽ¥É¬!‡¹‚\ì(’=8¦¶QzÞ‘È‰‹ÎT	EíçÙù@+¤Üû¸Rëw‘¶KR‘»Ëa¨zC­.ã¥öØD*sÏçŸ>Uÿ’mâ±$äF_:“„ŠâsÑ«…NÅ¶€)°^Üô×ëìÄmþI´7/öÈÍ#žã,€M¼±T½ýÐGÁb}c@&…ßÀ¾	r¶¸Ï6.bðo•™ÈV"Œ0¶Üy†'A Iî.€rð•s³y\«Ä³÷8éôúÜˆÞBÞ¯sÖÖSÙ…\“	ÄÂóyŠË¸KÁ	|ßÒÈ|™z¨S`œÇ— ’xð4iÁbà‘xŽç€ÙÉIó‚³Íà¢sî\ô–¯;o.»MbDVN+7°äÕÔžûÚ†Ñòö’dQÊ¤2cl¼á Ú"ü…ò3®}E@´ðŒMZaS¥Þ£´ÕçÓ-O0—'e—TÂšÞp	"pV’­EäñòAaéb²cá”€‘#ŒÃˆ]vOÊn’‘ã“dIMI¡@ë1í/‡çô 
-÷ò“õ:Ü~×7¸n`ÆÞ›„£
-¤À¥-¯Ðí{Ÿ Š.ø§ÅÀãŠ¾ñ²-ÀcÏ†|Ž—ôizðÉÀ ¥;J½Ðñ*6GéyJ—À’_pƒA2·vrë‘™«ïîÌIÛUS®S7bAMÂaLË²Qd´ˆ…P¡Ù"fþ˜ú¾ãllxÔ¢1¡]iíùÆÜº¶·ám4t
-\=‘l2ƒ¬g\Ç§¥r,ÄF²™·GˆVÂ£P={éÃÎ™ÒÎJ|µéù…óúd­X>[SÓ+^×,ÇnŸŽDZé¨®–'8ÊÍk#;>.eUp
-É&€ªµÛ1_RÇvý×ËÙì¨ÁÏé—†hàµ"CµMOGMôãçÜ÷˜­]Ó%ö±\Eå¯’9?WÎ÷tP—dÄÔ™êâY	s2È¨µyÅ¡‰â×º¶Dé)PÀâub²0¯NÂôÇú"Æ¯\tâ0ækÐ«³‘¢ åDDm¥4¯òÇDh˜ÇŽ¼IÆ²ŒRõæ—ÞŒ¼˜Ší¤´·³ºòOZn›RH'‰fZKWìiW¤
-&ÑÅµ]G	ýž–ÒívKæ+ûÖÈ¸bÍ‘A¦Â|§Úˆ³’ÙSâ¯x½Þ™‰ º[³5ò–†ÅF&Õå‚E‘…Á7–Bã’²cRÌE6£´ÆÊâ¤êÏH¨£L'/÷ÄkJ¸‰à8T&ß“*»DÏ\/‰9ÄÓ/6xòÅ(EOf–èwTÑËSÃƒÎ¬Q2Y‚Zñ™•„yt²ü™4ð+VñÄû´ÅC(ùB…ŠßJšÑ£©ÞUÖY' šÍÒr¿m·Þÿ¶%Š3haóúfÂ@ºîqôÈÙÎ…RôÄŠê¢Nqj¨ºÅ¹`Î)ÓWûfMGú9£LñH`Ô4¶Y§E6“ã7mmhKxCäš|	sÜ=…npBƒÉ]è¸—Ù†~¾iuª}WŠ<§úÀéßéQiPž½>×GÙÈ4ÊæÖ¢þ©ØgE~ZÒ6ÄŠˆep—-f}¼+É²§4
-ª1·4=¢™hª7¡ƒ {:ÀDÐqËeŒ€k™0¢|@<È¡¬Ý<C‰µõÀäK@hÜXº³Bß;šªÁ¦®9V	ìÔ	Êè¦ïã`f,®MDêPœE6(f”ÅÝcWW²IPGFÑZÃzž6ÓË‘=!mkPÇ·ç‘zåoü°FAÜVÁÃ„V¶T|&#Eòë$+ùèäR‡P%xÅTJütŠ4Î|ƒx¹šARnN/’Y…Pâ
-»ÊHÉŒ‰ÝYBõïòs·­œé·®¢Iç2#á²©ñÓ§<!:áSÓuÛ†åÑßjô›2¯h¸c±*ÑCŠ¼SÌœy¦vW¿Ptp^j¥âÑ`×¢j[ŠÊ3¯xF¢üdDÉgñOPƒ‰fýÂ×ÒÁ4aq¿ËN*U®†In§LøÄ¹tó*=«N,u¤‚ýÀ}æu+â-ˆäk­2AÄ2«•RÎr¶€ßÈª“Q¬÷ácB”TÔI“ËÂÒ Ñtd,[á^eÄÀ%÷,Þý‘Q¶ã##«K)êI·Oéu§^ø¥Ùe)VIJû¸³)°ÖÒnWÞ~hˆ»˜ÌJ'
-ùØè)sC”øB¨JËr8¤!–Ÿïx¬	HÉ¬Ší,úþüÄ;†·?üEzÌK½ÐØ±2ñfÃ3%|£Â $rV«Ûà#ÕØ¿15xYŒ¶¡&mIš–HIsÈþˆ"îX5ëÙlën#ð˜Ä‘îj¡xJ:ÈÝý¡WÆ©ZÃ’c‹å¥Þ}ŸÕk„Ê5ù$ˆ'i^Ÿ©N76*½ØÌšÃeÏ5+Õ¹qÃ¶7OjÊ9ÐÒEV½íMþö®ø“u÷3Óõ«ˆ¸öÙn5æn}-y’Ì¹qåY nâ0§Gdá(	U|k¡Ì›^°šwÝŒÛß=–Y LÌ
-Pœ[žY­(íÙµ¹´ôO¸è2’ãÆûty ¯à„D¿K_d¥èÆ¤as{Ô!«$æÑµNÏÃ‡åÌÏ&¹nzÒ“R7¯Wj Kâw¢¸|ñûÖ\c_AªÊ{ÎYëL]šB½ðüÓôp/»'„±ã§r–Æ¡kpr’‹®çìÈÜô§ö=Ï{ýÊzf;Ýâ°ÿ²Š 
-uTWàQÃ Iüß Rì.»#Lwu@Ê†©.&Öø¶š1\€x0sÎ,ñÔ:`áÉÍ Ð}‹ü S½¼,{è›>ÆÕšÆ¼`üèhHï³Ñ*M¾ø×y¹õqÃÑ<,Ë?N¦ „/$‰áS ú„ž(†YÌÅ5J™ôÃÖ(öU.yYÎå«ø‡t…‡¢›'ÀQ5tÈª‘—blÀ¦è†ÇŠ[Ñž3ìªP¢Rp0ºWb®óï\w‰Û/ëq=V Ï°"E´õ;n¿ñœ•˜îÔðÐØkq>âIò¶õxo{éW³ˆyq•>4Ê1„èØ­h´òcmš£•-á(€”HêŒú5!ñ¼j—.ˆ©~Ÿ$50 }Â¥ƒ	Ð\Š¹ž$XÅGíWÐ—+LÄÝ˜Ï‘Üúffs‚{òíAU~< áÓ<Ó~PB’ëdâ½
-ö?£'“¯|>“é^Òl€ëÇ$øñn†ð¶eÌ¦_µ²nì‚ÅÒòÄR/­…ÿ<Z¯9^3{ ž>‚·ÕßÃ>?ÀmïÓm¶&_`[ÎZþBÑ’È³û1°Z1²ŠbàsÔÐÃÃŸ¬ c¸ñøù !änpÆy=„^M‡líôö#ïÜŸéãö°î EèôÎ{Ä<À'ÁñõãÛü ×¸Öœ‘”úÚ3®¯K¡?ÞxØ"Œf…jÐvU¸B±\ —?*AóÅHÊ$<Èƒ]Ùpv'©
-Ž4€¾Æ0o¸ºM£üèúšDª˜¨ ˆ5¡Š})BÅ%’¯‹Så‘¸6R{•Êøpˆ. J=;ÆMÏW…ˆ!Esµf¥¼Žô1•ý¢V-V ª¶)¿¢xƒ’ÚÌ2:ÕdÊ“¥j¾
-õŸ}Œí£"¦ØWTlU„
-“OJ|
-¹å&òF—þ=þV=¹xµhxÏdºÆX£Àò™åašô•²FJ*Õ–Ûm«Vr3o‘TÆh¤xüOuc›‡
-8z(y\V?'¨3Ë<Qò+w/õ©ø”b=µvY	ý-V>N°
-æœqÛ ÂKþŠJ!ûþ#`IÖS^#e agIGÏ«oîaT­Ù£†­¢ÞÔŒ´”›ŒÕGGòÈSH¿ü£Ô¢)f¨éu¢À“¢ÿÿ—×’oÌˆVÖ¡Þáù—ì”i`nª%>a›äÌv¦M€&ÖiüL«¹pî“QÆ¹Ê]ÍÏóÂ[P(Þ²îBñC†ã˜Â”{ƒEuQ –ÿeÁHI•|TI¯=+ÄÂx­òŽj¢ÃÄAÃ/U£S>zíá¥IªˆÎ²í“¼Ê×lÛ÷|×pÔ_øpú^ _ÞÔþ´ŠW@~iÅ®?QoeÞùÁ=†ð0”„ëË@>u²¿‹¡™³á5±˜Í-½zÈ²6{ÏƒØzÔvžÈ–ÃY[˜'ÞI˜îxÚ¢ÒYi³ÉøºwÉº¤–DîÀi(Ith©:ÛÃÃÝDÄ(hŸŠ°ÄˆúZ¦®jAŸåXÄóÇýifX>è[£˜Z[-#¯oó¶0Wî¦8víy
-TªèY¿ª/·Ÿt’e €,³Ç2|UóÌö¾ø†Mì¥I/R©ÂÎ¡–øJjsßˆÀNK:“²æY=Ñ·ˆâgTE ½òx.ÝÜ“’ÎMP©q%c¶c®Ò3<!N]„Ê‰§gÍÌay¥—H§•H¿Ø‡2¨Z„¢jc¦1Õâ#‚ý#  ¦ÿ&01‰é$°ð˜R#óy>YK¦P‘´ ŸZØcL­Äb…x"nŽWdå§P½ ¢8
-àWo°l°÷(¡ÃLTy(œW$qøªqÕä…ÇFÆt9[æž/”ßáe©ÿ '0(…‘ÃçŸ»²æ€ä*
+                    </div>
 
-ÊWaƒ†Üå^€Ûü«®0½É…`<Ò!âÉ’¤“ôNÀJ:Të‰=Åˆ$:U‡)÷‚[m)Ÿw L/Å¼bjÊ1çc$û$MF†cø!h°jà|Òkw{±M‡æÜf†’S†!ËÃ\O3èÞ[.&µŒukñ²é%Jz‘ï¹Â»9C?éÖPêµð‹7Å_z>*×ð©„:ÝG?¢³†gú‡K\¾Ž®æbhÌËn§eÏÀ–…_MÜMØÅ:[ÀìÖÙvR'æ6k.†SÛE*RÆmB~®ójú0ê Äƒê:Q¬­KÑ.°ÛÃ³k°ß“	zª|$ØVr À¬åŸr¡PK¸Îí{s€WŠÂƒba\[Ã·]ìÌØ†;j|r-ßD­6=Ðð§æ"ÓM\'èµ‚‰·€/Y _»1™µà2:ö—Ôu6ø)ÏÀyËÁ+	{áÞ1ò8"G×ÜX,Ùg]ôÔ©(i¾ä§êõ:»¸<9aýsÖm¿î¶{oÙ›v¯Ùm³·Í³ãÊšX¿ç@Õp­…å_ õí®9†ã—¶Ü£·•o/õÀú&¿¦cmÂ-îõ‘ÑÄòpœL_BÞDL"³•ˆ™b#D?dÏ’q "Æwó™G^tg1BþÖÎŠÊñÝ&þæö'ÚdöÐãl@A¢Uf/E&+Ñ$·#ÆhÔFÍ<šSL§Z¡£Ò5€ßxfšD<™ú¯ì§C¶‡Ñ'ò®e‰‹q~?›#$ˆ4i†‚Æ•&
-†¯„0	’sàîù€žHûÕçƒbn_›ExMëÿ—Å×¯RÓ…NˆÄ=dÑó.ÞE]ªš£ç01l“b÷ò=ñ€l‚`§¹µàþ›m6v÷°’š*Ò)›`ž&5öR*¢ƒiNPÇVÔùŸj}oóûZTbç× "*˜ÛsSSÄ'©†)LåÕ„+Üˆ(
-,«”·'-5èçåaÔQÞÒ|ˆ^ÔBê¢€EÅµ}¼Î·žoŽÌIMá-è’[ŽÅÎ°
-ŠQ91á\ Üå©E>±´[Æšó<WZÉý×Ñ7\ë
-¥¤ðŒÓp5ó%pÂKä~s–óèÔÃ\Œ€xp~:‹éX•‚\ øZ\¤Î¼tÔ3ÜÇ•h_’Ô$n|5‰\•¤TòHÊþ‘ŒT‘Ê–6ŽIÓOž…ÈA§2¢d÷YNØ¢Á!Ô$žBêÇ5ñÓì*ç”šsÇt†»´¸ƒ4*õÝž©IÇìPtiNÁƒ¬ & !|ÅuÏê êN=_ð—à¥…uøZ	ó°tí÷y¨—ìYB¿ÍœÇ²É”Xº´|µùmÅ\“x­‡ÊNV¿Dð•ŸMGë,iœÉDsm…ƒŠG1 ¬³e,ºøqwOõcîÿxD¸ð(”<¥¨pyDKwŸ+!‡²%ä˜¡Ùº—.á?]Ö:?n³§¬×îõ0uØéùY§Þíœ½a½_{ýöéè(=ƒéaÞËS{a ÝÁäb×Ü¹ÓbMyE«æÒŸöí+s‘pËÇ"€›\Xª–÷ÞàÏÐ
-EwUt	¶›^&d3ëostlxSRCEÓ:-îyøŠþªš\¸î€`àÓáVéAuü"ÃŽTVÉ2ÃÍCá!YI^Èê‹@ß|{È€kbO0K/¡ÏQ%ë0£2‘?ykæÙÀ>ôo¶ÙZ¤ÒÝz±™g#çvsQ*Æc_Xå»ÍñÖ³m#ÇìN­Ox·•ïÆôÊmØ7ôOÌksv `ÐhI_6NÕT'ƒÚfqô%â¸žÕŠØÈ™5p1M4 òµÀ¨¢L{()ÖšOrôÙðkÊ46Ÿ4<wˆX¤Ç7«ñ—ëÁ)ÇKÓžo\omðŽêaŽÍ‘¹ñ
-Ý‚aoàÿ§ÈFVÔºy:[é!ÝHÄp½¿˜®5¶°:OÒs§—ˆ¼~±éÜd6ã8VÜŽÛìºT[?OµÎ¦á8@9ZSk6ªBE±.SûS—RH˜£ 6EI\îù‹eæê$•QSµÑêtÖ•Úª{£$¬˜l¸¨«£ aN?EŠÍ°•¾ÔO	8è%² §¨±ðš}=Î'aˆ@W‹=—3Nõ¸Áš÷€þÌˆ¢.ÄcàêÀKyÓÈVªˆ.!]‹€gS›Wp³c¸ÂgÆUVjPü”‚œçë­,oÈM+f*b/A§€i/¼¥kJ)ÖÑ{ë1Ì#×½_fÈ'ŒbO†{)ÊÉðRçH„EEyèF.ófªÝ=¨@$~*%]ÛèÏ&´ÇcáÞ#‘K·Ìî}jFfêôå;¯"EÐ'$àÿÐ¨¯‚FiQ˜*¥AçžFáÙ»'‰º áŒ¼?$Sí})U°Pmb½ß&¼(\ó¯¥éù]ØrTVH:¢È_2Í"ÑÛ²ù~]ì«ULUT#ÌD¢æ×•ùI²fû½èx:QUžF],×š³Ó[À7eÙš»|ÃW!Pâ#m]E7¢¤Vê‹Bža2D]¯Ryf½”ð=£Æ¡”0O ®P
-®:½2ô8âz±ÇaDeþí¶ÌU}‡­jRß‰X‡ø¬ó¦÷Wh•Çuýå^·”bVW­ô:goÞ¼mv››—ý·(ÿDðB7<ú*>X¦))&h¹ü= >Ÿ‚Ò×:Ÿ´&q:öl¦v— yÊ©Fé?—^åI‰E˜ü!¬”ø–,’DDŒªŠÅ–È«,GÔ‰¬+$XOta6­%ºibLºÚQ.on¸¾3…ë1rÕTŽ«°S+6§ÝÎQ§	wÂ+‘§²â…üÉÂ"‰ä‹xŠg¿áp^¢V5Ö½p‰…ªP¡Ã`Y&œDØÀkžØÍ·‘D†»AJ¥Mç‹\_ˆs¹öåGÎ¨ÇÕ±J¦]©<Mó ©$I™÷B¹;AhŠ{°aÆÄDGÇŽoÎ«•È¯·î#=È ­¡ÚºŸüöP´±ˆ.–tëŸ‹zôe|¥,¬%}*ÏšÍX#Ô‡gº™§Åò.±Ê$z“.ÄqQ—#Øb"»iÌg°‚Ù­–ãÃ3ät˜Ã[kd†;ýÉò§0kNˆLfÏÂýsžÔr3m ž%•‚õR§-Ï|–1“|3¤Â±eí<Oø™0Uä_ÈóÞ^z¦Ò†¡'¸ŠoTüË°¹¨†É6Ï¨Eä«ÂVÚéT$HÜgDˆg¦%¤Ø{¡‰Ö Ðœ}2¼$‘NãR‚îh˜Åð• ÁüØåPa•äÿÐWCšÔ4	ejBDç)ó†^ÎH¢¤æÃ( 1¹16aH¸²‘0›@õ´w‡—ÓâX[¹e›’è€-Ð8Œ«Õ5æ‰ÙÍbrãæ‰PsæÊÀ\¾—ê	ˆˆxððâô-©}}ÞHÃ" ÅÌÒ€4Ô’lþË Ôái~êÔSiÃRzl•I2‰›¡7HšKJ Å.:gÄkJMl-~!—€øjàkLíj2”)=ïOÅÁ=„Æ@[SLC1P5_q¨#×iÔJÞÁ+Yyp$®µPŸÀ§”XŽþ coEq+ˆ“øz˜fš£ DÈW /õÔýýŠUˆ¿hQ‚®%<Ð`A8lÄŸGþ`xBÍƒÔ ­y¨dV Ì¯w[ÜçåŽÍ“®2˜6¿_I®Øî5¬”6ˆ$Ñ&š±"Í)9†z cP	R…œ~?(¾4¥Š{Û/” KpÔYª{m«à€x…Ž	rÞnÞ)gñè: ëERµ 1W iH3\ðí›qÆ(Ò‰i?I'Àx¹æ(`×¢Â$W[SC¥w’åG-â¸¬R7‡yEÃdyIOôFÝ—Ï‘ŸËnQCM©+xé±høÊöËž­¡£jA(e4jÕb†B¢(p¨¼IUO¤ÀWY±/€‹eôÁKåø*«Õ(\¾´ÍxÁè–º:ºu‘ª•qöÑv‘MD@ch~J¸Ñ$a)ñXZFúˆÂ•âÈ‡ì<þž°o”ÇŽà•ik,xìÁíŒ2ì´¤}£h|Ò`}¥°üñV±?/µC~a@ž¾K¬8š¢pœÈÅ¡vˆÞ¥•s	ÝâeÜì¥×‹9µ«“ö)ýÞk<yvð1«U‚#Î¸¥•º»´£=R‚ñÔ]å•ÍAí.>èŸÍù lBZK‰Ï*€ïJXòò_?m *ÿNýù,QÖÖÖ(sPð
-®oîq÷¯»ý   ÿÿ ;–‹
+                    <!-- TAB CONTENT 2: AGENDA & INFO -->
+                    <div id="notifPaneAgenda" style="display: none;">
+                        <div class="d-flex flex-column gap-3">
+                            <!-- Subtitle Kalender (Hijri & Jawa) -->
+                            <div class="p-2 px-3 rounded-3" style="background: var(--sidebar-bg); border: 1px solid var(--border-color); font-size: 12px;">
+                                <span class="fw-bold text-secondary">Kalender: </span>
+                                <span class="fw-semibold text-main" id="notifKalenderSubtitle">-</span>
+                            </div>
+
+                            <!-- Hari Libur & Peringatan Hari Ini (jika ada) -->
+                            <div id="notifHolidayTodaySection" style="display: none;" class="d-flex flex-column gap-2">
+                                <div id="notifHolidayTodayCard" style="display: none;" class="p-3 rounded-3" style="background: rgba(220, 38, 38, 0.1); border: 1px solid rgba(220, 38, 38, 0.35);">
+                                    <div class="d-flex align-items-center gap-3">
+                                        <div class="rounded-circle d-flex align-items-center justify-content-center" style="width: 36px; height: 36px; background: #DC2626; color: #ffffff; flex-shrink: 0;">
+                                            <span style="font-size: 16px;">ðŸ”´</span>
+                                        </div>
+                                        <div class="d-flex flex-column">
+                                            <span style="font-size: 10px; font-weight: 800; color: #DC2626; letter-spacing: 0.5px;">HARI LIBUR NASIONAL</span>
+                                            <span class="fw-bold text-main" id="notifHolidayTodayName" style="font-size: 13.5px;"></span>
+                                            <span class="text-secondary" style="font-size: 11px;">Selamat menikmati hari libur!</span>
+                                        </div>
+                                    </div>
+                                </div>
+                                <div id="notifObservanceTodayCard" style="display: none;" class="p-3 rounded-3" style="background: rgba(15, 118, 110, 0.1); border: 1px solid rgba(15, 118, 110, 0.35);">
+                                    <div class="d-flex align-items-center gap-3">
+                                        <div class="rounded-circle d-flex align-items-center justify-content-center" style="width: 36px; height: 36px; background: #0F766E; color: #ffffff; flex-shrink: 0;">
+                                            <i class="bi bi-star-fill" style="font-size: 16px;"></i>
+                                        </div>
+                                        <div class="d-flex flex-column">
+                                            <span style="font-size: 10px; font-weight: 800; color: #0F766E; letter-spacing: 0.5px;">HARI BESAR / PERINGATAN NASIONAL</span>
+                                            <span class="fw-bold text-main" id="notifObservanceTodayName" style="font-size: 13.5px;"></span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Accordion Daftar Hari Libur & Hari Besar Tahun Ini -->
+                            <div class="card card-custom p-0 overflow-hidden" style="border: 1px solid var(--border-color); border-radius: 12px;">
+                                <div class="p-2 px-3 d-flex align-items-center justify-content-between" onclick="toggleHolidaysAccordion()" style="background: var(--sidebar-bg); cursor: pointer;">
+                                    <div class="d-flex align-items-center gap-2">
+                                        <i class="bi bi-calendar-range-fill text-primary"></i>
+                                        <span class="fw-bold small text-main" id="notifHolidaysAccordionTitle">Daftar Hari Libur & Hari Besar (2026)</span>
+                                    </div>
+                                    <i class="bi bi-chevron-down text-secondary" id="notifHolidaysAccordionChevron"></i>
+                                </div>
+                                <div id="notifHolidaysAccordionBody" style="display: none; padding: 10px; background: var(--card-bg);">
+                                    <!-- Search input -->
+                                    <div class="input-group input-group-sm mb-2">
+                                        <span class="input-group-text bg-transparent border-end-0"><i class="bi bi-search text-secondary"></i></span>
+                                        <input type="text" class="form-control border-start-0" id="notifHolidaySearchInput" placeholder="Cari hari libur / peringatan (mis: Buruh, Ibu, Guru)..." oninput="filterHolidayList()">
+                                    </div>
+                                    <!-- Filter pills -->
+                                    <div class="d-flex gap-1 mb-2 overflow-auto py-1">
+                                        <button type="button" class="btn btn-sm btn-primary rounded-pill px-2 py-0 small filter-holiday-chip" data-cat="Semua" onclick="setHolidayCategoryFilter('Semua')">Semua</button>
+                                        <button type="button" class="btn btn-sm btn-outline-secondary rounded-pill px-2 py-0 small filter-holiday-chip" data-cat="Libur Nasional" onclick="setHolidayCategoryFilter('Libur Nasional')">Libur Nasional</button>
+                                        <button type="button" class="btn btn-sm btn-outline-secondary rounded-pill px-2 py-0 small filter-holiday-chip" data-cat="Hari Besar" onclick="setHolidayCategoryFilter('Hari Besar')">Hari Besar</button>
+                                    </div>
+                                    <!-- List container -->
+                                    <div id="notifHolidaysListContainer" class="d-flex flex-column gap-1 overflow-auto" style="max-height: 180px;">
+                                        <!-- Injected by JS -->
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Jadwal Sedang Berlangsung (jika ada) -->
+                            <div id="notifOngoingJadwalSection" style="display: none;" class="d-flex flex-column gap-2">
+                                <hr class="my-1 border-secondary border-opacity-25">
+                                <h6 class="fw-bold mb-1 text-primary small">Jadwal Sedang Berlangsung ðŸ•’</h6>
+                                <div class="p-3 rounded-3" style="background: rgba(14, 165, 233, 0.12); border: 1px solid rgba(14, 165, 233, 0.35);">
+                                    <div class="d-flex align-items-center gap-3">
+                                        <div class="rounded-circle d-flex align-items-center justify-content-center" style="width: 38px; height: 38px; background: #0284c7; color: #ffffff; flex-shrink: 0;">
+                                            <i class="bi bi-clock-history fs-5"></i>
+                                        </div>
+                                        <div class="d-flex flex-column">
+                                            <span class="fw-bold text-main" id="notifOngoingJadwalTitle" style="font-size: 14px;"></span>
+                                            <span class="text-secondary small" id="notifOngoingJadwalSubtitle" style="font-size: 11.5px;"></span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Agenda Kegiatan Hari Ini -->
+                            <div id="notifActiveAgendaSection" style="display: none;" class="d-flex flex-column gap-2">
+                                <hr class="my-1 border-secondary border-opacity-25">
+                                <h6 class="fw-bold mb-1 text-main small" id="notifActiveAgendaCountTitle">Agenda Kegiatan Hari Ini (0)</h6>
+                                <div class="d-flex flex-column gap-2" id="notifActiveAgendaList">
+                                    <!-- Injected by JS -->
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Modal Footer -->
+                <div class="modal-footer border-top-0 pt-0">
+                    <button type="button" class="btn btn-outline-secondary w-100 py-2 rounded-3 fw-semibold" data-bs-dismiss="modal">
+                        Tutup
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- TOAST CONTAINER UNTUK NOTIFIKASI -->
+    <div id="toastContainer" class="toast-container position-fixed bottom-0 end-0 p-3" style="z-index: 9999;"></div>
+</body>
+</html>
+"""
+    }
+}

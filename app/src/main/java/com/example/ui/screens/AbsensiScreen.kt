@@ -3,7 +3,6 @@ package com.example.ui.screens
 import android.content.Context
 import android.content.Intent
 import android.content.SharedPreferences
-import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.*
 import androidx.compose.foundation.BorderStroke
@@ -190,19 +189,21 @@ fun AbsensiScreen(
             verticalArrangement = Arrangement.spacedBy(12.dp),
             contentPadding = PaddingValues(top = 8.dp, bottom = 30.dp)
         ) {
-            // 1. STATS KPI CARDS & JAM OPERASIONAL BANNER
-            item {
-                AbsensiStatsOverview(
-                    total = totalCount,
-                    hadir = hadirCount,
-                    izin = izinCount,
-                    sakit = sakitCount,
-                    terlambat = terlambatCount,
-                    pelanggaran = pelanggaranCount,
-                    batasMasuk = defaultBatasMasuk,
-                    batasPulang = defaultBatasPulang,
-                    onEditJamClick = { showSettingsDialog = true }
-                )
+            // 1. STATS KPI CARDS & JAM OPERASIONAL BANNER (Hanya pada halaman ringkasan, tidak pada Tabel Riwayat Penuh)
+            if (!isFullPage) {
+                item {
+                    AbsensiStatsOverview(
+                        total = totalCount,
+                        hadir = hadirCount,
+                        izin = izinCount,
+                        sakit = sakitCount,
+                        terlambat = terlambatCount,
+                        pelanggaran = pelanggaranCount,
+                        batasMasuk = defaultBatasMasuk,
+                        batasPulang = defaultBatasPulang,
+                        onEditJamClick = { showSettingsDialog = true }
+                    )
+                }
             }
 
             // 2. FILTER & SEARCH TOOLBAR WITH ACTION ICONS (Scanner, +, Batas Jam, Bagikan, Filter to the left of search)
@@ -1040,14 +1041,14 @@ fun AbsensiScreen(
                         onProceedAction = {
                             viewModel.recordPresensi(presensi) {
                                 playAbsensiFeedback(presensi, false)
-                                Toast.makeText(context, "Presensi ${presensi.nama} dicatat dengan status ${presensi.statusPelanggaran}", Toast.LENGTH_SHORT).show()
+                                viewModel.showToastPopup("Presensi ${presensi.nama} dicatat dengan status ${presensi.statusPelanggaran}")
                             }
                         }
                     )
                 } else {
                     viewModel.recordPresensi(presensi) {
                         playAbsensiFeedback(presensi, false)
-                        Toast.makeText(context, "Presensi ${presensi.nama} (${presensi.statusPresensi}) berhasil dicatat!", Toast.LENGTH_SHORT).show()
+                        viewModel.showToastPopup("Presensi ${presensi.nama} (${presensi.statusPresensi}) berhasil dicatat!")
                     }
                 }
             },
@@ -1057,14 +1058,14 @@ fun AbsensiScreen(
                         onProceedAction = {
                             viewModel.updatePresensi(updatedPresensi) {
                                 playAbsensiFeedback(updatedPresensi, true)
-                                Toast.makeText(context, "Waktu pulang ${updatedPresensi.nama} dicatat dengan status ${updatedPresensi.statusPelanggaran}", Toast.LENGTH_SHORT).show()
+                                viewModel.showToastPopup("Waktu pulang ${updatedPresensi.nama} dicatat dengan status ${updatedPresensi.statusPelanggaran}")
                             }
                         }
                     )
                 } else {
                     viewModel.updatePresensi(updatedPresensi) {
                         playAbsensiFeedback(updatedPresensi, true)
-                        Toast.makeText(context, "Waktu pulang ${updatedPresensi.nama} berhasil dicatat!", Toast.LENGTH_SHORT).show()
+                        viewModel.showToastPopup("Waktu pulang ${updatedPresensi.nama} berhasil dicatat!")
                     }
                 }
             }
@@ -1084,7 +1085,7 @@ fun AbsensiScreen(
                         onProceedAction = {
                             viewModel.recordPresensi(presensi) {
                                 playAbsensiFeedback(presensi, false)
-                                Toast.makeText(context, "Presensi ${presensi.nama} berhasil disimpan!", Toast.LENGTH_SHORT).show()
+                                viewModel.showToastPopup("Presensi ${presensi.nama} berhasil disimpan!")
                             }
                             showManualInputDialog = false
                         }
@@ -1092,7 +1093,7 @@ fun AbsensiScreen(
                 } else {
                     viewModel.recordPresensi(presensi) {
                         playAbsensiFeedback(presensi, false)
-                        Toast.makeText(context, "Presensi ${presensi.nama} berhasil disimpan!", Toast.LENGTH_SHORT).show()
+                        viewModel.showToastPopup("Presensi ${presensi.nama} berhasil disimpan!")
                     }
                     showManualInputDialog = false
                 }
@@ -1112,7 +1113,7 @@ fun AbsensiScreen(
                         onProceedAction = {
                             viewModel.updatePresensi(updated) {
                                 playAbsensiFeedback(updated, true)
-                                Toast.makeText(context, "Waktu pulang ${updated.nama} berhasil diperbarui!", Toast.LENGTH_SHORT).show()
+                                viewModel.showToastPopup("Waktu pulang ${updated.nama} berhasil diperbarui!")
                             }
                             recordingPulangItem = null
                         }
@@ -1120,7 +1121,7 @@ fun AbsensiScreen(
                 } else {
                     viewModel.updatePresensi(updated) {
                         playAbsensiFeedback(updated, true)
-                        Toast.makeText(context, "Waktu pulang ${updated.nama} berhasil dicatat!", Toast.LENGTH_SHORT).show()
+                        viewModel.showToastPopup("Waktu pulang ${updated.nama} berhasil dicatat!")
                     }
                     recordingPulangItem = null
                 }
@@ -1141,7 +1142,7 @@ fun AbsensiScreen(
                     .putString("batas_waktu_masuk", newMasuk)
                     .putString("batas_waktu_pulang", newPulang)
                     .apply()
-                Toast.makeText(context, "Batas jam kerja berhasil diperbarui: Masuk $newMasuk, Pulang $newPulang", Toast.LENGTH_SHORT).show()
+                viewModel.showToastPopup("Batas jam kerja berhasil diperbarui: Masuk $newMasuk, Pulang $newPulang")
                 showSettingsDialog = false
             }
         )
@@ -1165,7 +1166,7 @@ fun AbsensiScreen(
                     onClick = {
                         viewModel.deletePresensi(target)
                         deletingPresensi = null
-                        Toast.makeText(context, "Log absensi berhasil dihapus", Toast.LENGTH_SHORT).show()
+                        viewModel.showToastPopup("Log absensi berhasil dihapus")
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
                 ) {
@@ -1198,7 +1199,7 @@ fun AbsensiScreen(
                     onClick = {
                         viewModel.deleteAllPresensi()
                         showClearAllConfirmDialog = false
-                        Toast.makeText(context, "Semua riwayat absensi telah dibersihkan", Toast.LENGTH_SHORT).show()
+                        viewModel.showToastPopup("Semua riwayat absensi telah dibersihkan")
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
                 ) {
@@ -2621,7 +2622,7 @@ fun parseTimeToMinutes(timeStr: String): Int {
 // -------------------------------------------------------------
 fun exportPresensiToCsv(context: Context, list: List<RiwayatPresensi>) {
     if (list.isEmpty()) {
-        Toast.makeText(context, "Tidak ada data absensi untuk diekspor", Toast.LENGTH_SHORT).show()
+        MainViewModel.instance?.showToastPopup("Tidak ada data absensi untuk diekspor")
         return
     }
 
@@ -2652,6 +2653,6 @@ fun exportPresensiToCsv(context: Context, list: List<RiwayatPresensi>) {
         }
         context.startActivity(Intent.createChooser(shareIntent, "Bagikan Rekap Absensi (CSV)"))
     } catch (e: Exception) {
-        Toast.makeText(context, "Gagal mengekspor CSV: ${e.localizedMessage}", Toast.LENGTH_LONG).show()
+        MainViewModel.instance?.showToastPopup("Gagal mengekspor CSV: ${e.localizedMessage}")
     }
 }

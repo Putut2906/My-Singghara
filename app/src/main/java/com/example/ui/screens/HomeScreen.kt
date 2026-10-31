@@ -1,6 +1,10 @@
 @file:OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 package com.example.ui.screens
 
+import android.content.Context
+import android.content.Intent
+import android.os.Build
+
 import com.example.ui.models.AppRegistry
 
 import kotlinx.coroutines.launch
@@ -28,8 +32,10 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.MenuBook
+import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.ChevronLeft
 import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.DashboardCustomize
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Delete
@@ -43,6 +49,7 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Folder
 import androidx.compose.material.icons.filled.Gamepad
 import androidx.compose.material.icons.filled.GridOn
+import androidx.compose.material.icons.filled.Brush
 import androidx.compose.material.icons.filled.WbSunny
 import androidx.compose.material.icons.filled.NightsStay
 import androidx.compose.material.icons.filled.Brightness4
@@ -64,6 +71,7 @@ import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material.icons.filled.AccessTime
+import androidx.compose.material.icons.filled.SettingsVoice
 import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.CloudQueue
 import androidx.compose.material.icons.filled.FlashOn
@@ -272,6 +280,20 @@ fun HomeScreen(viewModel: MainViewModel) {
         return
     }
 
+    if (activeGameSection == "sliding_puzzle") {
+        androidx.activity.compose.BackHandler {
+            activeGameSection = null
+            viewModel.showAllAppsPage = true
+        }
+        SlidingPuzzleGame(
+            onBackClick = {
+                activeGameSection = null
+                viewModel.showAllAppsPage = true
+            }
+        )
+        return
+    }
+
     if (activeGameSection == "block_puzzle") {
         androidx.activity.compose.BackHandler {
             activeGameSection = null
@@ -416,7 +438,12 @@ fun HomeScreen(viewModel: MainViewModel) {
         if (viewModel.customClockFontPath.isNotEmpty()) {
             try {
                 val targetFile = java.io.File(viewModel.customClockFontPath)
-                val fontFile = if (targetFile.exists()) targetFile else java.io.File(context.filesDir, targetFile.name)
+                val fontFolderFile = java.io.File(com.example.util.SinggharaFolderManager.getFontFolder(), targetFile.name)
+                val fontFile = when {
+                    targetFile.exists() -> targetFile
+                    fontFolderFile.exists() -> fontFolderFile
+                    else -> java.io.File(context.filesDir, targetFile.name)
+                }
                 if (fontFile.exists() && fontFile.length() > 0) {
                     val tf = android.graphics.Typeface.createFromFile(fontFile)
                     FontFamily(Typeface(tf))
@@ -491,11 +518,41 @@ fun HomeScreen(viewModel: MainViewModel) {
                 return
             }
 
-            val mp: android.media.MediaPlayer? = if (mode == 3) {
-                val customFile = java.io.File(context.filesDir, "azan_custom_${prayerName.lowercase(java.util.Locale.getDefault())}.mp3")
-                if (customFile.exists()) {
+            val mp: android.media.MediaPlayer? = if (mode == 1) {
+                try {
+                    val notifUri = android.media.RingtoneManager.getDefaultUri(android.media.RingtoneManager.TYPE_NOTIFICATION)
                     android.media.MediaPlayer().apply {
-                        setDataSource(customFile.absolutePath)
+                        setAudioAttributes(
+                            android.media.AudioAttributes.Builder()
+                                .setUsage(android.media.AudioAttributes.USAGE_NOTIFICATION)
+                                .setContentType(android.media.AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                                .build()
+                        )
+                        setDataSource(context, notifUri)
+                        isLooping = false
+                        prepare()
+                    }
+                } catch (e: Exception) {
+                    popupToastMessage = "Gagal memutar nada notifikasi: ${e.message}"
+                    null
+                }
+            } else if (mode == 3) {
+                val prayerKey = prayerName.lowercase(java.util.Locale.getDefault())
+                val customFile = java.io.File(context.filesDir, "azan_custom_$prayerKey.mp3")
+                val externalFile = java.io.File(com.example.util.SinggharaFolderManager.getMp3Folder(), "azan_$prayerKey.mp3")
+                val customPath = context.getSharedPreferences("mysingghara_prefs", android.content.Context.MODE_PRIVATE).getString("azan_custom_path_$prayerKey", null)
+                val target = when {
+                    customPath != null && java.io.File(customPath).exists() && java.io.File(customPath).name.lowercase() !in com.example.util.SinggharaFolderManager.DISALLOWED_MP3_FILES -> java.io.File(customPath)
+                    customFile.exists() -> customFile
+                    externalFile.exists() && externalFile.name.lowercase() !in com.example.util.SinggharaFolderManager.DISALLOWED_MP3_FILES -> externalFile
+                    else -> null
+                }
+                if (externalFile.exists() && externalFile.name.lowercase() in com.example.util.SinggharaFolderManager.DISALLOWED_MP3_FILES) {
+                    try { externalFile.delete() } catch (ignored: Exception) {}
+                }
+                if (target != null && target.exists()) {
+                    android.media.MediaPlayer().apply {
+                        setDataSource(target.absolutePath)
                         prepare()
                     }
                 } else {
@@ -503,7 +560,34 @@ fun HomeScreen(viewModel: MainViewModel) {
                     return
                 }
             } else {
-                android.media.MediaPlayer.create(context, com.example.R.raw.azan_madina)
+                var defaultFile = com.example.util.SinggharaFolderManager.getDefaultAzanFile(context, prayerName)
+                if (defaultFile == null || !defaultFile.exists()) {
+                    com.example.util.SinggharaFolderManager.seedDefaultMp3sFromAssets(context)
+                    defaultFile = com.example.util.SinggharaFolderManager.getDefaultAzanFile(context, prayerName)
+                }
+                if (defaultFile != null && defaultFile.exists()) {
+                    android.media.MediaPlayer().apply {
+                        setDataSource(defaultFile.absolutePath)
+                        prepare()
+                    }
+                } else {
+                    try {
+                        val assetName = if (prayerName.contains("subuh", true) || prayerName.contains("fajr", true)) {
+                            "mp3/fajr_128_44.mp3"
+                        } else {
+                            "mp3/adzan_turkey-1.mp3"
+                        }
+                        val afd = context.assets.openFd(assetName)
+                        android.media.MediaPlayer().apply {
+                            setDataSource(afd.fileDescriptor, afd.startOffset, afd.length)
+                            afd.close()
+                            prepare()
+                        }
+                    } catch (e: Exception) {
+                        popupToastMessage = "Audio adzan sedang disiapkan..."
+                        null
+                    }
+                }
             }
 
             if (mp != null) {
@@ -576,28 +660,27 @@ fun HomeScreen(viewModel: MainViewModel) {
                 else -> "Selamat Malam"
             }
 
-            Row(
+            Column(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(vertical = 4.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
+                horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = greeting,
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Medium,
-                        color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f)
-                    )
-                    Spacer(modifier = Modifier.height(2.dp))
-                    Text(
-                        text = viewModel.profileName,
-                        fontSize = 22.sp,
-                        fontWeight = FontWeight.Black,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                }
+                Text(
+                    text = greeting,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f),
+                    textAlign = TextAlign.Center
+                )
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    text = viewModel.profileName,
+                    fontSize = 22.sp,
+                    fontWeight = FontWeight.Black,
+                    color = MaterialTheme.colorScheme.primary,
+                    textAlign = TextAlign.Center
+                )
             }
         }
 
@@ -908,23 +991,99 @@ fun HomeScreen(viewModel: MainViewModel) {
                             text = {
                                 Column(
                                     modifier = Modifier.fillMaxWidth(),
-                                    horizontalAlignment = Alignment.CenterHorizontally,
-                                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                                    verticalArrangement = Arrangement.spacedBy(10.dp)
                                 ) {
+                                    Text(
+                                        text = "Pilih dari Folder My Singghara/Data/font/ (Google Drive):",
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
 
+                                    val availableFonts = remember(showClockFontDialog) {
+                                        com.example.util.SinggharaFolderManager.getAvailableFontFiles()
+                                    }
+
+                                    if (availableFonts.isNotEmpty()) {
+                                        Column(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                                        ) {
+                                            availableFonts.forEach { fontFile ->
+                                                val isSelected = viewModel.customClockFontPath == fontFile.absolutePath ||
+                                                        viewModel.customClockFontName == fontFile.name
+
+                                                val itemFontFamily = remember(fontFile.absolutePath) {
+                                                    try {
+                                                        val tf = android.graphics.Typeface.createFromFile(fontFile)
+                                                        FontFamily(Typeface(tf))
+                                                    } catch (e: Exception) {
+                                                        FontFamily.Default
+                                                    }
+                                                }
+
+                                                Surface(
+                                                    modifier = Modifier
+                                                        .fillMaxWidth()
+                                                        .clip(RoundedCornerShape(8.dp))
+                                                        .clickable {
+                                                            viewModel.saveCustomClockFont(fontFile.absolutePath, fontFile.name)
+                                                            showClockFontDialog = false
+                                                            viewModel.showToastPopup("Font diubah ke: ${fontFile.name}")
+                                                        },
+                                                    color = if (isSelected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
+                                                            else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
+                                                    shape = RoundedCornerShape(8.dp),
+                                                    border = if (isSelected) androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.primary) else null
+                                                ) {
+                                                    Row(
+                                                        modifier = Modifier
+                                                            .fillMaxWidth()
+                                                            .padding(horizontal = 10.dp, vertical = 8.dp),
+                                                        verticalAlignment = Alignment.CenterVertically,
+                                                        horizontalArrangement = Arrangement.SpaceBetween
+                                                    ) {
+                                                        Column(modifier = Modifier.weight(1f)) {
+                                                            Text(
+                                                                text = fontFile.name,
+                                                                fontSize = 12.sp,
+                                                                fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
+                                                            )
+                                                            Text(
+                                                                text = "12:34:56 • Subuh 04:30",
+                                                                fontFamily = itemFontFamily,
+                                                                fontSize = 14.sp,
+                                                                color = MaterialTheme.colorScheme.primary
+                                                            )
+                                                        }
+                                                        if (isSelected) {
+                                                            Icon(
+                                                                imageVector = Icons.Default.Check,
+                                                                contentDescription = "Terpilih",
+                                                                tint = MaterialTheme.colorScheme.primary,
+                                                                modifier = Modifier.size(20.dp)
+                                                            )
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    Spacer(modifier = Modifier.height(4.dp))
 
                                     Button(
                                         onClick = {
                                             showClockFontDialog = false
                                             viewModel.preventAutoLock = true
-                                             fontPickerLauncher.launch("*/*")
+                                            fontPickerLauncher.launch("*/*")
                                         },
                                         modifier = Modifier.fillMaxWidth().testTag("pick_clock_font_button"),
                                         shape = RoundedCornerShape(10.dp)
                                     ) {
                                         Icon(Icons.Default.Folder, contentDescription = null, modifier = Modifier.size(18.dp))
                                         Spacer(modifier = Modifier.width(8.dp))
-                                        Text("Pilih File Font (.ttf / .otf)")
+                                        Text("Pilih File Font Lain (.ttf / .otf)")
                                     }
 
                                     if (viewModel.customClockFontPath.isNotEmpty()) {
@@ -3106,7 +3265,7 @@ fun HomeScreen(viewModel: MainViewModel) {
                         
                         val modeText = when (currentMode) {
                             0 -> "Senyap"
-                            1 -> "Suara Sistem"
+                            1 -> "Suara Notifikasi"
                             2 -> "Azan (Default Aplikasi)"
                             3 -> "Azan (MP3 Kustom)"
                             else -> "Azan"
@@ -3175,7 +3334,15 @@ fun HomeScreen(viewModel: MainViewModel) {
     if (selectedPrayerForSoundSettings != null) {
         val prayer = selectedPrayerForSoundSettings!!
         androidx.compose.material3.AlertDialog(
-            onDismissRequest = { selectedPrayerForSoundSettings = null },
+            onDismissRequest = {
+                previewMediaPlayer?.let {
+                    if (it.isPlaying) { it.stop() }
+                    it.release()
+                }
+                previewMediaPlayer = null
+                previewPlayingMode = null
+                selectedPrayerForSoundSettings = null
+            },
             title = { Text(text = "Pengingat Sholat $prayer") },
             text = {
                 Column(
@@ -3190,6 +3357,12 @@ fun HomeScreen(viewModel: MainViewModel) {
                             .clickable {
                                 viewModel.savePrayerSoundSetting(prayer, 0)
                                 com.example.NotificationScheduler.scheduleAlarms(context)
+                                previewMediaPlayer?.let {
+                                    if (it.isPlaying) { it.stop() }
+                                    it.release()
+                                }
+                                previewMediaPlayer = null
+                                previewPlayingMode = null
                                 selectedPrayerForSoundSettings = null
                             }
                             .padding(horizontal = 12.dp, vertical = 12.dp),
@@ -3202,30 +3375,76 @@ fun HomeScreen(viewModel: MainViewModel) {
                             modifier = Modifier.size(20.dp)
                         )
                         Spacer(modifier = Modifier.width(12.dp))
-                        Text(text = "Senyap (Tanpa Pengingat)")
+                        Column {
+                            Text(text = "Senyap (Tanpa Pengingat)", fontSize = 13.sp)
+                            Text(text = "Hanya notifikasi visual tanpa bunyi", fontSize = 10.5.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
                     }
                     
-                    // Option 2: Suara Sistem
+                    // Option 2: Suara Notifikasi Saja
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(8.dp))
-                            .clickable {
-                                viewModel.savePrayerSoundSetting(prayer, 1)
-                                com.example.NotificationScheduler.scheduleAlarms(context)
-                                selectedPrayerForSoundSettings = null
-                            }
-                            .padding(horizontal = 12.dp, vertical = 12.dp),
-                        verticalAlignment = Alignment.CenterVertically
+                            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f))
+                            .padding(4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.Notifications,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.size(20.dp)
-                        )
-                        Spacer(modifier = Modifier.width(12.dp))
-                        Text(text = "Suara Sistem")
+                        Row(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(6.dp))
+                                .clickable {
+                                    viewModel.savePrayerSoundSetting(prayer, 1)
+                                    com.example.NotificationScheduler.scheduleAlarms(context)
+                                    previewMediaPlayer?.let {
+                                        if (it.isPlaying) { it.stop() }
+                                        it.release()
+                                    }
+                                    previewMediaPlayer = null
+                                    previewPlayingMode = null
+                                    selectedPrayerForSoundSettings = null
+                                }
+                                .padding(horizontal = 8.dp, vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Notifications,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Column {
+                                Text(
+                                    text = "Suara Notifikasi Saja",
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                                Text(
+                                    text = "Bunyi nada notifikasi standar sekali (tidak berulang)",
+                                    fontSize = 10.5.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+
+                        val isPlayingNotif = previewPlayingMode == 1
+                        IconButton(
+                            onClick = {
+                                playPreview(1, prayer)
+                            },
+                            modifier = Modifier.size(36.dp)
+                        ) {
+                            Icon(
+                                imageVector = if (isPlayingNotif) Icons.Default.Stop else Icons.Default.PlayArrow,
+                                contentDescription = "Uji Coba Nada Notifikasi",
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
                     }
 
                     // Option 3: Suara Azan
@@ -3234,6 +3453,12 @@ fun HomeScreen(viewModel: MainViewModel) {
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(8.dp))
                             .clickable {
+                                previewMediaPlayer?.let {
+                                    if (it.isPlaying) { it.stop() }
+                                    it.release()
+                                }
+                                previewMediaPlayer = null
+                                previewPlayingMode = null
                                 showAzanSourceSelectionForPrayer = prayer
                                 selectedPrayerForSoundSettings = null
                             }
@@ -3247,13 +3472,24 @@ fun HomeScreen(viewModel: MainViewModel) {
                             modifier = Modifier.size(20.dp)
                         )
                         Spacer(modifier = Modifier.width(12.dp))
-                        Text(text = "Suara Azan")
+                        Column {
+                            Text(text = "Suara Azan", fontSize = 13.sp)
+                            Text(text = "Lantunan azan lengkap (Default / MP3)", fontSize = 10.5.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
                     }
                 }
             },
             confirmButton = {},
             dismissButton = {
-                TextButton(onClick = { selectedPrayerForSoundSettings = null }) {
+                TextButton(onClick = {
+                    previewMediaPlayer?.let {
+                        if (it.isPlaying) { it.stop() }
+                        it.release()
+                    }
+                    previewMediaPlayer = null
+                    previewPlayingMode = null
+                    selectedPrayerForSoundSettings = null
+                }) {
                     Text("Batal")
                 }
             }
@@ -3338,7 +3574,118 @@ fun HomeScreen(viewModel: MainViewModel) {
                         }
                     }
 
-                    // Option B: Pilih MP3 dari Perangkat
+                    // Option B: File dari Folder My Singghara/Data/mp3
+                    val availableMp3s = remember(showAzanSourceSelectionForPrayer) {
+                        com.example.util.SinggharaFolderManager.getAvailableMp3Files()
+                    }
+
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.25f))
+                            .padding(8.dp)
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Default.Folder,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "Folder My Singghara/Data/mp3",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                        Text(
+                            text = "Posisi sejajar folder Android. Kelola file via File Manager ponsel.",
+                            fontSize = 10.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(top = 2.dp, bottom = 6.dp)
+                        )
+
+                        if (availableMp3s.isEmpty()) {
+                            Text(
+                                text = "Belum ada file .mp3 di folder Data/mp3.",
+                                fontSize = 11.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
+                            )
+                        } else {
+                            availableMp3s.forEach { mp3File ->
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 3.dp)
+                                        .clip(RoundedCornerShape(6.dp))
+                                        .background(MaterialTheme.colorScheme.surface)
+                                        .padding(horizontal = 8.dp, vertical = 6.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Column(
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .clickable {
+                                                viewModel.setCustomAzanFromFile(prayer, mp3File, context)
+                                                com.example.NotificationScheduler.scheduleAlarms(context)
+                                                previewMediaPlayer?.let { if (it.isPlaying) it.stop(); it.release() }
+                                                previewMediaPlayer = null
+                                                previewPlayingMode = null
+                                                showAzanSourceSelectionForPrayer = null
+                                                popupToastMessage = "Suara $prayer diatur ke: ${mp3File.name}"
+                                            }
+                                    ) {
+                                        Text(text = mp3File.name, fontSize = 12.sp, fontWeight = FontWeight.Medium)
+                                        Text(text = "Ketuk untuk memilih", fontSize = 10.sp, color = MaterialTheme.colorScheme.primary)
+                                    }
+
+                                    IconButton(
+                                        onClick = {
+                                            try {
+                                                previewMediaPlayer?.let {
+                                                    if (it.isPlaying) it.stop()
+                                                    it.release()
+                                                }
+                                                previewMediaPlayer = null
+                                                if (previewPlayingMode == 3) {
+                                                    previewPlayingMode = null
+                                                } else {
+                                                    val mp = android.media.MediaPlayer().apply {
+                                                        setDataSource(mp3File.absolutePath)
+                                                        prepare()
+                                                        start()
+                                                    }
+                                                    previewMediaPlayer = mp
+                                                    previewPlayingMode = 3
+                                                    mp.setOnCompletionListener {
+                                                        previewPlayingMode = null
+                                                        previewMediaPlayer = null
+                                                        try { mp.release() } catch (ignored: Exception) {}
+                                                    }
+                                                }
+                                            } catch (e: Exception) {
+                                                popupToastMessage = "Gagal memutar preview MP3: ${e.message}"
+                                            }
+                                        },
+                                        modifier = Modifier.size(32.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = if (previewPlayingMode == 3) Icons.Default.Stop else Icons.Default.PlayArrow,
+                                            contentDescription = "Preview",
+                                            tint = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Option C: Pilih MP3 dari Perangkat (File Picker Lain)
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -3375,7 +3722,7 @@ fun HomeScreen(viewModel: MainViewModel) {
                             )
                             Spacer(modifier = Modifier.width(12.dp))
                             Column {
-                                Text(text = "Pilih MP3 dari Perangkat", fontSize = 13.sp)
+                                Text(text = "Pilih MP3 dari Lokasi Lain (SAF)", fontSize = 13.sp)
                                 val customFile = java.io.File(context.filesDir, "azan_custom_${prayer.lowercase(java.util.Locale.getDefault())}.mp3")
                                 if (customFile.exists()) {
                                     Text(text = "File kustom termuat", fontSize = 10.sp, color = MaterialTheme.colorScheme.secondary)
@@ -3480,11 +3827,18 @@ fun AllAppsScreen(
                 )
             }
 
-            // Row 2: Block Puzzle, Brick Game, Spinner, and one empty placeholder to keep exact same 4-column layout width
+            // Row 2: Puzzle Geser, Block Puzzle, Brick Game, Spinner (4 items)
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
             ) {
+                AllAppGridItem(
+                    title = "Puzzle Geser",
+                    icon = Icons.Default.DashboardCustomize,
+                    color = Color(0xFFE65100),
+                    onClick = { onLaunchGame("sliding_puzzle") },
+                    modifier = Modifier.weight(1f)
+                )
                 AllAppGridItem(
                     title = "Block Puzzle",
                     icon = Icons.Default.GridOn,
@@ -3506,6 +3860,13 @@ fun AllAppsScreen(
                     onClick = { onLaunchGame("undian_spinner") },
                     modifier = Modifier.weight(1f)
                 )
+            }
+
+            // Row 3: Jadwal Harian, Telegram AI & Handy Talky
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
                 AllAppGridItem(
                     title = "Jadwal Harian",
                     icon = Icons.Default.AccessTime,
@@ -3513,6 +3874,21 @@ fun AllAppsScreen(
                     onClick = { onLaunchApp("jadwal_harian") },
                     modifier = Modifier.weight(1f)
                 )
+                AllAppGridItem(
+                    title = "Telegram AI",
+                    icon = Icons.AutoMirrored.Filled.Send,
+                    color = Color(0xFF229ED9),
+                    onClick = { onLaunchApp("telegram_ai") },
+                    modifier = Modifier.weight(1f)
+                )
+                AllAppGridItem(
+                    title = "Handy Talky",
+                    icon = Icons.Default.SettingsVoice,
+                    color = Color(0xFF0F766E),
+                    onClick = { onLaunchApp("handy_talky") },
+                    modifier = Modifier.weight(1f)
+                )
+                Spacer(modifier = Modifier.weight(1f))
             }
             
             Spacer(modifier = Modifier.height(32.dp))

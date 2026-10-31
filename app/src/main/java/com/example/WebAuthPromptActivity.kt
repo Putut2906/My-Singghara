@@ -72,39 +72,55 @@ class WebAuthPromptActivity : ComponentActivity() {
         val clientIp = intent.getStringExtra("WEB_AUTH_CLIENT_IP") ?: "127.0.0.1"
         val timestamp = intent.getLongExtra("WEB_AUTH_TIMESTAMP", System.currentTimeMillis())
 
+        var localToastMessage by mutableStateOf<String?>(null)
+
         setContent {
             MyApplicationTheme {
-                WebAuthPromptScreen(
-                    clientIp = clientIp,
-                    timestamp = timestamp,
-                    onDismiss = { finish() },
-                    onApprove = { tokenOrPin ->
-                        val server = LocalHttpServer.activeInstance ?: MainViewModel.instance?.webServer
-                        val vm = MainViewModel.instance
-                        val ok = if (tokenOrPin != null) {
-                            server?.approveSession(tokenOrPin) ?: false
-                        } else {
-                            server?.approveAllPending() ?: false
-                        }
-                        if (ok) {
-                            vm?.webAccessSecurityState = MainViewModel.WebAccessSecurityState.NONE
+                Box(modifier = Modifier.fillMaxSize()) {
+                    WebAuthPromptScreen(
+                        clientIp = clientIp,
+                        timestamp = timestamp,
+                        onDismiss = { finish() },
+                        onApprove = { tokenOrPin ->
+                            val server = LocalHttpServer.activeInstance ?: MainViewModel.instance?.webServer
+                            val vm = MainViewModel.instance
+                            val ok = if (tokenOrPin != null) {
+                                server?.approveSession(tokenOrPin) ?: false
+                            } else {
+                                server?.approveAllPending() ?: false
+                            }
+                            if (ok) {
+                                vm?.webAccessSecurityState = MainViewModel.WebAccessSecurityState.NONE
+                                NotificationScheduler.cancelWebAccessNotification(applicationContext)
+                                vm?.showToastPopup("Akses Web PC Berhasil Diizinkan!")
+                                finish()
+                            } else {
+                                localToastMessage = "Gagal memverifikasi akses"
+                                vm?.showToastPopup("Gagal memverifikasi akses")
+                            }
+                        },
+                        onReject = {
+                            val server = LocalHttpServer.activeInstance ?: MainViewModel.instance?.webServer
+                            val vm = MainViewModel.instance
+                            server?.rejectPendingAccess()
+                            vm?.onRejectWebAccess()
                             NotificationScheduler.cancelWebAccessNotification(applicationContext)
-                            Toast.makeText(applicationContext, "Akses Web PC Berhasil Diizinkan!", Toast.LENGTH_SHORT).show()
+                            vm?.showToastPopup("Akses Web PC Ditolak")
                             finish()
-                        } else {
-                            Toast.makeText(applicationContext, "Gagal memverifikasi akses", Toast.LENGTH_SHORT).show()
+                        },
+                        onShowToast = { msg ->
+                            localToastMessage = msg
+                            MainViewModel.instance?.showToastPopup(msg)
                         }
-                    },
-                    onReject = {
-                        val server = LocalHttpServer.activeInstance ?: MainViewModel.instance?.webServer
-                        val vm = MainViewModel.instance
-                        server?.rejectPendingAccess()
-                        vm?.onRejectWebAccess()
-                        NotificationScheduler.cancelWebAccessNotification(applicationContext)
-                        Toast.makeText(applicationContext, "Akses Web PC Ditolak", Toast.LENGTH_SHORT).show()
-                        finish()
+                    )
+
+                    if (localToastMessage != null) {
+                        com.example.ui.components.SpringToastPopup(
+                            message = localToastMessage,
+                            onDismiss = { localToastMessage = null }
+                        )
                     }
-                )
+                }
             }
         }
     }
@@ -116,7 +132,8 @@ fun WebAuthPromptScreen(
     timestamp: Long,
     onDismiss: () -> Unit,
     onApprove: (String?) -> Unit,
-    onReject: () -> Unit
+    onReject: () -> Unit,
+    onShowToast: (String) -> Unit = {}
 ) {
     val context = LocalContext.current
     var isVerificationStep by remember { mutableStateOf(false) }
@@ -386,7 +403,7 @@ fun WebAuthPromptScreen(
                                             val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
                                             val clip = ClipData.newPlainText("PIN PC", pin)
                                             clipboard.setPrimaryClip(clip)
-                                            Toast.makeText(context, "Kode PIN disalin: $pin", Toast.LENGTH_SHORT).show()
+                                            onShowToast("Kode PIN disalin: $pin")
                                         },
                                         shape = RoundedCornerShape(10.dp),
                                         contentPadding = PaddingValues(horizontal = 14.dp, vertical = 4.dp)

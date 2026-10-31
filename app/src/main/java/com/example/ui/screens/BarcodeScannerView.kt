@@ -54,7 +54,10 @@ import java.util.concurrent.Executors
 @Composable
 fun BarcodeScannerDialog(
     onDismissRequest: () -> Unit,
-    onBarcodeScanned: (String) -> Unit
+    onBarcodeScanned: (String) -> Unit,
+    title: String = "Pindai Barcode 1D",
+    hintText: String = "Posisikan Barcode Garis Barang di Dalam Kotak",
+    isQrSquare: Boolean = false
 ) {
     val cameraPermissionState = rememberPermissionState(android.Manifest.permission.CAMERA)
 
@@ -71,7 +74,10 @@ fun BarcodeScannerDialog(
             if (cameraPermissionState.status.isGranted) {
                 BarcodeScannerContent(
                     onBarcodeScanned = onBarcodeScanned,
-                    onClose = onDismissRequest
+                    onClose = onDismissRequest,
+                    title = title,
+                    hintText = hintText,
+                    isQrSquare = isQrSquare
                 )
             } else {
                 Column(
@@ -116,7 +122,10 @@ fun BarcodeScannerDialog(
 @Composable
 fun BarcodeScannerContent(
     onBarcodeScanned: (String) -> Unit,
-    onClose: () -> Unit
+    onClose: () -> Unit,
+    title: String = "Pindai Barcode 1D",
+    hintText: String = "Posisikan Barcode Garis Barang di Dalam Kotak",
+    isQrSquare: Boolean = false
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -222,9 +231,9 @@ fun BarcodeScannerContent(
             val canvasWidth = size.width
             val canvasHeight = size.height
 
-            // Dimensions of scanning window (1D linear barcode scanning window)
-            val windowWidth = canvasWidth * 0.85f
-            val windowHeight = 160.dp.toPx()
+            // Dimensions of scanning window
+            val windowWidth = if (isQrSquare) (canvasWidth * 0.72f).coerceAtMost(280.dp.toPx()) else canvasWidth * 0.85f
+            val windowHeight = if (isQrSquare) windowWidth else 160.dp.toPx()
             val left = (canvasWidth - windowWidth) / 2f
             val top = (canvasHeight - windowHeight) / 2.2f
 
@@ -291,10 +300,12 @@ fun BarcodeScannerContent(
                 }
 
                 Text(
-                    "Pindai Barcode 1D",
+                    text = title,
                     color = Color.White,
                     fontWeight = FontWeight.Bold,
-                    fontSize = 18.sp
+                    fontSize = 17.sp,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.weight(1f).padding(horizontal = 8.dp)
                 )
 
                 // Placeholder for balance
@@ -303,13 +314,13 @@ fun BarcodeScannerContent(
 
             // Central scan window helper text
             Text(
-                "Posisikan Barcode Garis Barang di Dalam Kotak",
+                text = hintText,
                 color = Color.White,
                 fontWeight = FontWeight.Medium,
                 fontSize = 13.sp,
                 textAlign = TextAlign.Center,
                 modifier = Modifier
-                    .background(Color.Black.copy(alpha = 0.6f), RoundedCornerShape(8.dp))
+                    .background(Color.Black.copy(alpha = 0.65f), RoundedCornerShape(8.dp))
                     .padding(horizontal = 16.dp, vertical = 8.dp)
             )
 

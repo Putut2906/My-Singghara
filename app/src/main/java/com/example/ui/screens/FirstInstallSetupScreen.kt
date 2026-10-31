@@ -36,6 +36,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.ui.MainViewModel
+import com.example.ui.components.PhotoRepositionDialog
 
 @Composable
 fun FirstInstallSetupScreen(
@@ -60,13 +61,13 @@ fun FirstInstallSetupScreen(
     // Profile temporary state
     var tempProfileName by remember { mutableStateOf(viewModel.profileName) }
     var selectedAvatarIndex by remember { mutableStateOf(viewModel.profileAvatarIndex) }
+    var photoToRepositionUri by remember { mutableStateOf<Uri?>(null) }
 
     val imagePickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
     ) { uri ->
         if (uri != null) {
-            viewModel.saveProfileImageUri(uri.toString())
-            viewModel.showToastPopup("Foto profil kustom berhasil dipilih!")
+            photoToRepositionUri = uri
         }
     }
 
@@ -349,6 +350,19 @@ fun FirstInstallSetupScreen(
                 }
             }
         }
+    }
+
+    if (photoToRepositionUri != null) {
+        PhotoRepositionDialog(
+            imageUri = photoToRepositionUri!!,
+            onDismiss = { photoToRepositionUri = null },
+            onConfirm = { croppedBitmap ->
+                viewModel.saveProfileImageBitmap(croppedBitmap)
+                selectedAvatarIndex = -1
+                photoToRepositionUri = null
+                viewModel.showToastPopup("Foto profil berhasil disesuaikan!")
+            }
+        )
     }
 }
 
@@ -932,6 +946,56 @@ fun BackupStepView(
         )
 
         Spacer(modifier = Modifier.height(20.dp))
+
+        val context = androidx.compose.ui.platform.LocalContext.current
+        // Otomatis buat & verifikasi folder My Singghara di penyimpanan internal
+        androidx.compose.runtime.LaunchedEffect(Unit) {
+            com.example.util.SinggharaFolderManager.ensureFoldersExist(context)
+        }
+
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.2f)),
+            shape = RoundedCornerShape(16.dp),
+            border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.3f))
+        ) {
+            Column(modifier = Modifier.padding(16.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = Icons.Default.FolderSpecial,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(20.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "Struktur Folder Otomatis (Internal)",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 13.sp,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+                Spacer(modifier = Modifier.height(6.dp))
+                Text(
+                    text = "Posisi: /storage/emulated/0/My Singghara (sejajar folder Android)\n" +
+                           "• Back Up (file cadangan database)\n" +
+                           "• Data/mp3 (suara adzan kustom & musik)\n" +
+                           "• Data/font (font jam kustom .ttf: Technology fonts)",
+                    fontSize = 11.sp,
+                    lineHeight = 16.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+                Text(
+                    text = "✓ Otomatis dibuat & dapat diakses langsung via File Manager",
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.primary
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(14.dp))
 
         Card(
             modifier = Modifier.fillMaxWidth(),

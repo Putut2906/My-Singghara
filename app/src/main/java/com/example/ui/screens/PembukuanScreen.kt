@@ -144,12 +144,13 @@ data class StockItem(
     val harga: Double,
     val stok: Int,
     val barcode: String = "",
-    val tanggal: String = ""
+    val tanggal: String = "",
+    val foto: String = ""
 )
 
 fun serializeStock(list: List<StockItem>): String {
     return list.joinToString("&&") { 
-        "${it.id}##${it.nama.replace("##", " ")}##${it.kategori.replace("##", " ")}##${it.keterangan.replace("##", " ")}##${it.harga}##${it.stok}##${it.barcode.replace("##", " ")}##${it.tanggal}" 
+        "${it.id}##${it.nama.replace("##", " ")}##${it.kategori.replace("##", " ")}##${it.keterangan.replace("##", " ")}##${it.harga}##${it.stok}##${it.barcode.replace("##", " ")}##${it.tanggal}##${it.foto.replace("##", "")}" 
     }
 }
 
@@ -167,7 +168,8 @@ fun deserializeStock(serialized: String): List<StockItem> {
                     harga = parts[4].toDoubleOrNull() ?: 0.0,
                     stok = parts[5].toIntOrNull() ?: 0,
                     barcode = if (parts.size > 6) parts[6] else "",
-                    tanggal = if (parts.size > 7) parts[7] else ""
+                    tanggal = if (parts.size > 7) parts[7] else "",
+                    foto = if (parts.size > 8) parts[8] else ""
                 )
             } else null
         }

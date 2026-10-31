@@ -189,7 +189,7 @@ object KeuanganWebScript {
                 <html>
                 <head>
                     <title>${dol}{title} - My Singghara</title>
-                    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+                    <link href="/assets/css/bootstrap.min.css" rel="stylesheet">
                     <style>
                         body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; padding: 25px; color: #222; background: #fff; }
                         .report-header { text-align: center; border-bottom: 2px solid #2C5E6A; padding-bottom: 12px; margin-bottom: 20px; }
@@ -213,7 +213,7 @@ object KeuanganWebScript {
                     </div>
                     ${dol}{tableHtml}
                     <div class="mt-4 text-end" style="font-size: 11px; color: #777;">
-                        Dicetak secara otomatis dari Singghara Web Connect pada ${dol}{new Date().toLocaleString('id-ID')}
+                        Dicetak secara otomatis dari My Singghara pada ${dol}{new Date().toLocaleString('id-ID')}
                     </div>
                 </body>
                 </html>

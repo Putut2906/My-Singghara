@@ -1067,21 +1067,9 @@ fun BlockPuzzleGame(
                                                     isSingleClearModeActive = false
                                                     saveGameState()
                                                     GameSound.playClear()
-                                                    Toast
-                                                        .makeText(
-                                                            context,
-                                                            "Satu balok berhasil dihapus!",
-                                                            Toast.LENGTH_SHORT
-                                                        )
-                                                        .show()
+                                                    MainViewModel.instance?.showToastPopup("Satu balok berhasil dihapus!")
                                                 } else {
-                                                    Toast
-                                                        .makeText(
-                                                            context,
-                                                            "Pilih kotak yang berisi balok!",
-                                                            Toast.LENGTH_SHORT
-                                                        )
-                                                        .show()
+                                                    MainViewModel.instance?.showToastPopup("Pilih kotak yang berisi balok!")
                                                 }
                                             } else if (isHammerModeActive) {
                                                 // Clear 3x3
@@ -1101,21 +1089,9 @@ fun BlockPuzzleGame(
                                                     isHammerModeActive = false
                                                     saveGameState()
                                                     GameSound.playClear()
-                                                    Toast
-                                                        .makeText(
-                                                            context,
-                                                            "Palu menghancurkan balok!",
-                                                            Toast.LENGTH_SHORT
-                                                        )
-                                                        .show()
+                                                    MainViewModel.instance?.showToastPopup("Palu menghancurkan balok!")
                                                 } else {
-                                                    Toast
-                                                        .makeText(
-                                                            context,
-                                                            "Pilih area yang memiliki balok!",
-                                                            Toast.LENGTH_SHORT
-                                                        )
-                                                        .show()
+                                                    MainViewModel.instance?.showToastPopup("Pilih area yang memiliki balok!")
                                                 }
                                             } else {
                                                 // General Candidate placement mode

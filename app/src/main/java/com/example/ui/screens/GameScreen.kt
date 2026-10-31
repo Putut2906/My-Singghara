@@ -33,7 +33,7 @@ fun GameScreen(viewModel: MainViewModel) {
     val activeGameSection = viewModel.activeGameSectionInGameScreen
 
     LaunchedEffect(activeGameSection) {
-        viewModel.isBottomBarVisible = (activeGameSection != "block_puzzle" && activeGameSection != "tetris")
+        viewModel.isBottomBarVisible = (activeGameSection != "block_puzzle" && activeGameSection != "tetris" && activeGameSection != "sliding_puzzle")
     }
 
     DisposableEffect(Unit) {
@@ -57,6 +57,10 @@ fun GameScreen(viewModel: MainViewModel) {
         )
     } else if (activeGameSection == "tetris") {
         TetrisGame(
+            onBackClick = { viewModel.activeGameSectionInGameScreen = null }
+        )
+    } else if (activeGameSection == "sliding_puzzle") {
+        SlidingPuzzleGame(
             onBackClick = { viewModel.activeGameSectionInGameScreen = null }
         )
     } else {
@@ -120,6 +124,84 @@ fun GameScreen(viewModel: MainViewModel) {
                         .padding(top = 4.dp),
                     letterSpacing = 0.5.sp
                 )
+
+                // Opsi Unggulan: Permainan Puzzle Geser (Sliding Puzzle)
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable {
+                            viewModel.recordAppOpen("sliding_puzzle")
+                            viewModel.activeGameSectionInGameScreen = "sliding_puzzle"
+                        }
+                        .testTag("game_sliding_puzzle_card"),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(16.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(52.dp)
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(
+                                    Brush.linearGradient(
+                                        listOf(Color(0xFFE65100), Color(0xFFFF9800))
+                                    )
+                                ),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.DashboardCustomize,
+                                contentDescription = null,
+                                tint = Color.White,
+                                modifier = Modifier.size(28.dp)
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.width(16.dp))
+
+                        Column(modifier = Modifier.weight(1f)) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Text(
+                                    text = "Puzzle Geser",
+                                    fontWeight = FontWeight.ExtraBold,
+                                    fontSize = 16.sp,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Surface(
+                                    shape = RoundedCornerShape(6.dp),
+                                    color = MaterialTheme.colorScheme.primaryContainer
+                                ) {
+                                    Text(
+                                        text = "BARU",
+                                        fontSize = 9.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                        modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
+                                    )
+                                }
+                            }
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                text = "3x3 hingga 6x6 • Alam, Harimau, Borobudur, Angka & Foto Pribadi",
+                                fontSize = 11.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1
+                            )
+                        }
+
+                        Icon(
+                            imageVector = Icons.Default.PlayArrow,
+                            contentDescription = "Mainkan",
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(24.dp)
+                        )
+                    }
+                }
 
                 // Opsi 1: Block Puzzle Classic
                 Card(

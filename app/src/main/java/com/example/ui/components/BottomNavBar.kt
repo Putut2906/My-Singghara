@@ -166,38 +166,19 @@ fun BottomNavBar(viewModel: MainViewModel) {
                                 Modifier
                             }
 
-                            Box(
+                            com.example.ui.components.AppUserAvatar(
+                                name = viewModel.profileName,
+                                imageUri = viewModel.profileImageUri,
+                                avatarIndex = viewModel.profileAvatarIndex,
+                                size = 26.dp,
+                                textSize = 10.sp,
+                                isLoggedIn = viewModel.currentFirebaseUser != null,
+                                contentDescription = "Profile Bar Icon",
                                 modifier = Modifier
                                     .size(26.dp)
                                     .then(borderModifier)
                                     .padding(if (isProfilSelected) 1.5.dp else 0.dp)
-                                    .clip(CircleShape)
-                                    .then(
-                                        if (viewModel.profileAvatarIndex >= 0) {
-                                            Modifier.background(avatarGradients.getOrElse(viewModel.profileAvatarIndex) { avatarGradients[0] })
-                                        } else {
-                                            Modifier.background(MaterialTheme.colorScheme.surfaceVariant)
-                                        }
-                                    ),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                if (viewModel.profileAvatarIndex == -1 && viewModel.profileImageUri.isNotEmpty()) {
-                                    AsyncImage(
-                                        model = viewModel.profileImageUri,
-                                        contentDescription = "Profile Bar Icon",
-                                        modifier = Modifier.fillMaxSize().clip(CircleShape),
-                                        contentScale = ContentScale.Crop
-                                    )
-                                } else {
-                                    val icon = avatarIcons.getOrElse(viewModel.profileAvatarIndex) { Icons.Default.Person }
-                                    Icon(
-                                        icon,
-                                        null,
-                                        tint = Color.White,
-                                        modifier = Modifier.size(15.dp)
-                                    )
-                                }
-                            }
+                            )
                         }
                     )
                 }

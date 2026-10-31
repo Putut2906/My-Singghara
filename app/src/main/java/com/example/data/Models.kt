@@ -115,3 +115,117 @@ data class RiwayatPresensi(
     val qrPayload: String = ""
 )
 
+@Entity(tableName = "gaji_items")
+data class GajiItem(
+    @PrimaryKey(autoGenerate = true) val id: Int = 0,
+    val anggotaId: Long = 0L,
+    val nomorInduk: String = "", // NIP / NIM / ID Karyawan
+    val nama: String,
+    val status: String = "Karyawan Tetap", // Karyawan Tetap, Karyawan Kontrak, Staf, Guru / Dosen, Magang, Freelance
+    val peran: String = "Staff Operasional", // Manager, Supervisor, IT / Developer, Akuntan / Finance, Guru, Admin, dll.
+    val periode: String = "", // e.g. "Agustus 2026" atau "2026-08"
+    val tanggalBayar: String = "", // YYYY-MM-DD
+    val gajiPokok: Double = 0.0,
+    val tunjanganJabatan: Double = 0.0,
+    val tunjanganMakanTransport: Double = 0.0,
+    val tunjanganKehadiran: Double = 0.0,
+    val bonusLembur: Double = 0.0,
+    val tunjanganLain: Double = 0.0,
+    val potonganBpjs: Double = 0.0,
+    val potonganPph: Double = 0.0,
+    val potonganKasbon: Double = 0.0,
+    val potonganKeterlambatan: Double = 0.0,
+    val potonganLain: Double = 0.0,
+    val totalPendapatan: Double = 0.0, // Subtotal Penambahan (Gaji Pokok + Semua Tunjangan + Bonus)
+    val totalPotongan: Double = 0.0, // Subtotal Pengurangan
+    val gajiBersih: Double = 0.0, // Take Home Pay (totalPendapatan - totalPotongan)
+    val metodePembayaran: String = "Transfer Bank", // Transfer Bank, Tunai, E-Wallet
+    val statusPembayaran: String = "Lunas", // Lunas, Menunggu, Diproses
+    val catatan: String = "",
+    val tanggalDibuat: Long = System.currentTimeMillis()
+)
+
+@Entity(tableName = "rekap_belanja_pasar")
+data class BelanjaPasarItem(
+    @PrimaryKey(autoGenerate = true) val id: Int = 0,
+    val nama: String,
+    val kategori: String = "Sayuran", // Sayuran, Daging & Unggas, Ikan & Seafood, Bumbu Dapur, Buah-buahan, Sembako, Tahu & Tempe, Perlengkapan, Lain-lain
+    val jumlah: Double = 1.0,
+    val satuan: String = "kg", // kg, gram, ons, pcs, ikat, liter, bks, karung, ekor, butir, sisir, papan, dus
+    val perkiraanHarga: Double = 0.0,
+    val realisasiHarga: Double = 0.0,
+    val sudahDibeli: Boolean = false,
+    val catatan: String = "",
+    val tanggal: String = "" // YYYY-MM-DD
+)
+
+@Entity(tableName = "arisan_kelompok")
+data class ArisanKelompok(
+    @PrimaryKey(autoGenerate = true) val id: Int = 0,
+    val namaArisan: String,
+    val nominalIuran: Double = 100000.0,
+    val periodeTipe: String = "Bulanan", // "Bulanan", "2 Mingguan", "Mingguan", "Acara Pertemuan"
+    val totalPutaranTarget: Int = 10,
+    val putaranSaatIni: Int = 1,
+    val potonganKasPerPutaran: Double = 0.0, // Potongan kas per putaran untuk kas/konsumsi arisan keluarga
+    val lokasiTuanRumah: String = "", // Lokasi pertemuan arisan berikutnya
+    val tanggalPertemuanBerikutnya: String = "", // YYYY-MM-DD
+    val catatan: String = "",
+    val status: String = "Aktif", // "Aktif", "Selesai"
+    val tanggalDibuat: Long = System.currentTimeMillis()
+)
+
+@Entity(tableName = "arisan_peserta")
+data class ArisanPeserta(
+    @PrimaryKey(autoGenerate = true) val id: Int = 0,
+    val arisanId: Int,
+    val nama: String,
+    val nomorHp: String = "",
+    val hubungan: String = "Keluarga", // Ayah, Ibu, Paman, Tante, Kakak, Adik, Sepupu, Anak, Kakek, Nenek, Kerabat
+    val nomorUndian: Int = 1,
+    val sudahDapat: Boolean = false,
+    val putaranDapat: Int? = null,
+    val tanggalDapat: String = "", // YYYY-MM-DD
+    val catatan: String = ""
+)
+
+@Entity(tableName = "arisan_iuran")
+data class ArisanIuran(
+    @PrimaryKey(autoGenerate = true) val id: Int = 0,
+    val arisanId: Int,
+    val pesertaId: Int,
+    val namaPeserta: String,
+    val putaranKe: Int,
+    val nominal: Double,
+    val tanggalBayar: String = "", // YYYY-MM-DD
+    val statusBayar: String = "Lunas", // "Lunas", "Belum Bayar"
+    val metodeBayar: String = "Tunai", // "Tunai", "Transfer Bank", "E-Wallet"
+    val catatan: String = ""
+)
+
+@Entity(tableName = "arisan_kas_transaksi")
+data class ArisanKasTransaksi(
+    @PrimaryKey(autoGenerate = true) val id: Int = 0,
+    val arisanId: Int,
+    val jenis: String = "Masuk", // "Masuk", "Keluar"
+    val kategori: String = "Potongan Arisan", // Potongan Arisan, Donasi/Infaq, Konsumsi, Sewa Tempat, Santunan Sosial, Lain-lain
+    val nominal: Double = 0.0,
+    val tanggal: String = "", // YYYY-MM-DD
+    val keterangan: String = ""
+)
+
+@Entity(tableName = "arisan_pemenang_riwayat")
+data class ArisanPemenangRiwayat(
+    @PrimaryKey(autoGenerate = true) val id: Int = 0,
+    val arisanId: Int,
+    val putaranKe: Int,
+    val pesertaId: Int,
+    val namaPemenang: String,
+    val totalUangDiterima: Double = 0.0,
+    val potonganKas: Double = 0.0,
+    val tanggalKocok: String = "", // YYYY-MM-DD
+    val tuanRumahBerikutnya: String = "",
+    val catatan: String = ""
+)
+
+

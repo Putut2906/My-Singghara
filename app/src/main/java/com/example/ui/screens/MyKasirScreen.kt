@@ -57,12 +57,130 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.foundation.text.KeyboardActions
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.net.Uri
+import android.util.Base64
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Image
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
+import coil.compose.AsyncImage
 import com.example.ui.MainViewModel
 import java.text.NumberFormat
 import java.util.Locale
 import java.text.SimpleDateFormat
 import java.util.Date
 import kotlin.math.abs
+
+private fun compressBitmapToBase64(bitmap: Bitmap, maxSize: Int = 400): String {
+    return try {
+        val width = bitmap.width
+        val height = bitmap.height
+        val scale = if (width > maxSize || height > maxSize) {
+            val maxDim = Math.max(width, height).toFloat()
+            maxSize / maxDim
+        } else 1.0f
+        val targetW = (width * scale).toInt().coerceAtLeast(1)
+        val targetH = (height * scale).toInt().coerceAtLeast(1)
+        val scaledBmp = Bitmap.createScaledBitmap(bitmap, targetW, targetH, true)
+        val outputStream = java.io.ByteArrayOutputStream()
+        scaledBmp.compress(Bitmap.CompressFormat.JPEG, 80, outputStream)
+        val bytes = outputStream.toByteArray()
+        "data:image/jpeg;base64," + Base64.encodeToString(bytes, Base64.NO_WRAP)
+    } catch (e: Exception) {
+        ""
+    }
+}
+
+private fun uriToCompressedBase64(context: Context, uri: Uri, maxSize: Int = 400): String {
+    return try {
+        val bitmap = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
+            val source = android.graphics.ImageDecoder.createSource(context.contentResolver, uri)
+            android.graphics.ImageDecoder.decodeBitmap(source) { decoder, _, _ ->
+                decoder.isMutableRequired = true
+            }
+        } else {
+            @Suppress("DEPRECATION")
+            android.provider.MediaStore.Images.Media.getBitmap(context.contentResolver, uri)
+        }
+        if (bitmap != null) compressBitmapToBase64(bitmap, maxSize) else ""
+    } catch (e: Exception) {
+        ""
+    }
+}
+
+private fun decodePhotoToBitmap(photoData: String): Bitmap? {
+    if (photoData.isBlank()) return null
+    if (photoData.startsWith("http://") || photoData.startsWith("https://") ||
+        photoData.startsWith("content://") || photoData.startsWith("file://") ||
+        photoData.startsWith("android.resource://")) {
+        return null
+    }
+    return try {
+        val cleanData = if (photoData.contains(",")) {
+            photoData.substringAfter(",")
+        } else {
+            photoData
+        }
+        val cleanBase64 = cleanData.replace("\n", "").replace("\r", "").trim()
+        val bytes = Base64.decode(cleanBase64, Base64.DEFAULT)
+        BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+    } catch (e: Exception) {
+        null
+    }
+}
+
+@Composable
+fun ProductPhotoThumbnail(
+    photoData: String,
+    contentDescription: String?,
+    modifier: Modifier = Modifier,
+    contentScale: ContentScale = ContentScale.Crop,
+    iconSize: androidx.compose.ui.unit.Dp = 22.dp,
+    placeholder: (@Composable () -> Unit)? = null
+) {
+    if (photoData.isBlank()) {
+        if (placeholder != null) {
+            placeholder()
+        } else {
+            Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
+                Icon(
+                    Icons.Default.Inventory2,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                    modifier = Modifier.size(iconSize)
+                )
+            }
+        }
+        return
+    }
+
+    val decodedBitmap = remember(photoData) {
+        decodePhotoToBitmap(photoData)
+    }
+
+    if (decodedBitmap != null) {
+        Image(
+            bitmap = decodedBitmap.asImageBitmap(),
+            contentDescription = contentDescription,
+            modifier = modifier,
+            contentScale = contentScale
+        )
+    } else {
+        AsyncImage(
+            model = if (photoData.startsWith("content://") || photoData.startsWith("file://")) {
+                Uri.parse(photoData)
+            } else {
+                photoData
+            },
+            contentDescription = contentDescription,
+            modifier = modifier,
+            contentScale = contentScale
+        )
+    }
+}
 
 private fun formatToIndonesianDate(dateStr: String): String {
     if (dateStr.isEmpty()) return ""
@@ -121,6 +239,48 @@ fun MyKasirScreen(viewModel: MainViewModel) {
     var printerPaperWidth by remember {
         mutableStateOf(sharedPrefs.getInt("printer_paper_width", 32))
     }
+    var previewFotoItem by remember { mutableStateOf<StockItem?>(null) }
+
+    val quickPhotoCameraLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.TakePicturePreview()
+    ) { bitmap ->
+        if (bitmap != null && previewFotoItem != null) {
+            val b64 = compressBitmapToBase64(bitmap)
+            if (b64.isNotEmpty()) {
+                val targetId = previewFotoItem!!.id
+                val idx = listStock.indexOfFirst { it.id == targetId }
+                if (idx != -1) {
+                    val updated = listStock[idx].copy(foto = b64)
+                    val mutable = listStock.toMutableList()
+                    mutable[idx] = updated
+                    saveStock(mutable)
+                    previewFotoItem = updated
+                    viewModel.showToastPopup("Foto produk '${updated.nama}' berhasil disimpan!")
+                }
+            }
+        }
+    }
+
+    val quickPhotoGalleryLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri ->
+        if (uri != null && previewFotoItem != null) {
+            val b64 = uriToCompressedBase64(context, uri)
+            if (b64.isNotEmpty()) {
+                val targetId = previewFotoItem!!.id
+                val idx = listStock.indexOfFirst { it.id == targetId }
+                if (idx != -1) {
+                    val updated = listStock[idx].copy(foto = b64)
+                    val mutable = listStock.toMutableList()
+                    mutable[idx] = updated
+                    saveStock(mutable)
+                    previewFotoItem = updated
+                    viewModel.showToastPopup("Foto produk '${updated.nama}' berhasil disimpan!")
+                }
+            }
+        }
+    }
+
     var showPrinterSettingsDialog by remember { mutableStateOf(false) }
 
     val savePrinterSettings = { method: String, width: Int ->
@@ -649,6 +809,7 @@ fun MyKasirScreen(viewModel: MainViewModel) {
                                                                 .height(IntrinsicSize.Min),
                                                             verticalAlignment = Alignment.CenterVertically
                                                         ) {
+                                                            Box(modifier = Modifier.width(68.dp).fillMaxHeight().border(0.5.dp, MaterialTheme.colorScheme.outlineVariant).padding(horizontal = 4.dp, vertical = 12.dp), contentAlignment = Alignment.Center) { Text("Foto", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimaryContainer, maxLines = 1) }
                                                             Box(modifier = Modifier.width(110.dp).fillMaxHeight().border(0.5.dp, MaterialTheme.colorScheme.outlineVariant).padding(horizontal = 12.dp, vertical = 12.dp), contentAlignment = Alignment.CenterStart) { Text("Tanggal", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimaryContainer, maxLines = 1) }
                                                             Box(modifier = Modifier.width(140.dp).fillMaxHeight().border(0.5.dp, MaterialTheme.colorScheme.outlineVariant).padding(horizontal = 12.dp, vertical = 12.dp), contentAlignment = Alignment.CenterStart) { Text("Kategori", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimaryContainer, maxLines = 1) }
                                                             Box(modifier = Modifier.width(200.dp).fillMaxHeight().border(0.5.dp, MaterialTheme.colorScheme.outlineVariant).padding(horizontal = 12.dp, vertical = 12.dp), contentAlignment = Alignment.CenterStart) { Text("Nama Barang", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimaryContainer, maxLines = 1) }
@@ -666,6 +827,26 @@ fun MyKasirScreen(viewModel: MainViewModel) {
                                                                 modifier = Modifier.height(IntrinsicSize.Min),
                                                                 verticalAlignment = Alignment.CenterVertically
                                                             ) {
+                                                                Box(modifier = Modifier.width(68.dp).fillMaxHeight().border(0.5.dp, MaterialTheme.colorScheme.outlineVariant).padding(horizontal = 4.dp, vertical = 6.dp), contentAlignment = Alignment.Center) {
+                                                                    Surface(
+                                                                        modifier = Modifier
+                                                                            .size(46.dp)
+                                                                            .clip(RoundedCornerShape(8.dp))
+                                                                            .clickable {
+                                                                                previewFotoItem = item
+                                                                            },
+                                                                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                                                                        border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.8f))
+                                                                    ) {
+                                                                        ProductPhotoThumbnail(
+                                                                            photoData = item.foto,
+                                                                            contentDescription = item.nama,
+                                                                            modifier = Modifier.fillMaxSize(),
+                                                                            contentScale = ContentScale.Crop,
+                                                                            iconSize = 22.dp
+                                                                        )
+                                                                    }
+                                                                }
                                                                 Box(modifier = Modifier.width(110.dp).fillMaxHeight().border(0.5.dp, MaterialTheme.colorScheme.outlineVariant).padding(horizontal = 12.dp, vertical = 10.dp), contentAlignment = Alignment.CenterStart) { Text(item.tanggal.ifEmpty { "-" }, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurface, maxLines = 1) }
                                                                 Box(modifier = Modifier.width(140.dp).fillMaxHeight().border(0.5.dp, MaterialTheme.colorScheme.outlineVariant).padding(horizontal = 12.dp, vertical = 10.dp), contentAlignment = Alignment.CenterStart) { Text(item.kategori, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurface, maxLines = 1) }
                                                                 Box(modifier = Modifier.width(200.dp).fillMaxHeight().border(0.5.dp, MaterialTheme.colorScheme.outlineVariant).padding(horizontal = 12.dp, vertical = 10.dp), contentAlignment = Alignment.CenterStart) { Text(item.nama, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface, maxLines = 1) }
@@ -1469,7 +1650,8 @@ fun MyKasirScreen(viewModel: MainViewModel) {
                                             pendingDeleteIndex = realIndex
                                         }
                                     },
-                                    toRupiah = toRupiah
+                                    toRupiah = toRupiah,
+                                    onPhotoClick = { previewFotoItem = item }
                                 )
                             }
                         }
@@ -1541,6 +1723,7 @@ fun MyKasirScreen(viewModel: MainViewModel) {
                                                 .height(IntrinsicSize.Min),
                                             verticalAlignment = Alignment.CenterVertically
                                         ) {
+                                            Box(modifier = Modifier.width(68.dp).fillMaxHeight().border(0.5.dp, MaterialTheme.colorScheme.outlineVariant).padding(horizontal = 4.dp, vertical = 12.dp), contentAlignment = Alignment.Center) { Text("Foto", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimaryContainer, maxLines = 1) }
                                             Box(modifier = Modifier.width(110.dp).fillMaxHeight().border(0.5.dp, MaterialTheme.colorScheme.outlineVariant).padding(horizontal = 12.dp, vertical = 12.dp), contentAlignment = Alignment.CenterStart) { Text("Tanggal", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimaryContainer, maxLines = 1) }
                                             Box(modifier = Modifier.width(140.dp).fillMaxHeight().border(0.5.dp, MaterialTheme.colorScheme.outlineVariant).padding(horizontal = 12.dp, vertical = 12.dp), contentAlignment = Alignment.CenterStart) { Text("Kategori", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimaryContainer, maxLines = 1) }
                                             Box(modifier = Modifier.width(200.dp).fillMaxHeight().border(0.5.dp, MaterialTheme.colorScheme.outlineVariant).padding(horizontal = 12.dp, vertical = 12.dp), contentAlignment = Alignment.CenterStart) { Text("Nama Barang", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimaryContainer, maxLines = 1) }
@@ -1558,6 +1741,26 @@ fun MyKasirScreen(viewModel: MainViewModel) {
                                                 modifier = Modifier.height(IntrinsicSize.Min),
                                                 verticalAlignment = Alignment.CenterVertically
                                             ) {
+                                                Box(modifier = Modifier.width(68.dp).fillMaxHeight().border(0.5.dp, MaterialTheme.colorScheme.outlineVariant).padding(horizontal = 4.dp, vertical = 6.dp), contentAlignment = Alignment.Center) {
+                                                    Surface(
+                                                        modifier = Modifier
+                                                            .size(46.dp)
+                                                            .clip(RoundedCornerShape(8.dp))
+                                                            .clickable {
+                                                                previewFotoItem = item
+                                                            },
+                                                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                                                        border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.8f))
+                                                    ) {
+                                                        ProductPhotoThumbnail(
+                                                            photoData = item.foto,
+                                                            contentDescription = item.nama,
+                                                            modifier = Modifier.fillMaxSize(),
+                                                            contentScale = ContentScale.Crop,
+                                                            iconSize = 22.dp
+                                                        )
+                                                    }
+                                                }
                                                 Box(modifier = Modifier.width(110.dp).fillMaxHeight().border(0.5.dp, MaterialTheme.colorScheme.outlineVariant).padding(horizontal = 12.dp, vertical = 10.dp), contentAlignment = Alignment.CenterStart) { Text(item.tanggal.ifEmpty { "-" }, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurface, maxLines = 1) }
                                                 Box(modifier = Modifier.width(140.dp).fillMaxHeight().border(0.5.dp, MaterialTheme.colorScheme.outlineVariant).padding(horizontal = 12.dp, vertical = 10.dp), contentAlignment = Alignment.CenterStart) { Text(item.kategori, fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurface, maxLines = 1) }
                                                 Box(modifier = Modifier.width(200.dp).fillMaxHeight().border(0.5.dp, MaterialTheme.colorScheme.outlineVariant).padding(horizontal = 12.dp, vertical = 10.dp), contentAlignment = Alignment.CenterStart) { Text(item.nama, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface, maxLines = 1) }
@@ -2310,11 +2513,166 @@ fun MyKasirScreen(viewModel: MainViewModel) {
             )
         }
 
+        // Dialog: Pratinjau Foto Produk Besar
+        if (previewFotoItem != null) {
+            val previewItem = previewFotoItem!!
+            Dialog(
+                onDismissRequest = { previewFotoItem = null }
+            ) {
+                Surface(
+                    shape = RoundedCornerShape(20.dp),
+                    color = MaterialTheme.colorScheme.surface,
+                    tonalElevation = 6.dp,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 8.dp, vertical = 16.dp)
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(20.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = previewItem.nama,
+                                fontWeight = FontWeight.Black,
+                                fontSize = 17.sp,
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.weight(1f),
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                            IconButton(
+                                onClick = { previewFotoItem = null },
+                                modifier = Modifier.size(32.dp)
+                            ) {
+                                Icon(Icons.Default.Close, contentDescription = "Tutup")
+                            }
+                        }
+                        
+                        Spacer(modifier = Modifier.height(14.dp))
+                        
+                        Surface(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(260.dp),
+                            shape = RoundedCornerShape(14.dp),
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+                        ) {
+                            ProductPhotoThumbnail(
+                                photoData = previewItem.foto,
+                                contentDescription = previewItem.nama,
+                                modifier = Modifier.fillMaxSize(),
+                                contentScale = ContentScale.Fit,
+                                iconSize = 64.dp
+                            )
+                        }
+
+                        // Tombol Aksi Kamera & Galeri Cepat
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 10.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            FilledTonalButton(
+                                onClick = { quickPhotoCameraLauncher.launch(null) },
+                                modifier = Modifier.weight(1f),
+                                shape = RoundedCornerShape(8.dp),
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp)
+                            ) {
+                                Icon(Icons.Default.CameraAlt, contentDescription = null, modifier = Modifier.size(15.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(if (previewItem.foto.isEmpty()) "Ambil Foto" else "Ganti Foto", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            }
+                            OutlinedButton(
+                                onClick = { quickPhotoGalleryLauncher.launch("image/*") },
+                                modifier = Modifier.weight(1f),
+                                shape = RoundedCornerShape(8.dp),
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp)
+                            ) {
+                                Icon(Icons.Default.Image, contentDescription = null, modifier = Modifier.size(15.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("Dari Galeri", fontSize = 11.sp)
+                            }
+                            if (previewItem.foto.isNotEmpty()) {
+                                OutlinedButton(
+                                    onClick = {
+                                        val targetId = previewItem.id
+                                        val idx = listStock.indexOfFirst { it.id == targetId }
+                                        if (idx != -1) {
+                                            val updated = listStock[idx].copy(foto = "")
+                                            val mutable = listStock.toMutableList()
+                                            mutable[idx] = updated
+                                            saveStock(mutable)
+                                            previewFotoItem = updated
+                                            viewModel.showToastPopup("Foto produk '${updated.nama}' dihapus.")
+                                        }
+                                    },
+                                    colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                                    shape = RoundedCornerShape(8.dp),
+                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp)
+                                ) {
+                                    Icon(Icons.Default.Delete, contentDescription = "Hapus Foto", modifier = Modifier.size(15.dp))
+                                }
+                            }
+                        }
+                        
+                        Spacer(modifier = Modifier.height(14.dp))
+                        
+                        Surface(
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(10.dp),
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
+                        ) {
+                            Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                    Text("Kategori:", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Text(previewItem.kategori.ifEmpty { "Umum" }, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                }
+                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                    Text("Harga Jual:", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Text(toRupiah(previewItem.harga), fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color(0xFF2E7D32))
+                                }
+                                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                    Text("Sisa Stok:", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Text("${previewItem.stok} unit", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                }
+                                if (previewItem.barcode.isNotEmpty()) {
+                                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                        Text("Barcode:", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        Text(previewItem.barcode, fontSize = 12.sp, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.primary)
+                                    }
+                                }
+                            }
+                        }
+                        
+                        Spacer(modifier = Modifier.height(14.dp))
+                        
+                        Button(
+                            onClick = { previewFotoItem = null },
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(10.dp)
+                        ) {
+                            Text("Tutup", fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+            }
+        }
+
         // Dialog: Edit Detail Barang
         if (showEditStockDialog && selectedEditStockItem != null) {
             val sdf = remember { SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()) }
             val itemToEdit = selectedEditStockItem!!
             var editTanggalBarang by remember(itemToEdit) { mutableStateOf(itemToEdit.tanggal.ifEmpty { sdf.format(Date()) }) }
+            var editFotoBarang by remember(itemToEdit) { mutableStateOf(itemToEdit.foto) }
             var editNamaBarang by remember(itemToEdit) { mutableStateOf(itemToEdit.nama) }
             var editBarcodeBarang by remember(itemToEdit) { mutableStateOf(itemToEdit.barcode) }
             var editActiveScannerForStock by remember { mutableStateOf(false) }
@@ -2323,6 +2681,29 @@ fun MyKasirScreen(viewModel: MainViewModel) {
             var editHargaBarang by remember(itemToEdit) { mutableStateOf(itemToEdit.harga.toLong().toString()) }
             var editStokBarang by remember(itemToEdit) { mutableStateOf(itemToEdit.stok.toString()) }
             var editCatDropdownExpanded by remember { mutableStateOf(false) }
+
+            val editCameraLauncher = rememberLauncherForActivityResult(
+                contract = ActivityResultContracts.TakePicturePreview()
+            ) { bitmap ->
+                if (bitmap != null) {
+                    val b64 = compressBitmapToBase64(bitmap)
+                    if (b64.isNotEmpty()) {
+                        editFotoBarang = b64
+                    }
+                }
+            }
+
+            val editGalleryLauncher = rememberLauncherForActivityResult(
+                contract = ActivityResultContracts.GetContent()
+            ) { uri ->
+                if (uri != null) {
+                    val b64 = uriToCompressedBase64(context, uri)
+                    if (b64.isNotEmpty()) {
+                        editFotoBarang = b64
+                    }
+                }
+            }
+
             val standardCategories = listOf(
                 "Fashion",
                 "Produk Kecantikan & Kesehatan",
@@ -2366,6 +2747,87 @@ fun MyKasirScreen(viewModel: MainViewModel) {
                         )
                         
                         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+
+                        // Foto Produk & Akses Kamera
+                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text("Foto Produk (Kamera / Galeri)", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                Surface(
+                                    modifier = Modifier
+                                        .size(72.dp)
+                                        .clip(RoundedCornerShape(12.dp)),
+                                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f))
+                                ) {
+                                    if (editFotoBarang.isNotEmpty()) {
+                                        Box(modifier = Modifier.fillMaxSize()) {
+                                            ProductPhotoThumbnail(
+                                                photoData = editFotoBarang,
+                                                contentDescription = "Foto Produk",
+                                                modifier = Modifier.fillMaxSize(),
+                                                contentScale = ContentScale.Crop
+                                            )
+                                            IconButton(
+                                                onClick = { editFotoBarang = "" },
+                                                modifier = Modifier
+                                                    .align(Alignment.TopEnd)
+                                                    .size(22.dp)
+                                                    .background(Color.Black.copy(alpha = 0.6f), RoundedCornerShape(bottomStart = 8.dp))
+                                            ) {
+                                                Icon(
+                                                    Icons.Default.Close,
+                                                    contentDescription = "Hapus Foto",
+                                                    tint = Color.White,
+                                                    modifier = Modifier.size(14.dp)
+                                                )
+                                            }
+                                        }
+                                    } else {
+                                        Box(
+                                            modifier = Modifier.fillMaxSize(),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Icon(
+                                                Icons.Default.AddAPhoto,
+                                                contentDescription = null,
+                                                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                                                modifier = Modifier.size(28.dp)
+                                            )
+                                        }
+                                    }
+                                }
+
+                                Column(
+                                    modifier = Modifier.weight(1f),
+                                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    FilledTonalButton(
+                                        onClick = { editCameraLauncher.launch(null) },
+                                        modifier = Modifier.fillMaxWidth(),
+                                        shape = RoundedCornerShape(8.dp),
+                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
+                                    ) {
+                                        Icon(Icons.Default.CameraAlt, contentDescription = null, modifier = Modifier.size(16.dp))
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text("Ambil Foto (Kamera)", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                    }
+                                    OutlinedButton(
+                                        onClick = { editGalleryLauncher.launch("image/*") },
+                                        modifier = Modifier.fillMaxWidth(),
+                                        shape = RoundedCornerShape(8.dp),
+                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
+                                    ) {
+                                        Icon(Icons.Default.Image, contentDescription = null, modifier = Modifier.size(16.dp))
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text("Pilih dari Galeri", fontSize = 12.sp)
+                                    }
+                                }
+                            }
+                        }
 
                         // Category Selection
                         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -2572,7 +3034,8 @@ fun MyKasirScreen(viewModel: MainViewModel) {
                                                 harga = priceVal,
                                                 stok = stockVal,
                                                 barcode = editBarcodeBarang.trim(),
-                                                tanggal = editTanggalBarang
+                                                tanggal = editTanggalBarang,
+                                                foto = editFotoBarang
                                             )
                                             val mutable = listStock.toMutableList()
                                             mutable[existingIndex] = updatedItem
@@ -2600,7 +3063,7 @@ fun MyKasirScreen(viewModel: MainViewModel) {
                 onDismissRequest = { showKasirHpScannerDialog = false },
                 onBarcodeScanned = { barcode ->
                     viewModel.pushKasirBarcodeScan(barcode)
-                    Toast.makeText(context, "Barcode terkirim ke Kasir PC: $barcode", Toast.LENGTH_SHORT).show()
+                    viewModel.showToastPopup("Barcode terkirim ke Kasir PC: $barcode")
                 }
             )
         }
@@ -2609,6 +3072,7 @@ fun MyKasirScreen(viewModel: MainViewModel) {
         if (showStockDialog) {
             val sdf = remember { SimpleDateFormat("yyyy-MM-dd", Locale.getDefault()) }
             var tanggalBarang by remember { mutableStateOf(sdf.format(Date())) }
+            var fotoBarang by remember { mutableStateOf("") }
             var namaBarang by remember { mutableStateOf("") }
             var barcodeBarang by remember { mutableStateOf("") }
             var activeScannerForStock by remember { mutableStateOf(false) }
@@ -2618,6 +3082,29 @@ fun MyKasirScreen(viewModel: MainViewModel) {
             var stokBarang by remember { mutableStateOf("") }
             var catDropdownExpanded by remember { mutableStateOf(false) }
             var nameDropdownExpanded by remember { mutableStateOf(false) }
+
+            val stockCameraLauncher = rememberLauncherForActivityResult(
+                contract = ActivityResultContracts.TakePicturePreview()
+            ) { bitmap ->
+                if (bitmap != null) {
+                    val b64 = compressBitmapToBase64(bitmap)
+                    if (b64.isNotEmpty()) {
+                        fotoBarang = b64
+                    }
+                }
+            }
+
+            val stockGalleryLauncher = rememberLauncherForActivityResult(
+                contract = ActivityResultContracts.GetContent()
+            ) { uri ->
+                if (uri != null) {
+                    val b64 = uriToCompressedBase64(context, uri)
+                    if (b64.isNotEmpty()) {
+                        fotoBarang = b64
+                    }
+                }
+            }
+
             val standardCategories = listOf(
                 "Fashion",
                 "Produk Kecantikan & Kesehatan",
@@ -2640,6 +3127,9 @@ fun MyKasirScreen(viewModel: MainViewModel) {
                         hargaBarang = matched.harga.toLong().toString()
                         if (matched.tanggal.isNotEmpty()) {
                             tanggalBarang = matched.tanggal
+                        }
+                        if (matched.foto.isNotEmpty()) {
+                            fotoBarang = matched.foto
                         }
                         viewModel.showToastPopup("Produk ditemukan: ${matched.nama}")
                     }
@@ -2676,6 +3166,87 @@ fun MyKasirScreen(viewModel: MainViewModel) {
                         )
                         
                         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+
+                        // Foto Produk & Akses Kamera
+                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text("Foto Produk (Kamera / Galeri)", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                            ) {
+                                Surface(
+                                    modifier = Modifier
+                                        .size(72.dp)
+                                        .clip(RoundedCornerShape(12.dp)),
+                                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f))
+                                ) {
+                                    if (fotoBarang.isNotEmpty()) {
+                                        Box(modifier = Modifier.fillMaxSize()) {
+                                            ProductPhotoThumbnail(
+                                                photoData = fotoBarang,
+                                                contentDescription = "Foto Produk",
+                                                modifier = Modifier.fillMaxSize(),
+                                                contentScale = ContentScale.Crop
+                                            )
+                                            IconButton(
+                                                onClick = { fotoBarang = "" },
+                                                modifier = Modifier
+                                                    .align(Alignment.TopEnd)
+                                                    .size(22.dp)
+                                                    .background(Color.Black.copy(alpha = 0.6f), RoundedCornerShape(bottomStart = 8.dp))
+                                            ) {
+                                                Icon(
+                                                    Icons.Default.Close,
+                                                    contentDescription = "Hapus Foto",
+                                                    tint = Color.White,
+                                                    modifier = Modifier.size(14.dp)
+                                                )
+                                            }
+                                        }
+                                    } else {
+                                        Box(
+                                            modifier = Modifier.fillMaxSize(),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Icon(
+                                                Icons.Default.AddAPhoto,
+                                                contentDescription = null,
+                                                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                                                modifier = Modifier.size(28.dp)
+                                            )
+                                        }
+                                    }
+                                }
+
+                                Column(
+                                    modifier = Modifier.weight(1f),
+                                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    FilledTonalButton(
+                                        onClick = { stockCameraLauncher.launch(null) },
+                                        modifier = Modifier.fillMaxWidth(),
+                                        shape = RoundedCornerShape(8.dp),
+                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
+                                    ) {
+                                        Icon(Icons.Default.CameraAlt, contentDescription = null, modifier = Modifier.size(16.dp))
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text("Ambil Foto (Kamera)", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                    }
+                                    OutlinedButton(
+                                        onClick = { stockGalleryLauncher.launch("image/*") },
+                                        modifier = Modifier.fillMaxWidth(),
+                                        shape = RoundedCornerShape(8.dp),
+                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
+                                    ) {
+                                        Icon(Icons.Default.Image, contentDescription = null, modifier = Modifier.size(16.dp))
+                                        Spacer(modifier = Modifier.width(6.dp))
+                                        Text("Pilih dari Galeri", fontSize = 12.sp)
+                                    }
+                                }
+                            }
+                        }
 
                         // Category Selection
                         Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -2718,6 +3289,7 @@ fun MyKasirScreen(viewModel: MainViewModel) {
                                                 namaBarang = "" // Reset name selection on category change
                                                 hargaBarang = ""
                                                 keteranganBarang = ""
+                                                fotoBarang = ""
                                             }
                                         )
                                     }
@@ -2742,6 +3314,9 @@ fun MyKasirScreen(viewModel: MainViewModel) {
                                             barcodeBarang = matched.barcode
                                             if (matched.tanggal.isNotEmpty()) {
                                                 tanggalBarang = matched.tanggal
+                                            }
+                                            if (matched.foto.isNotEmpty()) {
+                                                fotoBarang = matched.foto
                                             }
                                         }
                                     },
@@ -2789,6 +3364,9 @@ fun MyKasirScreen(viewModel: MainViewModel) {
                                                         barcodeBarang = stock.barcode
                                                         if (stock.tanggal.isNotEmpty()) {
                                                             tanggalBarang = stock.tanggal
+                                                        }
+                                                        if (stock.foto.isNotEmpty()) {
+                                                            fotoBarang = stock.foto
                                                         }
                                                         nameDropdownExpanded = false
                                                     }
@@ -2956,7 +3534,9 @@ fun MyKasirScreen(viewModel: MainViewModel) {
                                                 keterangan = keteranganBarang.trim(),
                                                 harga = priceVal,
                                                 stok = updatedStock,
-                                                barcode = if (barcodeBarang.trim().isNotEmpty()) barcodeBarang.trim() else matchedItem.barcode, tanggal = tanggalBarang
+                                                barcode = if (barcodeBarang.trim().isNotEmpty()) barcodeBarang.trim() else matchedItem.barcode,
+                                                tanggal = tanggalBarang,
+                                                foto = if (fotoBarang.isNotEmpty()) fotoBarang else matchedItem.foto
                                             )
                                             val mutable = listStock.toMutableList()
                                             mutable[existingIndex] = updatedItem
@@ -2971,7 +3551,9 @@ fun MyKasirScreen(viewModel: MainViewModel) {
                                                 keterangan = keteranganBarang.trim(),
                                                 harga = priceVal,
                                                 stok = stockVal,
-                                                barcode = barcodeBarang.trim(), tanggal = tanggalBarang
+                                                barcode = barcodeBarang.trim(),
+                                                tanggal = tanggalBarang,
+                                                foto = fotoBarang
                                             )
                                             val mutable = listStock.toMutableList()
                                             mutable.add(newItem)
@@ -3132,11 +3714,32 @@ fun MyKasirScreen(viewModel: MainViewModel) {
                                 shape = RoundedCornerShape(8.dp),
                                 modifier = Modifier.fillMaxWidth()
                             ) {
-                                Column(modifier = Modifier.padding(12.dp)) {
-                                    Text(item.nama, fontWeight = FontWeight.Bold, fontSize = 15.sp)
-                                    Text("Kategori: ${item.kategori.ifEmpty { "-" }}", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                    Text("Harga Satuan: ${toRupiah(item.harga)}", fontSize = 12.sp, color = Color(0xFF2E7D32), fontWeight = FontWeight.SemiBold)
-                                    Text("Stok Tersedia: ${item.stok} unit", fontSize = 12.sp, color = if (item.stok < 5) Color.Red else MaterialTheme.colorScheme.onSurfaceVariant)
+                                Row(
+                                    modifier = Modifier.padding(12.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                ) {
+                                    Surface(
+                                        modifier = Modifier
+                                            .size(56.dp)
+                                            .clip(RoundedCornerShape(8.dp)),
+                                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                                        border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                                    ) {
+                                        ProductPhotoThumbnail(
+                                            photoData = item.foto,
+                                            contentDescription = item.nama,
+                                            modifier = Modifier.fillMaxSize(),
+                                            contentScale = ContentScale.Crop,
+                                            iconSize = 24.dp
+                                        )
+                                    }
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(item.nama, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                                        Text("Kategori: ${item.kategori.ifEmpty { "-" }}", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        Text("Harga Satuan: ${toRupiah(item.harga)}", fontSize = 12.sp, color = Color(0xFF2E7D32), fontWeight = FontWeight.SemiBold)
+                                        Text("Stok Tersedia: ${item.stok} unit", fontSize = 12.sp, color = if (item.stok < 5) Color.Red else MaterialTheme.colorScheme.onSurfaceVariant)
+                                    }
                                 }
                             }
 
@@ -3838,11 +4441,32 @@ fun MyKasirScreen(viewModel: MainViewModel) {
                                 shape = RoundedCornerShape(8.dp),
                                 modifier = Modifier.fillMaxWidth()
                             ) {
-                                Column(modifier = Modifier.padding(12.dp)) {
-                                    Text(item.nama, fontWeight = FontWeight.Bold, fontSize = 15.sp)
-                                    Text("Kategori: ${item.kategori.ifEmpty { "-" }}", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                    Text("Harga Satuan: ${toRupiah(item.harga)}", fontSize = 12.sp, color = Color(0xFF2E7D32), fontWeight = FontWeight.SemiBold)
-                                    Text("Stok Tersedia: ${item.stok} unit", fontSize = 12.sp, color = if (item.stok < 5) Color.Red else MaterialTheme.colorScheme.onSurfaceVariant)
+                                Row(
+                                    modifier = Modifier.padding(12.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                ) {
+                                    Surface(
+                                        modifier = Modifier
+                                            .size(56.dp)
+                                            .clip(RoundedCornerShape(8.dp)),
+                                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                                        border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                                    ) {
+                                        ProductPhotoThumbnail(
+                                            photoData = item.foto,
+                                            contentDescription = item.nama,
+                                            modifier = Modifier.fillMaxSize(),
+                                            contentScale = ContentScale.Crop,
+                                            iconSize = 24.dp
+                                        )
+                                    }
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(item.nama, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                                        Text("Kategori: ${item.kategori.ifEmpty { "-" }}", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        Text("Harga Satuan: ${toRupiah(item.harga)}", fontSize = 12.sp, color = Color(0xFF2E7D32), fontWeight = FontWeight.SemiBold)
+                                        Text("Stok Tersedia: ${item.stok} unit", fontSize = 12.sp, color = if (item.stok < 5) Color.Red else MaterialTheme.colorScheme.onSurfaceVariant)
+                                    }
                                 }
                             }
 
@@ -4323,8 +4947,31 @@ fun MyKasirScreen(viewModel: MainViewModel) {
             // Sub-dialog: Dialog Opsi Jumlah (Qty) Restock
             if (pendingRestockItem != null) {
                 val item = pendingRestockItem!!
+                var restockFoto by remember(item) { mutableStateOf(item.foto) }
                 val qtyVal = restockQtyInput.toIntOrNull() ?: 1
                 val newStockCalculated = item.stok + qtyVal
+
+                val restockCameraLauncher = rememberLauncherForActivityResult(
+                    contract = ActivityResultContracts.TakePicturePreview()
+                ) { bitmap ->
+                    if (bitmap != null) {
+                        val b64 = compressBitmapToBase64(bitmap)
+                        if (b64.isNotEmpty()) {
+                            restockFoto = b64
+                        }
+                    }
+                }
+
+                val restockGalleryLauncher = rememberLauncherForActivityResult(
+                    contract = ActivityResultContracts.GetContent()
+                ) { uri ->
+                    if (uri != null) {
+                        val b64 = uriToCompressedBase64(context, uri)
+                        if (b64.isNotEmpty()) {
+                            restockFoto = b64
+                        }
+                    }
+                }
 
                 AlertDialog(
                     onDismissRequest = { pendingRestockItem = null },
@@ -4351,11 +4998,60 @@ fun MyKasirScreen(viewModel: MainViewModel) {
                                 shape = RoundedCornerShape(8.dp),
                                 modifier = Modifier.fillMaxWidth()
                             ) {
-                                Column(modifier = Modifier.padding(12.dp)) {
-                                    Text(item.nama, fontWeight = FontWeight.Bold, fontSize = 15.sp)
-                                    Text("Kategori: ${item.kategori.ifEmpty { "-" }}", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                    Text("Harga Satuan: ${toRupiah(item.harga)}", fontSize = 12.sp, color = Color(0xFF2E7D32), fontWeight = FontWeight.SemiBold)
-                                    Text("Stok Saat Ini: ${item.stok} unit", fontSize = 13.sp, color = Color(0xFF1B5E20), fontWeight = FontWeight.Bold)
+                                Row(
+                                    modifier = Modifier.padding(12.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                ) {
+                                    Surface(
+                                        modifier = Modifier
+                                            .size(64.dp)
+                                            .clip(RoundedCornerShape(8.dp)),
+                                        color = MaterialTheme.colorScheme.surface,
+                                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+                                    ) {
+                                        ProductPhotoThumbnail(
+                                            photoData = restockFoto,
+                                            contentDescription = item.nama,
+                                            modifier = Modifier.fillMaxSize(),
+                                            contentScale = ContentScale.Crop,
+                                            iconSize = 28.dp
+                                        )
+                                    }
+
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(item.nama, fontWeight = FontWeight.Bold, fontSize = 15.sp)
+                                        Text("Kategori: ${item.kategori.ifEmpty { "-" }}", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                        Text("Harga Satuan: ${toRupiah(item.harga)}", fontSize = 12.sp, color = Color(0xFF2E7D32), fontWeight = FontWeight.SemiBold)
+                                        Text("Stok Saat Ini: ${item.stok} unit", fontSize = 13.sp, color = Color(0xFF1B5E20), fontWeight = FontWeight.Bold)
+                                    }
+                                }
+                            }
+
+                            // Opsi Ambil/Update Foto saat Stok Ulang
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                FilledTonalButton(
+                                    onClick = { restockCameraLauncher.launch(null) },
+                                    modifier = Modifier.weight(1f),
+                                    shape = RoundedCornerShape(8.dp),
+                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp)
+                                ) {
+                                    Icon(Icons.Default.CameraAlt, contentDescription = null, modifier = Modifier.size(15.dp))
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text(if (restockFoto.isEmpty()) "Ambil Foto" else "Ganti Foto", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                }
+                                OutlinedButton(
+                                    onClick = { restockGalleryLauncher.launch("image/*") },
+                                    modifier = Modifier.weight(1f),
+                                    shape = RoundedCornerShape(8.dp),
+                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp)
+                                ) {
+                                    Icon(Icons.Default.Image, contentDescription = null, modifier = Modifier.size(15.dp))
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text("Dari Galeri", fontSize = 11.sp)
                                 }
                             }
 
@@ -4432,7 +5128,10 @@ fun MyKasirScreen(viewModel: MainViewModel) {
                                 } else {
                                     val updatedStock = listStock.map { stockItem ->
                                         if (stockItem.nama.trim().equals(item.nama.trim(), ignoreCase = true)) {
-                                            stockItem.copy(stok = stockItem.stok + addedQty)
+                                            stockItem.copy(
+                                                stok = stockItem.stok + addedQty,
+                                                foto = if (restockFoto.isNotEmpty()) restockFoto else stockItem.foto
+                                            )
                                         } else stockItem
                                     }
                                     saveStock(updatedStock)
@@ -5617,7 +6316,8 @@ fun CashierDashboardHeader(
 fun StockItemRow(
     item: StockItem,
     onDelete: () -> Unit,
-    toRupiah: (Double) -> String
+    toRupiah: (Double) -> String,
+    onPhotoClick: (() -> Unit)? = null
 ) {
     val stockBg = when {
         item.stok <= 0 -> Color(0xFFFFECEC)
@@ -5642,6 +6342,25 @@ fun StockItemRow(
                 .padding(12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
+            Surface(
+                modifier = Modifier
+                    .size(52.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .then(if (onPhotoClick != null) Modifier.clickable { onPhotoClick() } else Modifier),
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+            ) {
+                ProductPhotoThumbnail(
+                    photoData = item.foto,
+                    contentDescription = item.nama,
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = ContentScale.Crop,
+                    iconSize = 24.dp
+                )
+            }
+
+            Spacer(modifier = Modifier.width(10.dp))
+
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     item.nama,

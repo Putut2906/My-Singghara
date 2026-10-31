@@ -665,7 +665,7 @@ fun ShareScreen(viewModel: MainViewModel) {
     // Render Offline atau Online States
     if (!isOnline) {
         Scaffold { padding ->
-            Box(
+            Column(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(
@@ -673,14 +673,60 @@ fun ShareScreen(viewModel: MainViewModel) {
                         end = 16.dp,
                         top = 16.dp,
                         bottom = padding.calculateBottomPadding() + 16.dp
-                    )
+                    ),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                AnimatedOfflineState(onRetry = {
-                    isOnline = checkInternetConnection()
-                    if (isOnline && appsScriptUrl.trim().isNotEmpty()) {
-                        fetchFileList()
+                // SUB-MENU SWITCHER (Share Cloud vs Transfer File)
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f), RoundedCornerShape(12.dp))
+                        .padding(4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Surface(
+                        onClick = { /* Already on Share */ },
+                        modifier = Modifier.weight(1f).height(38.dp),
+                        shape = RoundedCornerShape(8.dp),
+                        color = MaterialTheme.colorScheme.primary
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxSize(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.Center
+                        ) {
+                            Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onPrimary)
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Share (Google Drive)", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimary)
+                        }
                     }
-                })
+
+                    Surface(
+                        onClick = { viewModel.currentRoute = "transfer_file" },
+                        modifier = Modifier.weight(1f).height(38.dp),
+                        shape = RoundedCornerShape(8.dp),
+                        color = Color.Transparent
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxSize(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.Center
+                        ) {
+                            Icon(Icons.Default.SwapHoriz, contentDescription = null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Transfer File (Offline)", fontSize = 12.sp, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                }
+
+                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    AnimatedOfflineState(onRetry = {
+                        isOnline = checkInternetConnection()
+                        if (isOnline && appsScriptUrl.trim().isNotEmpty()) {
+                            fetchFileList()
+                        }
+                    })
+                }
             }
         }
     } else if (appsScriptUrl.trim().isEmpty()) {
@@ -740,6 +786,49 @@ fun ShareScreen(viewModel: MainViewModel) {
                     ),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
+                // SUB-MENU SWITCHER (Share Cloud vs Transfer File)
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f), RoundedCornerShape(12.dp))
+                        .padding(4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Surface(
+                        onClick = { /* Currently active */ },
+                        modifier = Modifier.weight(1f).height(38.dp),
+                        shape = RoundedCornerShape(8.dp),
+                        color = MaterialTheme.colorScheme.primary
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxSize(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.Center
+                        ) {
+                            Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onPrimary)
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Share (Google Drive)", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimary)
+                        }
+                    }
+
+                    Surface(
+                        onClick = { viewModel.currentRoute = "transfer_file" },
+                        modifier = Modifier.weight(1f).height(38.dp),
+                        shape = RoundedCornerShape(8.dp),
+                        color = Color.Transparent
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxSize(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.Center
+                        ) {
+                            Icon(Icons.Default.SwapHoriz, contentDescription = null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text("Transfer File (Offline)", fontSize = 12.sp, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                }
+
                 // Header Status Terhubung yang Elegan (Tanpa Emojis)
                 Row(
                     modifier = Modifier

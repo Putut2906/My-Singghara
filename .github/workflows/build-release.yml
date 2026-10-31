@@ -1,0 +1,120 @@
+name: Build and Release Android APK
+
+on:
+  push:
+    branches:
+      - main
+      - master
+    paths-ignore:
+      - 'README.md'
+      - '.gitignore'
+  workflow_dispatch:
+    inputs:
+      release_title:
+        description: 'Judul Kustom Rilis (Opsional)'
+        required: false
+        default: ''
+      is_prerelease:
+        description: 'Tandai sebagai Pre-release'
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    name: Build APK & Publish Release
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 📥 Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: ☕ Setup Java JDK 21 (Zulu)
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '21'
+
+      - name: 🐘 Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          # AGP 9.1.1 requires Gradle 9.3.1 or newer
+          gradle-version: '9.3.1'
+
+      - name: 🚀 Build Debug APK
+        run: |
+          gradle assembleDebug --no-daemon --stacktrace
+
+      - name: 🏷️ Generate Version Tag & Changelog
+        id: vars
+        run: |
+          RUN_NUM="${{ github.run_number }}"
+          SHORT_SHA=$(echo ${{ github.sha }} | cut -c1-7)
+          TAG_NAME="v1.0.${RUN_NUM}"
+          
+          # Extract commits for changelog
+          PREV_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+          if [ -n "$PREV_TAG" ]; then
+            CHANGELOG=$(git log ${PREV_TAG}..HEAD --oneline --no-merges)
+          else
+            CHANGELOG=$(git log -n 10 --oneline --no-merges)
+          fi
+          
+          echo "tag_name=$TAG_NAME" >> $GITHUB_OUTPUT
+          echo "short_sha=$SHORT_SHA" >> $GITHUB_OUTPUT
+          
+          # Escape changelog for multiline output
+          echo "changelog<<EOF" >> $GITHUB_OUTPUT
+          if [ -z "$CHANGELOG" ]; then
+            echo "- Pembaruan fitur dan sinkronisasi otomatis dari AI Studio (Build #${RUN_NUM})" >> $GITHUB_OUTPUT
+          else
+            echo "$CHANGELOG" | sed 's/^/- /' >> $GITHUB_OUTPUT
+          fi
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: 📦 Prepare APK Artifacts
+        run: |
+          mkdir -p release-assets
+          APK_PATH="app/build/outputs/apk/debug/app-debug.apk"
+          if [ -f "$APK_PATH" ]; then
+            cp "$APK_PATH" "release-assets/MySingghara-${{ steps.vars.outputs.tag_name }}.apk"
+            cp "$APK_PATH" "release-assets/app-debug.apk"
+            echo "APK successfully copied to release-assets folder."
+            ls -lh release-assets/
+          else
+            echo "Error: APK file not found at $APK_PATH"
+            exit 1
+          fi
+
+      - name: 🚀 Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.vars.outputs.tag_name }}
+          name: ${{ github.event.inputs.release_title != '' && github.event.inputs.release_title || format('My Singghara {0}', steps.vars.outputs.tag_name) }}
+          body: |
+            ## 📱 My Singghara Release ${{ steps.vars.outputs.tag_name }}
+            
+            Otomatis di-build dan dipublikasikan via GitHub Actions CI/CD Pipeline setiap ada push dari AI Studio.
+            
+            ### 📝 Catatan Pembaruan (Changelog):
+            ${{ steps.vars.outputs.changelog }}
+            
+            ---
+            - **Commit SHA**: `${{ steps.vars.outputs.short_sha }}`
+            - **Build Number**: `${{ github.run_number }}`
+            - **Waktu Build**: `${{ github.event.head_commit.timestamp || 'N/A' }}`
+            
+            ### 📥 Download & Pasang:
+            Silakan unduh file `MySingghara-${{ steps.vars.outputs.tag_name }}.apk` di bawah atau gunakan fitur **"Periksa Pembaruan"** langsung di dalam menu **Profil ➔ Tentang Aplikasi**.
+          draft: false
+          prerelease: ${{ github.event.inputs.is_prerelease || false }}
+          files: |
+            release-assets/MySingghara-${{ steps.vars.outputs.tag_name }}.apk
+            release-assets/app-debug.apk
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
