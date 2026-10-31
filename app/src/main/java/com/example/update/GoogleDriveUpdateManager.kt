@@ -520,23 +520,12 @@ object GoogleDriveUpdateManager {
      * Evaluates whether an APK from Google Drive is newer than the currently installed app.
      * Uses a multi-criteria approach:
      * 1. Already installed Google Drive file ID check
-     * 2. Semantic version in file name (v1.1 vs v1.0)
-     * 3. New uploaded file ID check
-     * 4. Physical file size difference (> 10KB diff with local base.apk)
-     * 5. Upload timestamp comparison
+     * 2. Semantic version in file name (v1.1 vs v1.0) - authoritative when present
+     * 3. No version in the name and no recorded Drive install: never treated as newer
+     * 4. A different file uploaded after this build was installed
      */
     fun evaluateDriveApk(context: Context, apkItem: DriveApkItem): DriveApkEvaluation {
-        val lastInstalledTimestamp = getLastInstalledTimestamp(context)
         val lastInstalledFileId = getLastInstalledFileId(context)
-        val lastInstalledFileSize = getLastInstalledFileSize(context)
-
-        // Local APK file size currently running
-        val localInstalledApkSize = try {
-            val sourceDir = context.applicationInfo.sourceDir
-            if (!sourceDir.isNullOrBlank()) File(sourceDir).length() else 0L
-        } catch (_: Exception) {
-            0L
-        }
 
         // Install / Update timestamp from PackageManager
         val installedAppTime = try {
@@ -560,28 +549,20 @@ object GoogleDriveUpdateManager {
             )
         }
 
-        // 2. CHECK IF A NEW FILE ID HAS BEEN UPLOADED TO DRIVE SINCE LAST INSTALLATION
-        if (lastInstalledFileId.isNotBlank() && apkItem.id.isNotBlank() && apkItem.id != lastInstalledFileId) {
-            return DriveApkEvaluation(
-                isNewer = true,
-                isNewerByTimestamp = apkItem.timestampMillis > 0L,
-                reason = "Berkas APK terbaru (${apkItem.name}) tersedia di Google Drive."
-            )
-        }
-
-        // 3. EVALUATION BY SEMANTIC VERSION IN FILE NAME (e.g. MySingghara-v1.1.apk vs v1.0)
+        // 2. A version in the file name decides on its own: the same or an older version is
+        //    never an update, even when the file was re-uploaded or replaced on Drive.
         val versionNameInApk = extractVersionName(apkItem.name)
         val currentVersion = BuildConfig.VERSION_NAME
         if (versionNameInApk.isNotBlank()) {
             val vCmp = compareVersionStrings(versionNameInApk, currentVersion)
-            if (vCmp > 0) {
-                return DriveApkEvaluation(
+            return if (vCmp > 0) {
+                DriveApkEvaluation(
                     isNewer = true,
                     isNewerByTimestamp = false,
                     reason = "Versi berkas APK di Drive (v$versionNameInApk) lebih tinggi dari versi saat ini (v$currentVersion)."
                 )
-            } else if (vCmp <= 0 && lastInstalledFileId.isBlank()) {
-                return DriveApkEvaluation(
+            } else {
+                DriveApkEvaluation(
                     isNewer = false,
                     isNewerByTimestamp = false,
                     reason = "Aplikasi Anda sudah versi terbaru (v$currentVersion)."
@@ -589,35 +570,26 @@ object GoogleDriveUpdateManager {
             }
         }
 
-        // 4. EVALUATION BY UPLOAD TIMESTAMP (if available from server)
-        if (apkItem.timestampMillis > 0L) {
-            if (lastInstalledTimestamp > 0L && apkItem.timestampMillis > lastInstalledTimestamp + 2000L) {
-                return DriveApkEvaluation(
-                    isNewer = true,
-                    isNewerByTimestamp = true,
-                    reason = "Berkas APK terbaru (${apkItem.name}) tersedia di Google Drive."
-                )
-            }
-
-            if (installedAppTime > 0L && apkItem.timestampMillis > installedAppTime + 5000L) {
-                return DriveApkEvaluation(
-                    isNewer = true,
-                    isNewerByTimestamp = true,
-                    reason = "Berkas APK terbaru (${apkItem.name}) tersedia di Google Drive."
-                )
-            }
+        // 3. Without a version in the name there is nothing to compare against, so the
+        //    heuristics below only run for users who already installed a Drive APK.
+        if (lastInstalledFileId.isBlank()) {
+            return DriveApkEvaluation(
+                isNewer = false,
+                isNewerByTimestamp = false,
+                reason = "Aplikasi Anda sudah versi terbaru (v$currentVersion)."
+            )
         }
 
-        // 5. EVALUATION BY FILE SIZE DIFFERENCE (only if APK re-uploaded with same version AND was previously recorded)
-        if (apkItem.size > 0L && localInstalledApkSize > 0L) {
-            val sizeDiff = Math.abs(apkItem.size - localInstalledApkSize)
-            if (sizeDiff > 10240L && lastInstalledFileId.isNotBlank() && apkItem.id != lastInstalledFileId) {
-                return DriveApkEvaluation(
-                    isNewer = true,
-                    isNewerByTimestamp = false,
-                    reason = "Terdeteksi berkas APK pembaruan (${apkItem.name}, ${apkItem.sizeFormatted})."
-                )
-            }
+        // 4. A file uploaded after this build was installed is the only remaining signal;
+        //    a re-upload of the build that is already running stays silent.
+        val uploadedAfterInstall = apkItem.timestampMillis > 0L && installedAppTime > 0L &&
+            apkItem.timestampMillis > installedAppTime + 5000L
+        if (apkItem.id.isNotBlank() && apkItem.id != lastInstalledFileId && uploadedAfterInstall) {
+            return DriveApkEvaluation(
+                isNewer = true,
+                isNewerByTimestamp = true,
+                reason = "Berkas APK terbaru (${apkItem.name}) tersedia di Google Drive."
+            )
         }
 
         return DriveApkEvaluation(

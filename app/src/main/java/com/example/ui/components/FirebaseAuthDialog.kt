@@ -231,7 +231,15 @@ fun FirebaseAuthDialog(
                 if (e.statusCode != 12501 && e.statusCode != 16) {
                     if ((e.statusCode == 10 || e.statusCode == 12500) && !browserFallbackAttempted) {
                         browserFallbackAttempted = true
-                        errorMessage = "Google Play Services menolak aplikasi ini (kode ${e.statusCode}). Mencoba masuk melalui browser..."
+                        // Play Services validates this package and signing certificate against
+                        // the registered Android OAuth client; while that client is missing the
+                        // native flow cannot succeed, so skip it for a while.
+                        rememberGoogleNativeBlocked(context)
+                        android.util.Log.e(
+                            "FirebaseAuthDialog",
+                            "Native Google sign-in rejected (${e.statusCode}) for ${context.packageName}, SHA-1 ${installedAppSha1(context)}"
+                        )
+                        errorMessage = "Menyambungkan akun Google melalui browser..."
                         startBrowserGoogleSignIn()
                     } else {
                         errorMessage = describeGoogleSignInFailure(e, context)
@@ -244,7 +252,10 @@ fun FirebaseAuthDialog(
     }
 
     val launchGoogleSignIn: () -> Unit = {
-        try {
+        if (isGoogleNativeRecentlyBlocked(context)) {
+            errorMessage = "Menyambungkan akun Google melalui browser..."
+            startBrowserGoogleSignIn()
+        } else try {
             errorMessage = null
             val gsoBuilder = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
                 .requestEmail()
@@ -1904,6 +1915,24 @@ private fun invalidAppIdGuidance(context: android.content.Context): String {
         append("1. Project Settings → Your apps → tambahkan aplikasi Android dengan paket dan SHA-1 di atas.\n")
         append("2. Salin App ID (mobilesdk_app_id) aplikasi Android tersebut.\n")
         append("3. Authentication → Sign-in method → pastikan Google aktif.\n")
-        append("4. Project Settings → unduh google-services.json terbaru lalu kirimkan berkasnya agar App ID di aplikasi diperbarui.")
+        append("4. Project Settings → unduh google-services.json terbaru lalu kirimkan berkasnya agar App ID di aplikasi diperbarui.\n")
+        append("\nMasuk lewat browser tidak memerlukan OAuth client Android, jadi jalur ini tetap bisa dipakai. Jika SHA-1 baru saja ditambahkan, Google Play Services masih menyimpan cache beberapa jam: hapus cache \"Google Play Services\", lalu coba tombol Google lagi.")
     }
+}
+
+private const val GOOGLE_NATIVE_PREFS = "mysingghara_prefs"
+private const val KEY_GOOGLE_NATIVE_BLOCKED_AT = "google_native_blocked_at"
+private const val GOOGLE_NATIVE_BLOCK_WINDOW_MS = 12L * 60L * 60L * 1000L
+
+private fun rememberGoogleNativeBlocked(context: Context) {
+    context.getSharedPreferences(GOOGLE_NATIVE_PREFS, Context.MODE_PRIVATE)
+        .edit()
+        .putLong(KEY_GOOGLE_NATIVE_BLOCKED_AT, System.currentTimeMillis())
+        .apply()
+}
+
+private fun isGoogleNativeRecentlyBlocked(context: Context): Boolean {
+    val blockedAt = context.getSharedPreferences(GOOGLE_NATIVE_PREFS, Context.MODE_PRIVATE)
+        .getLong(KEY_GOOGLE_NATIVE_BLOCKED_AT, 0L)
+    return blockedAt > 0L && System.currentTimeMillis() - blockedAt < GOOGLE_NATIVE_BLOCK_WINDOW_MS
 }

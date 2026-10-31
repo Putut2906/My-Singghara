@@ -744,7 +744,10 @@ fun MainAppContent(viewModel: MainViewModel) {
                 val cfg = GitHubUpdateManager.loadConfig(context)
                 if (cfg.autoCheckOnStartup) {
                     val result = GitHubUpdateManager.checkForUpdate(context)
-                    if (result is UpdateCheckState.UpdateAvailable) {
+                    // Hanya tampilkan popup bila rilis benar-benar lebih baru dari versi terpasang.
+                    if (result is UpdateCheckState.UpdateAvailable &&
+                        GitHubUpdateManager.isRemoteVersionNewer(BuildConfig.VERSION_NAME, result.release.tagName)
+                    ) {
                         startupUpdateResult = result
                     }
                 }
