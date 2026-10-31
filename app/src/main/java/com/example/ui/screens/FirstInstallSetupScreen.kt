@@ -2,6 +2,7 @@ package com.example.ui.screens
 
 import android.content.Context
 import android.content.Intent
+import android.graphics.Bitmap
 import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -28,6 +29,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
@@ -367,6 +370,42 @@ fun FirstInstallSetupScreen(
 }
 
 @Composable
+private fun AppLauncherIcon(
+    modifier: Modifier = Modifier,
+    contentDescription: String = "Logo Aplikasi"
+) {
+    val context = LocalContext.current
+    // Adaptive-icon XML (mipmap-anydpi-v26) cannot be decoded by painterResource,
+    // so render the launcher drawable from PackageManager instead.
+    val iconBitmap = remember {
+        runCatching {
+            val sizePx = 288
+            val bitmap = Bitmap.createBitmap(sizePx, sizePx, Bitmap.Config.ARGB_8888)
+            val drawable = context.packageManager.getApplicationIcon(context.packageName)
+            drawable.setBounds(0, 0, sizePx, sizePx)
+            drawable.draw(android.graphics.Canvas(bitmap))
+            bitmap.asImageBitmap()
+        }.getOrNull()
+    }
+
+    if (iconBitmap != null) {
+        Image(
+            bitmap = iconBitmap,
+            contentDescription = contentDescription,
+            modifier = modifier,
+            contentScale = ContentScale.Crop
+        )
+    } else {
+        Image(
+            painter = painterResource(id = com.example.R.drawable.ic_app_logo),
+            contentDescription = contentDescription,
+            modifier = modifier,
+            contentScale = ContentScale.Crop
+        )
+    }
+}
+
+@Composable
 fun WelcomeStepView() {
     Column(
         modifier = Modifier.fillMaxWidth(),
@@ -379,10 +418,9 @@ fun WelcomeStepView() {
                 .clip(RoundedCornerShape(24.dp)),
             contentAlignment = Alignment.Center
         ) {
-            Image(
-                painter = painterResource(id = com.example.R.mipmap.ic_launcher),
-                contentDescription = "Logo Aplikasi",
-                modifier = Modifier.fillMaxSize()
+            AppLauncherIcon(
+                modifier = Modifier.fillMaxSize(),
+                contentDescription = "Logo Aplikasi"
             )
         }
 
