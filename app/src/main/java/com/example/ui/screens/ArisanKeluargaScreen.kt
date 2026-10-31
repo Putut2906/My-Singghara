@@ -36,7 +36,6 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -233,8 +232,7 @@ private fun printReceiptBitmap(context: Context, riwayat: RiwayatPemenangArisan,
 @Composable
 fun ArisanKeluargaScreen(
     viewModel: MainViewModel,
-    onNavigateBack: () -> Unit,
-    onOpenDrawer: () -> Unit
+    onNavigateBack: () -> Unit
 ) {
     BackHandler { onNavigateBack() }
 
@@ -274,79 +272,6 @@ fun ArisanKeluargaScreen(
         modifier = Modifier
             .fillMaxSize()
     ) {
-        // ----------------------------------------------------
-        // TOP APP BAR: NAVIGATION & DRAWER ACCESS
-        // ----------------------------------------------------
-        Surface(
-            modifier = Modifier.fillMaxWidth(),
-            color = MaterialTheme.colorScheme.surface,
-            shadowElevation = 2.dp
-        ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 8.dp, vertical = 6.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                IconButton(
-                    onClick = onNavigateBack,
-                    modifier = Modifier.testTag("arisan_back_button")
-                ) {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                        contentDescription = "Kembali ke Beranda"
-                    )
-                }
-                IconButton(
-                    onClick = onOpenDrawer,
-                    modifier = Modifier.testTag("arisan_drawer_button")
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Menu,
-                        contentDescription = "Buka Menu Drawer"
-                    )
-                }
-                Spacer(modifier = Modifier.width(4.dp))
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = "Arisan Keluarga",
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 17.sp,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                    Text(
-                        text = "Aturan Rapi & Pengocokan Transparan",
-                        fontSize = 11.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis
-                    )
-                }
-                IconButton(
-                    onClick = { currentSection = ArisanSection.ATURAN },
-                    modifier = Modifier.testTag("arisan_btn_aturan_top")
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.MenuBook,
-                        contentDescription = "Aturan & Kesepakatan",
-                        tint = if (currentSection == ArisanSection.ATURAN) Color(0xFF2563EB) else MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-                IconButton(
-                    onClick = { showConfigDialog = true },
-                    modifier = Modifier.testTag("arisan_btn_settings_top")
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.Settings,
-                        contentDescription = "Pengaturan Arisan",
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            }
-        }
-
         // ----------------------------------------------------
         // MODERN PREMIUM EXECUTIVE HERO CARD (DEEP BLUE GRADIENT)
         // ----------------------------------------------------
@@ -1115,20 +1040,6 @@ private fun TabRingkasanDanKocokan(
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
                             modifier = Modifier.weight(1f)
                         ) {
-                            Surface(
-                                shape = CircleShape,
-                                color = Color(0xFFF59E0B).copy(alpha = 0.2f),
-                                modifier = Modifier.size(34.dp)
-                            ) {
-                                Box(contentAlignment = Alignment.Center) {
-                                    Icon(
-                                        Icons.Default.MenuBook,
-                                        contentDescription = null,
-                                        tint = Color(0xFFD97706),
-                                        modifier = Modifier.size(18.dp)
-                                    )
-                                }
-                            }
                             Column {
                                 Text(
                                     text = "Aturan Dasar & Kesepakatan",
@@ -1689,20 +1600,6 @@ private fun TabAturanDanPanduan(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
-                        Surface(
-                            shape = CircleShape,
-                            color = Color(0xFFFEF3C7),
-                            modifier = Modifier.size(46.dp)
-                        ) {
-                            Box(contentAlignment = Alignment.Center) {
-                                Icon(
-                                    imageVector = Icons.Default.MenuBook,
-                                    contentDescription = null,
-                                    tint = Color(0xFFD97706),
-                                    modifier = Modifier.size(26.dp)
-                                )
-                            }
-                        }
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
                                 text = "Panduan Manajemen Arisan",
