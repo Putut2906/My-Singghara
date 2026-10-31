@@ -14,6 +14,14 @@
       },
       "oauth_client": [
         {
+          "client_id": "194078759561-33n2b6irip9412b5kkj014ass1ugv1rq.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.aistudio.mysingghara.q8wpa1",
+            "certificate_hash": "46ceb7f0fadf08099d13d5df73fbf6251cc6d6f6"
+          }
+        },
+        {
           "client_id": "194078759561-1b27n44qm8r8r8j3bhj032d50faq4109.apps.googleusercontent.com",
           "client_type": 3
         }

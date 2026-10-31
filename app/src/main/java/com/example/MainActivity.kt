@@ -233,11 +233,12 @@ class MainActivity : FragmentActivity() {
                 try {
                     com.google.firebase.FirebaseApp.initializeApp(this)
                 } catch (e: Exception) {
+                    val config = com.example.firebase.FirebaseClientConfig.load(this)
                     val options = com.google.firebase.FirebaseOptions.Builder()
-                        .setApplicationId("1:194078759561:android:b39d13cb8202ff43cfc458")
-                        .setApiKey("AIzaSyC-1wqeoghlBosva2liyNCEEbb4IK6yvYs")
-                        .setProjectId("mobile-d08aa")
-                        .setStorageBucket("mobile-d08aa.firebasestorage.app")
+                        .setApplicationId(config.appId)
+                        .setApiKey(config.apiKey)
+                        .setProjectId(config.projectId)
+                        .setStorageBucket(config.storageBucket)
                         .build()
                     com.google.firebase.FirebaseApp.initializeApp(this, options)
                 }

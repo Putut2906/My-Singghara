@@ -24,11 +24,12 @@ class SinggharaApplication : Application() {
 
             // Fallback dengan opsi eksplisit jika getApps masih kosong
             if (FirebaseApp.getApps(this).isEmpty()) {
+                val config = com.example.firebase.FirebaseClientConfig.load(this)
                 val options = FirebaseOptions.Builder()
-                    .setApplicationId("1:194078759561:android:b39d13cb8202ff43cfc458")
-                    .setApiKey("AIzaSyC-1wqeoghlBosva2liyNCEEbb4IK6yvYs")
-                    .setProjectId("mobile-d08aa")
-                    .setStorageBucket("mobile-d08aa.firebasestorage.app")
+                    .setApplicationId(config.appId)
+                    .setApiKey(config.apiKey)
+                    .setProjectId(config.projectId)
+                    .setStorageBucket(config.storageBucket)
                     .build()
                 FirebaseApp.initializeApp(this, options)
                 Log.i("SinggharaApplication", "FirebaseApp successfully initialized with explicit options")

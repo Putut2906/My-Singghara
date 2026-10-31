@@ -37,11 +37,12 @@ class FirebaseAuthManager {
             } catch (e: Exception) {
                 val ctx: android.content.Context? = com.example.ui.MainViewModel.instance?.getApplication<android.app.Application>()
                 if (ctx != null && com.google.firebase.FirebaseApp.getApps(ctx).isEmpty()) {
+                    val config = FirebaseClientConfig.load(ctx)
                     val options = com.google.firebase.FirebaseOptions.Builder()
-                        .setApplicationId("1:194078759561:android:b39d13cb8202ff43cfc458")
-                        .setApiKey("AIzaSyC-1wqeoghlBosva2liyNCEEbb4IK6yvYs")
-                        .setProjectId("mobile-d08aa")
-                        .setStorageBucket("mobile-d08aa.firebasestorage.app")
+                        .setApplicationId(config.appId)
+                        .setApiKey(config.apiKey)
+                        .setProjectId(config.projectId)
+                        .setStorageBucket(config.storageBucket)
                         .build()
                     com.google.firebase.FirebaseApp.initializeApp(ctx, options)
                 }

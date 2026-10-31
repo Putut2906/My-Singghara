@@ -254,7 +254,7 @@ fun FirebaseAuthDialog(
             val webClientId = if (webClientIdResId != 0) {
                 context.getString(webClientIdResId)
             } else {
-                "194078759561-1b27n44qm8r8r8j3bhj032d50faq4109.apps.googleusercontent.com"
+                com.example.firebase.FirebaseClientConfig.load(context).webClientId
             }
             if (webClientId.isNotBlank()) {
                 gsoBuilder.requestIdToken(webClientId)
@@ -1888,14 +1888,22 @@ private fun googleIdTokenAudience(idToken: String?): String? = try {
     null
 }
 
-private fun invalidAppIdGuidance(context: android.content.Context): String = buildString {
-    append("Login Google ditolak Firebase dengan pesan 'invalid app id'.\n\n")
-    append("Paket aplikasi: ${context.packageName}\n")
-    append("SHA-1: ${installedAppSha1(context)}\n")
-    append("App ID yang dipakai: 1:194078759561:android:b39d13cb8202ff43cfc458\n\n")
-    append("Yang perlu dilakukan di Firebase Console (project mobile-d08aa):\n")
-    append("1. Project Settings → Your apps → tambahkan aplikasi Android dengan paket dan SHA-1 di atas.\n")
-    append("2. Salin App ID (mobilesdk_app_id) aplikasi Android tersebut.\n")
-    append("3. Authentication → Sign-in method → pastikan Google aktif.\n")
-    append("4. Project Settings → unduh google-services.json terbaru lalu kirimkan berkasnya agar App ID di aplikasi diperbarui.")
+private fun invalidAppIdGuidance(context: android.content.Context): String {
+    val config = com.example.firebase.FirebaseClientConfig.load(context)
+    return buildString {
+        append("Login Google ditolak Firebase dengan pesan 'invalid app id'.\n\n")
+        append("Paket aplikasi: ${context.packageName}\n")
+        append("SHA-1: ${installedAppSha1(context)}\n")
+        append("App ID yang dipakai: ${config.appId}\n")
+        if (config.registeredPackage.isNotBlank()) {
+            append("google-services.json terdaftar untuk paket: ${config.registeredPackage}")
+            if (config.registeredCertHash.isNotBlank()) append(" (sertifikat ${config.registeredCertHash.uppercase()})")
+            append("\n")
+        }
+        append("\nYang perlu dilakukan di Firebase Console (project ${config.projectId.ifBlank { "mobile-d08aa" }}):\n")
+        append("1. Project Settings → Your apps → tambahkan aplikasi Android dengan paket dan SHA-1 di atas.\n")
+        append("2. Salin App ID (mobilesdk_app_id) aplikasi Android tersebut.\n")
+        append("3. Authentication → Sign-in method → pastikan Google aktif.\n")
+        append("4. Project Settings → unduh google-services.json terbaru lalu kirimkan berkasnya agar App ID di aplikasi diperbarui.")
+    }
 }
