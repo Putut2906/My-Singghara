@@ -131,11 +131,17 @@ class GithubApkUpdateService : Service() {
 
     private fun finish(state: GithubUpdateTask, title: String, text: String) {
         _state.value = state
-        val notification = buildNotification(text = text, title = title, indeterminate = false)
-            .setOngoing(false)
-            .setAutoCancel(true)
         // A separate id keeps the result visible after the foreground notification is removed.
-        notifyManager()?.notify(COMPLETION_NOTIFICATION_ID, notification)
+        notifyManager()?.notify(
+            COMPLETION_NOTIFICATION_ID,
+            buildNotification(
+                text = text,
+                title = title,
+                indeterminate = false,
+                ongoing = false,
+                autoCancel = true
+            )
+        )
         stopForegroundCompat()
         stopSelf()
     }
@@ -176,7 +182,9 @@ class GithubApkUpdateService : Service() {
         text: String,
         title: String? = null,
         indeterminate: Boolean,
-        progressPercent: Int = 0
+        progressPercent: Int = 0,
+        ongoing: Boolean = true,
+        autoCancel: Boolean = false
     ): android.app.Notification {
         val launchIntent = packageManager.getLaunchIntentForPackage(packageName)
         val contentIntent = launchIntent?.let {
@@ -193,7 +201,8 @@ class GithubApkUpdateService : Service() {
             .setContentText(text)
             .setOnlyAlertOnce(true)
             .setPriority(NotificationCompat.PRIORITY_LOW)
-            .setOngoing(true)
+            .setOngoing(ongoing)
+            .setAutoCancel(autoCancel)
         if (contentIntent != null) builder.setContentIntent(contentIntent)
         if (indeterminate) {
             builder.setProgress(0, 0, true)
