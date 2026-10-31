@@ -59,7 +59,8 @@ private data class InstallConflict(
 
 private data class UpdateStatusPopup(
     val isUpToDate: Boolean,
-    val latestFileName: String
+    val latestReleaseLabel: String,
+    val detail: String? = null
 )
 
 sealed class DriveDownloadProgressState {
@@ -101,7 +102,8 @@ fun TentangAplikasiScreen(
     var saveProgress by remember { mutableStateOf(0f) }
     var lastSavedApkName by remember { mutableStateOf<String?>(null) }
     var updateStatusPopup by remember { mutableStateOf<UpdateStatusPopup?>(null) }
-    var pendingSaveApk by remember { mutableStateOf<DriveApkItem?>(null) }
+    var isGithubChecking by remember { mutableStateOf(false) }
+    var pendingSaveAction by remember { mutableStateOf<(() -> Unit)?>(null) }
     var installConflict by remember { mutableStateOf<InstallConflict?>(null) }
     var customApkName by remember { mutableStateOf("MySingghara-v${BuildConfig.VERSION_NAME}.apk") }
     var showFirestoreRulesDialog by remember { mutableStateOf(false) }
@@ -169,55 +171,59 @@ fun TentangAplikasiScreen(
         }
     }
 
-    // Downloads the latest APK and keeps a copy in the public Download folder
-    // instead of (or before) opening the package installer.
-    val saveApkToDownloads: (DriveApkItem) -> Unit = { apkItem ->
-        scope.launch {
-            try {
-                isSavingApk = true
-                saveProgress = 0f
-                val downloadedFile = GoogleDriveUpdateManager.downloadDriveApk(
-                    context = context,
-                    fileItem = apkItem
-                ) { progress, _, _ ->
-                    saveProgress = progress
-                }
-                val fileName = releaseApkFileName(context, downloadedFile, apkItem.name)
-                ApkDownloadsSaver.saveToDownloads(context, downloadedFile, fileName)
-                lastSavedApkName = fileName
-                viewModel.showToastPopup("APK disimpan di folder Download: $fileName")
-            } catch (e: Exception) {
-                viewModel.showToastPopup("Gagal menyimpan APK: ${e.localizedMessage ?: "Coba lagi"}")
-            } finally {
-                isSavingApk = false
-                saveProgress = 0f
-            }
-        }
-    }
-
     val storagePermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestPermission()
     ) { granted ->
-        val pending = pendingSaveApk
-        pendingSaveApk = null
+        val action = pendingSaveAction
+        pendingSaveAction = null
         when {
-            granted && pending != null -> saveApkToDownloads(pending)
+            granted && action != null -> action()
             !granted -> viewModel.showToastPopup("Izin penyimpanan dibutuhkan untuk menyimpan APK ke folder Download.")
         }
     }
 
-    fun requestSaveApkToDownloads(apkItem: DriveApkItem) {
-        if (isSavingApk) return
+    // Runs the save action directly, or after asking for the legacy write permission on Android 9 and below.
+    fun runWithStoragePermission(action: () -> Unit) {
         val needsLegacyPermission = ApkDownloadsSaver.requiresLegacyWritePermission() &&
             ContextCompat.checkSelfPermission(
                 context,
                 Manifest.permission.WRITE_EXTERNAL_STORAGE
             ) != PackageManager.PERMISSION_GRANTED
         if (needsLegacyPermission) {
-            pendingSaveApk = apkItem
+            pendingSaveAction = action
             storagePermissionLauncher.launch(Manifest.permission.WRITE_EXTERNAL_STORAGE)
         } else {
-            saveApkToDownloads(apkItem)
+            action()
+        }
+    }
+
+    // Downloads the APK from GitHub Releases and keeps a copy in the public Download folder
+    // without opening the package installer.
+    fun saveGithubApkToDownloads(asset: GitHubAsset, releaseLabel: String) {
+        if (isSavingApk) return
+        scope.launch {
+            try {
+                isSavingApk = true
+                saveProgress = 0f
+                val config = GitHubUpdateManager.loadConfig(context)
+                val downloadedFile = GitHubUpdateManager.downloadApk(
+                    context = context,
+                    downloadUrl = asset.browserDownloadUrl,
+                    fileName = asset.name,
+                    token = config.token
+                ) { progress, _, _ ->
+                    saveProgress = progress
+                }
+                val fileName = releaseApkFileName(context, downloadedFile, asset.name)
+                ApkDownloadsSaver.saveToDownloads(context, downloadedFile, fileName)
+                lastSavedApkName = fileName
+                viewModel.showToastPopup("APK $releaseLabel disimpan di folder Download: $fileName")
+            } catch (e: Exception) {
+                viewModel.showToastPopup("Gagal menyimpan APK: ${e.localizedMessage ?: "Coba lagi"}")
+            } finally {
+                isSavingApk = false
+                saveProgress = 0f
+            }
         }
     }
 
@@ -254,32 +260,45 @@ fun TentangAplikasiScreen(
         }
     }
 
-    // Refreshes the update check, reports the status in a popup, and stores the
-    // resulting APK in the public Download folder without opening the installer.
+    // Checks the latest GitHub release, reports the status in a popup, and stores the
+    // release APK in the public Download folder without opening the installer.
     fun refreshCheckAndSaveApk() {
-        if (isSavingApk) return
+        if (isSavingApk || isGithubChecking) return
         scope.launch {
             lastSavedApkName = null
-            driveUpdateState = DriveUpdateCheckState.Loading()
-            val result = GoogleDriveUpdateManager.checkForDriveUpdate(context)
-            driveUpdateState = result
+            isGithubChecking = true
+            val result = try {
+                GitHubUpdateManager.checkForUpdate(context)
+            } catch (e: Exception) {
+                UpdateCheckState.Error(e.localizedMessage ?: "Gagal menghubungi GitHub.")
+            }
+            isGithubChecking = false
             when (result) {
-                is DriveUpdateCheckState.UpdateAvailable -> {
-                    updateStatusPopup = UpdateStatusPopup(isUpToDate = false, latestFileName = result.latestApk.name)
-                    requestSaveApkToDownloads(result.latestApk)
-                }
-                is DriveUpdateCheckState.UpToDate -> {
-                    val latestApk = result.latestApk
+                is UpdateCheckState.UpdateAvailable -> {
                     updateStatusPopup = UpdateStatusPopup(
-                        isUpToDate = true,
-                        latestFileName = latestApk?.name.orEmpty()
+                        isUpToDate = false,
+                        latestReleaseLabel = result.release.tagName.ifBlank { result.release.name }
                     )
-                    if (latestApk != null) {
-                        requestSaveApkToDownloads(latestApk)
+                    runWithStoragePermission {
+                        saveGithubApkToDownloads(result.apkAsset, result.release.tagName)
                     }
                 }
-                is DriveUpdateCheckState.NoApkFound -> viewModel.showToastPopup(result.message)
-                is DriveUpdateCheckState.Error -> viewModel.showToastPopup("Gagal memeriksa pembaruan: ${result.errorMessage}")
+                is UpdateCheckState.UpToDate -> {
+                    val release = result.latestRelease
+                    val asset = release?.primaryApkAsset
+                    val releaseTag = release?.tagName ?: ""
+                    val newerWithoutApk = asset == null && release != null &&
+                        GitHubUpdateManager.isRemoteVersionNewer(BuildConfig.VERSION_NAME, releaseTag)
+                    updateStatusPopup = UpdateStatusPopup(
+                        isUpToDate = !newerWithoutApk,
+                        latestReleaseLabel = releaseTag,
+                        detail = result.customMessage
+                    )
+                    if (asset != null) {
+                        runWithStoragePermission { saveGithubApkToDownloads(asset, releaseTag) }
+                    }
+                }
+                is UpdateCheckState.Error -> viewModel.showToastPopup("Gagal memeriksa GitHub Releases: ${result.errorMessage}")
                 else -> Unit
             }
         }
@@ -378,7 +397,7 @@ fun TentangAplikasiScreen(
         )
     }
 
-    // Popup status hasil "Periksa Ulang Pembaruan + Simpan APK"
+    // Popup status hasil "Periksa Ulang Pembaruan GitHub Releases + Simpan APK"
     updateStatusPopup?.let { popup ->
         AlertDialog(
             onDismissRequest = { updateStatusPopup = null },
@@ -400,13 +419,21 @@ fun TentangAplikasiScreen(
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(
                         text = if (popup.isUpToDate) {
-                            "Versi terpasang v${BuildConfig.VERSION_NAME} sudah merupakan versi terbaru di Google Drive."
+                            "Versi terpasang v${BuildConfig.VERSION_NAME} sudah merupakan versi terbaru di GitHub Releases."
                         } else {
-                            "Versi terpasang v${BuildConfig.VERSION_NAME}. Berkas ${popup.latestFileName} di Google Drive lebih baru."
+                            "Versi terpasang v${BuildConfig.VERSION_NAME}. Rilis terbaru di GitHub Releases: ${popup.latestReleaseLabel}."
                         },
                         fontSize = 12.5.sp,
                         lineHeight = 18.sp
                     )
+                    popup.detail?.let { detail ->
+                        Text(
+                            text = detail,
+                            fontSize = 11.5.sp,
+                            lineHeight = 16.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
                     when {
                         isSavingApk -> {
                             LinearProgressIndicator(
@@ -430,7 +457,7 @@ fun TentangAplikasiScreen(
                             fontWeight = FontWeight.SemiBold,
                             color = MaterialTheme.colorScheme.onSurface
                         )
-                        popup.latestFileName.isBlank() -> Text(
+                        popup.latestReleaseLabel.isBlank() -> Text(
                             text = "Belum ada berkas APK yang bisa disimpan ke folder Download.",
                             fontSize = 11.5.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -1109,13 +1136,12 @@ fun TentangAplikasiScreen(
                             }
                         }
 
-                        // Row aksi: Icon Unduh & Pasang APK (kiri) & Icon Periksa Ulang Pembaruan + Simpan APK ke Download (kanan)
+                        // Row aksi: Icon Unduh & Pasang APK (kiri) & Icon Periksa Ulang Pembaruan GitHub Releases + Simpan APK ke Download (kanan)
                         val latestApkFromDrive: DriveApkItem? = when (val s = driveUpdateState) {
                             is DriveUpdateCheckState.UpdateAvailable -> s.latestApk
                             is DriveUpdateCheckState.UpToDate -> s.latestApk
                             else -> null
                         }
-                        val isDriveLoading = driveUpdateState is DriveUpdateCheckState.Loading
                         val isDownloading = inlineDownloadState is DriveDownloadProgressState.Downloading || inlineDownloadState is DriveDownloadProgressState.Installing
                         val canDownload = latestApkFromDrive != null && !isDownloading && !isSavingApk
 
@@ -1147,10 +1173,10 @@ fun TentangAplikasiScreen(
 
                             Spacer(modifier = Modifier.width(16.dp))
 
-                            // Icon Periksa Ulang Pembaruan & Simpan APK ke folder Download
+                            // Icon Periksa Ulang Pembaruan GitHub Releases & Simpan APK ke folder Download
                             FilledIconButton(
                                 onClick = { refreshCheckAndSaveApk() },
-                                enabled = !isDriveLoading && !isSavingApk,
+                                enabled = !isGithubChecking && !isSavingApk,
                                 shape = RoundedCornerShape(12.dp),
                                 colors = IconButtonDefaults.filledIconButtonColors(
                                     containerColor = Color(0xFF0284C7),
@@ -1164,15 +1190,15 @@ fun TentangAplikasiScreen(
                                         strokeWidth = 2.dp,
                                         color = Color.White
                                     )
-                                    isDriveLoading -> Icon(
+                                    isGithubChecking -> Icon(
                                         imageVector = Icons.Default.HourglassTop,
-                                        contentDescription = "Memeriksa pembaruan...",
+                                        contentDescription = "Memeriksa GitHub Releases...",
                                         tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
                                         modifier = Modifier.size(24.dp)
                                     )
                                     else -> Icon(
                                         imageVector = Icons.Default.Refresh,
-                                        contentDescription = "Periksa Ulang Pembaruan & Simpan APK ke folder Download",
+                                        contentDescription = "Periksa Ulang Pembaruan di GitHub Releases & Simpan APK ke folder Download",
                                         tint = Color.White,
                                         modifier = Modifier.size(24.dp)
                                     )
