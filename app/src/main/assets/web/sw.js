@@ -1,13 +1,17 @@
 // Service Worker untuk Progressive Web App (PWA) My Singghara - Akses PC 100% Offline
-const CACHE_NAME = 'my-singghara-pwa-v1';
+const CACHE_NAME = 'my-singghara-pwa-v2';
 
 const STATIC_ASSETS = [
     '/',
     '/index.html',
     '/manifest.json',
+    '/favicon.svg',
     '/favicon.ico',
     '/favicon.png',
+    '/favicon-light-32x32.png',
+    '/favicon-dark-32x32.png',
     '/apple-touch-icon.png',
+    '/app-logo.png',
     '/icons/icon-192.png',
     '/icons/icon-512.png',
     '/icons/favicon.ico',

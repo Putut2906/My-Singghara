@@ -331,7 +331,7 @@ class LocalHttpServer(
             return if (clientIp == "127.0.0.1" || clientIp == "localhost") {
                 "Browser Lokal (HP)"
             } else {
-                "$os • $browser"
+                "$os â€¢ $browser"
             }
         }
 
@@ -3051,7 +3051,7 @@ class LocalHttpServer(
 
                         transferManager.logActivity(
                             title = "Diunduh oleh PC: $fileNameToUse",
-                            desc = "${com.example.transfer.FileTransferManager.formatFileSize(fileLength)} • Berhasil ditransfer ke browser PC",
+                            desc = "${com.example.transfer.FileTransferManager.formatFileSize(fileLength)} â€¢ Berhasil ditransfer ke browser PC",
                             isIncoming = false
                         )
                         return
@@ -5040,18 +5040,18 @@ class LocalHttpServer(
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>My Singghara</title>
     <!-- Favicon Adaptif Bulat My Singghara (Mode Terang & Gelap - 100% Offline PC) -->
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg">
-    <link id="favLight32" rel="icon" type="image/png" sizes="32x32" href="/favicon-light-32x32.png" media="(prefers-color-scheme: light)">
-    <link id="favDark32" rel="icon" type="image/png" sizes="32x32" href="/favicon-dark-32x32.png" media="(prefers-color-scheme: dark)">
-    <link id="favLight16" rel="icon" type="image/png" sizes="16x16" href="/favicon-light-16x16.png" media="(prefers-color-scheme: light)">
-    <link id="favDark16" rel="icon" type="image/png" sizes="16x16" href="/favicon-dark-16x16.png" media="(prefers-color-scheme: dark)">
-    <link id="favDefault" rel="icon" type="image/png" href="/favicon.png">
-    <link id="favShortcut" rel="shortcut icon" href="/favicon.ico">
-    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png">
-    <meta name="msapplication-TileImage" content="/app-logo.png">
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=2">
+    <link id="favLight32" rel="icon" type="image/png" sizes="32x32" href="/favicon-light-32x32.png?v=2" media="(prefers-color-scheme: light)">
+    <link id="favDark32" rel="icon" type="image/png" sizes="32x32" href="/favicon-dark-32x32.png?v=2" media="(prefers-color-scheme: dark)">
+    <link id="favLight16" rel="icon" type="image/png" sizes="16x16" href="/favicon-light-16x16.png?v=2" media="(prefers-color-scheme: light)">
+    <link id="favDark16" rel="icon" type="image/png" sizes="16x16" href="/favicon-dark-16x16.png?v=2" media="(prefers-color-scheme: dark)">
+    <link id="favDefault" rel="icon" type="image/png" href="/favicon.png?v=2">
+    <link id="favShortcut" rel="shortcut icon" href="/favicon.ico?v=2">
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png?v=2">
+    <meta name="msapplication-TileImage" content="/app-logo.png?v=2">
     <meta name="theme-color" content="#3674B5" id="metaThemeColor">
     <!-- Progressive Web App (PWA) Manifest & Capabilities -->
-    <link rel="manifest" href="/manifest.json">
+    <link rel="manifest" href="/manifest.json?v=2">
     <meta name="mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -10013,7 +10013,7 @@ class LocalHttpServer(
                 <div class="row g-4 align-items-center">
                     <div class="col-12 col-md-7">
                         <div class="d-flex align-items-center gap-2 mb-2">
-                            <img src="/favicon-32x32.png" alt="My Singghara Logo" width="36" height="36" class="rounded-circle shadow-sm app-brand-logo">
+                            <img src="/app-logo.png?v=2" alt="My Singghara Logo" width="36" height="36" class="rounded-circle shadow-sm app-brand-logo">
                             <div>
                                 <h3 class="fw-black mb-0 auth-title" style="font-size: 1.35rem;">My Singghara</h3>
                                 <div class="d-flex align-items-center gap-1 flex-wrap mt-1">
@@ -10177,11 +10177,11 @@ class LocalHttpServer(
                 </button>
                 <div class="d-flex flex-column">
                     <div class="d-flex align-items-center gap-2">
-                        <img src="/favicon-32x32.png" alt="My Singghara Logo" width="26" height="26" class="rounded-circle shadow-sm app-brand-logo">
+                        <img src="/app-logo.png?v=2" alt="My Singghara Logo" width="26" height="26" class="rounded-circle shadow-sm app-brand-logo">
                         <h5 class="mb-0 fw-bold fs-6 fs-sm-5 text-main">My Singghara</h5>
                         <span class="badge bg-success bg-opacity-10 text-success border border-success border-opacity-25 rounded-pill d-none d-md-inline" style="font-size: 10px;"><i class="bi bi-globe me-1"></i>mysingghara.com</span>
                     </div>
-                    <small class="text-secondary d-none d-sm-inline" style="font-size: 11px;">mysingghara.com:8080 • Akses Jaringan Lokal 100% Offline</small>
+                    <small class="text-secondary d-none d-sm-inline" style="font-size: 11px;">mysingghara.com:8080 â€¢ Akses Jaringan Lokal 100% Offline</small>
                 </div>
             </div>
             <div class="d-flex align-items-center gap-2">
@@ -10202,7 +10202,7 @@ class LocalHttpServer(
         <!-- MOBILE SIDEBAR HEADER (Hanya tampil di layar mobile) -->
         <div class="sidebar-mobile-header align-items-center justify-content-between px-3 py-3 border-bottom border-secondary border-opacity-25" style="background: var(--sidebar-bg); flex-shrink: 0;">
             <div class="d-flex align-items-center gap-2">
-                <img src="/favicon-32x32.png" alt="My Singghara Logo" width="32" height="32" class="rounded-circle shadow-sm app-brand-logo">
+                <img src="/app-logo.png?v=2" alt="My Singghara Logo" width="32" height="32" class="rounded-circle shadow-sm app-brand-logo">
                 <div>
                     <div class="fw-bold text-main" style="font-size: 14px; line-height: 1.2;">My Singghara</div>
                     <div class="text-success fw-semibold d-flex align-items-center gap-1" style="font-size: 10px;">
@@ -10934,9 +10934,9 @@ class LocalHttpServer(
 
         function updateRoundFaviconTheme(theme) {
             const isDark = (theme === 'dark');
-            const fav32 = isDark ? '/favicon-dark-32x32.png' : '/favicon-light-32x32.png';
-            const fav16 = isDark ? '/favicon-dark-16x16.png' : '/favicon-light-16x16.png';
-            const favIco = isDark ? '/favicon-dark.ico' : '/favicon-light.ico';
+            const fav32 = (isDark ? '/favicon-dark-32x32.png' : '/favicon-light-32x32.png') + '?v=2';
+            const fav16 = (isDark ? '/favicon-dark-16x16.png' : '/favicon-light-16x16.png') + '?v=2';
+            const favIco = (isDark ? '/favicon-dark.ico' : '/favicon-light.ico') + '?v=2';
 
             const favDefault = document.getElementById('favDefault');
             if (favDefault) favDefault.href = fav32;
@@ -10946,7 +10946,7 @@ class LocalHttpServer(
             // Update in-page round brand logos
             const brandLogos = document.querySelectorAll('.app-brand-logo');
             brandLogos.forEach(img => {
-                img.src = fav32;
+                img.src = '/app-logo.png?v=2';
             });
 
             const metaTheme = document.getElementById('metaThemeColor');
@@ -13140,7 +13140,7 @@ class LocalHttpServer(
                                         <span class="badge bg-dark bg-opacity-50 text-white-50" style="font-size: 7px;">Item</span>
                                     </div>
                                     <div class="puzzle-booster-grid">
-                                        <button class="btn puzzle-booster-btn w-100 p-1.5 d-flex flex-column align-items-center justify-content-center position-relative" onclick="usePuzzleRotate()" title="Putar 90° Balok yang Dipilih">
+                                        <button class="btn puzzle-booster-btn w-100 p-1.5 d-flex flex-column align-items-center justify-content-center position-relative" onclick="usePuzzleRotate()" title="Putar 90Â° Balok yang Dipilih">
                                             <i class="bi bi-arrow-repeat text-warning" style="font-size: 13px;"></i>
                                             <span style="font-size: 8px; margin-top: 1px;">Putar</span>
                                             <span class="badge rounded-pill bg-warning text-dark position-absolute top-0 end-0 m-0.5" id="puzzleBoosterRotateCount" style="font-size: 7px; padding: 1px 3px;">${dol}{window.puzzleBoosters.rotate}</span>
@@ -13579,7 +13579,7 @@ class LocalHttpServer(
                 playPuzzleClear();
                 window.puzzleActiveMode = null;
                 window.puzzleBoosters.clear = Math.max(0, window.puzzleBoosters.clear - 1);
-                showPuzzleComboToast('🪄 Balok Dihapus!');
+                showPuzzleComboToast('ðŸª„ Balok Dihapus!');
                 loadBlock();
                 return;
             }
@@ -13601,7 +13601,7 @@ class LocalHttpServer(
                 window.puzzleActiveMode = null;
                 window.puzzleBoosters.hammer = Math.max(0, window.puzzleBoosters.hammer - 1);
                 window.puzzleScore += (cleared * 20);
-                showPuzzleComboToast(`🔨 Palu 3x3! (+${dol}{cleared * 20})`);
+                showPuzzleComboToast(`ðŸ”¨ Palu 3x3! (+${dol}{cleared * 20})`);
                 updatePuzzleScoreUI();
                 loadBlock();
                 return;
@@ -13704,10 +13704,10 @@ class LocalHttpServer(
 
                 // Feedback celebration
                 let comboMsg = '';
-                if (totalLines >= 4) comboMsg = '🔥 UNBELIEVABLE! +' + lineScore;
-                else if (totalLines === 3) comboMsg = '✨ AMAZING! +' + lineScore;
-                else if (totalLines === 2) comboMsg = '⚡ GREAT COMBO! +' + lineScore;
-                else if (window.puzzleComboStreak >= 2) comboMsg = `🎉 STREAK x${dol}{window.puzzleComboStreak}! +${dol}{lineScore}`;
+                if (totalLines >= 4) comboMsg = 'ðŸ”¥ UNBELIEVABLE! +' + lineScore;
+                else if (totalLines === 3) comboMsg = 'âœ¨ AMAZING! +' + lineScore;
+                else if (totalLines === 2) comboMsg = 'âš¡ GREAT COMBO! +' + lineScore;
+                else if (window.puzzleComboStreak >= 2) comboMsg = `ðŸŽ‰ STREAK x${dol}{window.puzzleComboStreak}! +${dol}{lineScore}`;
                 else comboMsg = `+${dol}{lineScore} Pts!`;
 
                 showPuzzleComboToast(comboMsg);
@@ -13991,7 +13991,7 @@ class LocalHttpServer(
                 // Check win
                 const isWon = window.slidePuzzleBoard.every((val, i) => i === 15 ? val === 0 : val === i + 1);
                 if (isWon) {
-                    setTimeout(() => alert('🎉 Selamat! Anda berhasil menyelesaikan teka-teki geser dalam ' + window.slidePuzzleMoves + ' langkah!'), 100);
+                    setTimeout(() => alert('ðŸŽ‰ Selamat! Anda berhasil menyelesaikan teka-teki geser dalam ' + window.slidePuzzleMoves + ' langkah!'), 100);
                 }
             }
         }
@@ -15072,7 +15072,7 @@ class LocalHttpServer(
                 ctx.fillStyle = palette.colors[3] || '#FBBF24';
                 ctx.font = 'bold 13px monospace';
                 ctx.textAlign = 'center';
-                ctx.fillText('◄  GAME ' + currentSelected.id + ' / 5  ►', 120, 115);
+                ctx.fillText('â—„  GAME ' + currentSelected.id + ' / 5  â–º', 120, 115);
 
                 // Highlighted Card for the Selected Game
                 ctx.fillStyle = palette.colors[1] || '#00FFD2';
@@ -15135,7 +15135,7 @@ class LocalHttpServer(
                 ctx.fillStyle = palette.colors[4] || '#39FF14';
                 ctx.font = 'bold 11.5px monospace';
                 ctx.textAlign = 'center';
-                ctx.fillText('↑ / ↓  ATAU  ◄ / ►', 120, 412);
+                ctx.fillText('â†‘ / â†“  ATAU  â—„ / â–º', 120, 412);
                 ctx.fillText('PILIH GAME (1 - 5)', 120, 430);
 
                 ctx.fillStyle = palette.colors[1] || '#00FFD2';
@@ -16022,7 +16022,7 @@ class LocalHttpServer(
 
             const subTitleEl = document.getElementById('notifKalenderSubtitle');
             if (subTitleEl) {
-                subTitleEl.textContent = `${dol}{data.hijriDate || '-'} • ${dol}{data.jawaDate || '-'}`;
+                subTitleEl.textContent = `${dol}{data.hijriDate || '-'} â€¢ ${dol}{data.jawaDate || '-'}`;
             }
 
             const holidayTodaySection = document.getElementById('notifHolidayTodaySection');
@@ -16064,7 +16064,7 @@ class LocalHttpServer(
                 if (hasOngoing) {
                     ongoingSection.style.display = 'flex';
                     if (ongoingTitle) ongoingTitle.textContent = data.ongoingJadwal.kegiatan || '-';
-                    if (ongoingSubtitle) ongoingSubtitle.textContent = `Pukul ${dol}{data.ongoingJadwal.waktu} • Kategori: ${dol}{data.ongoingJadwal.kategori}`;
+                    if (ongoingSubtitle) ongoingSubtitle.textContent = `Pukul ${dol}{data.ongoingJadwal.waktu} â€¢ Kategori: ${dol}{data.ongoingJadwal.kategori}`;
                 } else {
                     ongoingSection.style.display = 'none';
                 }
@@ -16429,7 +16429,7 @@ class LocalHttpServer(
                                     <button type="button" class="btn btn-sm btn-link text-decoration-none p-0 fw-semibold text-primary" id="btnMarkAllRead" onclick="markAllNotificationsRead()" style="font-size: 11.5px;">
                                         <i class="bi bi-check2-all me-1"></i> Baca Semua
                                     </button>
-                                    <span class="text-muted small">•</span>
+                                    <span class="text-muted small">â€¢</span>
                                     <button type="button" class="btn btn-sm btn-link text-decoration-none p-0 fw-semibold text-danger" onclick="clearAllNotifications()" style="font-size: 11.5px;">
                                         <i class="bi bi-trash me-1"></i> Bersihkan
                                     </button>
@@ -16455,7 +16455,7 @@ class LocalHttpServer(
                                 <div id="notifHolidayTodayCard" style="display: none;" class="p-3 rounded-3" style="background: rgba(220, 38, 38, 0.1); border: 1px solid rgba(220, 38, 38, 0.35);">
                                     <div class="d-flex align-items-center gap-3">
                                         <div class="rounded-circle d-flex align-items-center justify-content-center" style="width: 36px; height: 36px; background: #DC2626; color: #ffffff; flex-shrink: 0;">
-                                            <span style="font-size: 16px;">🔴</span>
+                                            <span style="font-size: 16px;">ðŸ”´</span>
                                         </div>
                                         <div class="d-flex flex-column">
                                             <span style="font-size: 10px; font-weight: 800; color: #DC2626; letter-spacing: 0.5px;">HARI LIBUR NASIONAL</span>
@@ -16508,7 +16508,7 @@ class LocalHttpServer(
                             <!-- Jadwal Sedang Berlangsung (jika ada) -->
                             <div id="notifOngoingJadwalSection" style="display: none;" class="d-flex flex-column gap-2">
                                 <hr class="my-1 border-secondary border-opacity-25">
-                                <h6 class="fw-bold mb-1 text-primary small">Jadwal Sedang Berlangsung 🕒</h6>
+                                <h6 class="fw-bold mb-1 text-primary small">Jadwal Sedang Berlangsung ðŸ•’</h6>
                                 <div class="p-3 rounded-3" style="background: rgba(14, 165, 233, 0.12); border: 1px solid rgba(14, 165, 233, 0.35);">
                                     <div class="d-flex align-items-center gap-3">
                                         <div class="rounded-circle d-flex align-items-center justify-content-center" style="width: 38px; height: 38px; background: #0284c7; color: #ffffff; flex-shrink: 0;">
