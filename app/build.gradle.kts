@@ -7,7 +7,7 @@ plugins {
     alias(libs.plugins.google.services) apply false
 }
 
-val appPackageId = "com.aistudio.mysingghara.lxqpbr"
+val appPackageId = "com.aistudio.mysingghara.q8wpa1"
 
 // The google-services plugin aborts the build when google-services.json has no client for
 // applicationId ("No matching client found for package name ..."), so it is enabled only
