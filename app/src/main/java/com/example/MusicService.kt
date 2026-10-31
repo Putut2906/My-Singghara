@@ -703,11 +703,8 @@ class MusicService : Service() {
             .setVisibility(Notification.VISIBILITY_PUBLIC)
             .setOngoing(isMusicPlaying)
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && albumArt != null) {
-            builder.setSmallIcon(android.graphics.drawable.Icon.createWithBitmap(albumArt))
-        } else {
-            builder.setSmallIcon(R.drawable.ic_stat_singghara)
-        }
+        // Status bar must always show the app's own icon; album art only fills the large icon.
+        builder.setSmallIcon(R.drawable.ic_stat_singghara)
 
         if (albumArt != null) {
             builder.setLargeIcon(albumArt)
