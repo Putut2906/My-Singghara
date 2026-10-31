@@ -1040,6 +1040,42 @@ class FirebaseAuthManager {
         }
     }
 
+    /**
+     * Masuk Google melalui halaman web Firebase di Custom Tab. Alur ini tidak bergantung pada
+     * Android OAuth client terdaftar, sehingga tetap bekerja ketika GoogleSignIn menolak
+     * aplikasi dengan DEVELOPER_ERROR (kode 10).
+     */
+    @Suppress("DEPRECATION")
+    suspend fun signInWithGoogleViaBrowser(activity: android.app.Activity): Result<FirebaseUser> {
+        return withContext(Dispatchers.Main) {
+            try {
+                val provider = com.google.firebase.auth.OAuthProvider.newBuilder("google.com")
+                    .setScopes(listOf("email", "profile"))
+                    .build()
+                val authResult = auth.startActivityForSignInWithProvider(activity, provider).await()
+                val user = authResult.user
+                    ?: return@withContext Result.failure(Exception("Akun Google tidak dapat dibaca. Silakan coba kembali."))
+
+                val validation = FirebaseAccountAdminManager.getInstance().validateAccountAccess(user.uid)
+                when (validation) {
+                    is AccountAccessValidation.Deactivated -> {
+                        auth.signOut()
+                        Result.failure<FirebaseUser>(Exception("AKUN_DINONAKTIFKAN: Akun Google Anda telah dinonaktifkan oleh Administrator. Anda tidak diizinkan masuk ke aplikasi."))
+                    }
+                    is AccountAccessValidation.MembershipExpired -> {
+                        auth.signOut()
+                        val sdf = java.text.SimpleDateFormat("dd MMM yyyy", java.util.Locale("id", "ID"))
+                        val dateStr = sdf.format(java.util.Date(validation.endDate))
+                        Result.failure<FirebaseUser>(Exception("MEMBERSHIP_HABIS: Masa membership akun Google Anda (${validation.tier}) telah habis pada $dateStr. Akun dinonaktifkan secara otomatis."))
+                    }
+                    is AccountAccessValidation.Allowed -> Result.success(user)
+                }
+            } catch (e: Exception) {
+                Result.failure<FirebaseUser>(Exception(e.localizedMessage ?: e.message ?: "Gagal masuk dengan Google melalui browser."))
+            }
+        }
+    }
+
     companion object {
         fun recordGoogleAccount(context: Context?, email: String) {
             if (email.isBlank() || context == null) return

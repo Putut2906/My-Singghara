@@ -1,5 +1,6 @@
 package com.example.ui.components
 
+import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -108,6 +109,63 @@ fun FirebaseAuthDialog(
     var generatedOtp by remember { mutableStateOf("") }
     var otpTargetEmailOrPhone by remember { mutableStateOf("") }
 
+    // Only try the browser fallback once per dialog session so a failure cannot loop.
+    var browserFallbackAttempted by remember { mutableStateOf(false) }
+
+    fun handleSignedInGoogleUser(
+        user: com.google.firebase.auth.FirebaseUser,
+        fallbackName: String,
+        fallbackEmail: String,
+        photoUrl: String?
+    ) {
+        viewModel.refreshAuthUser()
+        val cleanAccEmail = VipMembershipCardGenerator.extractCleanEmail(user.email ?: fallbackEmail) ?: fallbackEmail.trim()
+        val savedPwd = FirebaseAuthManager.getSavedPasswordForEmail(context, cleanAccEmail)
+
+        // Jika pengguna belum memiliki kata sandi tersimpan, tawarkan pembuatan kata sandi akun
+        // agar bisa login langsung dengan email & kata sandi
+        if (savedPwd.isBlank()) {
+            pendingGoogleUser = user
+            pendingGoogleUserName = user.displayName ?: fallbackName
+            pendingGoogleUserEmail = cleanAccEmail
+            googleAccountPasswordInput = ""
+            googleAccountPasswordConfirm = ""
+            googleAccountPasswordError = null
+            showSetPasswordAfterGoogleDialog = true
+        } else {
+            viewModel.showAuthSuccessPopup(
+                isRegister = (currentMode == AuthMode.REGISTER),
+                userName = user.displayName ?: fallbackName,
+                userEmail = cleanAccEmail,
+                photoUrl = photoUrl ?: user.photoUrl?.toString()
+            )
+            onDismissRequest()
+        }
+    }
+
+    fun startBrowserGoogleSignIn() {
+        val activity = context.findActivity()
+        if (activity == null) {
+            errorMessage = "Tidak dapat membuka verifikasi Google melalui browser pada layar ini."
+            return
+        }
+        isLoading = true
+        scope.launch {
+            val result = viewModel.authManager.signInWithGoogleViaBrowser(activity)
+            isLoading = false
+            result.onSuccess { user ->
+                handleSignedInGoogleUser(
+                    user = user,
+                    fallbackName = user.displayName ?: "",
+                    fallbackEmail = user.email ?: "",
+                    photoUrl = user.photoUrl?.toString()
+                )
+            }.onFailure { err ->
+                errorMessage = err.message ?: "Gagal masuk dengan Google melalui browser."
+            }
+        }
+    }
+
     val googleSignInLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult()
     ) { result ->
@@ -131,29 +189,12 @@ fun FirebaseAuthDialog(
                         val authResult = viewModel.authManager.signInWithGoogleAccount(account, context)
                         isLoading = false
                         authResult.onSuccess { user ->
-                            viewModel.refreshAuthUser()
-                            val cleanAccEmail = VipMembershipCardGenerator.extractCleanEmail(user.email ?: accountEmail) ?: accountEmail.trim()
-                            val savedPwd = FirebaseAuthManager.getSavedPasswordForEmail(context, cleanAccEmail)
-
-                            // Jika pengguna belum memiliki kata sandi tersimpan, tawarkan pembuatan kata sandi akun
-                            // agar bisa login langsung dengan email & kata sandi
-                            if (savedPwd.isBlank()) {
-                                pendingGoogleUser = user
-                                pendingGoogleUserName = user.displayName ?: displayName
-                                pendingGoogleUserEmail = cleanAccEmail
-                                googleAccountPasswordInput = ""
-                                googleAccountPasswordConfirm = ""
-                                googleAccountPasswordError = null
-                                showSetPasswordAfterGoogleDialog = true
-                            } else {
-                                viewModel.showAuthSuccessPopup(
-                                    isRegister = (currentMode == AuthMode.REGISTER),
-                                    userName = user.displayName ?: displayName,
-                                    userEmail = cleanAccEmail,
-                                    photoUrl = account.photoUrl?.toString() ?: user.photoUrl?.toString()
-                                )
-                                onDismissRequest()
-                            }
+                            handleSignedInGoogleUser(
+                                user = user,
+                                fallbackName = account.displayName ?: displayName,
+                                fallbackEmail = accountEmail,
+                                photoUrl = account.photoUrl?.toString()
+                            )
                         }.onFailure { err ->
                             val msg = err.message ?: ""
                             if (msg.startsWith("LINK_REQUIRED_GOOGLE:")) {
@@ -173,7 +214,13 @@ fun FirebaseAuthDialog(
                 }
             } catch (e: ApiException) {
                 if (e.statusCode != 12501 && e.statusCode != 16) {
-                    errorMessage = describeGoogleSignInFailure(e, context)
+                    if ((e.statusCode == 10 || e.statusCode == 12500) && !browserFallbackAttempted) {
+                        browserFallbackAttempted = true
+                        errorMessage = "Google Play Services menolak aplikasi ini (kode ${e.statusCode}). Mencoba masuk melalui browser..."
+                        startBrowserGoogleSignIn()
+                    } else {
+                        errorMessage = describeGoogleSignInFailure(e, context)
+                    }
                 }
             } catch (e: Exception) {
                 errorMessage = "Terjadi kesalahan saat masuk dengan Google: ${e.localizedMessage ?: e.message}"
@@ -1800,4 +1847,13 @@ private fun installedAppSha1(context: android.content.Context): String = try {
     }
 } catch (_: Exception) {
     "tidak diketahui"
+}
+
+private fun Context.findActivity(): android.app.Activity? {
+    var current: Context? = this
+    while (current is android.content.ContextWrapper) {
+        if (current is android.app.Activity) return current
+        current = current.baseContext
+    }
+    return null
 }
