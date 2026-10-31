@@ -2,6 +2,22 @@ plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.ksp)
+    // Declared only to put the plugin on this project's classpath; it is applied below
+    // when google-services.json actually registers the package used by this app.
+    alias(libs.plugins.google.services) apply false
+}
+
+val appPackageId = "com.aistudio.mysingghara.lxqpbr"
+
+// The google-services plugin aborts the build when google-services.json has no client for
+// applicationId ("No matching client found for package name ..."), so it is enabled only
+// once the file registers this package.
+val googleServicesFile = file("google-services.json")
+val googleServicesHasThisApp = googleServicesFile.exists() &&
+    Regex("\"package_name\"\\s*:\\s*\"${Regex.escape(appPackageId)}\"")
+        .containsMatchIn(googleServicesFile.readText())
+if (googleServicesHasThisApp) {
+    apply(plugin = "com.google.gms.google-services")
 }
 
 android {
@@ -9,7 +25,7 @@ android {
     compileSdk = 36
 
     defaultConfig {
-        applicationId = "com.aistudio.mysingghara.lxqpbr"
+        applicationId = appPackageId
         minSdk = 24
         targetSdk = 36
         // CI passes 1.0.<run_number> so BuildConfig matches the release tag.
@@ -90,9 +106,12 @@ dependencies {
     implementation("com.google.mlkit:barcode-scanning:17.3.0")
     implementation("com.google.mlkit:text-recognition:16.0.1")
     implementation("com.google.android.gms:play-services-auth:21.3.0")
-    implementation("com.google.firebase:firebase-auth-ktx:23.2.0")
-    implementation("com.google.firebase:firebase-firestore-ktx:25.1.2")
-    implementation("com.google.firebase:firebase-messaging-ktx:24.1.0")
+    implementation(platform("com.google.firebase:firebase-bom:35.1.0"))
+    implementation("com.google.firebase:firebase-auth")
+    implementation("com.google.firebase:firebase-firestore")
+    implementation("com.google.firebase:firebase-messaging")
+    // Task.await() lives here; the Firebase artifacts no longer pull it in.
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.10.2")
 
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.junit)
