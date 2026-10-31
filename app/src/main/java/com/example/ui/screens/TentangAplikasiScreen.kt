@@ -64,6 +64,13 @@ private data class UpdateStatusPopup(
     val isChecking: Boolean = false
 )
 
+private data class InstalledVersionCheck(
+    val isChecking: Boolean = false,
+    val isUpToDate: Boolean = false,
+    val latestVersion: String? = null,
+    val errorMessage: String? = null
+)
+
 sealed class DriveDownloadProgressState {
     object Idle : DriveDownloadProgressState()
     data class Downloading(
@@ -106,6 +113,7 @@ fun TentangAplikasiScreen(
     val saveProgress = (githubTask as? GithubUpdateTask.Downloading)?.progress ?: 0f
     val lastSavedApkName = (githubTask as? GithubUpdateTask.Completed)?.fileName
     var updateStatusPopup by remember { mutableStateOf<UpdateStatusPopup?>(null) }
+    var installedVersionCheck by remember { mutableStateOf<InstalledVersionCheck?>(null) }
     var taskStartedHere by remember { mutableStateOf(false) }
     var pendingSaveAction by remember { mutableStateOf<(() -> Unit)?>(null) }
     var installConflict by remember { mutableStateOf<InstallConflict?>(null) }
@@ -246,6 +254,23 @@ fun TentangAplikasiScreen(
         )
         runWithStoragePermission {
             GithubApkUpdateService.start(context)
+        }
+    }
+
+    // Click on the installed-version chip: compare this build against the newest GitHub release.
+    fun checkInstalledVersion() {
+        if (installedVersionCheck?.isChecking == true) return
+        installedVersionCheck = InstalledVersionCheck(isChecking = true)
+        scope.launch {
+            installedVersionCheck = when (val result = GitHubUpdateManager.checkForUpdate(context)) {
+                is UpdateCheckState.UpdateAvailable -> InstalledVersionCheck(
+                    isUpToDate = false,
+                    latestVersion = result.newVersion
+                )
+                is UpdateCheckState.UpToDate -> InstalledVersionCheck(isUpToDate = true)
+                is UpdateCheckState.Error -> InstalledVersionCheck(errorMessage = result.errorMessage)
+                else -> InstalledVersionCheck(errorMessage = "Tidak dapat memeriksa versi terbaru. Coba lagi nanti.")
+            }
         }
     }
 
@@ -470,6 +495,90 @@ fun TentangAplikasiScreen(
         )
     }
 
+    // Popup hasil ketukan pada label versi aplikasi terinstal
+    installedVersionCheck?.let { check ->
+        val hasUpdate = !check.isChecking && check.errorMessage == null && !check.isUpToDate
+        AlertDialog(
+            onDismissRequest = { installedVersionCheck = null },
+            icon = {
+                when {
+                    check.isChecking -> CircularProgressIndicator(
+                        modifier = Modifier.size(28.dp),
+                        strokeWidth = 2.5.dp,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    check.errorMessage != null -> Icon(
+                        imageVector = Icons.Default.Warning,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.error
+                    )
+                    hasUpdate -> Icon(
+                        imageVector = Icons.Default.SystemUpdate,
+                        contentDescription = null,
+                        tint = Color(0xFF0284C7)
+                    )
+                    else -> Icon(
+                        imageVector = Icons.Default.CheckCircle,
+                        contentDescription = null,
+                        tint = Color(0xFF16A34A)
+                    )
+                }
+            },
+            title = {
+                Text(
+                    text = when {
+                        check.isChecking -> "Memeriksa Versi Terbaru"
+                        check.errorMessage != null -> "Gagal Memeriksa Versi"
+                        hasUpdate -> "Pembaruan Versi Tersedia"
+                        else -> "Aplikasi Sudah Terbaru"
+                    },
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 17.sp
+                )
+            },
+            text = {
+                Text(
+                    text = when {
+                        check.isChecking ->
+                            "Membandingkan versi aplikasi terinstal v${BuildConfig.VERSION_NAME} dengan rilis terbaru di GitHub Releases."
+                        check.errorMessage != null -> check.errorMessage ?: "Gagal memeriksa versi terbaru."
+                        hasUpdate ->
+                            "Versi aplikasi terinstal v${BuildConfig.VERSION_NAME}. Versi terbaru v${check.latestVersion} sudah tersedia untuk dipasang."
+                        else ->
+                            "Versi aplikasi terinstal v${BuildConfig.VERSION_NAME} sudah merupakan versi terbaru. Tidak ada pembaruan yang perlu dipasang."
+                    },
+                    fontSize = 12.5.sp,
+                    lineHeight = 18.sp
+                )
+            },
+            confirmButton = {
+                when {
+                    check.isChecking -> TextButton(onClick = {}, enabled = false) {
+                        Text("Tunggu")
+                    }
+                    hasUpdate -> TextButton(
+                        onClick = {
+                            installedVersionCheck = null
+                            refreshCheckAndSaveApk()
+                        }
+                    ) {
+                        Text("Unduh Pembaruan")
+                    }
+                    else -> TextButton(onClick = { installedVersionCheck = null }) {
+                        Text("Tutup")
+                    }
+                }
+            },
+            dismissButton = {
+                if (hasUpdate) {
+                    TextButton(onClick = { installedVersionCheck = null }) {
+                        Text("Nanti")
+                    }
+                }
+            }
+        )
+    }
+
     // Modal Dialog for Google Drive Apps Script Configuration
     if (showDriveConfigDialog) {
         DriveScriptConfigDialog(
@@ -570,38 +679,51 @@ fun TentangAplikasiScreen(
 
                         Spacer(modifier = Modifier.height(8.dp))
 
-                        // Indikator status pembaruan (dipindahkan dari kartu pembaruan aplikasi)
-                        val (statusLabel, statusColor) = when (driveUpdateState) {
-                            is DriveUpdateCheckState.Loading -> Pair("Memeriksa...", Color(0xFF0F766E))
-                            is DriveUpdateCheckState.UpdateAvailable -> Pair("Ada APK Baru!", Color(0xFF0F766E))
-                            is DriveUpdateCheckState.UpToDate -> Pair("Versi Terbaru ✨", Color(0xFF16A34A))
-                            is DriveUpdateCheckState.NoApkFound -> Pair("Belum Ada APK", Color(0xFF64748B))
-                            is DriveUpdateCheckState.Error -> Pair("Perlu Perhatian", MaterialTheme.colorScheme.error)
-                            is DriveUpdateCheckState.Idle -> Pair("Siap Periksa", MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-
+                        // Versi aplikasi yang terinstal; ketuk untuk memeriksa ketersediaan versi baru.
+                        val isCheckingInstalledVersion = installedVersionCheck?.isChecking == true
                         Surface(
                             shape = RoundedCornerShape(8.dp),
-                            color = statusColor.copy(alpha = 0.12f),
-                            border = BorderStroke(1.dp, statusColor.copy(alpha = 0.3f))
+                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.3f)),
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(8.dp))
+                                .clickable(enabled = !isCheckingInstalledVersion) { checkInstalledVersion() }
                         ) {
                             Row(
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                if (driveUpdateState is DriveUpdateCheckState.Loading) {
+                                if (isCheckingInstalledVersion) {
                                     CircularProgressIndicator(
                                         modifier = Modifier.size(12.dp),
                                         strokeWidth = 2.dp,
-                                        color = statusColor
+                                        color = MaterialTheme.colorScheme.primary
                                     )
-                                    Spacer(modifier = Modifier.width(6.dp))
+                                } else {
+                                    Icon(
+                                        imageVector = Icons.Default.Verified,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(13.dp)
+                                    )
                                 }
+                                Spacer(modifier = Modifier.width(6.dp))
                                 Text(
-                                    text = statusLabel,
+                                    text = if (isCheckingInstalledVersion) {
+                                        "Memeriksa versi..."
+                                    } else {
+                                        "Versi Aplikasi v${BuildConfig.VERSION_NAME}"
+                                    },
                                     fontSize = 11.sp,
                                     fontWeight = FontWeight.Bold,
-                                    color = statusColor
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                                Spacer(modifier = Modifier.width(5.dp))
+                                Icon(
+                                    imageVector = Icons.Default.Refresh,
+                                    contentDescription = "Periksa versi terbaru",
+                                    tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.85f),
+                                    modifier = Modifier.size(12.dp)
                                 )
                             }
                         }
