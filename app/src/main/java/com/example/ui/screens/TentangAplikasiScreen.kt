@@ -1,7 +1,11 @@
 package com.example.ui.screens
 
+import android.Manifest
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -38,6 +42,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import androidx.core.content.ContextCompat
 import com.example.BuildConfig
 import com.example.ui.MainViewModel
 import com.example.update.*
@@ -80,6 +85,9 @@ fun TentangAplikasiScreen(
 
     var showShareNameDialog by remember { mutableStateOf(false) }
     var isSharingApk by remember { mutableStateOf(false) }
+    var isSavingApk by remember { mutableStateOf(false) }
+    var saveProgress by remember { mutableStateOf(0f) }
+    var pendingSaveApk by remember { mutableStateOf<DriveApkItem?>(null) }
     var customApkName by remember { mutableStateOf("MySingghara-v${BuildConfig.VERSION_NAME}.apk") }
     var showFirestoreRulesDialog by remember { mutableStateOf(false) }
 
@@ -126,6 +134,61 @@ fun TentangAplikasiScreen(
             if (!success) {
                 viewModel.showToastPopup("Gagal menyiapkan file APK untuk dibagikan.")
             }
+        }
+    }
+
+    // Downloads the latest APK and keeps a copy in the public Download folder
+    // instead of (or before) opening the package installer.
+    val saveApkToDownloads: (DriveApkItem) -> Unit = { apkItem ->
+        scope.launch {
+            try {
+                isSavingApk = true
+                saveProgress = 0f
+                val downloadedFile = GoogleDriveUpdateManager.downloadDriveApk(
+                    context = context,
+                    fileItem = apkItem
+                ) { progress, _, _ ->
+                    saveProgress = progress
+                }
+                val fileName = if (apkItem.name.endsWith(".apk", ignoreCase = true)) {
+                    apkItem.name
+                } else {
+                    "${apkItem.name}.apk"
+                }
+                ApkDownloadsSaver.saveToDownloads(context, downloadedFile, fileName)
+                viewModel.showToastPopup("APK disimpan di folder Download: $fileName")
+            } catch (e: Exception) {
+                viewModel.showToastPopup("Gagal menyimpan APK: ${e.localizedMessage ?: "Coba lagi"}")
+            } finally {
+                isSavingApk = false
+                saveProgress = 0f
+            }
+        }
+    }
+
+    val storagePermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        val pending = pendingSaveApk
+        pendingSaveApk = null
+        when {
+            granted && pending != null -> saveApkToDownloads(pending)
+            !granted -> viewModel.showToastPopup("Izin penyimpanan dibutuhkan untuk menyimpan APK ke folder Download.")
+        }
+    }
+
+    fun requestSaveApkToDownloads(apkItem: DriveApkItem) {
+        if (isSavingApk) return
+        val needsLegacyPermission = ApkDownloadsSaver.requiresLegacyWritePermission() &&
+            ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.WRITE_EXTERNAL_STORAGE
+            ) != PackageManager.PERMISSION_GRANTED
+        if (needsLegacyPermission) {
+            pendingSaveApk = apkItem
+            storagePermissionLauncher.launch(Manifest.permission.WRITE_EXTERNAL_STORAGE)
+        } else {
+            saveApkToDownloads(apkItem)
         }
     }
 
@@ -840,7 +903,7 @@ fun TentangAplikasiScreen(
                         }
                         val isDriveLoading = driveUpdateState is DriveUpdateCheckState.Loading
                         val isDownloading = inlineDownloadState is DriveDownloadProgressState.Downloading || inlineDownloadState is DriveDownloadProgressState.Installing
-                        val canDownload = latestApkFromDrive != null && !isDownloading
+                        val canDownload = latestApkFromDrive != null && !isDownloading && !isSavingApk
 
                         Row(
                             modifier = Modifier.fillMaxWidth(),
@@ -870,6 +933,37 @@ fun TentangAplikasiScreen(
 
                             Spacer(modifier = Modifier.width(16.dp))
 
+                            // Icon Simpan APK ke folder Download (tanpa memasang)
+                            FilledIconButton(
+                                onClick = {
+                                    latestApkFromDrive?.let { requestSaveApkToDownloads(it) }
+                                },
+                                enabled = canDownload,
+                                shape = RoundedCornerShape(12.dp),
+                                colors = IconButtonDefaults.filledIconButtonColors(
+                                    containerColor = Color(0xFF0284C7),
+                                    disabledContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
+                                ),
+                                modifier = Modifier.size(48.dp).testTag("save_apk_to_downloads_button")
+                            ) {
+                                if (isSavingApk) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(20.dp),
+                                        strokeWidth = 2.dp,
+                                        color = Color.White
+                                    )
+                                } else {
+                                    Icon(
+                                        imageVector = Icons.Default.SaveAlt,
+                                        contentDescription = "Simpan APK ke folder Download",
+                                        tint = if (canDownload) Color.White else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
+                                        modifier = Modifier.size(24.dp)
+                                    )
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.width(16.dp))
+
                             // Icon Periksa Pembaruan Google Drive Sekarang tanpa title (sebelah kanan)
                             FilledIconButton(
                                 onClick = { triggerDriveCheck() },
@@ -886,6 +980,27 @@ fun TentangAplikasiScreen(
                                     contentDescription = "Periksa Pembaruan Google Drive Sekarang",
                                     tint = if (!isDriveLoading) Color.White else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
                                     modifier = Modifier.size(24.dp)
+                                )
+                            }
+                        }
+
+                        if (isSavingApk) {
+                            Column(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                LinearProgressIndicator(
+                                    progress = { saveProgress },
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(6.dp)
+                                        .clip(RoundedCornerShape(3.dp)),
+                                    color = Color(0xFF0284C7)
+                                )
+                                Text(
+                                    text = "Menyimpan APK ke folder Download (${(saveProgress * 100).toInt()}%)...",
+                                    fontSize = 10.5.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
                         }
