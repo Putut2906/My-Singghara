@@ -376,19 +376,13 @@ fun WelcomeStepView() {
             modifier = Modifier
                 .size(90.dp)
                 .shadow(6.dp, RoundedCornerShape(24.dp))
-                .clip(RoundedCornerShape(24.dp))
-                .background(MaterialTheme.colorScheme.primaryContainer),
+                .clip(RoundedCornerShape(24.dp)),
             contentAlignment = Alignment.Center
         ) {
-            val logoRes = if (androidx.compose.foundation.isSystemInDarkTheme()) {
-                com.example.R.drawable.img_app_icon_1785895772461
-            } else {
-                com.example.R.drawable.img_app_icon_light_1785896910266
-            }
             Image(
-                painter = painterResource(id = logoRes),
+                painter = painterResource(id = com.example.R.mipmap.ic_launcher),
                 contentDescription = "Logo Aplikasi",
-                modifier = Modifier.size(64.dp)
+                modifier = Modifier.fillMaxSize()
             )
         }
 
