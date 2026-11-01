@@ -2027,19 +2027,21 @@ fun MainAppContent(viewModel: MainViewModel) {
                             )
                             .padding(vertical = 8.dp)
                     ) {
-                        val isJ2meLoaderSelected = viewModel.currentRoute == "j2me_loader"
+                        val isJ2meLoaderSelected = false
                         NavigationDrawerItem(
                             icon = {
                                 Icon(
-                                    imageVector = if (isJ2meLoaderSelected) Icons.Default.SportsEsports else Icons.Outlined.SportsEsports,
+                                    imageVector = Icons.Default.SportsEsports,
                                     contentDescription = "J2ME-Loader"
                                 )
                             },
                             label = { Text(text = "J2ME-Loader", fontWeight = FontWeight.SemiBold, fontSize = 13.sp) },
                             selected = isJ2meLoaderSelected,
                             onClick = {
-                                viewModel.currentRoute = "j2me_loader"
                                 scope.launch { drawerState.close() }
+                                context.startActivity(
+                                    Intent(context, ru.playsoftware.j2meloader.MainActivity::class.java)
+                                )
                             },
                             shape = RoundedCornerShape(8.dp),
                             modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
@@ -3572,9 +3574,6 @@ fun MainAppContent(viewModel: MainViewModel) {
                         "arisan_keluarga" -> ArisanKeluargaScreen(
                             viewModel = viewModel,
                             onNavigateBack = { viewModel.currentRoute = "home" }
-                        )
-                        "j2me_loader" -> J2meLoaderScreen(
-                            onBack = { viewModel.currentRoute = "home" }
                         )
                         "quran" -> QuranScreen(viewModel = viewModel)
                         "game_list" -> GameScreen(viewModel = viewModel)

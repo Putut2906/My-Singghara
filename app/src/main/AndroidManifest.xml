@@ -69,13 +69,6 @@
             android:theme="@style/Theme.MySingghara"
             android:turnScreenOn="true" />
 
-        <activity
-            android:name=".j2me.J2meGameActivity"
-            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden"
-            android:exported="false"
-            android:launchMode="singleTop"
-            android:theme="@style/Theme.MySingghara" />
-
         <service
             android:name=".MusicService"
             android:exported="false"
