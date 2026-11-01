@@ -39,10 +39,6 @@ android {
         abortOnError false
     }
 
-    androidResources {
-        generateLocaleConfig true
-    }
-
     externalNativeBuild {
         ndkBuild {
             path 'src/main/cpp/Android.mk'
