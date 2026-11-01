@@ -628,7 +628,7 @@ fun TentangAplikasiScreen(
                                 "Membandingkan versi aplikasi terinstal v${BuildConfig.VERSION_NAME} dengan rilis terbaru di GitHub Releases."
                             check.errorMessage != null -> check.errorMessage ?: "Gagal memeriksa versi terbaru."
                             downloadedPath != null ->
-                                "APK v${check.latestVersion} sudah diunduh dari GitHub Releases. Ketuk Unduh & Pasang untuk membuka pemasang. Pop up ini tetap muncul sampai pembaruan dipasang."
+                                "APK v${check.latestVersion} sudah selesai diunduh. Ketuk Instal untuk membuka pemasang aplikasi di perangkat. Pop up ini tetap muncul sampai pembaruan dipasang."
                             downloading ->
                                 "Mengunduh APK v${check.latestVersion} ke folder Download (${downloadPercent}%). Pop up ini tetap terbuka meskipun Anda keluar dari aplikasi atau perangkat terkunci."
                             hasUpdate ->
@@ -664,7 +664,7 @@ fun TentangAplikasiScreen(
                         Text("Coba Lagi")
                     }
                     downloadedPath != null -> TextButton(onClick = { installDownloadedUpdate(downloadedPath) }) {
-                        Text("Unduh & Pasang")
+                        Text("Instal")
                     }
                     downloading -> TextButton(onClick = {}, enabled = false) {
                         Text("Mengunduh...")
@@ -678,7 +678,8 @@ fun TentangAplikasiScreen(
                 }
             },
             dismissButton = {
-                if (!check.isChecking) {
+                // Once the APK is downloaded the only action is to install it.
+                if (!check.isChecking && downloadedPath == null) {
                     TextButton(
                         onClick = {
                             dialogDownloadStarted = false

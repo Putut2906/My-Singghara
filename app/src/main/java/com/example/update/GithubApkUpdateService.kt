@@ -118,7 +118,8 @@ class GithubApkUpdateService : Service() {
             finish(
                 state = GithubUpdateTask.Completed(releaseLabel, fileName, downloaded.absolutePath),
                 title = "APK $releaseLabel tersimpan",
-                text = "Tersimpan di folder Download: $fileName"
+                text = "Tersimpan di folder Download: $fileName. Ketuk untuk memasang.",
+                installApkPath = downloaded.absolutePath
             )
         } catch (e: Exception) {
             val message = e.localizedMessage ?: "Coba lagi."
@@ -130,7 +131,12 @@ class GithubApkUpdateService : Service() {
         }
     }
 
-    private fun finish(state: GithubUpdateTask, title: String, text: String) {
+    private fun finish(
+        state: GithubUpdateTask,
+        title: String,
+        text: String,
+        installApkPath: String? = null
+    ) {
         _state.value = state
         // A separate id keeps the result visible after the foreground notification is removed.
         notifyManager()?.notify(
@@ -140,7 +146,8 @@ class GithubApkUpdateService : Service() {
                 title = title,
                 indeterminate = false,
                 ongoing = false,
-                autoCancel = true
+                autoCancel = true,
+                installApkPath = installApkPath
             )
         )
         stopForegroundCompat()
@@ -185,17 +192,10 @@ class GithubApkUpdateService : Service() {
         indeterminate: Boolean,
         progressPercent: Int = 0,
         ongoing: Boolean = true,
-        autoCancel: Boolean = false
+        autoCancel: Boolean = false,
+        installApkPath: String? = null
     ): android.app.Notification {
-        val launchIntent = packageManager.getLaunchIntentForPackage(packageName)
-        val contentIntent = launchIntent?.let {
-            PendingIntent.getActivity(
-                this,
-                0,
-                it,
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-            )
-        }
+        val contentIntent = buildContentIntent(installApkPath)
         val builder = NotificationCompat.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_stat_singghara)
             .setContentTitle(title ?: "Pembaruan My Singghara")
@@ -211,6 +211,27 @@ class GithubApkUpdateService : Service() {
             builder.setProgress(100, progressPercent, false)
         }
         return builder.build()
+    }
+
+    /**
+     * A finished download opens the package installer on tap; every other step opens the app.
+     */
+    private fun buildContentIntent(installApkPath: String?): PendingIntent? {
+        if (installApkPath != null) {
+            return PendingIntent.getBroadcast(
+                this,
+                INSTALL_REQUEST_CODE,
+                ApkInstallReceiver.intentFor(this, installApkPath),
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+        }
+        val launchIntent = packageManager.getLaunchIntentForPackage(packageName) ?: return null
+        return PendingIntent.getActivity(
+            this,
+            0,
+            launchIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
     }
 
     private fun createNotificationChannel() {
@@ -230,6 +251,7 @@ class GithubApkUpdateService : Service() {
         private const val CHANNEL_ID = "github_update_download"
         private const val NOTIFICATION_ID = 4801
         private const val COMPLETION_NOTIFICATION_ID = 4802
+        private const val INSTALL_REQUEST_CODE = 4803
         private const val ACTION_CHECK_AND_SAVE = "com.example.update.action.CHECK_AND_SAVE"
 
         private val _state = MutableStateFlow<GithubUpdateTask>(GithubUpdateTask.Idle)
