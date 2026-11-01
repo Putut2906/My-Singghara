@@ -52,22 +52,23 @@ object J2meInstaller {
             checkBytecode(jarFile)
 
             onProgress(30)
-            gameDir = J2meStore.createGameDir(
+            val dir = J2meStore.createGameDir(
                 context,
                 displayName ?: uri.lastPathSegment.orEmpty()
             )
+            gameDir = dir
             ZipFile(jarFile).use { zip ->
-                extractResources(zip, File(gameDir, J2meStore.RES_DIR_NAME))
+                extractResources(zip, File(dir, J2meStore.RES_DIR_NAME))
             }
 
             onProgress(45)
-            val dexFile = File(gameDir, J2meStore.DEX_FILE_NAME)
+            val dexFile = File(dir, J2meStore.DEX_FILE_NAME)
             convertToDex(jarFile, dexFile)
             onProgress(85)
 
-            writeManifest(manifest, File(gameDir, J2meStore.CONF_FILE_NAME))
+            writeManifest(manifest, File(dir, J2meStore.CONF_FILE_NAME))
             onProgress(100)
-            J2meStore.toGame(gameDir)
+            J2meStore.toGame(dir)
         } catch (e: Exception) {
             gameDir?.deleteRecursively()
             throw if (e is InstallException) {
@@ -94,15 +95,16 @@ object J2meInstaller {
         val result = LinkedHashMap<String, String>()
         var currentKey: String? = null
         for (raw in text.split("\r\n", "\n")) {
+            val key = currentKey
             when {
-                raw.startsWith(" ") && currentKey != null ->
-                    result[currentKey!!] = result[currentKey].orEmpty() + raw.substring(1)
+                raw.startsWith(" ") && key != null ->
+                    result[key] = result[key].orEmpty() + raw.substring(1)
                 raw.isBlank() -> currentKey = null
                 raw.indexOf(':') > 0 -> {
                     val index = raw.indexOf(':')
-                    val key = raw.substring(0, index).trim()
-                    result[key] = raw.substring(index + 1).trim()
-                    currentKey = key
+                    val newKey = raw.substring(0, index).trim()
+                    result[newKey] = raw.substring(index + 1).trim()
+                    currentKey = newKey
                 }
             }
         }

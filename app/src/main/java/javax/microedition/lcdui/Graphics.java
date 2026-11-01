@@ -20,7 +20,6 @@ import android.graphics.Canvas;
 import android.graphics.DashPathEffect;
 import android.graphics.Paint;
 import android.graphics.Path;
-import android.graphics.PixelXorXfermode;
 import android.graphics.Point;
 import android.graphics.PorterDuff;
 import android.graphics.PorterDuffXfermode;
@@ -80,8 +79,10 @@ public class Graphics
 		new PorterDuffXfermode(PorterDuff.Mode.XOR)       // 15
 	};
 	
-	private static final PixelXorXfermode simpleXorMode = new PixelXorXfermode(0);
-	private static final PixelXorXfermode invertXorMode = new PixelXorXfermode(-1);
+	// PixelXorXfermode is no longer part of the public SDK; PorterDuff XOR is the
+	// closest available blend mode for J2ME's setXorMode().
+	private static final PorterDuffXfermode simpleXorMode = new PorterDuffXfermode(PorterDuff.Mode.XOR);
+	private static final PorterDuffXfermode invertXorMode = new PorterDuffXfermode(PorterDuff.Mode.XOR);
 
 	private Canvas canvas;
 	
@@ -272,10 +273,8 @@ public class Graphics
 		}
 		else
 		{
-			PixelXorXfermode mode = new PixelXorXfermode(op);
-			
-			drawPaint.setXfermode(mode);
-			fillPaint.setXfermode(mode);
+			drawPaint.setXfermode(simpleXorMode);
+			fillPaint.setXfermode(simpleXorMode);
 		}
 	}
 	

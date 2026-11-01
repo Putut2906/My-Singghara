@@ -63,15 +63,16 @@ object J2meStore {
         val result = LinkedHashMap<String, String>()
         var currentKey: String? = null
         file.forEachLine { raw ->
+            val key = currentKey
             when {
-                raw.startsWith(" ") && currentKey != null ->
-                    result[currentKey!!] = result[currentKey].orEmpty() + raw.substring(1)
+                raw.startsWith(" ") && key != null ->
+                    result[key] = result[key].orEmpty() + raw.substring(1)
                 raw.isBlank() -> currentKey = null
                 raw.indexOf(':') > 0 -> {
                     val index = raw.indexOf(':')
-                    val key = raw.substring(0, index).trim()
-                    result[key] = raw.substring(index + 1).trim()
-                    currentKey = key
+                    val newKey = raw.substring(0, index).trim()
+                    result[newKey] = raw.substring(index + 1).trim()
+                    currentKey = newKey
                 }
             }
         }
