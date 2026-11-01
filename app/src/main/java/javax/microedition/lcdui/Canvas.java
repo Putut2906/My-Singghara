@@ -319,19 +319,24 @@ public abstract class Canvas extends Displayable {
 
 	private class SurfaceCallback implements SurfaceHolder.Callback {
 		public void surfaceChanged(SurfaceHolder holder, int format, int newwidth, int newheight) {
-			synchronized (paintsync) {
-				displayWidth = newwidth;
-				displayHeight = newheight;
+			try {
+				synchronized (paintsync) {
+					displayWidth = newwidth;
+					displayHeight = newheight;
 
-				updateSize(true);
+					updateSize(true);
+				}
+
+				postEvent(paintEvent);
+			} catch (Throwable t) {
+				recordPaintError(t);
 			}
-
-			postEvent(paintEvent);
 		}
 
 		public void surfaceCreated(SurfaceHolder holder) {
 			synchronized (paintsync) {
 				surfacevalid = true;
+				surfaceReady = true;
 				postEvent(CanvasEvent.getInstance(Canvas.this, CanvasEvent.SHOW_NOTIFY));
 			}
 		}
@@ -339,8 +344,27 @@ public abstract class Canvas extends Displayable {
 		public void surfaceDestroyed(SurfaceHolder holder) {
 			synchronized (paintsync) {
 				surfacevalid = false;
+				surfaceReady = false;
 				postEvent(CanvasEvent.getInstance(Canvas.this, CanvasEvent.HIDE_NOTIFY));
 			}
+		}
+	}
+
+	private void recordPaintError(Throwable t) {
+		lastPaintError = t.toString();
+		paintErrorCount++;
+		t.printStackTrace();
+	}
+
+	private void drawOverlay() {
+		if (overlay == null) {
+			return;
+		}
+
+		try {
+			overlay.paint(graphics);
+		} catch (Throwable t) {
+			recordPaintError(t);
 		}
 	}
 
@@ -386,56 +410,94 @@ public abstract class Canvas extends Displayable {
 				}
 
 				if (useOffscreen) {
+					if (offscreen == null) {
+						return;
+					}
+
 					graphics.setCanvas(offscreen.getCanvas());
+
+					boolean paintFailed = false;
 
 					try {
 						paint(graphics);
 					} catch (Throwable t) {
-						t.printStackTrace();
+						paintFailed = true;
+						recordPaintError(t);
 
 						graphics.resetTranslation();
 						graphics.resetClip();
 					}
 
-					graphics.setCanvas(holder.lockCanvas());
+					android.graphics.Canvas screen = null;
 
-					if (graphics.hasCanvas()) {
-						graphics.clear(backgroundColor);
-						graphics.drawImage(offscreen, onX, onY, onWidth, onHeight, filter, 255);
+					try {
+						screen = holder.lockCanvas();
+						graphics.setCanvas(screen);
 
-						if (overlay != null) {
-							overlay.paint(graphics);
+						if (graphics.hasCanvas()) {
+							graphics.clear(backgroundColor);
+							graphics.drawImage(offscreen, onX, onY, onWidth, onHeight, filter, 255);
+
+							drawOverlay();
+							drawFps(screen);
+
+							if (!paintFailed) {
+								frameCount++;
+							}
 						}
-
-						drawFps(graphics.getCanvas());
-
-						holder.unlockCanvasAndPost(graphics.getCanvas());
+					} catch (Throwable t) {
+						recordPaintError(t);
+					} finally {
+						if (screen != null) {
+							try {
+								holder.unlockCanvasAndPost(screen);
+							} catch (Throwable t) {
+								recordPaintError(t);
+							}
+						}
 					}
 				} else {
-					graphics.setCanvas(holder.lockCanvas());
+					android.graphics.Canvas screen = null;
 
-					if (graphics.hasCanvas()) {
-						graphics.clear(backgroundColor);
-						graphics.setWindow(onX, onY, onWidth, onHeight);
+					try {
+						screen = holder.lockCanvas();
+						graphics.setCanvas(screen);
 
-						try {
-							paint(graphics);
-						} catch (Throwable t) {
-							t.printStackTrace();
+						if (graphics.hasCanvas()) {
+							graphics.clear(backgroundColor);
+							graphics.setWindow(onX, onY, onWidth, onHeight);
 
-							graphics.resetTranslation();
-							graphics.resetClip();
+							boolean paintFailed = false;
+
+							try {
+								paint(graphics);
+							} catch (Throwable t) {
+								paintFailed = true;
+								recordPaintError(t);
+
+								graphics.resetTranslation();
+								graphics.resetClip();
+							}
+
+							graphics.resetWindow();
+
+							drawOverlay();
+							drawFps(screen);
+
+							if (!paintFailed) {
+								frameCount++;
+							}
 						}
-
-						graphics.resetWindow();
-
-						if (overlay != null) {
-							overlay.paint(graphics);
+					} catch (Throwable t) {
+						recordPaintError(t);
+					} finally {
+						if (screen != null) {
+							try {
+								holder.unlockCanvasAndPost(screen);
+							} catch (Throwable t) {
+								recordPaintError(t);
+							}
 						}
-
-						drawFps(graphics.getCanvas());
-
-						holder.unlockCanvasAndPost(graphics.getCanvas());
 					}
 				}
 
@@ -552,6 +614,29 @@ public abstract class Canvas extends Displayable {
 	private static int fpsFrames = 0;
 	private static int currentFps = 0;
 
+	private static volatile long frameCount = 0;
+	private static volatile int paintErrorCount = 0;
+	private static volatile boolean surfaceReady = false;
+	private static volatile String lastPaintError = null;
+
+	/** Number of frames actually pushed to the screen; 0 means the game never rendered. */
+	public static long getFrameCount() {
+		return frameCount;
+	}
+
+	/** Number of paint attempts that ended in an exception. */
+	public static int getPaintErrorCount() {
+		return paintErrorCount;
+	}
+
+	public static boolean isSurfaceReady() {
+		return surfaceReady;
+	}
+
+	public static String getLastPaintError() {
+		return lastPaintError;
+	}
+
 	private Image offscreen;
 	private int onX, onY, onWidth, onHeight;
 	private boolean useOffscreen;
@@ -603,6 +688,10 @@ public abstract class Canvas extends Displayable {
 		fpsStartTime = 0;
 		fpsFrames = 0;
 		currentFps = 0;
+		frameCount = 0;
+		paintErrorCount = 0;
+		surfaceReady = false;
+		lastPaintError = null;
 	}
 
 	public static void setBackgroundColor(int color) {
@@ -745,7 +834,15 @@ public abstract class Canvas extends Displayable {
 			 */
 
 			if (useOffscreen && (offscreen == null || offscreen.getWidth() != width || offscreen.getHeight() != height)) {
-				offscreen = Image.createImage(width, height);
+				try {
+					offscreen = Image.createImage(width, height);
+				} catch (Throwable t) {
+					// A virtual screen too large for the heap must not leave a locked,
+					// blank surface: fall back to drawing straight to the screen.
+					recordPaintError(t);
+					offscreen = null;
+					useOffscreen = false;
+				}
 			}
 
 			postEvent(CanvasEvent.getInstance(this, CanvasEvent.SIZE_CHANGED, width, height));

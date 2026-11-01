@@ -133,7 +133,15 @@ fun J2meLoaderScreen(onBack: () -> Unit) {
             onBack = { selectedGame = null },
             onStart = { profile ->
                 J2meProfiles.save(currentGame, profile)
-                J2meLauncher.launchGame(context, currentGame.id)
+                try {
+                    J2meLauncher.launchGame(context, currentGame.id)
+                } catch (e: Exception) {
+                    Toast.makeText(
+                        context,
+                        e.message ?: "Game tidak bisa dijalankan.",
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
             }
         )
         return
