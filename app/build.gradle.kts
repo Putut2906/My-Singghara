@@ -80,8 +80,8 @@ kotlin {
 }
 
 dependencies {
-    // dx 1.10, used at install time to turn a J2ME .jar into a Dalvik exec for the built-in loader.
-    implementation(files("libs/dx.jar"))
+    // Full J2ME-Loader engine + UI, embedded as a library module.
+    implementation(project(":j2meloader"))
 
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
