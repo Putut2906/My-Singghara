@@ -2,7 +2,6 @@ package com.example
 
 import android.annotation.SuppressLint
 import android.app.AlarmManager
-import android.app.KeyguardManager
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
@@ -24,6 +23,9 @@ import java.util.*
 object NotificationScheduler {
 
     const val CHANNEL_PRAYER = "prayer_times_channel"
+    const val CHANNEL_PRAYER_SILENT = "prayer_times_channel_silent"
+    const val CHANNEL_PRAYER_NOTIFICATION = "prayer_times_channel_notification"
+    const val CHANNEL_PRAYER_AZAN = "prayer_times_channel_azan"
     const val CHANNEL_AGENDA = "agenda_channel"
     const val CHANNEL_WEB_SECURITY = "web_security_channel"
     const val CHANNEL_WEB_SECURITY_RESULT = "web_security_result_channel"
@@ -48,181 +50,13 @@ object NotificationScheduler {
     const val EXTRA_PRAYER_NAME = "extra_prayer_name"
     const val EXTRA_PRAYER_TIME = "extra_prayer_time"
 
-    private var azanMediaPlayer: android.media.MediaPlayer? = null
-    private var activeAzanNotificationId: Int? = null
-    private var appContext: Context? = null
-
-    fun playAzanSound(context: Context, prayerName: String, notificationId: Int? = null) {
-        try {
-            stopAzanSound()
-            appContext = context.applicationContext
-            activeAzanNotificationId = notificationId ?: (NOTIFICATION_ID_PRAYER + prayerName.hashCode())
-
-            val sharedPrefs = context.getSharedPreferences("mysingghara_prefs", Context.MODE_PRIVATE)
-            val defaultVal = if (prayerName == "Imsak") 1 else 2
-            val setting = sharedPrefs.getInt("azan_sound_setting_${prayerName.lowercase(Locale.getDefault())}", defaultVal)
-
-            val audioAttributes = android.media.AudioAttributes.Builder()
-                .setUsage(android.media.AudioAttributes.USAGE_ALARM)
-                .setContentType(android.media.AudioAttributes.CONTENT_TYPE_MUSIC)
-                .build()
-
-            if (setting == 3) {
-                val prayerKey = prayerName.lowercase(Locale.getDefault())
-                val customFile = java.io.File(context.filesDir, "azan_custom_$prayerKey.mp3")
-                val externalMp3 = java.io.File(com.example.util.SinggharaFolderManager.getMp3Folder(), "azan_$prayerKey.mp3")
-                val customChosenPath = sharedPrefs.getString("azan_custom_path_$prayerKey", null)
-                val targetFile = when {
-                    customChosenPath != null && java.io.File(customChosenPath).exists() && java.io.File(customChosenPath).name.lowercase() !in com.example.util.SinggharaFolderManager.DISALLOWED_MP3_FILES -> java.io.File(customChosenPath)
-                    customFile.exists() -> customFile
-                    externalMp3.exists() && externalMp3.name.lowercase() !in com.example.util.SinggharaFolderManager.DISALLOWED_MP3_FILES -> externalMp3
-                    else -> null
-                }
-                if (externalMp3.exists() && externalMp3.name.lowercase() in com.example.util.SinggharaFolderManager.DISALLOWED_MP3_FILES) {
-                    try { externalMp3.delete() } catch (ignored: Exception) {}
-                }
-
-                if (targetFile != null && targetFile.exists()) {
-                    azanMediaPlayer = android.media.MediaPlayer().apply {
-                        setAudioAttributes(audioAttributes)
-                        try {
-                            setWakeMode(context, android.os.PowerManager.PARTIAL_WAKE_LOCK)
-                        } catch (e: Exception) {
-                            Log.e("NotificationScheduler", "Failed to set wake mode: ${e.message}")
-                        }
-                        setDataSource(targetFile.absolutePath)
-                        isLooping = false
-                        setOnCompletionListener {
-                            Log.d("NotificationScheduler", "Custom Azan playback finished for $prayerName. Removing notification.")
-                            stopAzanSound()
-                        }
-                        setOnErrorListener { _, what, extra ->
-                            Log.e("NotificationScheduler", "Custom Azan error: what=$what, extra=$extra")
-                            stopAzanSound()
-                            true
-                        }
-                        prepare()
-                        start()
-                    }
-                    Log.d("NotificationScheduler", "Custom Azan playback for $prayerName started successfully from ${targetFile.name}.")
-                } else {
-                    playDefaultAzan(context, prayerName, audioAttributes)
-                }
-            } else {
-                playDefaultAzan(context, prayerName, audioAttributes)
-            }
-        } catch (e: Exception) {
-            Log.e("NotificationScheduler", "Failed to play Azan for $prayerName: ${e.message}")
-            stopAzanSound()
-        }
-    }
-
-    private fun playDefaultAzan(context: Context, prayerName: String, audioAttributes: android.media.AudioAttributes) {
-        try {
-            var defaultFile = com.example.util.SinggharaFolderManager.getDefaultAzanFile(context, prayerName)
-            if (defaultFile == null || !defaultFile.exists()) {
-                com.example.util.SinggharaFolderManager.seedDefaultMp3sFromAssets(context)
-                defaultFile = com.example.util.SinggharaFolderManager.getDefaultAzanFile(context, prayerName)
-            }
-
-            if (defaultFile != null && defaultFile.exists()) {
-                azanMediaPlayer = android.media.MediaPlayer().apply {
-                    setAudioAttributes(audioAttributes)
-                    try {
-                        setWakeMode(context, android.os.PowerManager.PARTIAL_WAKE_LOCK)
-                    } catch (e: Exception) {
-                        Log.e("NotificationScheduler", "Failed to set wake mode: ${e.message}")
-                    }
-                    setDataSource(defaultFile.absolutePath)
-                    isLooping = false
-                    setOnCompletionListener {
-                        Log.d("NotificationScheduler", "Default Azan playback finished for $prayerName. Removing notification.")
-                        stopAzanSound()
-                    }
-                    setOnErrorListener { _, what, extra ->
-                        Log.e("NotificationScheduler", "Default Azan error: what=$what, extra=$extra")
-                        stopAzanSound()
-                        true
-                    }
-                    prepare()
-                    start()
-                }
-                Log.d("NotificationScheduler", "Default Azan playback for $prayerName started successfully from ${defaultFile.name} on ALARM channel.")
-            } else {
-                Log.w("NotificationScheduler", "Default Azan file not found in storage, playing directly from bundled assets.")
-                try {
-                    val assetName = if (prayerName.contains("subuh", true) || prayerName.contains("fajr", true)) {
-                        "mp3/fajr_128_44.mp3"
-                    } else {
-                        "mp3/adzan_turkey-1.mp3"
-                    }
-                    val afd = context.assets.openFd(assetName)
-                    azanMediaPlayer = android.media.MediaPlayer().apply {
-                        setAudioAttributes(audioAttributes)
-                        try {
-                            setWakeMode(context, android.os.PowerManager.PARTIAL_WAKE_LOCK)
-                        } catch (e: Exception) {
-                            Log.e("NotificationScheduler", "Failed to set wake mode: ${e.message}")
-                        }
-                        setDataSource(afd.fileDescriptor, afd.startOffset, afd.length)
-                        afd.close()
-                        isLooping = false
-                        setOnCompletionListener {
-                            stopAzanSound()
-                        }
-                        setOnErrorListener { _, _, _ ->
-                            stopAzanSound()
-                            true
-                        }
-                        prepare()
-                        start()
-                    }
-                } catch (assetErr: Exception) {
-                    Log.e("NotificationScheduler", "Bundled asset fallback failed: ${assetErr.message}")
-                }
-            }
-        } catch (e: Exception) {
-            Log.e("NotificationScheduler", "Failed to play default Azan: ${e.message}")
-            stopAzanSound()
-        }
-    }
-
-    fun stopAzanSound() {
-        try {
-            azanMediaPlayer?.let {
-                if (it.isPlaying) {
-                    it.stop()
-                }
-                it.release()
-            }
-            Log.d("NotificationScheduler", "Azan playback stopped successfully.")
-        } catch (e: Exception) {
-            Log.e("NotificationScheduler", "Failed to stop Azan: ${e.message}")
-        } finally {
-            azanMediaPlayer = null
-            // Otomatis hapus notifikasi di status bar yang memiliki aksi "Matikan Azan" saat azan berhenti
-            activeAzanNotificationId?.let { notifId ->
-                try {
-                    appContext?.let { ctx ->
-                        val notificationManager = ctx.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-                        notificationManager.cancel(notifId)
-                        Log.d("NotificationScheduler", "Prayer notification $notifId automatically cancelled because Azan stopped.")
-                    }
-                } catch (e: Exception) {
-                    Log.e("NotificationScheduler", "Failed to auto-cancel prayer notification: ${e.message}")
-                }
-            }
-            activeAzanNotificationId = null
-        }
-    }
-
     fun createNotificationChannels(context: Context) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
 
             // 1a. Prayer Channel - Silent
             val silentChannel = NotificationChannel(
-                "prayer_times_channel_silent",
+                CHANNEL_PRAYER_SILENT,
                 "Jadwal Sholat (Senyap)",
                 NotificationManager.IMPORTANCE_HIGH
             ).apply {
@@ -239,7 +73,7 @@ object NotificationScheduler {
             } catch (_: Exception) {}
 
             val notificationSoundChannel = NotificationChannel(
-                "prayer_times_channel_notification",
+                CHANNEL_PRAYER_NOTIFICATION,
                 "Jadwal Sholat (Suara Notifikasi)",
                 NotificationManager.IMPORTANCE_HIGH
             ).apply {
@@ -259,14 +93,14 @@ object NotificationScheduler {
 
             // 1c. Prayer Channel - Azan Madinah
             val azanChannel = NotificationChannel(
-                "prayer_times_channel_azan",
+                CHANNEL_PRAYER_AZAN,
                 "Jadwal Sholat (Azan Madinah)",
                 NotificationManager.IMPORTANCE_HIGH
             ).apply {
                 description = "Notifikasi pengingat waktu sholat dengan Azan Madinah"
                 enableVibration(true)
                 lockscreenVisibility = android.app.Notification.VISIBILITY_PUBLIC
-                setSound(null, null) // Handled dynamically via MediaPlayer on USAGE_ALARM
+                setSound(null, null) // Azan diputar oleh AzanService, bukan oleh kanal notifikasi
             }
             notificationManager.createNotificationChannel(azanChannel)
 
@@ -439,11 +273,6 @@ object NotificationScheduler {
 
         val timeStr = SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date(timestamp))
 
-        val keyguardManager = context.getSystemService(Context.KEYGUARD_SERVICE) as? KeyguardManager
-        val isScreenLocked = keyguardManager?.isKeyguardLocked == true || keyguardManager?.isDeviceLocked == true
-        val isForeground = MainActivity.isAppInForeground
-        val shouldInterrupt = isScreenLocked || !isForeground
-
         val notificationBuilder = NotificationCompat.Builder(context, CHANNEL_WEB_SECURITY)
             .setSmallIcon(R.drawable.ic_stat_singghara)
             .setContentTitle("Apakah anda akses web pc?")
@@ -464,29 +293,9 @@ object NotificationScheduler {
             .addAction(0, "Ya, ini saya", pendingApproveIntent)
             .addAction(0, "Bukan", pendingRejectIntent)
 
-        // Full-screen intent: bangunkan layar, tampilkan di atas aplikasi lain dan di lock screen
-        if (shouldInterrupt) {
-            notificationBuilder.setFullScreenIntent(pendingOpenIntent, true)
-        }
-
+        // Notifikasi hanya muncul di status bar. Aplikasi tidak dibuka otomatis:
+        // pengguna mengetuk notifikasi jika ingin meninjau permintaan akses.
         notificationManager.notify(NOTIFICATION_ID_WEB_SECURITY, notificationBuilder.build())
-
-        // WebAuthPromptActivity HANYA diluncurkan jika:
-        // 1. Layar HP terkunci (isScreenLocked), ATAU
-        // 2. Pengguna sedang membuka aplikasi lain (seperti YouTube, TikTok, dll - !isForeground).
-        // Jika aplikasi My Singghara sedang aktif di latar depan (isForeground && !isScreenLocked),
-        // JANGAN buka WebAuthPromptActivity agar tidak muncul pop-up ganda, cukup dialog internal aplikasi (WebSecurityDialog).
-        if (shouldInterrupt) {
-            try {
-                val powerManager = context.getSystemService(Context.POWER_SERVICE) as? android.os.PowerManager
-                val isScreenOn = powerManager?.isInteractive ?: true
-                if (isScreenOn) {
-                    context.startActivity(openIntent)
-                }
-            } catch (e: Exception) {
-                Log.d("NotificationScheduler", "Popup langsung dilewati, mengandalkan full-screen intent: ${e.message}")
-            }
-        }
     }
 
     fun showWebAccessResultNotification(context: Context, approved: Boolean) {
@@ -705,22 +514,13 @@ object NotificationScheduler {
                     PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
                 )
 
-                val showIntent = Intent(context, MainActivity::class.java).apply {
-                    flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
-                }
-                val showPendingIntent = PendingIntent.getActivity(
-                    context,
-                    requestCode + 5000,
-                    showIntent,
-                    PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-                )
-
                 try {
                     // METHOD 1: setAlarmClock
                     // AlarmClockInfo has the highest execution priority in Android.
                     // It wakes up the CPU from deep Doze mode, ignores OEM battery standby, fires at the exact second,
                     // and does not require SCHEDULE_EXACT_ALARM special user-level app-op approval.
-                    val alarmClockInfo = AlarmManager.AlarmClockInfo(prayerCal.timeInMillis, showPendingIntent)
+                    // showIntent sengaja null: jam alarm sistem tidak boleh membuka aktivitas aplikasi.
+                    val alarmClockInfo = AlarmManager.AlarmClockInfo(prayerCal.timeInMillis, null)
                     alarmManager.setAlarmClock(alarmClockInfo, pendingIntent)
                     Log.d("NotificationScheduler", "Scheduled prayer with setAlarmClock: $name at ${Date(prayerCal.timeInMillis)}")
                 } catch (e: Exception) {
@@ -857,70 +657,55 @@ object NotificationScheduler {
         val sharedPrefs = context.getSharedPreferences("mysingghara_prefs", Context.MODE_PRIVATE)
         val defaultVal = if (name == "Imsak") 1 else 2
         val setting = sharedPrefs.getInt("azan_sound_setting_${name.lowercase(Locale.getDefault())}", defaultVal)
+        val notificationId = NOTIFICATION_ID_PRAYER + name.hashCode()
 
-        val channelId = when (setting) {
-            0 -> "prayer_times_channel_silent"
-            1 -> "prayer_times_channel_notification"
-            else -> "prayer_times_channel_azan"
+        // Mode azan: notifikasi dan pemutaran suara ditangani AzanService di latar belakang.
+        // Tidak ada full-screen intent, jadi aplikasi tidak terbuka sendiri.
+        if (setting >= 2 && AzanService.start(context, name, time, notificationId)) {
+            return
         }
 
+        postPrayerReminder(context, name, time, notificationId, withSound = setting == 1)
+    }
+
+    @SuppressLint("NotificationPermission")
+    fun postPrayerReminder(
+        context: Context,
+        name: String,
+        time: String,
+        notificationId: Int = NOTIFICATION_ID_PRAYER + name.hashCode(),
+        withSound: Boolean = false
+    ) {
+        createNotificationChannels(context)
+
+        val channelId = if (withSound) CHANNEL_PRAYER_NOTIFICATION else CHANNEL_PRAYER_SILENT
+        val text = "Waktu sholat $name telah tiba ($time). Mari laksanakan ibadah."
+
         val intent = Intent(context, MainActivity::class.java).apply {
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
         }
         val pendingIntent = PendingIntent.getActivity(
             context,
-            0,
+            notificationId,
             intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        val notificationId = NOTIFICATION_ID_PRAYER + name.hashCode()
         val builder = NotificationCompat.Builder(context, channelId)
             .setSmallIcon(R.drawable.ic_stat_singghara)
             .setContentTitle("Waktunya Sholat $name")
-            .setContentText("Waktu sholat $name telah tiba ($time). Mari laksanakan ibadah.")
-            .setStyle(NotificationCompat.BigTextStyle().bigText("Waktu sholat $name telah tiba ($time). Mari laksanakan ibadah."))
+            .setContentText(text)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(text))
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
             .setAutoCancel(true)
             .setContentIntent(pendingIntent)
 
-        if (setting == 1) {
-            // Suara Notifikasi Saja: Berbunyi nada notifikasi standar sekali, kategori pengingat, bebas dari alarm OS
+        if (withSound) {
+            // Suara Notifikasi Saja: berbunyi sekali, tanpa alarm dan tanpa membuka aplikasi.
             builder.setPriority(NotificationCompat.PRIORITY_HIGH)
             builder.setCategory(NotificationCompat.CATEGORY_REMINDER)
-            val soundUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
-            builder.setSound(soundUri)
-        } else if (setting >= 2) {
-            // Suara Azan: Menggunakan USAGE_ALARM dengan opsi Matikan Azan
-            builder.setPriority(NotificationCompat.PRIORITY_MAX)
-            builder.setCategory(NotificationCompat.CATEGORY_ALARM)
-            builder.setFullScreenIntent(pendingIntent, false)
-
-            // Play Azan dynamically
-            playAzanSound(context, name, notificationId)
-
-            // Intent to Stop Azan
-            val stopIntent = Intent(context, AlarmReceiver::class.java).apply {
-                action = ACTION_STOP_AZAN
-                putExtra("notification_id", notificationId)
-            }
-            val stopPendingIntent = PendingIntent.getBroadcast(
-                context,
-                notificationId,
-                stopIntent,
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-            )
-
-            builder.addAction(
-                android.R.drawable.ic_lock_silent_mode_off,
-                "Matikan Azan",
-                stopPendingIntent
-            )
-
-            // When swiped away, also stop Azan
-            builder.setDeleteIntent(stopPendingIntent)
+            builder.setSound(RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION))
         } else {
-            // Senyap (Setting == 0)
             builder.setPriority(NotificationCompat.PRIORITY_DEFAULT)
             builder.setCategory(NotificationCompat.CATEGORY_REMINDER)
         }

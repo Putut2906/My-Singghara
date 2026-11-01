@@ -80,7 +80,7 @@ class AlarmReceiver : BroadcastReceiver() {
             }
 
             NotificationScheduler.ACTION_STOP_AZAN -> {
-                NotificationScheduler.stopAzanSound()
+                AzanService.stop(context)
                 val notificationId = intent.getIntExtra("notification_id", -1)
                 if (notificationId != -1) {
                     val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as android.app.NotificationManager
