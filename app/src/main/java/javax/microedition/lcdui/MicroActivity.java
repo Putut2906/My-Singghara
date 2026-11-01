@@ -26,6 +26,7 @@ import android.content.Intent;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Message;
+import android.util.Log;
 import android.view.KeyEvent;
 import android.view.Menu;
 import android.view.MenuItem;
@@ -47,11 +48,19 @@ public class MicroActivity extends Activity implements Handler.Callback
 	{
 		public void process()
 		{
-			current.setParentActivity(MicroActivity.this);
+			// A failing view attach must not kill the whole app: the game activity reports it.
+			try
+			{
+				current.setParentActivity(MicroActivity.this);
 
-			String screenTitle = current.getTitle();
-			setTitle(screenTitle == null ? "" : screenTitle);
-			setContentView(current.getDisplayableView());
+				String screenTitle = current.getTitle();
+				setTitle(screenTitle == null ? "" : screenTitle);
+				setContentView(current.getDisplayableView());
+			}
+			catch (Throwable t)
+			{
+				Log.e("MicroActivity", "Gagal menampilkan layar", t);
+			}
 		}
 	};
 	

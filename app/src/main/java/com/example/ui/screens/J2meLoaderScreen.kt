@@ -79,6 +79,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.j2me.J2meCrashLog
 import com.example.j2me.J2meFiles
 import com.example.j2me.J2meInstaller
 import com.example.j2me.J2meLauncher
@@ -98,6 +99,36 @@ fun J2meLoaderScreen(onBack: () -> Unit) {
     var selectedGame by remember { mutableStateOf<J2meStore.Game?>(null) }
 
     BackHandler { onBack() }
+
+    var crashReport by remember { mutableStateOf(J2meCrashLog.read(context)) }
+    val crash = crashReport
+    if (crash != null) {
+        AlertDialog(
+            onDismissRequest = { crashReport = null },
+            title = { Text("Game terakhir berhenti paksa") },
+            text = {
+                Column(
+                    modifier = Modifier
+                        .height(320.dp)
+                        .verticalScroll(rememberScrollState())
+                ) {
+                    Text(
+                        text = crash,
+                        style = TextStyle(fontFamily = FontFamily.Monospace, fontSize = 11.sp)
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    J2meCrashLog.clear(context)
+                    crashReport = null
+                }) { Text("Hapus laporan") }
+            },
+            dismissButton = {
+                TextButton(onClick = { crashReport = null }) { Text("Nanti") }
+            }
+        )
+    }
 
     val jarPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) {
@@ -132,8 +163,8 @@ fun J2meLoaderScreen(onBack: () -> Unit) {
             game = currentGame,
             onBack = { selectedGame = null },
             onStart = { profile ->
-                J2meProfiles.save(currentGame, profile)
                 try {
+                    J2meProfiles.save(currentGame, profile)
                     J2meLauncher.launchGame(context, currentGame.id)
                 } catch (e: Exception) {
                     Toast.makeText(

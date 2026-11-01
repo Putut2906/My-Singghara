@@ -228,6 +228,8 @@ object J2meInstaller {
         if (!dexFile.isFile || dexFile.length() == 0L) {
             throw InstallException("Konversi game tidak menghasilkan berkas dex.")
         }
+        // Android 14+ refuses to load a dex file that is still writable.
+        dexFile.setReadOnly()
     }
 
     private fun writeManifest(props: Map<String, String>, file: File) {

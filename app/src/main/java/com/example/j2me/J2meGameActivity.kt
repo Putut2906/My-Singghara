@@ -72,6 +72,9 @@ class J2meGameActivity : MicroActivity() {
     }
 
     override fun setContentView(view: View) {
+        // The engine may hand back a view that is still attached to the old container.
+        (view.parent as? ViewGroup)?.removeView(view)
+
         val container = FrameLayout(this)
         container.addView(
             view,
@@ -149,6 +152,14 @@ class J2meGameActivity : MicroActivity() {
     // ---------------------------------------------------------------- launching
 
     private fun openGame(gameId: String) {
+        try {
+            openGameUnchecked(gameId)
+        } catch (t: Throwable) {
+            showError(t)
+        }
+    }
+
+    private fun openGameUnchecked(gameId: String) {
         val dir = File(J2meStore.rootDir(this), gameId)
         gameDir = dir
         if (!File(dir, J2meStore.DEX_FILE_NAME).isFile) {
@@ -206,8 +217,8 @@ class J2meGameActivity : MicroActivity() {
         setStatus("Membaca data game...")
         Thread {
             try {
-                val dex = File(dir, J2meStore.DEX_FILE_NAME)
-                trace("dex: ${dex.absolutePath} (${dex.length()} byte)")
+                val dex = prepareDex(dir)
+                trace("dex: ${dex.absolutePath} (${dex.length()} byte, hanya-baca=${!dex.canWrite()})")
 
                 val props = TreeMap<String, String>()
                 props.putAll(J2meStore.readManifest(File(dir, J2meStore.CONF_FILE_NAME)))
@@ -262,6 +273,29 @@ class J2meGameActivity : MicroActivity() {
         }.start()
     }
 
+    /**
+     * Android 14+ refuses to load a dex file that is still writable, so installs made by
+     * older builds are fixed here. If the flag cannot be cleared, a read-only copy in the
+     * cache directory is loaded instead.
+     */
+    private fun prepareDex(dir: File): File {
+        val dex = File(dir, J2meStore.DEX_FILE_NAME)
+        if (!dex.canWrite()) return dex
+
+        dex.setReadOnly()
+        if (!dex.canWrite()) return dex
+
+        val copy = File(File(codeCacheDir, "j2me"), "${dir.name}.dex")
+        copy.parentFile?.mkdirs()
+        copy.delete()
+        dex.inputStream().use { input ->
+            copy.outputStream().use { output -> input.copyTo(output) }
+        }
+        copy.setReadOnly()
+        trace("dex disalin ke ${copy.absolutePath} agar bisa dimuat")
+        return copy
+    }
+
     private fun scheduleChecks() {
         ui.postDelayed({ forceFirstFrame() }, 700)
         ui.postDelayed({ checkRendering() }, 2500)
@@ -272,15 +306,27 @@ class J2meGameActivity : MicroActivity() {
 
     /** Some MIDlets wait for the first repaint before they start drawing. */
     private fun forceFirstFrame() {
-        if (isFinishing) return
-        val current = getCurrent() as? Canvas ?: return
-        if (Canvas.getFrameCount() == 0L) {
-            trace("memaksa gambar pertama")
-            current.repaint()
+        try {
+            if (isFinishing) return
+            val current = getCurrent() as? Canvas ?: return
+            if (Canvas.getFrameCount() == 0L) {
+                trace("memaksa gambar pertama")
+                current.repaint()
+            }
+        } catch (t: Throwable) {
+            trace("Gambar pertama gagal dipaksa: ${t.message}")
         }
     }
 
     private fun checkRendering() {
+        try {
+            checkRenderingUnchecked()
+        } catch (t: Throwable) {
+            trace("Pemeriksaan gambar gagal: ${t.message}")
+        }
+    }
+
+    private fun checkRenderingUnchecked() {
         if (isFinishing || diagnosticsShown) return
 
         val current = getCurrent()
@@ -313,23 +359,27 @@ class J2meGameActivity : MicroActivity() {
     // ---------------------------------------------------------------- settings
 
     private fun applyWindow(profile: J2meProfile) {
-        when (profile.orientation) {
-            J2meProfile.ORIENTATION_PORTRAIT ->
-                requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
-            J2meProfile.ORIENTATION_LANDSCAPE ->
-                requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
-            else ->
-                requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
-        }
-
-        if (profile.forceFullscreen) {
-            window.addFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN)
-            WindowCompat.setDecorFitsSystemWindows(window, false)
-            WindowInsetsControllerCompat(window, window.decorView).apply {
-                hide(WindowInsetsCompat.Type.systemBars())
-                systemBarsBehavior =
-                    WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+        runCatching {
+            when (profile.orientation) {
+                J2meProfile.ORIENTATION_PORTRAIT ->
+                    requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
+                J2meProfile.ORIENTATION_LANDSCAPE ->
+                    requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+                else ->
+                    requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
             }
+
+            if (profile.forceFullscreen) {
+                window.addFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN)
+                WindowCompat.setDecorFitsSystemWindows(window, false)
+                WindowInsetsControllerCompat(window, window.decorView).apply {
+                    hide(WindowInsetsCompat.Type.systemBars())
+                    systemBarsBehavior =
+                        WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+                }
+            }
+        }.onFailure {
+            trace("Pengaturan jendela gagal: ${it.message}")
         }
     }
 
@@ -390,6 +440,7 @@ class J2meGameActivity : MicroActivity() {
         Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
             trace("Galat pada thread ${thread.name}: ${throwable.javaClass.simpleName}")
             lastError = describe(throwable)
+            J2meCrashLog.record(applicationContext, thread, throwable)
             if (thread.name == "main") {
                 previousUncaughtHandler?.uncaughtException(thread, throwable)
             } else {
@@ -425,16 +476,18 @@ class J2meGameActivity : MicroActivity() {
         trace("Galat: $lastError")
 
         ui.post {
-            if (isFinishing) return@post
-            AlertDialog.Builder(this)
-                .setTitle("Game tidak bisa dijalankan")
-                .setMessage(lastError?.take(1800) ?: "Galat tidak diketahui.")
-                .setPositiveButton("Lihat detail") { _, _ ->
-                    showDiagnostics("Game gagal dijalankan.", getCurrent())
-                }
-                .setNegativeButton("Tutup") { _, _ -> finish() }
-                .setCancelable(false)
-                .show()
+            if (isFinishing || isDestroyed) return@post
+            runCatching {
+                AlertDialog.Builder(this)
+                    .setTitle("Game tidak bisa dijalankan")
+                    .setMessage(lastError?.take(1800) ?: "Galat tidak diketahui.")
+                    .setPositiveButton("Lihat detail") { _, _ ->
+                        showDiagnostics("Game gagal dijalankan.", getCurrent())
+                    }
+                    .setNegativeButton("Tutup") { _, _ -> finish() }
+                    .setCancelable(false)
+                    .show()
+            }.onFailure { Log.e(TAG, "Dialog galat tidak bisa ditampilkan", it) }
         }
     }
 
@@ -443,7 +496,15 @@ class J2meGameActivity : MicroActivity() {
      * diagnosed without adb. The same text is stored in the game folder.
      */
     private fun showDiagnostics(reason: String, current: javax.microedition.lcdui.Displayable?) {
-        if (diagnosticsShown || isFinishing) return
+        if (diagnosticsShown || isFinishing || isDestroyed) return
+        try {
+            showDiagnosticsUnchecked(reason, current)
+        } catch (t: Throwable) {
+            Log.e(TAG, "Laporan diagnostik gagal ditampilkan", t)
+        }
+    }
+
+    private fun showDiagnosticsUnchecked(reason: String, current: javax.microedition.lcdui.Displayable?) {
         diagnosticsShown = true
 
         val dex = gameDir?.let { File(it, J2meStore.DEX_FILE_NAME) }
@@ -454,6 +515,7 @@ class J2meGameActivity : MicroActivity() {
             appendLine("Kelas MIDlet: ${midletClass.ifBlank { "-" }}")
             appendLine("Berkas dex: ${dex?.absolutePath ?: "-"}")
             appendLine("Ukuran dex: ${dex?.length() ?: 0} byte")
+            appendLine("Dex hanya-baca: ${if (dex != null && !dex.canWrite()) "ya" else "tidak"}")
             profile?.let {
                 appendLine("Layar virtual: ${it.screenWidth}x${it.screenHeight}")
                 appendLine("Jenis skala: ${it.scaleType}, mode grafik: ${it.graphicsMode}")
@@ -528,7 +590,7 @@ class J2meGameActivity : MicroActivity() {
 
     override fun onDestroy() {
         ui.removeCallbacksAndMessages(null)
-        Thread.setDefaultUncaughtExceptionHandler(previousUncaughtHandler)
+        runCatching { Thread.setDefaultUncaughtExceptionHandler(previousUncaughtHandler) }
         super.onDestroy()
     }
 
