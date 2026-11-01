@@ -13,6 +13,8 @@ object J2meStore {
     const val DEX_FILE_NAME = "converted.dex"
     const val CONF_FILE_NAME = "converted.dex.conf"
     const val RES_DIR_NAME = "res"
+    const val JAR_FILE_NAME = "game.jar"
+    const val ICON_FILE_NAME = "icon.png"
 
     data class Game(
         val id: String,
@@ -20,7 +22,8 @@ object J2meStore {
         val title: String,
         val vendor: String,
         val version: String,
-        val sizeBytes: Long
+        val sizeBytes: Long,
+        val iconFile: File?
     )
 
     fun rootDir(context: Context): File = File(context.filesDir, "j2me").apply { mkdirs() }
@@ -40,8 +43,20 @@ object J2meStore {
             title = props["MIDlet-Name"] ?: dir.name,
             vendor = props["MIDlet-Vendor"].orEmpty(),
             version = props["MIDlet-Version"].orEmpty(),
-            sizeBytes = directorySize(dir)
+            sizeBytes = directorySize(dir),
+            iconFile = File(dir, ICON_FILE_NAME).takeIf { it.isFile && it.length() > 0L }
+                ?: iconFromResources(dir, props)
         )
+    }
+
+    /** Older installs did not copy icon.png, but the icon still sits in res/. */
+    private fun iconFromResources(dir: File, props: Map<String, String>): File? {
+        val raw = props["MIDlet-1"]?.split(',')?.getOrNull(1)?.trim()?.takeIf { it.isNotEmpty() }
+            ?: props["MIDlet-Icon"]?.trim()?.takeIf { it.isNotEmpty() }
+            ?: return null
+        val path = raw.trimStart('/')
+        val file = File(File(dir, RES_DIR_NAME), path)
+        return file.takeIf { it.isFile && it.length() > 0L }
     }
 
     fun createGameDir(context: Context, jarName: String): File {

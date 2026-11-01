@@ -41,8 +41,19 @@ public class Font
 	private static Font[] fonts = new Font[FONT_COUNT];
 	
 	private static boolean applyDimensions = true;
+	private static boolean antiAlias = true;
 	private static float[] sizes = new float[] { 18, 22, 26 };
-	
+
+	public static void setAntiAlias(boolean flag)
+	{
+		antiAlias = flag;
+
+		for(int i = 0; i < fonts.length; i++)
+		{
+			fonts[i] = null;
+		}
+	}
+
 	public static void setApplyDimensions(boolean flag)
 	{
 		applyDimensions = flag;
@@ -91,6 +102,7 @@ public class Font
 		
 		paint = new Paint();
 		
+		paint.setAntiAlias(antiAlias);
 		paint.setTypeface(Typeface.create(face, style));
 		paint.setUnderlineText(underline);
 		

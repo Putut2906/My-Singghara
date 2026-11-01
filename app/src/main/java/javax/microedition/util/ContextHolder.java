@@ -76,13 +76,11 @@ public class ContextHolder {
 		}
 	}
 
+	/** The emulator keeps all of its scratch data inside the app's private filesDir. */
 	public static File getCacheDir() {
-		if (Environment.MEDIA_MOUNTED.equals(Environment
-				.getExternalStorageState())) {
-			return getContext().getExternalCacheDir();
-		} else {
-			return getContext().getCacheDir();
-		}
+		File dir = new File(getContext().getFilesDir(), "tmp");
+		dir.mkdirs();
+		return dir;
 	}
 
 	public static int getRequestCode(String requestString) {

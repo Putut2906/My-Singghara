@@ -23,6 +23,8 @@ import javax.microedition.lcdui.event.SimpleEvent;
 import javax.microedition.util.ContextHolder;
 
 import android.content.Context;
+import android.graphics.Color;
+import android.graphics.Paint;
 import android.graphics.RectF;
 import android.view.KeyEvent;
 import android.view.MotionEvent;
@@ -127,6 +129,50 @@ public abstract class Canvas extends Displayable {
 		keyCodeToKeyName.put(keyCode, keyName);
 	}
 
+	/**
+	 * Re-binds one game action to a different Android key code for the game that is
+	 * about to start. The MIDP key code expected by the MIDlet is preserved.
+	 */
+	public static synchronized void remapGameAction(int gameAction, int androidKeyCode, String keyName) {
+		Integer stored = gameActionToKeyCode.get(gameAction);
+		int midpKeyCode = stored != null ? stored : defaultMidpKeyCode(gameAction);
+
+		java.util.Iterator<java.util.Map.Entry<Integer, Integer>> iterator =
+				androidToMIDP.entrySet().iterator();
+		while (iterator.hasNext()) {
+			if (iterator.next().getValue() == midpKeyCode) {
+				iterator.remove();
+			}
+		}
+
+		androidToMIDP.put(androidKeyCode, midpKeyCode);
+		keyCodeToGameAction.put(midpKeyCode, gameAction);
+		gameActionToKeyCode.put(gameAction, midpKeyCode);
+		keyCodeToKeyName.put(midpKeyCode, keyName);
+	}
+
+	public static synchronized void remapSoftKey(int androidKeyCode, boolean left) {
+		int midpKeyCode = left ? -6 : -7;
+		androidToMIDP.put(androidKeyCode, midpKeyCode);
+		keyCodeToGameAction.put(midpKeyCode, 0);
+		keyCodeToKeyName.put(midpKeyCode, left ? "SOFT1" : "SOFT2");
+	}
+
+	private static int defaultMidpKeyCode(int gameAction) {
+		switch (gameAction) {
+			case UP: return -1;
+			case DOWN: return -2;
+			case LEFT: return -3;
+			case RIGHT: return -4;
+			case FIRE: return -5;
+			case GAME_A: return 55;
+			case GAME_B: return 57;
+			case GAME_C: return 42;
+			case GAME_D: return 35;
+			default: return -(gameAction << 8);
+		}
+	}
+
 	public static int convertAndroidKeyCode(int keyCode) {
 		Integer res = androidToMIDP.get(keyCode);
 
@@ -173,6 +219,10 @@ public abstract class Canvas extends Displayable {
 	private class InnerView extends SurfaceView {
 		public InnerView(Context context) {
 			super(context);
+
+			if (graphicsMode == 0) {
+				setLayerType(View.LAYER_TYPE_SOFTWARE, null);
+			}
 		}
 
 		public boolean onKeyDown(int keyCode, KeyEvent event) {
@@ -202,6 +252,10 @@ public abstract class Canvas extends Displayable {
 		}
 
 		public boolean onTouchEvent(MotionEvent event) {
+			if (!touchInput) {
+				return super.onTouchEvent(event);
+			}
+
 			switch (event.getActionMasked()) {
 				case MotionEvent.ACTION_DOWN:
 					if (overlay != null) {
@@ -290,11 +344,45 @@ public abstract class Canvas extends Displayable {
 		}
 	}
 
+	private void drawFps(android.graphics.Canvas canvas) {
+		if (!showFps || canvas == null) {
+			return;
+		}
+
+		long now = System.currentTimeMillis();
+		if (fpsStartTime == 0) {
+			fpsStartTime = now;
+		}
+		fpsFrames++;
+		if (now - fpsStartTime >= 1000) {
+			currentFps = fpsFrames;
+			fpsFrames = 0;
+			fpsStartTime = now;
+		}
+
+		Paint paint = new Paint();
+		paint.setAntiAlias(true);
+		paint.setTextSize(28);
+		paint.setColor(Color.YELLOW);
+		paint.setStyle(Paint.Style.FILL);
+		canvas.drawText(currentFps + " FPS", 12, 34, paint);
+	}
+
 	private class PaintEvent extends Event implements EventFilter {
 		public void process() {
 			synchronized (paintsync) {
 				if (!surfacevalid || holder == null) {
 					return;
+				}
+
+				if (fpsLimit > 0) {
+					long now = System.currentTimeMillis();
+					long frameInterval = 1000L / fpsLimit;
+					if (now - lastFrameTime < frameInterval) {
+						continuepaint = true;
+						return;
+					}
+					lastFrameTime = now;
 				}
 
 				if (useOffscreen) {
@@ -319,6 +407,8 @@ public abstract class Canvas extends Displayable {
 							overlay.paint(graphics);
 						}
 
+						drawFps(graphics.getCanvas());
+
 						holder.unlockCanvasAndPost(graphics.getCanvas());
 					}
 				} else {
@@ -342,6 +432,8 @@ public abstract class Canvas extends Displayable {
 						if (overlay != null) {
 							overlay.paint(graphics);
 						}
+
+						drawFps(graphics.getCanvas());
 
 						holder.unlockCanvasAndPost(graphics.getCanvas());
 					}
@@ -413,6 +505,7 @@ public abstract class Canvas extends Displayable {
 			holder.addCallback(new SurfaceCallback());
 
 			view.setFocusableInTouchMode(true);
+			view.requestFocus();
 
 			synchronized (waiter) {
 				waiter.notifyAll();
@@ -445,6 +538,20 @@ public abstract class Canvas extends Displayable {
 	private static boolean filter;
 	private static int backgroundColor;
 
+	private static int screenScaleType = 1;
+	private static int screenGravity = 2;
+	private static int screenScaleRatio = 100;
+	private static boolean immediateMode = false;
+	private static boolean showFps = false;
+	private static int fpsLimit = 0;
+	private static boolean touchInput = true;
+	private static int graphicsMode = 1;
+
+	private static long lastFrameTime = 0;
+	private static long fpsStartTime = 0;
+	private static int fpsFrames = 0;
+	private static int currentFps = 0;
+
 	private Image offscreen;
 	private int onX, onY, onWidth, onHeight;
 	private boolean useOffscreen;
@@ -465,6 +572,37 @@ public abstract class Canvas extends Displayable {
 
 		Canvas.scaleToFit = scaleToFit;
 		Canvas.keepAspectRatio = keepAspectRatio;
+		Canvas.screenScaleType = !scaleToFit ? 0 : (keepAspectRatio ? 1 : 2);
+	}
+
+	/**
+	 * Applies the per-game run configuration. Called before the MIDlet is loaded.
+	 *
+	 * @param scaleType 0 = no scaling, 1 = fit inside the screen, 2 = stretch to screen
+	 * @param gravity 0 = left, 1 = top, 2 = center, 3 = right, 4 = bottom
+	 * @param scaleRatio percentage applied to the rendered size (100 = untouched)
+	 * @param shaderValue 0 = use the filter flag, 1 = force smooth filtering, 2 = force nearest
+	 */
+	public static void applyProfile(int width, int height, int scaleType, int gravity,
+			int scaleRatio, boolean filterBitmap, int background,
+			boolean immediate, boolean showFpsValue, int fpsLimitValue,
+			boolean touch, int graphicsModeValue, int shaderValue) {
+		virtualWidth = Math.max(1, width);
+		virtualHeight = Math.max(1, height);
+		screenScaleType = scaleType;
+		screenGravity = gravity;
+		screenScaleRatio = Math.max(10, Math.min(200, scaleRatio));
+		filter = shaderValue == 1 || (shaderValue == 0 && filterBitmap);
+		backgroundColor = background | 0xFF000000;
+		immediateMode = immediate;
+		showFps = showFpsValue;
+		fpsLimit = Math.max(0, Math.min(240, fpsLimitValue));
+		touchInput = touch;
+		graphicsMode = graphicsModeValue;
+		lastFrameTime = 0;
+		fpsStartTime = 0;
+		fpsFrames = 0;
+		currentFps = 0;
 	}
 
 	public static void setBackgroundColor(int color) {
@@ -541,66 +679,64 @@ public abstract class Canvas extends Displayable {
 		 * которая будет отображаться на экране устройсва.
 		 */
 
-		if (scaleToFit) {
-			if (keepAspectRatio) {
-				/*
-				 * пробуем вписать по ширине
-				 */
-
+		switch (screenScaleType) {
+			case 0:
+				// tanpa penskalaan
+				onWidth = width;
+				onHeight = height;
+				break;
+			case 2:
+				// rentangkan penuh tanpa menjaga rasio aspek
+				onWidth = displayWidth;
+				onHeight = displayHeight;
+				break;
+			case 1:
+			default:
+				// sesuaikan ke layar dengan rasio aspek tetap
 				onWidth = displayWidth;
 				onHeight = height * displayWidth / width;
 
 				if (onHeight > displayHeight) {
-					/*
-					 * если при этом не влезли по высоте,
-					 * то вписываем по высоте
-					 */
-
 					onHeight = displayHeight;
 					onWidth = width * displayHeight / height;
 				}
-			} else {
-				/*
-				 * масштабирование без сохранения соотношения сторон:
-				 * просто растягиваем картинку на весь экран
-				 */
-
-				onWidth = displayWidth;
-				onHeight = displayHeight;
-			}
-		} else {
-			/*
-			 * без масштабирования
-			 */
-
-			onWidth = width;
-			onHeight = height;
+				break;
 		}
 
-		if (displayWidth >= displayHeight) {
-			/*
-			 * Если мы держим экран горизонтально,
-			 * то скорее всего мы держим его за левый и правый края.
-			 * Размещаем экран мидлета в центре.
-			 */
+		if (screenScaleType != 0) {
+			int ratio = Math.max(10, Math.min(200, screenScaleRatio));
+			onWidth = onWidth * ratio / 100;
+			onHeight = onHeight * ratio / 100;
+		}
 
-			onX = (displayWidth - onWidth) / 2;
-			onY = (displayHeight - onHeight) / 2;
-		} else {
-			/*
-			 * Если мы держим экран вертикально,
-			 * то скорее всего мы держим его за нижний край.
-			 * Сдвигаем экран мидлета к верхнему краю.
-			 */
-
-			onX = (displayWidth - onWidth) / 2;
-			onY = 0;
+		switch (screenGravity) {
+			case 0: // kiri
+				onX = 0;
+				onY = (displayHeight - onHeight) / 2;
+				break;
+			case 1: // atas
+				onX = (displayWidth - onWidth) / 2;
+				onY = 0;
+				break;
+			case 3: // kanan
+				onX = displayWidth - onWidth;
+				onY = (displayHeight - onHeight) / 2;
+				break;
+			case 4: // bawah
+				onX = (displayWidth - onWidth) / 2;
+				onY = displayHeight - onHeight;
+				break;
+			case 2: // tengah
+			default:
+				onX = (displayWidth - onWidth) / 2;
+				onY = (displayHeight - onHeight) / 2;
+				break;
 		}
 
 		RectF screen = new RectF(0, 0, displayWidth, displayHeight);
 		RectF virtualScreen = new RectF(onX, onY, onX + onWidth, onY + onHeight);
 
-		useOffscreen = true; // onWidth != width || onHeight != height;
+		useOffscreen = !immediateMode;
 
 		if (post) {
 			/*
@@ -656,6 +792,7 @@ public abstract class Canvas extends Displayable {
 			holder.addCallback(new SurfaceCallback());
 
 			view.setFocusableInTouchMode(true);
+			view.requestFocus();
 		}
 
 		return view;

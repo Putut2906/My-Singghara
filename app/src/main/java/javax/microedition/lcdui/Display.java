@@ -44,7 +44,7 @@ public class Display {
 	private static final int[] COLORS = { 0xFFD0D0D0, 0xFF000080, 0xFF000080,
 			0xFFFFFFFF, 0xFFFFFFFF, 0xFF000080 };
 
-	private static final int WIDTH, HEIGHT;
+	private static int WIDTH, HEIGHT;
 
 	private static HashMap<MIDlet, Display> instances = new HashMap<MIDlet, Display>();
 
@@ -53,6 +53,11 @@ public class Display {
 	private static Vibrator vibrator;
 
 	static {
+		updateMetrics();
+	}
+
+	/** Re-reads the screen size; called for every game because orientation may have changed. */
+	public static void updateMetrics() {
 		Activity a = ContextHolder.getActivity();
 		DisplayMetrics metrics = a.getResources().getDisplayMetrics();
 		WIDTH = metrics.widthPixels;

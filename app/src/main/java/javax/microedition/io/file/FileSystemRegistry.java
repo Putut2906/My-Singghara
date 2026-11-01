@@ -23,9 +23,12 @@ import java.util.Vector;
 import javax.microedition.io.Connection;
 import javax.microedition.io.ConnectionProvider;
 import javax.microedition.io.Connector;
+import javax.microedition.util.ContextHolder;
 
-import android.os.Environment;
-
+/**
+ * Emulated file roots. Both the internal (c:/) and external (e:/) MIDP disks are
+ * mapped inside filesDir, so games never read or write public storage.
+ */
 public class FileSystemRegistry implements ConnectionProvider
 {
 	public static final String INTERNAL_DISK = "c:/";
@@ -39,34 +42,31 @@ public class FileSystemRegistry implements ConnectionProvider
 		{
 			roots.removeAllElements();
 			roots.addElement(INTERNAL_DISK);
-			
-			String state = Environment.getExternalStorageState();
-			
-			if(Environment.MEDIA_MOUNTED.equals(state) ||
-			   Environment.MEDIA_MOUNTED_READ_ONLY.equals(state))
-			{
-				roots.addElement(EXTERNAL_DISK);
-			}
+			roots.addElement(EXTERNAL_DISK);
 			
 			return roots.elements();
 		}
 	}
 	
+	public static File getRootDirectory()
+	{
+		File dir = new File(ContextHolder.getContext().getFilesDir(), "j2me-storage");
+		dir.mkdirs();
+		return dir;
+	}
+	
+	public static String getInternalStoragePath()
+	{
+		File dir = new File(getRootDirectory(), "internal");
+		dir.mkdirs();
+		return dir.getAbsolutePath();
+	}
+	
 	public static String getExternalStoragePath()
 	{
-		String sdcard = Environment.getExternalStorageDirectory().getAbsolutePath();
-		
-		if(sdcard.startsWith("/"))
-		{
-			sdcard = sdcard.substring(1);
-		}
-		
-		if(!sdcard.endsWith("/"))
-		{
-			sdcard += "/";
-		}
-		
-		return sdcard;
+		File dir = new File(getRootDirectory(), "external");
+		dir.mkdirs();
+		return dir.getAbsolutePath();
 	}
 	
 	public static String midpFileToAndroid(String name)
@@ -78,28 +78,36 @@ public class FileSystemRegistry implements ConnectionProvider
 		
 		if(name.startsWith(INTERNAL_DISK))
 		{
-			name = name.substring(INTERNAL_DISK.length());
+			name = getInternalStoragePath() + "/" + name.substring(INTERNAL_DISK.length());
 		}
 		else if(name.startsWith(EXTERNAL_DISK))
 		{
-			name = getExternalStoragePath() + name.substring(EXTERNAL_DISK.length());
+			name = getExternalStoragePath() + "/" + name.substring(EXTERNAL_DISK.length());
+		}
+		else
+		{
+			name = getInternalStoragePath() + "/" + name;
 		}
 		
-		return "/" + name;
+		return name;
 	}
 	
 	public static String androidFileToMIDP(String name)
 	{
-		if(name.startsWith("/"))
+		String internal = getInternalStoragePath();
+		String external = getExternalStoragePath();
+		
+		if(name.startsWith(external))
 		{
-			name = name.substring(1);
+			name = EXTERNAL_DISK + name.substring(external.length());
 		}
-		
-		String sdcard = getExternalStoragePath();
-		
-		if(name.startsWith(sdcard))
+		else if(name.startsWith(internal))
 		{
-			name = EXTERNAL_DISK + name.substring(sdcard.length());
+			name = INTERNAL_DISK + name.substring(internal.length());
+		}
+		else if(name.startsWith("/"))
+		{
+			name = INTERNAL_DISK + name.substring(1);
 		}
 		else
 		{
