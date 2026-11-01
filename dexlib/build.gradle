@@ -3,7 +3,7 @@ plugins {
 }
 
 android {
-    compileSdk 36
+    compileSdk 37
     namespace 'ru.playsoftware.j2meloader.dexlib'
 
     defaultConfig {
