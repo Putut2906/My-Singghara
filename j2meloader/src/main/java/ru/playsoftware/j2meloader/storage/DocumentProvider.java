@@ -79,7 +79,7 @@ public class DocumentProvider extends DocumentsProvider {
 		row.add(Root.COLUMN_FLAGS, Root.FLAG_SUPPORTS_CREATE |
 				Root.FLAG_SUPPORTS_IS_CHILD);
 
-		row.add(Root.COLUMN_TITLE, getContext().getString(R.string.app_name));
+		row.add(Root.COLUMN_TITLE, getContext().getString(R.string.j2me_loader_app_name));
 		row.add(Root.COLUMN_DOCUMENT_ID, getDocIdForFile(baseDir));
 		row.add(Root.COLUMN_MIME_TYPES, ALL_MIME_TYPES);
 		row.add(Root.COLUMN_AVAILABLE_BYTES, baseDir.getFreeSpace());

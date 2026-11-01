@@ -78,7 +78,7 @@ public class Config {
 		Context context = ContextHolder.getAppContext();
 		String appName = "J2ME-Loader";
 		if (!BuildConfig.FULL_EMULATOR) {
-			appName = context.getString(R.string.app_name);
+			appName = context.getString(R.string.j2me_loader_app_name);
 		}
 		SCREENSHOTS_DIR = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES)
 				+ "/" + appName;

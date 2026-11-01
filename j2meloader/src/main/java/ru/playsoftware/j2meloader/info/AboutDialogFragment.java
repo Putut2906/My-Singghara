@@ -52,7 +52,7 @@ public class AboutDialogFragment extends DialogFragment {
 		int paddingVertical = (int) (density * 14);
 		tv.setPadding(paddingHorizontal, paddingVertical, paddingHorizontal, 0);
 		AlertDialog.Builder builder = new AlertDialog.Builder(requireActivity());
-		builder.setTitle(R.string.app_name)
+		builder.setTitle(R.string.j2me_loader_app_name)
 				.setIcon(R.mipmap.ic_launcher)
 				.setView(tv)
 				.setPositiveButton(R.string.licenses, (dialog, which) -> {
