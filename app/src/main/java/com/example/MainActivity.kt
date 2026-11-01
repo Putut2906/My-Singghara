@@ -47,6 +47,8 @@ import androidx.compose.material.icons.filled.AccountBalanceWallet
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Gamepad
+import androidx.compose.material.icons.filled.SportsEsports
+import androidx.compose.material.icons.outlined.SportsEsports
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Settings
@@ -2009,6 +2011,49 @@ fun MainAppContent(viewModel: MainViewModel) {
                         )
                     }
 
+                    // Menu Utama: J2ME-Loader (Boxed Group Card, menu terpisah)
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 14.dp, vertical = 6.dp)
+                            .border(
+                                width = 1.dp,
+                                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
+                                shape = RoundedCornerShape(12.dp)
+                            )
+                            .background(
+                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.1f),
+                                shape = RoundedCornerShape(12.dp)
+                            )
+                            .padding(vertical = 8.dp)
+                    ) {
+                        val isJ2meLoaderSelected = viewModel.currentRoute == "j2me_loader"
+                        NavigationDrawerItem(
+                            icon = {
+                                Icon(
+                                    imageVector = if (isJ2meLoaderSelected) Icons.Default.SportsEsports else Icons.Outlined.SportsEsports,
+                                    contentDescription = "J2ME-Loader"
+                                )
+                            },
+                            label = { Text(text = "J2ME-Loader", fontWeight = FontWeight.SemiBold, fontSize = 13.sp) },
+                            selected = isJ2meLoaderSelected,
+                            onClick = {
+                                viewModel.currentRoute = "j2me_loader"
+                                scope.launch { drawerState.close() }
+                            },
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                            colors = NavigationDrawerItemDefaults.colors(
+                                selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                                selectedTextColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                                selectedIconColor = MaterialTheme.colorScheme.primary,
+                                unselectedContainerColor = Color.Transparent,
+                                unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
+                            )
+                        )
+                    }
+
                     // Group 3: AKUNTANSI & KEUANGAN (Boxed Group Card)
                     Column(
                         modifier = Modifier
@@ -3527,6 +3572,9 @@ fun MainAppContent(viewModel: MainViewModel) {
                         "arisan_keluarga" -> ArisanKeluargaScreen(
                             viewModel = viewModel,
                             onNavigateBack = { viewModel.currentRoute = "home" }
+                        )
+                        "j2me_loader" -> J2meLoaderScreen(
+                            onBack = { viewModel.currentRoute = "home" }
                         )
                         "quran" -> QuranScreen(viewModel = viewModel)
                         "game_list" -> GameScreen(viewModel = viewModel)
