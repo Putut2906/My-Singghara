@@ -28,7 +28,7 @@ sealed class GithubUpdateTask {
     data object Checking : GithubUpdateTask()
     data class UpToDate(val releaseLabel: String, val detail: String? = null) : GithubUpdateTask()
     data class Downloading(val releaseLabel: String, val progress: Float) : GithubUpdateTask()
-    data class Completed(val releaseLabel: String, val fileName: String) : GithubUpdateTask()
+    data class Completed(val releaseLabel: String, val fileName: String, val apkPath: String) : GithubUpdateTask()
     data class Failed(val message: String) : GithubUpdateTask()
 }
 
@@ -114,8 +114,9 @@ class GithubApkUpdateService : Service() {
 
             val fileName = ApkDownloadsSaver.releaseFileName(this, downloaded, asset.name)
             ApkDownloadsSaver.saveToDownloads(this, downloaded, fileName)
+            PendingUpdateStore.save(this, releaseLabel, fileName, downloaded.absolutePath)
             finish(
-                state = GithubUpdateTask.Completed(releaseLabel, fileName),
+                state = GithubUpdateTask.Completed(releaseLabel, fileName, downloaded.absolutePath),
                 title = "APK $releaseLabel tersimpan",
                 text = "Tersimpan di folder Download: $fileName"
             )

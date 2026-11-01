@@ -48,6 +48,7 @@ import com.example.BuildConfig
 import com.example.ui.MainViewModel
 import com.example.update.*
 import kotlinx.coroutines.launch
+import java.io.File
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -68,7 +69,8 @@ private data class InstalledVersionCheck(
     val isChecking: Boolean = false,
     val isUpToDate: Boolean = false,
     val latestVersion: String? = null,
-    val errorMessage: String? = null
+    val errorMessage: String? = null,
+    val downloadedApkPath: String? = null
 )
 
 sealed class DriveDownloadProgressState {
@@ -114,6 +116,7 @@ fun TentangAplikasiScreen(
     val lastSavedApkName = (githubTask as? GithubUpdateTask.Completed)?.fileName
     var updateStatusPopup by remember { mutableStateOf<UpdateStatusPopup?>(null) }
     var installedVersionCheck by remember { mutableStateOf<InstalledVersionCheck?>(null) }
+    var dialogDownloadStarted by remember { mutableStateOf(false) }
     var taskStartedHere by remember { mutableStateOf(false) }
     var pendingSaveAction by remember { mutableStateOf<(() -> Unit)?>(null) }
     var installConflict by remember { mutableStateOf<InstallConflict?>(null) }
@@ -260,17 +263,51 @@ fun TentangAplikasiScreen(
     // Click on the installed-version chip: compare this build against the newest GitHub release.
     fun checkInstalledVersion() {
         if (installedVersionCheck?.isChecking == true) return
+        dialogDownloadStarted = false
         installedVersionCheck = InstalledVersionCheck(isChecking = true)
         scope.launch {
             installedVersionCheck = when (val result = GitHubUpdateManager.checkForUpdate(context)) {
-                is UpdateCheckState.UpdateAvailable -> InstalledVersionCheck(
-                    isUpToDate = false,
-                    latestVersion = result.newVersion
-                )
+                is UpdateCheckState.UpdateAvailable -> {
+                    // Reuse a copy that was already downloaded so the prompt goes straight to install.
+                    val pending = PendingUpdateStore.load(context)
+                    val pendingPath = if (
+                        pending != null &&
+                        !GitHubUpdateManager.isRemoteVersionNewer(pending.versionTag, result.release.tagName)
+                    ) pending.apkPath else null
+                    InstalledVersionCheck(
+                        isUpToDate = false,
+                        latestVersion = result.newVersion,
+                        downloadedApkPath = pendingPath
+                    )
+                }
                 is UpdateCheckState.UpToDate -> InstalledVersionCheck(isUpToDate = true)
                 is UpdateCheckState.Error -> InstalledVersionCheck(errorMessage = result.errorMessage)
                 else -> InstalledVersionCheck(errorMessage = "Tidak dapat memeriksa versi terbaru. Coba lagi nanti.")
             }
+        }
+    }
+
+    // Downloads through the foreground service so it finishes while the app is in the background.
+    // The popup stays open and switches to an install action once the APK is saved.
+    fun startUpdateDownload() {
+        if (isGithubChecking || isSavingApk) return
+        val current = installedVersionCheck ?: return
+        if (current.downloadedApkPath != null || current.latestVersion == null) return
+        installedVersionCheck = current.copy(errorMessage = null)
+        runWithStoragePermission {
+            dialogDownloadStarted = true
+            GithubApkUpdateService.start(context)
+        }
+    }
+
+    fun installDownloadedUpdate(apkPath: String) {
+        val installed = GitHubUpdateManager.installApk(context, File(apkPath))
+        if (installed) {
+            PendingUpdateStore.clear(context)
+            dialogDownloadStarted = false
+            installedVersionCheck = null
+        } else {
+            viewModel.showToastPopup("Gagal membuka pemasang APK. Pastikan izin pemasangan aplikasi diizinkan.")
         }
     }
 
@@ -306,11 +343,44 @@ fun TentangAplikasiScreen(
         }
     }
 
+    // Keeps the version popup in sync with a download: it stays on screen while downloading and
+    // only turns into the install step once the APK has been saved.
+    LaunchedEffect(githubTaskPhase) {
+        val check = installedVersionCheck ?: return@LaunchedEffect
+        val dialogForUpdate = !check.isUpToDate && check.latestVersion != null
+        when (val task = githubTask) {
+            is GithubUpdateTask.Completed -> {
+                val completedVersion = task.releaseLabel.removePrefix("v").removePrefix("V").trim()
+                val matches = dialogForUpdate && (dialogDownloadStarted || completedVersion == check.latestVersion)
+                if (matches && File(task.apkPath).exists()) {
+                    dialogDownloadStarted = false
+                    installedVersionCheck = check.copy(errorMessage = null, downloadedApkPath = task.apkPath)
+                }
+            }
+            is GithubUpdateTask.Failed -> {
+                if (dialogDownloadStarted) {
+                    dialogDownloadStarted = false
+                    installedVersionCheck = check.copy(errorMessage = task.message)
+                }
+            }
+            else -> Unit
+        }
+    }
 
-    // Automatically check Google Drive on entry if idle
+
+    // Automatically check Google Drive on entry if idle, and restore a downloaded update prompt
     LaunchedEffect(Unit) {
         if (driveUpdateState is DriveUpdateCheckState.Idle) {
             triggerDriveCheck()
+        }
+        if (installedVersionCheck == null) {
+            PendingUpdateStore.load(context)?.let { pending ->
+                installedVersionCheck = InstalledVersionCheck(
+                    isUpToDate = false,
+                    latestVersion = pending.displayVersion,
+                    downloadedApkPath = pending.apkPath
+                )
+            }
         }
     }
 
@@ -497,9 +567,17 @@ fun TentangAplikasiScreen(
 
     // Popup hasil ketukan pada label versi aplikasi terinstal
     installedVersionCheck?.let { check ->
+        val downloadedPath = check.downloadedApkPath
         val hasUpdate = !check.isChecking && check.errorMessage == null && !check.isUpToDate
+        val serviceBusy = isGithubChecking || isSavingApk
+        val downloading = dialogDownloadStarted && downloadedPath == null &&
+            check.errorMessage == null && !check.isChecking && serviceBusy
+        val downloadPercent = (saveProgress * 100).toInt()
         AlertDialog(
-            onDismissRequest = { installedVersionCheck = null },
+            onDismissRequest = {
+                dialogDownloadStarted = false
+                installedVersionCheck = null
+            },
             icon = {
                 when {
                     check.isChecking -> CircularProgressIndicator(
@@ -511,6 +589,11 @@ fun TentangAplikasiScreen(
                         imageVector = Icons.Default.Warning,
                         contentDescription = null,
                         tint = MaterialTheme.colorScheme.error
+                    )
+                    downloadedPath != null -> Icon(
+                        imageVector = Icons.Default.CheckCircle,
+                        contentDescription = null,
+                        tint = Color(0xFF16A34A)
                     )
                     hasUpdate -> Icon(
                         imageVector = Icons.Default.SystemUpdate,
@@ -529,6 +612,7 @@ fun TentangAplikasiScreen(
                     text = when {
                         check.isChecking -> "Memeriksa Versi Terbaru"
                         check.errorMessage != null -> "Gagal Memeriksa Versi"
+                        downloading -> "Mengunduh APK Pembaruan"
                         hasUpdate -> "Pembaruan Versi Tersedia"
                         else -> "Aplikasi Sudah Terbaru"
                     },
@@ -537,32 +621,56 @@ fun TentangAplikasiScreen(
                 )
             },
             text = {
-                Text(
-                    text = when {
-                        check.isChecking ->
-                            "Membandingkan versi aplikasi terinstal v${BuildConfig.VERSION_NAME} dengan rilis terbaru di GitHub Releases."
-                        check.errorMessage != null -> check.errorMessage ?: "Gagal memeriksa versi terbaru."
-                        hasUpdate ->
-                            "Versi aplikasi terinstal v${BuildConfig.VERSION_NAME}. Versi terbaru v${check.latestVersion} sudah tersedia untuk dipasang."
-                        else ->
-                            "Versi aplikasi terinstal v${BuildConfig.VERSION_NAME} sudah merupakan versi terbaru. Tidak ada pembaruan yang perlu dipasang."
-                    },
-                    fontSize = 12.5.sp,
-                    lineHeight = 18.sp
-                )
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(
+                        text = when {
+                            check.isChecking ->
+                                "Membandingkan versi aplikasi terinstal v${BuildConfig.VERSION_NAME} dengan rilis terbaru di GitHub Releases."
+                            check.errorMessage != null -> check.errorMessage ?: "Gagal memeriksa versi terbaru."
+                            downloadedPath != null ->
+                                "APK v${check.latestVersion} sudah diunduh dari GitHub Releases. Ketuk Unduh & Pasang untuk membuka pemasang. Pop up ini tetap muncul sampai pembaruan dipasang."
+                            downloading ->
+                                "Mengunduh APK v${check.latestVersion} ke folder Download (${downloadPercent}%). Pop up ini tetap terbuka meskipun Anda keluar dari aplikasi atau perangkat terkunci."
+                            hasUpdate ->
+                                "Versi aplikasi terinstal v${BuildConfig.VERSION_NAME}. Versi terbaru v${check.latestVersion} sudah tersedia untuk dipasang."
+                            else ->
+                                "Versi aplikasi terinstal v${BuildConfig.VERSION_NAME} sudah merupakan versi terbaru. Tidak ada pembaruan yang perlu dipasang."
+                        },
+                        fontSize = 12.5.sp,
+                        lineHeight = 18.sp
+                    )
+                    if (downloading) {
+                        LinearProgressIndicator(
+                            progress = { saveProgress },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(6.dp)
+                                .clip(RoundedCornerShape(3.dp)),
+                            color = Color(0xFF0284C7)
+                        )
+                    }
+                }
             },
             confirmButton = {
                 when {
                     check.isChecking -> TextButton(onClick = {}, enabled = false) {
                         Text("Tunggu")
                     }
-                    hasUpdate -> TextButton(
+                    check.errorMessage != null -> TextButton(
                         onClick = {
-                            installedVersionCheck = null
-                            refreshCheckAndSaveApk()
+                            if (check.latestVersion != null) startUpdateDownload() else checkInstalledVersion()
                         }
                     ) {
-                        Text("Unduh Pembaruan")
+                        Text("Coba Lagi")
+                    }
+                    downloadedPath != null -> TextButton(onClick = { installDownloadedUpdate(downloadedPath) }) {
+                        Text("Unduh & Pasang")
+                    }
+                    downloading -> TextButton(onClick = {}, enabled = false) {
+                        Text("Mengunduh...")
+                    }
+                    hasUpdate -> TextButton(onClick = { startUpdateDownload() }) {
+                        Text("Unduh APK")
                     }
                     else -> TextButton(onClick = { installedVersionCheck = null }) {
                         Text("Tutup")
@@ -570,8 +678,13 @@ fun TentangAplikasiScreen(
                 }
             },
             dismissButton = {
-                if (hasUpdate) {
-                    TextButton(onClick = { installedVersionCheck = null }) {
+                if (!check.isChecking) {
+                    TextButton(
+                        onClick = {
+                            dialogDownloadStarted = false
+                            installedVersionCheck = null
+                        }
+                    ) {
                         Text("Nanti")
                     }
                 }
