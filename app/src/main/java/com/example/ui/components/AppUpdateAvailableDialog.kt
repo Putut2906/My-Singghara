@@ -51,6 +51,7 @@ fun AppUpdateAvailableDialog(
     val scope = rememberCoroutineScope()
     var downloadState by remember { mutableStateOf<DownloadState>(DownloadState.Idle) }
     var signatureConflict by remember { mutableStateOf(false) }
+    var downloadedApk by remember { mutableStateOf<File?>(null) }
 
     Dialog(
         onDismissRequest = {
@@ -289,6 +290,36 @@ fun AppUpdateAvailableDialog(
                     else -> {}
                 }
 
+                if (downloadedApk != null && downloadState !is DownloadState.Downloading && downloadState !is DownloadState.Installing) {
+                    Spacer(modifier = Modifier.height(12.dp))
+                    Card(
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.55f)
+                        ),
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(10.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                Icons.Default.CheckCircle,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "Unduhan selesai 100%. APK siap dipasang, tekan tombol di bawah untuk membuka pemasang.",
+                                fontSize = 11.sp,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
+                    }
+                }
+
                 Spacer(modifier = Modifier.height(14.dp))
 
                 // Action Buttons
@@ -297,11 +328,24 @@ fun AppUpdateAvailableDialog(
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     val isDownloading = downloadState is DownloadState.Downloading || downloadState is DownloadState.Installing
+                    val readyToInstall = downloadedApk?.exists() == true
 
                     Button(
                         onClick = {
+                            val readyFile = downloadedApk?.takeIf { it.exists() }
                             if (!isDownloading) {
                                 scope.launch {
+                                    if (readyFile != null) {
+                                        downloadState = DownloadState.Installing(readyFile)
+                                        val success = GitHubUpdateManager.installApk(context, readyFile)
+                                        if (success) {
+                                            downloadState = DownloadState.Completed
+                                            onDismiss()
+                                        } else {
+                                            downloadState = DownloadState.Failed("Gagal membuka installer APK. Pastikan izin instalasi aplikasi tidak dikenal diizinkan.")
+                                        }
+                                        return@launch
+                                    }
                                     try {
                                         downloadState = DownloadState.Downloading(0f, 0L, apkAsset.size)
                                         val downloadedFile = GitHubUpdateManager.downloadApk(
@@ -327,14 +371,9 @@ fun AppUpdateAvailableDialog(
                                             return@launch
                                         }
 
-                                        downloadState = DownloadState.Installing(downloadedFile)
-                                        val success = GitHubUpdateManager.installApk(context, downloadedFile)
-                                        if (success) {
-                                            downloadState = DownloadState.Completed
-                                            onDismiss()
-                                        } else {
-                                            downloadState = DownloadState.Failed("Gagal membuka installer APK. Pastikan izin instalasi aplikasi tidak dikenal diizinkan.")
-                                        }
+                                        // Unduhan berhenti di 100%: pemasang baru dibuka saat tombol ditekan lagi.
+                                        downloadedApk = downloadedFile
+                                        downloadState = DownloadState.Idle
                                     } catch (e: Exception) {
                                         e.printStackTrace()
                                         downloadState = DownloadState.Failed(e.localizedMessage ?: "Gagal mengunduh file APK.")
@@ -350,13 +389,21 @@ fun AppUpdateAvailableDialog(
                         )
                     ) {
                         Icon(
-                            imageVector = if (downloadState is DownloadState.Failed) Icons.Default.Refresh else Icons.Default.Download,
+                            imageVector = when {
+                                readyToInstall -> Icons.Default.CheckCircle
+                                downloadState is DownloadState.Failed -> Icons.Default.Refresh
+                                else -> Icons.Default.Download
+                            },
                             contentDescription = null,
                             modifier = Modifier.size(18.dp)
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            text = if (downloadState is DownloadState.Failed) "Coba Unduh Ulang" else "Unduh & Pasang APK",
+                            text = when {
+                                readyToInstall -> "Pasang APK Sekarang"
+                                downloadState is DownloadState.Failed -> "Coba Unduh Ulang"
+                                else -> "Unduh & Pasang APK"
+                            },
                             fontWeight = FontWeight.Bold,
                             fontSize = 14.sp
                         )
