@@ -41,6 +41,7 @@ import androidx.compose.material.icons.filled.Fingerprint
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material.icons.filled.Backspace
+import androidx.compose.material.icons.filled.ChevronLeft
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Home
@@ -662,6 +663,7 @@ fun MainAppContent(viewModel: MainViewModel, desktopMode: Boolean = false) {
 
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val scope = rememberCoroutineScope()
+    var isDesktopSidebarExpanded by remember { mutableStateOf(true) }
 
     // Firebase Auth State
     var showAuthDialog by remember { mutableStateOf(false) }
@@ -1524,6 +1526,30 @@ fun MainAppContent(viewModel: MainViewModel, desktopMode: Boolean = false) {
                             .verticalScroll(rememberScrollState())
                             .padding(bottom = if (viewModel.currentFirebaseUser != null) 68.dp else 16.dp)
                     ) {
+                        if (desktopMode) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(start = 20.dp, end = 8.dp, top = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "MENU",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                IconButton(onClick = { isDesktopSidebarExpanded = false }) {
+                                    Icon(
+                                        imageVector = Icons.Default.ChevronLeft,
+                                        contentDescription = "Sembunyikan menu",
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
+                            }
+                            Spacer(modifier = Modifier.height(4.dp))
+                        }
                         Spacer(modifier = Modifier.height(16.dp))
 
                         // Profil Header (Salinan dari halaman profil: Foto Avatar & Nama Pengguna untuk akses cepat)
@@ -2450,7 +2476,7 @@ fun MainAppContent(viewModel: MainViewModel, desktopMode: Boolean = false) {
         Scaffold(
             modifier = Modifier.fillMaxSize(),
             topBar = {
-                if (!desktopMode && viewModel.currentRoute != "semua_transaksi_belanja" && viewModel.currentRoute != "semua_catatan_tabungan" && viewModel.currentRoute != "preview_catatan" && viewModel.currentRoute != "immersive_file_viewer" && viewModel.currentRoute != "quran" && viewModel.currentRoute != "transfer_file" && viewModel.currentRoute != "handy_talky" && viewModel.currentRoute != "pemutar_video" && !viewModel.hideGlobalTopAppBar) {
+                if (viewModel.currentRoute != "semua_transaksi_belanja" && viewModel.currentRoute != "semua_catatan_tabungan" && viewModel.currentRoute != "preview_catatan" && viewModel.currentRoute != "immersive_file_viewer" && viewModel.currentRoute != "quran" && viewModel.currentRoute != "transfer_file" && viewModel.currentRoute != "handy_talky" && viewModel.currentRoute != "pemutar_video" && !viewModel.hideGlobalTopAppBar) {
                     Box(
                         modifier = Modifier
                             .statusBarsPadding()
@@ -2463,20 +2489,22 @@ fun MainAppContent(viewModel: MainViewModel, desktopMode: Boolean = false) {
                             modifier = Modifier.height(48.dp),
                             windowInsets = WindowInsets(0, 0, 0, 0),
                             navigationIcon = {
-                                if (!desktopMode) {
-                                    IconButton(
-                                        onClick = {
+                                IconButton(
+                                    onClick = {
+                                        if (desktopMode) {
+                                            isDesktopSidebarExpanded = !isDesktopSidebarExpanded
+                                        } else {
                                             scope.launch {
                                                 if (drawerState.isClosed) drawerState.open() else drawerState.close()
                                             }
-                                        },
-                                        modifier = Modifier.testTag("drawer_menu_button")
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.Menu,
-                                            contentDescription = "Menu Navigasi"
-                                        )
-                                    }
+                                        }
+                                    },
+                                    modifier = Modifier.testTag("drawer_menu_button")
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Menu,
+                                        contentDescription = "Menu Navigasi"
+                                    )
                                 }
                             },
                             actions = {
@@ -3579,7 +3607,7 @@ fun MainAppContent(viewModel: MainViewModel, desktopMode: Boolean = false) {
             bottomBar = {
                 val hideBottomBarRoutes = listOf("jurnal_umum", "buku_besar", "neraca_saldo", "jurnal_penyesuaian", "neraca_saldo_disesuaikan", "laba_rugi", "jurnal_penutup", "neraca_saldo_setelah_tutup", "pemutar_musik", "pemutar_video", "pembukuan_usaha", "semua_transaksi_belanja", "semua_catatan_tabungan", "preview_catatan", "immersive_file_viewer", "quran", "handy_talky", "telegram_ai")
                 val isEditingNote = viewModel.currentRoute == "catatan" && viewModel.selectedNote != null
-                if (viewModel.isBottomBarVisible && !hideBottomBarRoutes.contains(viewModel.currentRoute) && !isEditingNote) {
+                if (!desktopMode && viewModel.isBottomBarVisible && !hideBottomBarRoutes.contains(viewModel.currentRoute) && !isEditingNote) {
                     BottomNavBar(viewModel = viewModel)
                 }
             }
@@ -3937,8 +3965,26 @@ fun MainAppContent(viewModel: MainViewModel, desktopMode: Boolean = false) {
         CompositionLocalProvider(LocalDensity provides desktopDensity) {
             Row(modifier = Modifier.fillMaxSize()) {
                 if (!hideNavigationSidebar) {
-                    Box(modifier = Modifier.width(300.dp).fillMaxHeight()) {
-                        drawerSheetContent()
+                    if (isDesktopSidebarExpanded) {
+                        Box(modifier = Modifier.width(300.dp).fillMaxHeight()) {
+                            drawerSheetContent()
+                        }
+                    } else {
+                        Column(
+                            modifier = Modifier
+                                .width(64.dp)
+                                .fillMaxHeight()
+                                .background(MaterialTheme.colorScheme.surface),
+                            horizontalAlignment = Alignment.CenterHorizontally
+                        ) {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            IconButton(onClick = { isDesktopSidebarExpanded = true }) {
+                                Icon(
+                                    imageVector = Icons.Default.Menu,
+                                    contentDescription = "Tampilkan menu"
+                                )
+                            }
+                        }
                     }
                     Box(
                         modifier = Modifier
