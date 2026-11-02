@@ -2738,6 +2738,30 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         return sharedPrefs.getString("lyrics_$uriStr", "") ?: ""
     }
 
+    // Geseran waktu lirik per lagu (ms). Positif menunda lirik, negatif memajukan.
+    var lyricSyncOffsetMs by mutableStateOf(0L)
+        private set
+
+    fun loadLyricSyncOffset(uriStr: String) {
+        lyricSyncOffsetMs = if (uriStr.isBlank()) 0L
+        else sharedPrefs.getLong("lyrics_sync_$uriStr", 0L)
+    }
+
+    fun setLyricSyncOffset(uriStr: String, offsetMs: Long) {
+        val clamped = offsetMs.coerceIn(-60000L, 60000L)
+        lyricSyncOffsetMs = clamped
+        if (uriStr.isNotBlank()) {
+            sharedPrefs.edit().putLong("lyrics_sync_$uriStr", clamped).apply()
+        }
+    }
+
+    fun clearLyricSyncOffset(uriStr: String) {
+        lyricSyncOffsetMs = 0L
+        if (uriStr.isNotBlank()) {
+            sharedPrefs.edit().remove("lyrics_sync_$uriStr").apply()
+        }
+    }
+
     fun exportManualLyricsJson(): String {
         val allPrefs = sharedPrefs.all
         val lyricsMap = mutableMapOf<String, String>()

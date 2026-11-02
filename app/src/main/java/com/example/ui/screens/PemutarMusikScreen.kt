@@ -205,7 +205,11 @@ fun PemutarMusikScreen(viewModel: MainViewModel, onOpenDrawer: () -> Unit) {
     val activeLyricsText = manualLyricsText.ifBlank { fileLyricsText }
     val lyricsSourceLabel = when {
         manualLyricsText.isNotBlank() -> "Lirik manual"
-        fileLyricsText.isNotBlank() -> "Lirik tertanam"
+        fileLyricsText.isNotBlank() &&
+            (lyricLineTagRegex.containsMatchIn(fileLyricsText) || lyricWordTagRegex.containsMatchIn(fileLyricsText)) -> "Lirik tertanam"
+        // Tanpa kode waktu, baris hanya bisa disebar merata; beri tahu pengguna
+        // agar memakai tombol Sinkron untuk menyesuaikan.
+        fileLyricsText.isNotBlank() -> "Lirik tanpa timestamp"
         else -> "Lirik"
     }
 
@@ -251,6 +255,7 @@ fun PemutarMusikScreen(viewModel: MainViewModel, onOpenDrawer: () -> Unit) {
     LaunchedEffect(activeTrack) {
         if (activeTrack != null) {
             manualLyricsText = viewModel.getManualLyrics(activeTrack.uriStr)
+            viewModel.loadLyricSyncOffset(activeTrack.uriStr)
             isLyricsMode = false // Reset lyrics mode when changing tracks
             lyricsEditMode = false
             isLyricsFullScreen = false // Reset full screen lyrics when changing tracks
@@ -922,9 +927,18 @@ fun PemutarMusikScreen(viewModel: MainViewModel, onOpenDrawer: () -> Unit) {
                                     .padding(horizontal = 16.dp)
                                     .align(Alignment.CenterHorizontally)
                             ) {
-                                val currentLyrics = remember(activeTrack, activeLyricsText, viewModel.musicTotalDuration) {
+                                val currentLyrics = remember(
+                                    activeTrack,
+                                    activeLyricsText,
+                                    viewModel.musicTotalDuration,
+                                    viewModel.lyricSyncOffsetMs
+                                ) {
                                     if (activeTrack == null || activeLyricsText.isBlank()) emptyList()
-                                    else parseLyrics(activeLyricsText, viewModel.musicTotalDuration.toLong())
+                                    else parseLyrics(
+                                        activeLyricsText,
+                                        viewModel.musicTotalDuration.toLong(),
+                                        viewModel.lyricSyncOffsetMs
+                                    )
                                 }
 
                                 // Posisi audio dihaluskan per frame agar sorotan teks bergerak
@@ -1232,6 +1246,15 @@ fun PemutarMusikScreen(viewModel: MainViewModel, onOpenDrawer: () -> Unit) {
                                                     }
                                                 }
                                                 
+                                                Spacer(modifier = Modifier.height(6.dp))
+
+                                                // Koreksi geseran waktu lirik khusus lagu ini.
+                                                LyricSyncControls(
+                                                    viewModel = viewModel,
+                                                    uriStr = activeTrack?.uriStr ?: "",
+                                                    compact = true
+                                                )
+
                                                 Spacer(modifier = Modifier.height(8.dp))
                                                 
                                                 if (currentLyrics.isEmpty()) {
@@ -1307,7 +1330,10 @@ fun PemutarMusikScreen(viewModel: MainViewModel, onOpenDrawer: () -> Unit) {
                                                                         .fillMaxWidth()
                                                                         .padding(vertical = 6.dp, horizontal = 12.dp)
                                                                         .clickable {
-                                                                            viewModel.seekTo(line.timeMs.toInt())
+                                                                            // Geseran hanya untuk tampilan; saat melompat ke baris,
+                                                                            // kembalikan ke waktu asli audio.
+                                                                            val seekTarget = (line.timeMs - viewModel.lyricSyncOffsetMs).coerceAtLeast(0L)
+                                                                            viewModel.seekTo(seekTarget.toInt())
                                                                         },
                                                                     contentAlignment = Alignment.Center
                                                                 ) {
@@ -2696,18 +2722,19 @@ private fun autoTimeLyricWords(text: String, startMs: Long, endMs: Long): List<L
     }
 }
 
-fun parseLyrics(manualText: String, durationMs: Long): List<LyricLine> {
+fun parseLyrics(manualText: String, durationMs: Long, userOffsetMs: Long = 0L): List<LyricLine> {
     if (manualText.isBlank()) return emptyList()
 
     val normalizedText = manualText.removePrefix("\uFEFF")
     val rawLines = normalizedText.replace("\r\n", "\n").replace('\r', '\n').lines()
 
-    var offsetMs = 0L
+    var fileOffsetMs = 0L
     rawLines.forEach { line ->
         lyricOffsetTagRegex.find(line)?.let { match ->
-            offsetMs = match.groupValues[1].toLongOrNull() ?: 0L
+            fileOffsetMs = match.groupValues[1].toLongOrNull() ?: 0L
         }
     }
+    val offsetMs = fileOffsetMs + userOffsetMs
 
     val drafts = mutableListOf<LyricDraft>()
     var hasLineTimestamps = false
@@ -2750,10 +2777,13 @@ fun parseLyrics(manualText: String, durationMs: Long): List<LyricLine> {
     val duration = if (durationMs > 0) durationMs else fallbackDuration
 
     if (!hasLineTimestamps) {
+        // Lirik tanpa timestamp disebar merata; geseran pengguna tetap diterapkan
+        // agar baris pertama tidak lagi tampil terlalu awal saat intro.
         val interval = (duration / drafts.size.coerceAtLeast(1)).coerceAtLeast(500L)
         return drafts.mapIndexed { index, draft ->
-            val start = index * interval
-            val end = if (index < drafts.lastIndex) (index + 1) * interval else duration.coerceAtLeast(start + 3000L)
+            val start = (index * interval + offsetMs).coerceAtLeast(0L)
+            val end = (if (index < drafts.lastIndex) (index + 1) * interval + offsetMs else duration)
+                .coerceAtLeast(start + 500L)
             LyricLine(start, draft.text, autoTimeLyricWords(draft.text, start, end))
         }
     }
@@ -2796,9 +2826,10 @@ fun rememberSmoothMusicPosition(reportedMs: Int, isPlaying: Boolean, enabled: Bo
         smoothPosition.longValue = when {
             !isPlaying || !enabled -> reported
             kotlin.math.abs(current - reported) > 400L -> reported
-            current < reported -> reported
-            // Nilai interpolasi per frame dipertahankan; hanya koreksi bila menyimpang jauh.
-            else -> current
+            // Interpolasi hanya boleh sedikit di depan posisi resmi. Sebelumnya nilai
+            // bisa bertahan sampai 400 ms di depan sehingga lirik tampak berjalan lebih
+            // dulu dari audio; clamp 150 ms menjaga gerak halus tanpa mendahului.
+            else -> current.coerceIn(reported, reported + 150L)
         }
     }
 
@@ -2879,6 +2910,10 @@ private const val MAX_ID3_TAG_BYTES = 16 * 1024 * 1024
 private const val MAX_RAW_LYRIC_SCAN_BYTES = 4 * 1024 * 1024
 private const val MP3_SIZE_PLAIN = 0
 private const val MP3_SIZE_SYNCSAFE = 1
+
+// 1152 sampel per frame Layer III @ 44,1 kHz; dipakai bila header audio tak terbaca
+// sehingga SYLT berbasis frame tetap bisa dikonversi ke milidetik.
+private const val DEFAULT_MPEG_FRAME_DURATION_MS = 1152.0 * 1000.0 / 44100.0
 
 private data class Mp3TagLyrics(val synced: String?, val plain: String?)
 
@@ -3323,6 +3358,7 @@ private fun readMp3TagLyrics(context: android.content.Context, uriStr: String): 
             }
             audioRead += readFully(stream, audioProbe, audioRead, audioProbe.size - audioRead)
             val mpegFrameDurationMs = detectMpegFrameDurationMs(audioProbe, audioRead)
+                ?: DEFAULT_MPEG_FRAME_DURATION_MS
 
             val sizeModes = if (version == 4) {
                 intArrayOf(MP3_SIZE_SYNCSAFE, MP3_SIZE_PLAIN)
@@ -3500,6 +3536,95 @@ fun getEmbeddedLyrics(context: android.content.Context, uriStr: String): String?
     return null
 }
 
+private fun formatLyricSyncOffset(offsetMs: Long): String {
+    if (offsetMs == 0L) return "0,0 dtk"
+    val abs = kotlin.math.abs(offsetMs)
+    val sign = if (offsetMs > 0) "+" else "−"
+    return String.format("%s%d,%d dtk", sign, abs / 1000L, (abs % 1000L) / 100L)
+}
+
+@Composable
+private fun LyricSyncStepChip(
+    label: String,
+    onClick: () -> Unit,
+    containerColor: Color,
+    contentColor: Color
+) {
+    Text(
+        text = label,
+        fontSize = 9.sp,
+        fontWeight = FontWeight.Bold,
+        color = contentColor,
+        modifier = Modifier
+            .clip(RoundedCornerShape(6.dp))
+            .background(containerColor)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 7.dp, vertical = 3.dp)
+    )
+}
+
+/** Tombol geser lirik per lagu: positif menunda lirik, negatif memajukan. Ketuk angka untuk reset. */
+@Composable
+private fun LyricSyncControls(
+    viewModel: MainViewModel,
+    uriStr: String,
+    compact: Boolean = false
+) {
+    val offset = viewModel.lyricSyncOffsetMs
+    val colors = MaterialTheme.colorScheme
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.Center,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Text(
+            text = "Sinkron",
+            fontSize = if (compact) 9.sp else 10.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = colors.onSurfaceVariant.copy(alpha = 0.75f)
+        )
+        Spacer(modifier = Modifier.width(6.dp))
+        LyricSyncStepChip(
+            label = "−5",
+            onClick = { viewModel.setLyricSyncOffset(uriStr, offset - 5000L) },
+            containerColor = colors.surfaceVariant,
+            contentColor = colors.onSurfaceVariant
+        )
+        Spacer(modifier = Modifier.width(4.dp))
+        LyricSyncStepChip(
+            label = "−0,5",
+            onClick = { viewModel.setLyricSyncOffset(uriStr, offset - 500L) },
+            containerColor = colors.surfaceVariant,
+            contentColor = colors.onSurfaceVariant
+        )
+        Spacer(modifier = Modifier.width(6.dp))
+        Text(
+            text = formatLyricSyncOffset(offset),
+            fontSize = if (compact) 10.sp else 11.sp,
+            fontWeight = FontWeight.Bold,
+            color = colors.primary,
+            modifier = Modifier
+                .clip(RoundedCornerShape(6.dp))
+                .clickable { viewModel.clearLyricSyncOffset(uriStr) }
+                .padding(horizontal = 6.dp, vertical = 3.dp)
+        )
+        Spacer(modifier = Modifier.width(6.dp))
+        LyricSyncStepChip(
+            label = "+0,5",
+            onClick = { viewModel.setLyricSyncOffset(uriStr, offset + 500L) },
+            containerColor = colors.primaryContainer,
+            contentColor = colors.onPrimaryContainer
+        )
+        Spacer(modifier = Modifier.width(4.dp))
+        LyricSyncStepChip(
+            label = "+5",
+            onClick = { viewModel.setLyricSyncOffset(uriStr, offset + 5000L) },
+            containerColor = colors.primaryContainer,
+            contentColor = colors.onPrimaryContainer
+        )
+    }
+}
+
 @Composable
 fun FullScreenLyricsView(
     activeTrack: MusicTrack,
@@ -3509,9 +3634,18 @@ fun FullScreenLyricsView(
     onDismiss: () -> Unit
 ) {
     val activeLyricsText = manualLyricsText.ifBlank { fileLyricsText }
-    val currentLyrics = remember(activeTrack, activeLyricsText, viewModel.musicTotalDuration) {
+    val currentLyrics = remember(
+        activeTrack,
+        activeLyricsText,
+        viewModel.musicTotalDuration,
+        viewModel.lyricSyncOffsetMs
+    ) {
         if (activeLyricsText.isBlank()) emptyList()
-        else parseLyrics(activeLyricsText, viewModel.musicTotalDuration.toLong())
+        else parseLyrics(
+            activeLyricsText,
+            viewModel.musicTotalDuration.toLong(),
+            viewModel.lyricSyncOffsetMs
+        )
     }
 
     val smoothPosition by rememberSmoothMusicPosition(
@@ -3592,6 +3726,13 @@ fun FullScreenLyricsView(
                     overflow = TextOverflow.Ellipsis
                 )
             }
+
+            LyricSyncControls(
+                viewModel = viewModel,
+                uriStr = activeTrack.uriStr
+            )
+
+            Spacer(modifier = Modifier.height(6.dp))
 
             if (currentLyrics.isEmpty()) {
                 Box(
@@ -3674,7 +3815,10 @@ fun FullScreenLyricsView(
                                     .fillMaxWidth()
                                     .padding(vertical = 14.dp, horizontal = 24.dp)
                                     .clickable {
-                                        viewModel.seekTo(line.timeMs.toInt())
+                                        // Geseran hanya untuk tampilan; saat melompat ke baris,
+                                        // kembalikan ke waktu asli audio.
+                                        val seekTarget = (line.timeMs - viewModel.lyricSyncOffsetMs).coerceAtLeast(0L)
+                                        viewModel.seekTo(seekTarget.toInt())
                                     },
                                 contentAlignment = Alignment.Center
                             ) {
