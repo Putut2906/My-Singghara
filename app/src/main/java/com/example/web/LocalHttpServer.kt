@@ -49,7 +49,7 @@ import okhttp3.RequestBody.Companion.toRequestBody
 class LocalHttpServer(
     private val context: Context,
     private val repository: LocalRepository,
-    private val port: Int = 8080
+    private val port: Int = DEFAULT_PORT
 ) {
     private var serverSocket: ServerSocket? = null
     private var isRunning = false
@@ -305,7 +305,14 @@ class LocalHttpServer(
     fun isServerRunning(): Boolean = isRunning
 
     companion object {
+        const val DEFAULT_PORT = 8080
+
         var activeInstance: LocalHttpServer? = null
+
+        // Permintaan dari WebView internal aplikasi (localhost) tidak boleh
+        // memicu dialog PIN atau notifikasi izin perangkat.
+        fun isLoopbackClient(ip: String): Boolean =
+            ip == "127.0.0.1" || ip == "::1" || ip == "localhost" || ip.startsWith("127.")
 
         // Batas aman untuk body (mis. berkas cadangan JSON yang memuat foto/audio base64).
         private const val MAX_REQUEST_BODY_BYTES = 128 * 1024 * 1024
@@ -551,7 +558,7 @@ class LocalHttpServer(
                         }
                     }
                     path == "/" || path == "/index.html" || path == "/ht" || path == "/handy_talky" || path == "/walkie_talkie" || path == "/telegram_ai" || path == "/telegram" || path == "/tg" -> {
-                        if (!isAccessRejected) {
+                        if (!isAccessRejected && !isLoopbackClient(clientIp)) {
                             triggerAccessNotification(clientIp)
                         }
                         sendHtmlResponse(output, getWebUiHtml())
@@ -804,6 +811,7 @@ class LocalHttpServer(
             try { JSONObject(body) } catch (e: Exception) { JSONObject() }
         } else JSONObject()
         val reqToken = jsonBody.optString("token", "").ifEmpty { token }
+        val loopbackClient = isLoopbackClient(clientIp)
 
         // Find existing device by token or create new device
         val device: ConnectedDevice = if (reqToken.isNotEmpty() && connectedDevices.containsKey(reqToken)) {
@@ -834,6 +842,13 @@ class LocalHttpServer(
             latestPinCode = devPin
             notifyDevicesChanged()
             newDev
+        }
+
+        if (loopbackClient) {
+            device.isVerified = true
+            device.isRejected = false
+            device.isLoggedOut = false
+            verifiedTokens.add(device.id)
         }
 
         if (method == "POST") {
@@ -924,12 +939,12 @@ class LocalHttpServer(
         // GET requests: session status or initial payload
         // PENTING: Periksa verifikasi KHUSUS untuk device ini, BUKAN latestToken global!
         // Ini memastikan perangkat lain yang baru dibuka wajib meminta verifikasi ulang.
-        val isVerified = !isAccessRejected && !device.isRejected && !device.isLoggedOut && (device.isVerified && verifiedTokens.contains(device.id))
-        val isRejected = isAccessRejected || device.isRejected
-        val isLoggedOut = device.isLoggedOut || isRejected
+        val isVerified = loopbackClient || (!isAccessRejected && !device.isRejected && !device.isLoggedOut && (device.isVerified && verifiedTokens.contains(device.id)))
+        val isRejected = if (loopbackClient) false else isAccessRejected || device.isRejected
+        val isLoggedOut = if (loopbackClient) false else device.isLoggedOut || isRejected
 
         // Only trigger notification to phone if unverified, not rejected, and not logged out
-        if (!isVerified && !isRejected && !device.isLoggedOut) {
+        if (!loopbackClient && !isVerified && !isRejected && !device.isLoggedOut) {
             triggerAccessNotification(clientIp, device)
         }
 

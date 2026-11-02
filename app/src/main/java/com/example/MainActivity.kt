@@ -125,6 +125,7 @@ import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
@@ -280,6 +281,11 @@ class MainActivity : FragmentActivity() {
         intent?.let { handleIntent(it) }
 
         setContent {
+            val configuration = LocalConfiguration.current
+            val desktopMode = remember(configuration.uiMode, configuration.smallestScreenWidthDp) {
+                com.example.ui.screens.isDesktopModeActive(this@MainActivity)
+            }
+            var desktopUiDismissed by remember { mutableStateOf(false) }
             MyApplicationTheme {
                 Box(modifier = Modifier.fillMaxSize()) {
                     val isAccountBlocked = viewModel.isAccountBlocked &&
@@ -328,7 +334,14 @@ class MainActivity : FragmentActivity() {
                                     if (isLocked) Modifier.blur(24.dp) else Modifier
                                 )
                         ) {
-                            MainAppContent(viewModel)
+                            if (desktopMode && !desktopUiDismissed) {
+                                com.example.ui.screens.DesktopWebConnectScreen(
+                                    viewModel = viewModel,
+                                    onUseMobileUi = { desktopUiDismissed = true }
+                                )
+                            } else {
+                                MainAppContent(viewModel)
+                            }
                         }
 
                         if (isLocked) {
