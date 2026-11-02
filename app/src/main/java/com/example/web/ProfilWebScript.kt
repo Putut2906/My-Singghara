@@ -899,7 +899,7 @@ object ProfilWebScript {
                                         <span class="fw-bold text-main small">Cloud Firebase &amp; Penyimpanan Mandiri</span>
                                     </div>
                                     <small class="text-secondary" style="font-size: 11px;">
-                                        Target Sinkronisasi: <strong>${dol}{escapeHtml(userEmail)}</strong>. Anda dapat mencadangkan seluruh data pembukuan, kasir, karyawan, catatan, dan transaksi ke Cloud atau mengunduh berkas .json ke PC.
+                                        Target Sinkronisasi: <strong>${dol}{escapeHtml(userEmail)}</strong>. Berkas cadangan mencakup seluruh data aplikasi (pembukuan, kasir, karyawan, catatan, transaksi, Arisan, notifikasi, dan pengaturan), termasuk foto, tanda tangan, font, serta audio azan. Berkas .json dapat diunduh ke PC dan dipulihkan kembali kapan saja.
                                     </small>
                                 </div>
 
@@ -928,39 +928,30 @@ object ProfilWebScript {
         }
 
         async function exportBackupJsonToPc() {
+            setProfileStatus('Menyiapkan berkas cadangan lengkap dari aplikasi...');
             try {
-                // Fetch data dari berbagai endpoint untuk package backup lengkap
-                const [notesRes, shoppingRes, savingsRes, agendaRes, presensiRes, pembukuanRes] = await Promise.all([
-                    fetch('/api/notes').catch(() => null),
-                    fetch('/api/shopping').catch(() => null),
-                    fetch('/api/savings').catch(() => null),
-                    fetch('/api/agenda').catch(() => null),
-                    fetch('/api/presensi').catch(() => null),
-                    fetch('/api/pembukuan').catch(() => null)
-                ]);
-
-                const backupData = {
-                    appName: 'My Singghara Suite',
-                    exportDate: new Date().toISOString(),
-                    profile: window.profileData || {},
-                    notes: notesRes && notesRes.ok ? await notesRes.json() : [],
-                    shopping: shoppingRes && shoppingRes.ok ? await shoppingRes.json() : [],
-                    savings: savingsRes && savingsRes.ok ? await savingsRes.json() : [],
-                    agenda: agendaRes && agendaRes.ok ? await agendaRes.json() : [],
-                    presensi: presensiRes && presensiRes.ok ? await presensiRes.json() : [],
-                    pembukuan: pembukuanRes && pembukuanRes.ok ? await pembukuanRes.json() : {}
-                };
-
-                const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(backupData, null, 2));
+                const res = await fetch('/api/backup/export');
+                if (!res.ok) {
+                    let msg = 'Gagal membuat berkas cadangan.';
+                    try {
+                        const errObj = await res.json();
+                        if (errObj && errObj.message) msg = errObj.message;
+                    } catch (parseErr) {}
+                    throw new Error(msg);
+                }
+                const jsonText = await res.text();
+                const blob = new Blob([jsonText], { type: 'application/json' });
+                const url = URL.createObjectURL(blob);
                 const dlAnchor = document.createElement('a');
-                dlAnchor.setAttribute("href", dataStr);
-                const dateTag = new Date().toISOString().slice(0,10);
-                dlAnchor.setAttribute("download", `Backup_MySingghara_${dol}{dateTag}.json`);
+                dlAnchor.href = url;
+                const dateTag = new Date().toISOString().slice(0, 10);
+                dlAnchor.download = 'Backup_MySingghara_' + dateTag + '.json';
                 document.body.appendChild(dlAnchor);
                 dlAnchor.click();
                 dlAnchor.remove();
+                setTimeout(function() { URL.revokeObjectURL(url); }, 4000);
 
-                setProfileStatus('Berkas cadangan berhasil diunduh ke PC!');
+                setProfileStatus('Berkas cadangan lengkap berhasil diunduh ke PC!');
             } catch (e) {
                 alert('Gagal mengekspor data cadangan: ' + e.message);
             }
@@ -971,18 +962,44 @@ object ProfilWebScript {
             const file = input.files[0];
             const reader = new FileReader();
             reader.onload = async function(e) {
+                const rawText = String(e.target.result || '');
                 try {
-                    const parsed = JSON.parse(e.target.result);
-                    if (!confirm('Apakah Anda yakin ingin memulihkan data dari berkas cadangan ini? Data yang ada akan disinkronkan.')) return;
-                    // Lakukan restore
-                    setProfileStatus('Berkas cadangan valid dan berhasil dipulihkan!');
+                    JSON.parse(rawText);
+                } catch (err) {
+                    alert('Format file JSON cadangan tidak valid: ' + err.message);
+                    input.value = '';
+                    return;
+                }
+                if (!confirm('Apakah Anda yakin ingin memulihkan data dari berkas cadangan ini? Seluruh data aplikasi saat ini akan diganti dengan isi berkas.')) {
+                    input.value = '';
+                    return;
+                }
+                setProfileStatus('Memulihkan data dari berkas cadangan...');
+                try {
+                    const res = await fetch('/api/backup/restore', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: rawText
+                    });
+                    let result = null;
+                    try {
+                        result = await res.json();
+                    } catch (parseErr) {}
+                    if (!res.ok || !result || result.success !== true) {
+                        throw new Error((result && result.message) ? result.message : 'Gagal memulihkan data.');
+                    }
+                    setProfileStatus((result.message || 'Data berhasil dipulihkan.') + ' Memuat ulang...');
                     const modalEl = document.getElementById('backupRestoreCustomModal');
                     if (modalEl) {
                         const m = bootstrap.Modal.getInstance(modalEl);
                         if (m) m.hide();
                     }
+                    setTimeout(function() { window.location.reload(); }, 1200);
                 } catch (err) {
-                    alert('Format file JSON cadangan tidak valid: ' + err.message);
+                    alert('Gagal memulihkan data: ' + err.message);
+                    setProfileStatus('Pemulihan data gagal.');
+                } finally {
+                    input.value = '';
                 }
             };
             reader.readAsText(file);

@@ -1217,7 +1217,7 @@ fun ProfilScreen(
                                                     color = MaterialTheme.colorScheme.primary
                                                 )
                                                 Text(
-                                                    text = "• Rekap Belanja Pasar ($bpCount item terintegrasi)\n• Belanja Harian & Tabungan\n• Catatan, Agenda, Jadwal & Mind Map\n• Al-Qur'an, Data Anggota, Presensi & Gaji",
+                                                    text = "• Rekap Belanja Pasar ($bpCount item terintegrasi)\n• Belanja Harian & Tabungan\n• Catatan, Agenda, Jadwal & Mind Map\n• Al-Qur'an, Data Anggota, Presensi & Gaji\n• Arisan Keluarga, Notifikasi & Riwayat\n• Pengaturan Handy Talky, Telegram & Aplikasi\n• Profil, Foto, Tanda Tangan, Font & Audio Azan",
                                                     fontSize = 10.sp,
                                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                                     lineHeight = 14.sp

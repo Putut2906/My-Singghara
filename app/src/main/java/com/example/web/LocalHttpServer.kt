@@ -34,8 +34,6 @@ import com.example.ht.HandyTalkyManager
 import com.example.telegram.TelegramAiEngine
 import com.example.telegram.TelegramBotManager
 import com.google.firebase.auth.FirebaseAuth
-import java.io.BufferedReader
-import java.io.InputStreamReader
 import java.io.OutputStream
 import java.net.Inet4Address
 import java.net.NetworkInterface
@@ -90,6 +88,7 @@ class LocalHttpServer(
 
     var onAccessRequested: ((clientIp: String, timestamp: Long) -> Unit)? = null
     var onDevicesChanged: ((List<ConnectedDevice>) -> Unit)? = null
+    var onBackupRestored: (() -> Unit)? = null
 
     fun getConnectedDevices(): List<ConnectedDevice> {
         return connectedDevices.values.toList().sortedByDescending { it.lastActiveAt }
@@ -308,6 +307,9 @@ class LocalHttpServer(
     companion object {
         var activeInstance: LocalHttpServer? = null
 
+        // Batas aman untuk body (mis. berkas cadangan JSON yang memuat foto/audio base64).
+        private const val MAX_REQUEST_BODY_BYTES = 128 * 1024 * 1024
+
         fun parseDeviceName(userAgent: String, clientIp: String): String {
             val ua = userAgent.lowercase()
             val os = when {
@@ -442,10 +444,10 @@ class LocalHttpServer(
     private suspend fun handleClient(socket: Socket) {
         try {
             socket.use { s ->
-                val reader = BufferedReader(InputStreamReader(s.getInputStream()))
+                val input = java.io.BufferedInputStream(s.getInputStream())
                 val output = s.getOutputStream()
 
-                val requestLine = reader.readLine() ?: return
+                val requestLine = readHttpLine(input) ?: return
                 val parts = requestLine.split(" ")
                 if (parts.size < 2) return
 
@@ -454,27 +456,34 @@ class LocalHttpServer(
 
                 var contentLength = 0
                 var userAgent = ""
-                var line: String?
-                while (reader.readLine().also { line = it } != null) {
-                    if (line.isNullOrEmpty()) break
-                    val headerLower = line!!.lowercase()
+                while (true) {
+                    val line = readHttpLine(input) ?: break
+                    if (line.isEmpty()) break
+                    val headerLower = line.lowercase()
                     if (headerLower.startsWith("content-length:")) {
                         contentLength = headerLower.substringAfter("content-length:").trim().toIntOrNull() ?: 0
                     }
                     if (headerLower.startsWith("user-agent:")) {
-                        userAgent = line!!.substringAfter(":").trim()
+                        userAgent = line.substringAfter(":").trim()
                     }
                 }
 
+                if (contentLength > MAX_REQUEST_BODY_BYTES) {
+                    sendResponse(output, 413, "Payload Too Large", "text/plain", "Berkas terlalu besar")
+                    return
+                }
+
+                // Body HTTP dihitung dalam byte; membacanya sebagai Char akan menggantung
+                // saat JSON berisi karakter non-ASCII (teks Arab, emoji, huruf beraksen).
                 val body = if (contentLength > 0) {
-                    val charArray = CharArray(contentLength)
-                    var read = 0
-                    while (read < contentLength) {
-                        val r = reader.read(charArray, read, contentLength - read)
+                    val bodyBytes = ByteArray(contentLength)
+                    var bytesRead = 0
+                    while (bytesRead < contentLength) {
+                        val r = input.read(bodyBytes, bytesRead, contentLength - bytesRead)
                         if (r <= 0) break
-                        read += r
+                        bytesRead += r
                     }
-                    String(charArray, 0, read)
+                    String(bodyBytes, 0, bytesRead, Charsets.UTF_8)
                 } else ""
 
                 val path = fullPath.substringBefore("?")
@@ -584,6 +593,9 @@ class LocalHttpServer(
                     path.startsWith("/api/notes") -> {
                         handleNotesRoute(method, queryParams, body, output)
                     }
+                    path.startsWith("/api/backup") -> {
+                        handleBackupRoute(path, method, body, output)
+                    }
                     path.startsWith("/api/shopping") -> {
                         handleShoppingRoute(method, queryParams, body, output)
                     }
@@ -676,6 +688,17 @@ class LocalHttpServer(
         } catch (e: Exception) {
             e.printStackTrace()
         }
+    }
+
+    private fun readHttpLine(input: java.io.InputStream): String? {
+        val buffer = java.io.ByteArrayOutputStream()
+        while (true) {
+            val b = input.read()
+            if (b == -1) return if (buffer.size() == 0) null else buffer.toByteArray().toString(Charsets.UTF_8)
+            if (b == '\n'.code) break
+            if (b != '\r'.code) buffer.write(b)
+        }
+        return buffer.toByteArray().toString(Charsets.UTF_8)
     }
 
     private fun parseQueryParams(queryString: String): Map<String, String> {
@@ -1628,6 +1651,69 @@ class LocalHttpServer(
             }
             else -> {
                 sendJsonResponse(output, JSONObject().put("status", "error").put("message", "Aksi tidak dikenali").toString())
+            }
+        }
+    }
+
+    private suspend fun handleBackupRoute(path: String, method: String, body: String, output: OutputStream) {
+        try {
+            when {
+                path == "/api/backup/export" && (method == "GET" || method == "POST") -> {
+                    repository.getBackupJsonString(context).fold(
+                        onSuccess = { json -> sendJsonResponse(output, json) },
+                        onFailure = { err ->
+                            sendJsonResponse(
+                                output,
+                                JSONObject().put("success", false)
+                                    .put("message", err.message ?: "Gagal membuat berkas cadangan").toString(),
+                                500
+                            )
+                        }
+                    )
+                }
+                path == "/api/backup/restore" && method == "POST" -> {
+                    if (body.isBlank()) {
+                        sendJsonResponse(
+                            output,
+                            JSONObject().put("success", false).put("message", "Isi berkas cadangan kosong").toString(),
+                            400
+                        )
+                    } else {
+                        repository.restoreFromJsonString(context, body).fold(
+                            onSuccess = { msg ->
+                                scope.launch(Dispatchers.Main) { onBackupRestored?.invoke() }
+                                sendJsonResponse(
+                                    output,
+                                    JSONObject().put("success", true).put("message", msg).toString()
+                                )
+                            },
+                            onFailure = { err ->
+                                sendJsonResponse(
+                                    output,
+                                    JSONObject().put("success", false)
+                                        .put("message", err.message ?: "Gagal memulihkan data").toString(),
+                                    400
+                                )
+                            }
+                        )
+                    }
+                }
+                else -> {
+                    sendJsonResponse(
+                        output,
+                        JSONObject().put("success", false).put("message", "Aksi cadangan tidak dikenali").toString(),
+                        404
+                    )
+                }
+            }
+        } catch (e: Exception) {
+            try {
+                sendJsonResponse(
+                    output,
+                    JSONObject().put("success", false).put("message", e.message ?: "Kesalahan server").toString(),
+                    500
+                )
+            } catch (_: Exception) {
             }
         }
     }

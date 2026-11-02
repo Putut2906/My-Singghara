@@ -741,7 +741,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             try {
                 val result = cloudBackupManager.restoreFromCloud(context)
                 result.onSuccess { msg ->
-                    reloadFromSharedPrefs()
+                    refreshAfterRestore()
                     checkCloudBackupMetadata()
                     onResult(msg, true)
                 }.onFailure { err ->
@@ -1193,6 +1193,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         loadPrayerSoundSettings()
     }
 
+    private fun refreshAfterRestore() {
+        reloadFromSharedPrefs()
+        // Data pemulihan bisa mengubah jadwal; alarm harus dibangun ulang agar tetap sinkron.
+        NotificationScheduler.scheduleAlarms(getApplication())
+    }
+
     fun saveProfileName(newName: String) {
         sharedPrefs.edit().putString("profile_name", newName).apply()
         profileName = newName
@@ -1391,6 +1397,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     connectedWebDevices.clear()
                     connectedWebDevices.addAll(list)
                 }
+                onBackupRestored = {
+                    viewModelScope.launch {
+                        refreshAfterRestore()
+                        showToastPopup("Data aplikasi berhasil dipulihkan dari PC!", com.example.ui.components.ToastType.SUCCESS)
+                    }
+                }
             }
         } else {
             webServer?.onAccessRequested = { ip, _ ->
@@ -1404,6 +1416,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             webServer?.onDevicesChanged = { list ->
                 connectedWebDevices.clear()
                 connectedWebDevices.addAll(list)
+            }
+            webServer?.onBackupRestored = {
+                viewModelScope.launch {
+                    refreshAfterRestore()
+                    showToastPopup("Data aplikasi berhasil dipulihkan dari PC!", com.example.ui.components.ToastType.SUCCESS)
+                }
             }
         }
         webServer?.start(
@@ -2376,7 +2394,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             try {
                 val result = repository.importDataFromPublicDownload(context)
                 result.onSuccess {
-                    reloadFromSharedPrefs()
+                    refreshAfterRestore()
                     onResult(it, true)
                 }.onFailure {
                     onResult(it.message ?: "Gagal mengimpor data", false)
@@ -2426,7 +2444,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 val folderUri = android.net.Uri.parse(safFolderUriStr)
                 val result = repository.importDataFromSAF(context, folderUri)
                 result.onSuccess {
-                    reloadFromSharedPrefs()
+                    refreshAfterRestore()
                     onResult(it, true)
                 }.onFailure {
                     onResult(it.message ?: "Gagal mengimpor data", false)
