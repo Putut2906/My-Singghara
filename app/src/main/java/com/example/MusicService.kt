@@ -279,6 +279,15 @@ class MusicService : Service() {
         return START_STICKY
     }
 
+    override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {
+        super.onConfigurationChanged(newConfig)
+        // Terang/gelap sistem berubah saat lagu berjalan: bangun ulang kartu
+        // memakai warna dari kualifikasi resource yang baru.
+        if (currentTrackIndex in musicPlaylist.indices) {
+            updateMusicNotification()
+        }
+    }
+
     private fun startForegroundNotification() {
         val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         val channelId = "music_playback_channel"
@@ -810,11 +819,9 @@ class MusicService : Service() {
             builder.setPriority(Notification.PRIORITY_LOW)
         }
 
-        // Status bar must always show the app's own icon; album art only fills the large icon.
+        // Ikon status bar tetap milik aplikasi. Large icon tidak dipasang agar
+        // sampul hanya tampil sekali di kartu aplikasi, bukan lagi di sisi kanan header.
         builder.setSmallIcon(R.drawable.ic_stat_singghara)
-        if (albumArt != null) {
-            builder.setLargeIcon(albumArt)
-        }
 
         val notification = builder.build()
         currentMusicNotification = notification
