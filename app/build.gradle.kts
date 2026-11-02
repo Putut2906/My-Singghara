@@ -22,7 +22,7 @@ if (googleServicesHasThisApp) {
 
 android {
     namespace = "com.example"
-    compileSdk = 37
+    compileSdk = 36
 
     defaultConfig {
         applicationId = appPackageId
@@ -80,9 +80,6 @@ kotlin {
 }
 
 dependencies {
-    // Full J2ME-Loader engine + UI, embedded as a library module.
-    implementation(project(":j2meloader"))
-
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.lifecycle.viewmodel.compose)

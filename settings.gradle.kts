@@ -27,5 +27,3 @@ dependencyResolutionManagement {
 
 rootProject.name = "My Singghara"
 include(":app")
-include(":j2meloader")
-include(":dexlib")

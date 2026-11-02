@@ -1,11 +1,11 @@
 package com.example
 
+import android.app.Application
 import android.util.Log
 import com.google.firebase.FirebaseApp
 import com.google.firebase.FirebaseOptions
-import ru.playsoftware.j2meloader.EmulatorApplication
 
-class SinggharaApplication : EmulatorApplication() {
+class SinggharaApplication : Application() {
 
     override fun onCreate() {
         super.onCreate()
