@@ -28,6 +28,9 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
+import androidx.compose.foundation.lazy.grid.items as gridItems
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -37,6 +40,7 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Movie
@@ -45,6 +49,7 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Sort
 import androidx.compose.material.icons.filled.VideoLibrary
+import androidx.compose.material.icons.filled.ViewList
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -148,6 +153,7 @@ private fun VideoLibraryView(
     var sort by remember { mutableStateOf(VideoSort.DATE_DESC) }
     var sortMenuOpen by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
+    var gridView by remember { mutableStateOf(false) }
     var selectedFolder by remember { mutableStateOf<VideoFolder?>(null) }
     var showUrlDialog by remember { mutableStateOf(false) }
     var showPrivateFolder by remember { mutableStateOf(false) }
@@ -254,6 +260,13 @@ private fun VideoLibraryView(
                     }
                 }
             )
+            IconButton(onClick = { gridView = !gridView }) {
+                Icon(
+                    imageVector = if (gridView) Icons.Default.ViewList else Icons.Default.GridView,
+                    contentDescription = if (gridView) "Tampilan daftar terperinci" else "Tampilan kisi",
+                    tint = MaterialTheme.colorScheme.primary
+                )
+            }
             Box {
                 IconButton(onClick = { sortMenuOpen = true }) {
                     Icon(Icons.Default.Sort, contentDescription = "Urutkan")
@@ -296,24 +309,45 @@ private fun VideoLibraryView(
                 )
             }
             currentFolder == null -> {
-                LazyColumn(
-                    modifier = Modifier.fillMaxSize(),
-                    contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 12.dp, vertical = 8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    item {
-                        FolderRow(
-                            folder = allVideosFolder,
-                            label = "Semua Video",
-                            onClick = { selectedFolder = allVideosFolder }
-                        )
+                if (gridView) {
+                    LazyVerticalGrid(
+                        columns = GridCells.Fixed(2),
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        gridItems(
+                            items = listOf(allVideosFolder) + folders,
+                            key = { "${it.bucketId}-${it.name}" }
+                        ) { folder ->
+                            FolderGridCard(
+                                folder = folder,
+                                label = if (folder.bucketId == ALL_VIDEOS_BUCKET_ID) "Semua Video" else folder.name,
+                                onClick = { selectedFolder = folder }
+                            )
+                        }
                     }
-                    items(folders, key = { "${it.bucketId}-${it.name}" }) { folder ->
-                        FolderRow(
-                            folder = folder,
-                            label = folder.name,
-                            onClick = { selectedFolder = folder }
-                        )
+                } else {
+                    LazyColumn(
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        item {
+                            FolderRow(
+                                folder = allVideosFolder,
+                                label = "Semua Video",
+                                onClick = { selectedFolder = allVideosFolder }
+                            )
+                        }
+                        items(folders, key = { "${it.bucketId}-${it.name}" }) { folder ->
+                            FolderRow(
+                                folder = folder,
+                                label = folder.name,
+                                onClick = { selectedFolder = folder }
+                            )
+                        }
                     }
                 }
             }
@@ -342,10 +376,29 @@ private fun VideoLibraryView(
                             fontSize = 11.sp,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
+                        IconButton(onClick = { gridView = !gridView }) {
+                            Icon(
+                                imageVector = if (gridView) Icons.Default.ViewList else Icons.Default.GridView,
+                                contentDescription = if (gridView) "Tampilan daftar terperinci" else "Tampilan kisi",
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                        }
                     }
                     if (visibleVideos.isEmpty()) {
                         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                             Text("Tidak ada video di folder ini.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    } else if (gridView) {
+                        LazyVerticalGrid(
+                            columns = GridCells.Fixed(2),
+                            modifier = Modifier.fillMaxSize(),
+                            contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 12.dp, vertical = 8.dp),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            gridItems(visibleVideos, key = { it.uri.toString() }) { video ->
+                                VideoGridCard(item = video, onClick = { onPlay(video) })
+                            }
                         }
                     } else {
                         LazyColumn(
@@ -527,7 +580,7 @@ private fun VideoRow(item: VideoItem, onClick: () -> Unit) {
             modifier = Modifier.padding(8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            VideoThumbnail(item = item)
+            VideoThumbnail(item = item, modifier = Modifier.width(106.dp))
             Spacer(modifier = Modifier.width(12.dp))
             Column(modifier = Modifier.weight(1f)) {
                 Text(
@@ -561,14 +614,111 @@ private fun VideoRow(item: VideoItem, onClick: () -> Unit) {
 }
 
 @Composable
-private fun VideoThumbnail(item: VideoItem) {
+private fun FolderGridCard(folder: VideoFolder, label: String, onClick: () -> Unit) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick),
+        shape = RoundedCornerShape(14.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+    ) {
+        Column(modifier = Modifier.padding(10.dp)) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .aspectRatio(16f / 9f)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(MaterialTheme.colorScheme.primaryContainer),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    Icons.Default.Folder,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(34.dp)
+                )
+            }
+            Spacer(modifier = Modifier.height(8.dp))
+            Text(
+                text = label,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            Text(
+                text = "${folder.count} video • ${formatSize(folder.totalSize)}",
+                fontSize = 10.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+    }
+}
+
+@Composable
+private fun VideoGridCard(item: VideoItem, onClick: () -> Unit) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick),
+        shape = RoundedCornerShape(14.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+    ) {
+        Column {
+            Box {
+                VideoThumbnail(item = item, modifier = Modifier.fillMaxWidth())
+                if (item.durationMs > 0L) {
+                    Text(
+                        text = item.durationLabel,
+                        color = Color.White,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier
+                            .align(Alignment.BottomEnd)
+                            .padding(6.dp)
+                            .background(Color.Black.copy(alpha = 0.65f), RoundedCornerShape(4.dp))
+                            .padding(horizontal = 4.dp, vertical = 1.dp)
+                    )
+                }
+            }
+            Column(modifier = Modifier.padding(8.dp)) {
+                Text(
+                    text = item.name,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    text = listOfNotNull(
+                        item.sizeLabel.takeIf { item.sizeBytes > 0 },
+                        item.bucketName
+                    ).joinToString(" • "),
+                    fontSize = 10.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun VideoThumbnail(item: VideoItem, modifier: Modifier = Modifier) {
     val context = LocalContext.current
     val bitmap by produceState<Bitmap?>(initialValue = null, item.uri) {
         value = VideoLibraryScanner.loadThumbnail(context, item)
     }
     Box(
-        modifier = Modifier
-            .width(106.dp)
+        modifier = modifier
             .aspectRatio(16f / 9f)
             .clip(RoundedCornerShape(10.dp))
             .background(MaterialTheme.colorScheme.surfaceVariant),

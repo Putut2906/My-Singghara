@@ -18,9 +18,11 @@ import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.OptIn
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -63,6 +65,7 @@ import androidx.compose.material.icons.filled.ScreenRotation
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Subtitles
+import androidx.compose.material.icons.filled.VolumeOff
 import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
@@ -76,7 +79,6 @@ import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Slider
-import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -93,6 +95,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -445,6 +450,8 @@ internal fun VideoPlayerView(item: VideoItem, onClose: () -> Unit) {
                     var accumulatedSeekPx = 0f
                     var brightness = 0.5f
                     var volume = 0
+                    var startVolume = 0
+                    var volumeAccumPx = 0f
                     var startNearTop = false
                     val revealThresholdPx = 56.dp.toPx()
                     val maxVolume = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
@@ -452,10 +459,12 @@ internal fun VideoPlayerView(item: VideoItem, onClose: () -> Unit) {
                         onDragStart = { start ->
                             mode = 0
                             accumulatedSeekPx = 0f
+                            volumeAccumPx = 0f
                             startNearTop = start.y < revealThresholdPx
                             val currentBrightness = activity?.window?.attributes?.screenBrightness ?: -1f
                             brightness = if (currentBrightness < 0f) 0.5f else currentBrightness
-                            volume = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)
+                            startVolume = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)
+                            volume = startVolume
                         },
                         onDrag = { change, dragAmount ->
                             change.consume()
@@ -463,10 +472,10 @@ internal fun VideoPlayerView(item: VideoItem, onClose: () -> Unit) {
                             val height = size.height.toFloat().coerceAtLeast(1f)
                             if (mode == 0) {
                                 mode = when {
-                                    startNearTop && dragAmount.y > 0f -> 4
-                                    abs(dragAmount.x) > abs(dragAmount.y) -> 1
-                                    change.position.x < size.width / 2f -> 2
-                                    else -> 3
+                                    startNearTop && dragAmount.y > 0f && abs(dragAmount.y) > abs(dragAmount.x) -> 4
+                                    abs(dragAmount.y) >= abs(dragAmount.x) ->
+                                        if (change.position.x < size.width / 2f) 2 else 3
+                                    else -> 1
                                 }
                             }
                             when (mode) {
@@ -492,15 +501,17 @@ internal fun VideoPlayerView(item: VideoItem, onClose: () -> Unit) {
                                     hudText = "Kecerahan ${(brightness * 100).toInt()}%"
                                 }
                                 else -> {
-                                    val next = (volume - (dragAmount.y / height * maxVolume).toInt())
+                                    // Akumulasi delta agar usapan pendek tidak terpotong ke 0.
+                                    volumeAccumPx += dragAmount.y
+                                    val next = (startVolume - (volumeAccumPx / height * maxVolume).toInt())
                                         .coerceIn(0, maxVolume)
                                     if (next != volume) {
                                         audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, next, 0)
                                         volume = next
                                     }
-                                    hudIcon = Icons.Default.VolumeUp
+                                    hudIcon = if (volume == 0) Icons.Default.VolumeOff else Icons.Default.VolumeUp
                                     val percent = if (maxVolume > 0) volume * 100 / maxVolume else 0
-                                    hudText = "Volume $percent%"
+                                    hudText = if (volume == 0) "Suara mati" else "Volume $percent%"
                                 }
                             }
                         },
@@ -684,8 +695,9 @@ internal fun VideoPlayerView(item: VideoItem, onClose: () -> Unit) {
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Medium
                         )
-                        Slider(
+                        CompactSeekBar(
                             value = if (sliderDragging) sliderValue else positionMs.toFloat(),
+                            valueRange = 0f..durationMs.coerceAtLeast(1L).toFloat(),
                             onValueChange = {
                                 sliderDragging = true
                                 sliderValue = it
@@ -694,15 +706,9 @@ internal fun VideoPlayerView(item: VideoItem, onClose: () -> Unit) {
                                 seekToSafely(sliderValue.toLong())
                                 sliderDragging = false
                             },
-                            valueRange = 0f..durationMs.coerceAtLeast(1L).toFloat(),
                             modifier = Modifier
                                 .weight(1f)
-                                .padding(horizontal = 8.dp),
-                            colors = SliderDefaults.colors(
-                                thumbColor = Color.White,
-                                activeTrackColor = MaterialTheme.colorScheme.primary,
-                                inactiveTrackColor = Color.White.copy(alpha = 0.3f)
-                            )
+                                .padding(horizontal = 10.dp)
                         )
                         Text(
                             text = formatDuration(durationMs),
@@ -1423,6 +1429,72 @@ private fun MoreOptionsDialog(
             TextButton(onClick = onDismiss) { Text("Tutup") }
         }
     )
+}
+
+@Composable
+private fun CompactSeekBar(
+    value: Float,
+    valueRange: ClosedFloatingPointRange<Float>,
+    onValueChange: (Float) -> Unit,
+    onValueChangeFinished: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val activeColor = MaterialTheme.colorScheme.primary
+    val inactiveColor = Color.White.copy(alpha = 0.32f)
+    val span = (valueRange.endInclusive - valueRange.start).coerceAtLeast(1f)
+    val fraction = ((value - valueRange.start) / span).coerceIn(0f, 1f)
+    fun fractionAt(x: Float, width: Float): Float =
+        (x / width.coerceAtLeast(1f)).coerceIn(0f, 1f)
+
+    Canvas(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(24.dp)
+            .pointerInput(span) {
+                detectHorizontalDragGestures(
+                    onDragStart = { offset ->
+                        onValueChange(valueRange.start + fractionAt(offset.x, size.width.toFloat()) * span)
+                    },
+                    onHorizontalDrag = { change, _ ->
+                        change.consume()
+                        onValueChange(valueRange.start + fractionAt(change.position.x, size.width.toFloat()) * span)
+                    },
+                    onDragEnd = { onValueChangeFinished() },
+                    onDragCancel = { onValueChangeFinished() }
+                )
+            }
+            .pointerInput(span) {
+                detectTapGestures { offset ->
+                    onValueChange(valueRange.start + fractionAt(offset.x, size.width.toFloat()) * span)
+                    onValueChangeFinished()
+                }
+            }
+    ) {
+        val centerY = size.height / 2f
+        val trackHeight = 2.5.dp.toPx()
+        val thumbRadius = 6.dp.toPx()
+        val corner = CornerRadius(trackHeight / 2f)
+        drawRoundRect(
+            color = inactiveColor,
+            topLeft = Offset(0f, centerY - trackHeight / 2f),
+            size = Size(size.width, trackHeight),
+            cornerRadius = corner
+        )
+        if (fraction > 0f) {
+            drawRoundRect(
+                color = activeColor,
+                topLeft = Offset(0f, centerY - trackHeight / 2f),
+                size = Size(size.width * fraction, trackHeight),
+                cornerRadius = corner
+            )
+        }
+        val maxThumbX = (size.width - thumbRadius).coerceAtLeast(thumbRadius)
+        drawCircle(
+            color = Color.White,
+            radius = thumbRadius,
+            center = Offset((size.width * fraction).coerceIn(thumbRadius, maxThumbX), centerY)
+        )
+    }
 }
 
 private fun openSubtitleSearch(context: Context, videoName: String) {
