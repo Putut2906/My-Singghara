@@ -25,6 +25,7 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -43,6 +44,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.AspectRatio
 import androidx.compose.material.icons.filled.BrightnessHigh
 import androidx.compose.material.icons.filled.FastForward
 import androidx.compose.material.icons.filled.FastRewind
@@ -116,6 +118,7 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.AspectRatioFrameLayout
 import androidx.media3.ui.PlayerView
+import com.example.ui.video.VideoAspectRatio
 import com.example.ui.video.VideoItem
 import com.example.ui.video.VideoPrefs
 import com.example.ui.video.buildVideoPlayer
@@ -143,6 +146,7 @@ internal fun VideoPlayerView(item: VideoItem, onClose: () -> Unit) {
     var decoderMode by remember { mutableStateOf(VideoPrefs.loadDecoder(context)) }
     var subtitleSize by remember { mutableStateOf(VideoPrefs.loadSubtitleSize(context)) }
     var backgroundPlay by remember { mutableStateOf(VideoPrefs.loadBackgroundPlay(context)) }
+    var aspectRatio by remember { mutableStateOf(VideoPrefs.loadAspectRatio(context)) }
 
     var externalSubtitle by remember { mutableStateOf<Uri?>(null) }
     var appliedSubtitle by remember { mutableStateOf<Uri?>(null) }
@@ -172,6 +176,7 @@ internal fun VideoPlayerView(item: VideoItem, onClose: () -> Unit) {
     var showSubtitleDialog by remember { mutableStateOf(false) }
     var showEqualizerDialog by remember { mutableStateOf(false) }
     var showDecoderDialog by remember { mutableStateOf(false) }
+    var showAspectDialog by remember { mutableStateOf(false) }
     var showMoreDialog by remember { mutableStateOf(false) }
 
     val player = remember(recreateKey, decoderMode) {
@@ -204,14 +209,26 @@ internal fun VideoPlayerView(item: VideoItem, onClose: () -> Unit) {
     DisposableEffect(activity) {
         val window = activity?.window
         val originalBrightness = window?.attributes?.screenBrightness ?: -1f
+        val controller = window?.let { WindowInsetsControllerCompat(it, it.decorView) }
+        val previousLightStatusIcons = controller?.isAppearanceLightStatusBars
+        val previousLightNavIcons = controller?.isAppearanceLightNavigationBars
+        // Ikon status bar dibuat putih agar terbaca di atas video gelap.
+        controller?.isAppearanceLightStatusBars = false
+        controller?.isAppearanceLightNavigationBars = false
         onDispose {
             activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
             window?.let { w ->
                 val attrs = w.attributes
                 attrs.screenBrightness = originalBrightness
                 w.attributes = attrs
-                WindowInsetsControllerCompat(w, w.decorView)
-                    .show(WindowInsetsCompat.Type.systemBars())
+                val c = WindowInsetsControllerCompat(w, w.decorView)
+                if (previousLightStatusIcons != null) {
+                    c.isAppearanceLightStatusBars = previousLightStatusIcons
+                }
+                if (previousLightNavIcons != null) {
+                    c.isAppearanceLightNavigationBars = previousLightNavIcons
+                }
+                c.show(WindowInsetsCompat.Type.systemBars())
             }
         }
     }
@@ -241,6 +258,7 @@ internal fun VideoPlayerView(item: VideoItem, onClose: () -> Unit) {
 
             override fun onPlaybackStateChanged(playbackState: Int) {
                 isBuffering = playbackState == Player.STATE_BUFFERING
+                if (playbackState == Player.STATE_ENDED) controlsVisible = true
             }
 
             override fun onPlayerError(error: PlaybackException) {
@@ -262,6 +280,13 @@ internal fun VideoPlayerView(item: VideoItem, onClose: () -> Unit) {
         player.setPlaybackSpeed(speed)
     }
 
+    // Status subtitle (dan track pilihan) harus diterapkan ulang setiap player dibuat.
+    LaunchedEffect(player, subtitlesEnabled) {
+        player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
+            .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, !subtitlesEnabled)
+            .build()
+    }
+
     LaunchedEffect(player) {
         while (true) {
             positionMs = player.currentPosition.coerceAtLeast(0L)
@@ -273,8 +298,11 @@ internal fun VideoPlayerView(item: VideoItem, onClose: () -> Unit) {
         }
     }
 
-    LaunchedEffect(controlsVisible, isPlaying, locked, inPip) {
-        if (controlsVisible && isPlaying && !locked && !inPip) {
+    val anyDialogOpen = showSpeedDialog || showSubtitleDialog || showEqualizerDialog ||
+        showDecoderDialog || showAspectDialog || showMoreDialog
+
+    LaunchedEffect(controlsVisible, isPlaying, locked, inPip, anyDialogOpen) {
+        if (controlsVisible && isPlaying && !locked && !inPip && !anyDialogOpen) {
             delay(3800)
             controlsVisible = false
         }
@@ -326,6 +354,7 @@ internal fun VideoPlayerView(item: VideoItem, onClose: () -> Unit) {
 
     fun toggleOrientation() {
         val act = activity ?: return
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && act.isInPictureInPictureMode) return
         act.requestedOrientation =
             if (act.resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE) {
                 ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
@@ -359,21 +388,38 @@ internal fun VideoPlayerView(item: VideoItem, onClose: () -> Unit) {
             .fillMaxSize()
             .background(Color.Black)
     ) {
-        AndroidView(
-            factory = { ctx ->
-                PlayerView(ctx).apply {
-                    useController = false
-                    resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
-                    setShutterBackgroundColor(android.graphics.Color.BLACK)
-                    keepScreenOn = true
+        val forcedRatio = aspectRatio.ratio
+        Box(
+            modifier = Modifier.fillMaxSize(),
+            contentAlignment = Alignment.Center
+        ) {
+            AndroidView(
+                factory = { ctx ->
+                    PlayerView(ctx).apply {
+                        useController = false
+                        resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
+                        setShutterBackgroundColor(android.graphics.Color.BLACK)
+                        keepScreenOn = isPlaying
+                    }
+                },
+                update = { view ->
+                    if (view.player !== player) view.player = player
+                    view.subtitleView?.setFixedTextSize(TypedValue.COMPLEX_UNIT_SP, subtitleSize)
+                    view.resizeMode = when {
+                        aspectRatio == VideoAspectRatio.CROP -> AspectRatioFrameLayout.RESIZE_MODE_ZOOM
+                        forcedRatio != null -> AspectRatioFrameLayout.RESIZE_MODE_FILL
+                        else -> AspectRatioFrameLayout.RESIZE_MODE_FIT
+                    }
+                    // Jangan cegah layar tidur saat video dijeda; buffering aktif tetap menyala.
+                    view.keepScreenOn = isPlaying || (isBuffering && player.playWhenReady)
+                },
+                modifier = if (forcedRatio != null) {
+                    Modifier.aspectRatio(forcedRatio)
+                } else {
+                    Modifier.fillMaxSize()
                 }
-            },
-            update = { view ->
-                if (view.player !== player) view.player = player
-                view.subtitleView?.setFixedTextSize(TypedValue.COMPLEX_UNIT_SP, subtitleSize)
-            },
-            modifier = Modifier.fillMaxSize()
-        )
+            )
+        }
 
         Box(
             modifier = Modifier
@@ -812,12 +858,25 @@ internal fun VideoPlayerView(item: VideoItem, onClose: () -> Unit) {
         )
     }
 
+    if (showAspectDialog) {
+        AspectRatioDialog(
+            current = aspectRatio,
+            onSelect = {
+                aspectRatio = it
+                VideoPrefs.saveAspectRatio(context, it)
+                showAspectDialog = false
+            },
+            onDismiss = { showAspectDialog = false }
+        )
+    }
+
     if (showMoreDialog) {
         MoreOptionsDialog(
             backgroundPlay = backgroundPlay,
             speed = speed,
             subtitlesEnabled = subtitlesEnabled,
             decoderLabel = decoderMode.label,
+            aspectLabel = aspectRatio.label,
             isLandscape = isLandscape,
             onSpeed = {
                 showMoreDialog = false
@@ -834,6 +893,10 @@ internal fun VideoPlayerView(item: VideoItem, onClose: () -> Unit) {
             onDecoder = {
                 showMoreDialog = false
                 showDecoderDialog = true
+            },
+            onAspectRatio = {
+                showMoreDialog = false
+                showAspectDialog = true
             },
             onToggleOrientation = {
                 showMoreDialog = false
@@ -1153,6 +1216,54 @@ private fun LazyPresetList(
 }
 
 @Composable
+private fun AspectRatioDialog(
+    current: VideoAspectRatio,
+    onSelect: (VideoAspectRatio) -> Unit,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Aspek Rasio") },
+        text = {
+            Column(
+                modifier = Modifier
+                    .heightIn(max = 430.dp)
+                    .verticalScroll(rememberScrollState())
+            ) {
+                Text(
+                    "Pilih bentuk tampilan video. Rasio tertentu meregangkan video agar tepat memenuhi bingkai; \"Isi layar\" memotong tepi video.",
+                    fontSize = 11.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(modifier = Modifier.height(6.dp))
+                VideoAspectRatio.entries.forEach { option ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onSelect(option) }
+                            .padding(vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        RadioButton(
+                            selected = option == current,
+                            onClick = { onSelect(option) }
+                        )
+                        Text(
+                            text = option.label,
+                            fontSize = 13.sp,
+                            modifier = Modifier.padding(start = 4.dp)
+                        )
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) { Text("Tutup") }
+        }
+    )
+}
+
+@Composable
 private fun DecoderModeDialog(
     current: VideoPrefs.DecoderMode,
     onSelect: (VideoPrefs.DecoderMode) -> Unit,
@@ -1205,11 +1316,13 @@ private fun MoreOptionsDialog(
     speed: Float,
     subtitlesEnabled: Boolean,
     decoderLabel: String,
+    aspectLabel: String,
     isLandscape: Boolean,
     onSpeed: () -> Unit,
     onSubtitle: () -> Unit,
     onEqualizer: () -> Unit,
     onDecoder: () -> Unit,
+    onAspectRatio: () -> Unit,
     onToggleOrientation: () -> Unit,
     onBackgroundPlayChange: (Boolean) -> Unit,
     onLock: () -> Unit,
@@ -1249,6 +1362,12 @@ private fun MoreOptionsDialog(
                     title = "Mesin dekoder",
                     value = decoderLabel,
                     onClick = onDecoder
+                )
+                OptionRow(
+                    icon = Icons.Default.AspectRatio,
+                    title = "Aspek rasio",
+                    value = aspectLabel,
+                    onClick = onAspectRatio
                 )
                 OptionRow(
                     icon = Icons.Default.ScreenRotation,

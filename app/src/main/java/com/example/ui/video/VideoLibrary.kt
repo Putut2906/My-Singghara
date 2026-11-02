@@ -38,6 +38,29 @@ data class VideoFolder(
 
 enum class VideoSort { DATE_DESC, NAME_ASC, SIZE_DESC, DURATION_DESC }
 
+/**
+ * Pilihan aspek rasio tampilan. [ratio] null berarti mengikuti video aslinya;
+ * [stretch] true membuat video direntangkan agar tepat memenuhi rasio pilihan.
+ */
+enum class VideoAspectRatio(
+    val label: String,
+    val ratio: Float?,
+    val stretch: Boolean = false
+) {
+    FIT("Sesuai video", null),
+    CROP("Isi layar (crop)", null),
+    R16_9("16:9", 16f / 9f, true),
+    R4_3("4:3", 4f / 3f, true),
+    R185("1.85:1", 1.85f, true),
+    R239("2.39:1", 2.39f, true),
+    R235("2.35:1", 2.35f, true),
+    R2_1("2:1", 2f, true),
+    R9_16("9:16", 9f / 16f, true),
+    R1_1("1:1", 1f, true),
+    R4_5("4:5", 4f / 5f, true),
+    R2_3("2:3", 2f / 3f, true)
+}
+
 fun formatDuration(ms: Long): String {
     val totalSeconds = (ms / 1000L).coerceAtLeast(0L)
     val hours = totalSeconds / 3600L
@@ -224,6 +247,7 @@ object VideoPrefs {
     private const val KEY_DECODER = "decoder_mode"
     private const val KEY_SUBTITLE_SIZE = "subtitle_size"
     private const val KEY_BACKGROUND_PLAY = "background_play"
+    private const val KEY_ASPECT_RATIO = "aspect_ratio"
 
     enum class DecoderMode(val label: String, val description: String) {
         HW_PLUS("HW+", "Perangkat keras dengan cadangan perangkat lunak (paling kompatibel)"),
@@ -254,5 +278,14 @@ object VideoPrefs {
 
     fun saveBackgroundPlay(context: Context, enabled: Boolean) {
         prefs(context).edit().putBoolean(KEY_BACKGROUND_PLAY, enabled).apply()
+    }
+
+    fun loadAspectRatio(context: Context): VideoAspectRatio {
+        val raw = prefs(context).getString(KEY_ASPECT_RATIO, VideoAspectRatio.FIT.name)
+        return VideoAspectRatio.entries.firstOrNull { it.name == raw } ?: VideoAspectRatio.FIT
+    }
+
+    fun saveAspectRatio(context: Context, aspect: VideoAspectRatio) {
+        prefs(context).edit().putString(KEY_ASPECT_RATIO, aspect.name).apply()
     }
 }

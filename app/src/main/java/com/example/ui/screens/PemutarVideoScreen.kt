@@ -22,7 +22,9 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
@@ -190,6 +192,8 @@ private fun VideoLibraryView(
         modifier = Modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
+            .statusBarsPadding()
+            .navigationBarsPadding()
     ) {
         Row(
             modifier = Modifier
@@ -721,7 +725,7 @@ private fun PrivateFolderDialog(
                             contentAlignment = Alignment.Center
                         ) {
                             Text(
-                                "Belum ada video privat. Tekan Impor untuk memindahkan video ke sini.",
+                                "Belum ada video privat. Tekan Impor untuk menyalin video ke folder ini (file asli tetap ada di galeri).",
                                 fontSize = 12.sp,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 textAlign = androidx.compose.ui.text.style.TextAlign.Center,

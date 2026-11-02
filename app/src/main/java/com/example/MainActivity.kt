@@ -3544,14 +3544,23 @@ fun MainAppContent(viewModel: MainViewModel) {
                 }
             }
         ) { innerPadding ->
+            // Pemutar video menggambar edge-to-edge dan mengatur inset sendiri,
+            // supaya status bar tidak mendapat padding ganda dari Scaffold.
+            val fullscreenVideoPlayer = viewModel.currentRoute == "pemutar_video"
             Box(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(
                         start = 0.dp,
                         end = 0.dp,
-                        top = if (innerPadding.calculateTopPadding() > 0.dp) (innerPadding.calculateTopPadding() - 12.dp).coerceAtLeast(0.dp) else 0.dp,
-                        bottom = innerPadding.calculateBottomPadding()
+                        top = if (fullscreenVideoPlayer) {
+                            0.dp
+                        } else if (innerPadding.calculateTopPadding() > 0.dp) {
+                            (innerPadding.calculateTopPadding() - 12.dp).coerceAtLeast(0.dp)
+                        } else {
+                            0.dp
+                        },
+                        bottom = if (fullscreenVideoPlayer) 0.dp else innerPadding.calculateBottomPadding()
                     )
                     .background(MaterialTheme.colorScheme.background)
             ) {
