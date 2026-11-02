@@ -47,6 +47,7 @@ import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.ui.MainViewModel
@@ -1300,7 +1301,10 @@ fun PemutarMusikScreen(viewModel: MainViewModel, onOpenDrawer: () -> Unit) {
                                                                 val isActive = index == activeLyricIndex
                                                                 val scale by animateFloatAsState(
                                                                     targetValue = if (isActive) 1.15f else 0.9f,
-                                                                    animationSpec = spring(stiffness = Spring.StiffnessLow),
+                                                                    animationSpec = spring(
+                                                                        dampingRatio = Spring.DampingRatioMediumBouncy,
+                                                                        stiffness = Spring.StiffnessMediumLow
+                                                                    ),
                                                                     label = "scale"
                                                                 )
                                                                 val color by animateColorAsState(
@@ -1315,7 +1319,8 @@ fun PemutarMusikScreen(viewModel: MainViewModel, onOpenDrawer: () -> Unit) {
                                                                         pendingColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
                                                                         sungColor = MaterialTheme.colorScheme.primary,
                                                                         pendingWeight = FontWeight.Medium,
-                                                                        sungWeight = FontWeight.ExtraBold
+                                                                        sungWeight = FontWeight.ExtraBold,
+                                                                        baseFontSize = 12.sp
                                                                     )
                                                                 } else {
                                                                     buildAnnotatedString {
@@ -1340,6 +1345,7 @@ fun PemutarMusikScreen(viewModel: MainViewModel, onOpenDrawer: () -> Unit) {
                                                                     Text(
                                                                         text = textContent,
                                                                         fontSize = 12.sp,
+                                                                        lineHeight = 20.sp,
                                                                         textAlign = TextAlign.Center,
                                                                         modifier = Modifier.graphicsLayer(
                                                                             scaleX = scale,
@@ -2856,7 +2862,8 @@ fun buildKaraokeLine(
     pendingColor: Color,
     sungColor: Color,
     pendingWeight: FontWeight,
-    sungWeight: FontWeight
+    sungWeight: FontWeight,
+    baseFontSize: TextUnit
 ): AnnotatedString = buildAnnotatedString {
     if (line.words.isEmpty()) {
         withStyle(SpanStyle(color = pendingColor, fontWeight = pendingWeight)) {
@@ -2867,29 +2874,33 @@ fun buildKaraokeLine(
 
     line.words.forEach { word ->
         val wordDuration = (word.endMs - word.startMs).coerceAtLeast(1L)
-        val wordProgress = ((positionMs - word.startMs).toFloat() / wordDuration.toFloat()).coerceIn(0f, 1f)
+        val rawProgress = (positionMs - word.startMs).toFloat() / wordDuration.toFloat()
+        val wordProgress = rawProgress.coerceIn(0f, 1f)
         val chars = word.text
+        val charCount = chars.length.coerceAtLeast(1)
 
-        when {
-            wordProgress <= 0f -> withStyle(SpanStyle(color = pendingColor, fontWeight = pendingWeight)) {
+        if (wordProgress <= 0f) {
+            withStyle(SpanStyle(color = pendingColor, fontWeight = pendingWeight)) {
                 append(chars)
             }
-            wordProgress >= 1f -> withStyle(SpanStyle(color = sungColor, fontWeight = sungWeight)) {
-                append(chars)
-            }
-            else -> {
-                val charCount = chars.length.coerceAtLeast(1)
-                for (index in chars.indices) {
-                    val charProgress = ((wordProgress * charCount) - index).coerceIn(0f, 1f)
-                    withStyle(
-                        SpanStyle(
-                            color = lerp(pendingColor, sungColor, charProgress),
-                            fontWeight = if (charProgress > 0f) sungWeight else pendingWeight
-                        )
-                    ) {
-                        append(chars[index])
-                    }
-                }
+            return@forEach
+        }
+
+        // Posisi playhead dalam satuan huruf; gelombang pembesaran berjalan
+        // mengikuti huruf yang sedang dinyanyikan lalu meredup kembali.
+        val sungCharPosition = rawProgress * charCount
+        for (index in chars.indices) {
+            val charProgress = ((wordProgress * charCount) - index).coerceIn(0f, 1f)
+            val wave = (1f - kotlin.math.abs(sungCharPosition - index - 0.35f) / 1.8f)
+                .coerceIn(0f, 1f)
+            withStyle(
+                SpanStyle(
+                    color = lerp(pendingColor, sungColor, charProgress),
+                    fontWeight = if (charProgress > 0f) sungWeight else pendingWeight,
+                    fontSize = (baseFontSize.value * (1f + 0.18f * wave)).sp
+                )
+            ) {
+                append(chars[index])
             }
         }
     }
@@ -3785,7 +3796,10 @@ fun FullScreenLyricsView(
                             val isActive = index == activeLyricIndex
                             val scale by animateFloatAsState(
                                 targetValue = if (isActive) 1.25f else 0.85f,
-                                animationSpec = spring(stiffness = Spring.StiffnessLow),
+                                animationSpec = spring(
+                                    dampingRatio = Spring.DampingRatioMediumBouncy,
+                                    stiffness = Spring.StiffnessMediumLow
+                                ),
                                 label = "scale"
                             )
                             val color by animateColorAsState(
@@ -3800,7 +3814,8 @@ fun FullScreenLyricsView(
                                     pendingColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
                                     sungColor = MaterialTheme.colorScheme.primary,
                                     pendingWeight = FontWeight.Bold,
-                                    sungWeight = FontWeight.ExtraBold
+                                    sungWeight = FontWeight.ExtraBold,
+                                    baseFontSize = 18.sp
                                 )
                             } else {
                                 buildAnnotatedString {

@@ -11,12 +11,19 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.BitmapShader
+import android.graphics.Canvas
+import android.graphics.Paint
+import android.graphics.RectF
+import android.graphics.Shader
 import android.media.MediaMetadataRetriever
 import android.media.session.MediaSession
 import android.media.session.PlaybackState
 import android.net.Uri
 import android.os.Build
 import android.os.IBinder
+import android.os.SystemClock
+import android.widget.RemoteViews
 import android.widget.Toast
 import com.example.ui.MainViewModel
 import com.example.ui.MusicTrack
@@ -72,6 +79,11 @@ class MusicService : Service() {
     private var mediaSession: MediaSession? = null
     private val serviceScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
     private var progressJob: Job? = null
+
+    // Cache sampul agar RemoteViews tidak mendekode bitmap setiap kali notifikasi dibangun.
+    private var notificationArtUri: String? = null
+    private var notificationArtBitmap: Bitmap? = null
+    private var currentMusicNotification: Notification? = null
 
     private var audioManager: android.media.AudioManager? = null
     private var focusRequest: android.media.AudioFocusRequest? = null
@@ -156,6 +168,7 @@ class MusicService : Service() {
                     MainViewModel.instance?.isMusicShuffle = isMusicShuffle
                     updateMusicNotification()
                 }
+                "com.example.music.STOP" -> stopPlaybackAndDismiss()
             }
         }
     }
@@ -236,6 +249,7 @@ class MusicService : Service() {
             addAction("com.example.music.PLAY_PAUSE")
             addAction("com.example.music.NEXT")
             addAction("com.example.music.SHUFFLE")
+            addAction("com.example.music.STOP")
         }
         androidx.core.content.ContextCompat.registerReceiver(
             this,
@@ -402,6 +416,7 @@ class MusicService : Service() {
                 player.seekTo(positionMs)
                 musicPlaybackPosition = positionMs
                 MainViewModel.instance?.musicPlaybackPosition = positionMs
+                refreshNotificationProgress()
             } catch (e: Exception) {
                 // ignore
             }
@@ -547,6 +562,7 @@ class MusicService : Service() {
     private fun startProgressTracker() {
         progressJob?.cancel()
         progressJob = serviceScope.launch(Dispatchers.Main) {
+            var lastNotificationTick = 0L
             while (isMusicPlaying) {
                 mediaPlayer?.let { player ->
                     try {
@@ -554,6 +570,13 @@ class MusicService : Service() {
                             musicPlaybackPosition = player.currentPosition
                             MainViewModel.instance?.musicPlaybackPosition = player.currentPosition
                             updateMediaSessionState()
+                            // Bilah kemajuan di kartu notifikasi cukup diperbarui
+                            // sekali per detik agar hemat baterai.
+                            val now = SystemClock.elapsedRealtime()
+                            if (now - lastNotificationTick >= 1000L) {
+                                lastNotificationTick = now
+                                refreshNotificationProgress()
+                            }
                         }
                     } catch (e: Exception) {
                         // ignore
@@ -562,6 +585,26 @@ class MusicService : Service() {
                 delay(100)
             }
         }
+    }
+
+    private fun stopPlaybackAndDismiss() {
+        isMusicPlaying = false
+        MainViewModel.instance?.isMusicPlaying = false
+        musicPlaybackPosition = 0
+        MainViewModel.instance?.musicPlaybackPosition = 0
+        progressJob?.cancel()
+        try {
+            mediaPlayer?.pause()
+        } catch (e: Exception) {
+            // ignore
+        }
+        abandonAudioFocus()
+        currentMusicNotification = null
+        notificationArtUri = null
+        notificationArtBitmap = null
+        stopForeground(true)
+        (getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager).cancel(1001)
+        stopSelf()
     }
 
     private fun initMediaSession() {
@@ -628,6 +671,7 @@ class MusicService : Service() {
         val track = if (currentTrackIndex in musicPlaylist.indices) {
             musicPlaylist[currentTrackIndex]
         } else {
+            currentMusicNotification = null
             stopForeground(true)
             notificationManager.cancel(1001)
             return
@@ -636,21 +680,21 @@ class MusicService : Service() {
         initMediaSession()
         updateMediaSessionState()
 
+        val flags = PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         val prevIntent = PendingIntent.getBroadcast(
-            this, 1, Intent("com.example.music.PREVIOUS"),
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            this, 1, Intent("com.example.music.PREVIOUS"), flags
         )
         val playPauseIntent = PendingIntent.getBroadcast(
-            this, 2, Intent("com.example.music.PLAY_PAUSE"),
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            this, 2, Intent("com.example.music.PLAY_PAUSE"), flags
         )
         val nextIntent = PendingIntent.getBroadcast(
-            this, 3, Intent("com.example.music.NEXT"),
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            this, 3, Intent("com.example.music.NEXT"), flags
         )
         val shuffleIntent = PendingIntent.getBroadcast(
-            this, 4, Intent("com.example.music.SHUFFLE"),
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            this, 4, Intent("com.example.music.SHUFFLE"), flags
+        )
+        val stopIntent = PendingIntent.getBroadcast(
+            this, 5, Intent("com.example.music.STOP"), flags
         )
 
         val contentIntent = PendingIntent.getActivity(
@@ -658,10 +702,10 @@ class MusicService : Service() {
                 flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
                 putExtra("NAVIGATE_TO", "pemutar_musik")
             },
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            flags
         )
 
-        val albumArt = MainViewModel.instance?.getAlbumArtBitmap(this, track)
+        val albumArt = getNotificationArt(track)
 
         val duration = if (mediaPlayer != null) {
             try {
@@ -671,6 +715,12 @@ class MusicService : Service() {
             }
         } else {
             track.durationMs
+        }
+        val position = (mediaPlayer?.currentPosition ?: musicPlaybackPosition).coerceAtLeast(0).toLong()
+        val progress = if (duration > 0L) {
+            ((position * 1000L) / duration).toInt().coerceIn(0, 1000)
+        } else {
+            0
         }
 
         val metaBuilder = android.media.MediaMetadata.Builder()
@@ -684,79 +734,152 @@ class MusicService : Service() {
         }
         mediaSession?.setMetadata(metaBuilder.build())
 
+        // Kartu kontrol media milik aplikasi, bukan MediaStyle bawaan Android.
+        // Tampilan ringkas dipakai saat panel notifikasi belum dibentangkan,
+        // tampilan penuh saat notifikasi dibuka.
+        val compactViews = RemoteViews(packageName, R.layout.notification_music_player_compact).apply {
+            setTextViewText(R.id.notif_title, track.title)
+            setTextViewText(R.id.notif_artist, track.artist.ifBlank { "Folder Audio" })
+            setImageViewResource(
+                R.id.notif_play_pause,
+                if (isMusicPlaying) R.drawable.ic_notif_pause else R.drawable.ic_notif_play
+            )
+            setContentDescription(
+                R.id.notif_play_pause,
+                if (isMusicPlaying) "Jeda" else "Putar"
+            )
+            setOnClickPendingIntent(R.id.notif_play_pause, playPauseIntent)
+            setOnClickPendingIntent(R.id.notif_close, stopIntent)
+            if (albumArt != null) {
+                setImageViewBitmap(R.id.notif_album_art, albumArt)
+            } else {
+                setImageViewResource(R.id.notif_album_art, R.drawable.ic_notif_music)
+            }
+        }
+
+        val bigViews = RemoteViews(packageName, R.layout.notification_music_player).apply {
+            setTextViewText(R.id.notif_title, track.title)
+            setTextViewText(R.id.notif_artist, track.artist.ifBlank { "Folder Audio" })
+            setTextViewText(R.id.notif_elapsed, formatPlaybackTime(position))
+            setTextViewText(R.id.notif_duration, formatPlaybackTime(duration))
+            setProgressBar(R.id.notif_progress, 1000, progress, false)
+            setImageViewResource(
+                R.id.notif_play_pause,
+                if (isMusicPlaying) R.drawable.ic_notif_pause else R.drawable.ic_notif_play
+            )
+            setContentDescription(
+                R.id.notif_play_pause,
+                if (isMusicPlaying) "Jeda" else "Putar"
+            )
+            setOnClickPendingIntent(R.id.notif_prev, prevIntent)
+            setOnClickPendingIntent(R.id.notif_play_pause, playPauseIntent)
+            setOnClickPendingIntent(R.id.notif_next, nextIntent)
+            setOnClickPendingIntent(R.id.notif_shuffle, shuffleIntent)
+            setOnClickPendingIntent(R.id.notif_close, stopIntent)
+            setInt(
+                R.id.notif_shuffle,
+                "setColorFilter",
+                getColor(if (isMusicShuffle) R.color.notif_accent else R.color.notif_text_secondary)
+            )
+            if (albumArt != null) {
+                setImageViewBitmap(R.id.notif_album_art, albumArt)
+            } else {
+                setImageViewResource(R.id.notif_album_art, R.drawable.ic_notif_music)
+            }
+        }
+
         val builder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             Notification.Builder(this, channelId)
         } else {
             Notification.Builder(this)
         }
 
-        val playPauseIcon = if (isMusicPlaying) {
-            android.R.drawable.ic_media_pause
-        } else {
-            android.R.drawable.ic_media_play
-        }
-
         builder.setContentTitle(track.title)
             .setContentText(track.artist)
-            .setSubText("ponsel ini")
             .setContentIntent(contentIntent)
             .setVisibility(Notification.VISIBILITY_PUBLIC)
             .setOngoing(isMusicPlaying)
+            .setOnlyAlertOnce(true)
+            .setShowWhen(false)
+            .setStyle(Notification.DecoratedCustomViewStyle())
+            .setCustomContentView(compactViews)
+            .setCustomBigContentView(bigViews)
+
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
+            @Suppress("DEPRECATION")
+            builder.setPriority(Notification.PRIORITY_LOW)
+        }
 
         // Status bar must always show the app's own icon; album art only fills the large icon.
         builder.setSmallIcon(R.drawable.ic_stat_singghara)
-
         if (albumArt != null) {
             builder.setLargeIcon(albumArt)
         }
 
-        builder.addAction(
-            Notification.Action.Builder(
-                android.R.drawable.ic_media_previous,
-                "Previous",
-                prevIntent
-            ).build()
-        )
-        builder.addAction(
-            Notification.Action.Builder(
-                playPauseIcon,
-                "Play/Pause",
-                playPauseIntent
-            ).build()
-        )
-        builder.addAction(
-            Notification.Action.Builder(
-                android.R.drawable.ic_media_next,
-                "Next",
-                nextIntent
-            ).build()
-        )
-
-        val shuffleIcon = if (isMusicShuffle) {
-            android.R.drawable.ic_popup_sync
-        } else {
-            android.R.drawable.ic_menu_rotate
-        }
-        val shuffleLabel = if (isMusicShuffle) "Shuffle: Aktif" else "Shuffle: Mati"
-        builder.addAction(
-            Notification.Action.Builder(
-                shuffleIcon,
-                shuffleLabel,
-                shuffleIntent
-            ).build()
-        )
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-            val mediaStyle = Notification.MediaStyle()
-                .setShowActionsInCompactView(3, 0, 1, 2)
-            mediaSession?.let {
-                mediaStyle.setMediaSession(it.sessionToken)
-            }
-            builder.setStyle(mediaStyle)
-        }
-
         val notification = builder.build()
+        currentMusicNotification = notification
         startForeground(1001, notification)
+    }
+
+    /** Perbarui hanya waktu dan bilah kemajuan, tanpa membangun ulang bitmap sampul. */
+    private fun refreshNotificationProgress() {
+        val notification = currentMusicNotification ?: return
+        val duration = musicTotalDuration.toLong()
+        val position = musicPlaybackPosition.coerceAtLeast(0).toLong()
+        val progress = if (duration > 0L) {
+            ((position * 1000L) / duration).toInt().coerceIn(0, 1000)
+        } else {
+            0
+        }
+        val elapsed = formatPlaybackTime(position)
+        val total = formatPlaybackTime(duration)
+        // Tampilan ringkas tidak memuat bilah kemajuan; perbarui tampilan penuh.
+        val views = notification.bigContentView ?: return
+        views.setProgressBar(R.id.notif_progress, 1000, progress, false)
+        views.setTextViewText(R.id.notif_elapsed, elapsed)
+        views.setTextViewText(R.id.notif_duration, total)
+        try {
+            val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            notificationManager.notify(1001, notification)
+        } catch (e: Exception) {
+            // ignore
+        }
+    }
+
+    private fun getNotificationArt(track: MusicTrack): Bitmap? {
+        if (notificationArtUri == track.uriStr) return notificationArtBitmap
+        notificationArtUri = track.uriStr
+        val source = try {
+            MainViewModel.instance?.getAlbumArtBitmap(this, track)
+        } catch (e: Exception) {
+            null
+        }
+        notificationArtBitmap = source?.let { buildRoundedArt(it) }
+        return notificationArtBitmap
+    }
+
+    private fun buildRoundedArt(source: Bitmap): Bitmap {
+        val size = 192
+        val scaled = Bitmap.createScaledBitmap(source, size, size, true)
+        val output = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(output)
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            shader = BitmapShader(scaled, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP)
+        }
+        canvas.drawRoundRect(RectF(0f, 0f, size.toFloat(), size.toFloat()), 24f, 24f, paint)
+        return output
+    }
+
+    private fun formatPlaybackTime(ms: Long): String {
+        val totalSeconds = (ms / 1000L).coerceAtLeast(0L)
+        val hours = totalSeconds / 3600L
+        val minutes = (totalSeconds % 3600L) / 60L
+        val seconds = totalSeconds % 60L
+        return if (hours > 0L) {
+            String.format(java.util.Locale.US, "%d:%02d:%02d", hours, minutes, seconds)
+        } else {
+            String.format(java.util.Locale.US, "%d:%02d", minutes, seconds)
+        }
     }
 
     override fun onDestroy() {
