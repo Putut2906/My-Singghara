@@ -283,9 +283,8 @@ class MainActivity : FragmentActivity() {
         setContent {
             val configuration = LocalConfiguration.current
             val desktopMode = remember(configuration.uiMode, configuration.smallestScreenWidthDp) {
-                com.example.ui.screens.isDesktopModeActive(this@MainActivity)
+                isDesktopModeActive(this@MainActivity)
             }
-            var desktopUiDismissed by remember { mutableStateOf(false) }
             MyApplicationTheme {
                 Box(modifier = Modifier.fillMaxSize()) {
                     val isAccountBlocked = viewModel.isAccountBlocked &&
@@ -334,14 +333,7 @@ class MainActivity : FragmentActivity() {
                                     if (isLocked) Modifier.blur(24.dp) else Modifier
                                 )
                         ) {
-                            if (desktopMode && !desktopUiDismissed) {
-                                com.example.ui.screens.DesktopWebConnectScreen(
-                                    viewModel = viewModel,
-                                    onUseMobileUi = { desktopUiDismissed = true }
-                                )
-                            } else {
-                                MainAppContent(viewModel)
-                            }
+                            MainAppContent(viewModel = viewModel, desktopMode = desktopMode)
                         }
 
                         if (isLocked) {
@@ -645,9 +637,21 @@ class MainActivity : FragmentActivity() {
     }
 }
 
+// Samsung DeX aktif saat UiMode DESK, atau saat SemDesktopModeManager melaporkannya.
+private fun isDesktopModeActive(context: android.content.Context): Boolean {
+    val uiMode = context.resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_TYPE_MASK
+    if (uiMode == android.content.res.Configuration.UI_MODE_TYPE_DESK) return true
+    return try {
+        val manager = context.getSystemService("desktopmode")
+        manager?.javaClass?.getMethod("isDesktopMode")?.invoke(manager) as? Boolean ?: false
+    } catch (_: Throwable) {
+        false
+    }
+}
+
 @OptIn(ExperimentalAnimationApi::class, ExperimentalMaterial3Api::class)
 @Composable
-fun MainAppContent(viewModel: MainViewModel) {
+fun MainAppContent(viewModel: MainViewModel, desktopMode: Boolean = false) {
     val context = LocalContext.current
     var showInitialSafDialog by remember { mutableStateOf(false) }
 
@@ -1505,10 +1509,7 @@ fun MainAppContent(viewModel: MainViewModel) {
         )
     }
 
-    ModalNavigationDrawer(
-        drawerState = drawerState,
-        gesturesEnabled = drawerState.isOpen || (viewModel.currentRoute != "handy_talky" && viewModel.currentRoute != "immersive_file_viewer" && viewModel.currentRoute != "pemutar_video"),
-        drawerContent = {
+    val drawerSheetContent: @Composable () -> Unit = {
             ModalDrawerSheet(
                 modifier = Modifier.width(300.dp),
                 drawerContainerColor = MaterialTheme.colorScheme.surface,
@@ -2442,7 +2443,8 @@ fun MainAppContent(viewModel: MainViewModel) {
                 }
             }
         }
-    ) {
+
+    val appContent: @Composable () -> Unit = {
         Scaffold(
             modifier = Modifier.fillMaxSize(),
             topBar = {
@@ -2459,18 +2461,20 @@ fun MainAppContent(viewModel: MainViewModel) {
                             modifier = Modifier.height(48.dp),
                             windowInsets = WindowInsets(0, 0, 0, 0),
                             navigationIcon = {
-                                IconButton(
-                                    onClick = {
-                                        scope.launch {
-                                            if (drawerState.isClosed) drawerState.open() else drawerState.close()
-                                        }
-                                    },
-                                    modifier = Modifier.testTag("drawer_menu_button")
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Menu,
-                                        contentDescription = "Menu Navigasi"
-                                    )
+                                if (!desktopMode) {
+                                    IconButton(
+                                        onClick = {
+                                            scope.launch {
+                                                if (drawerState.isClosed) drawerState.open() else drawerState.close()
+                                            }
+                                        },
+                                        modifier = Modifier.testTag("drawer_menu_button")
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Menu,
+                                            contentDescription = "Menu Navigasi"
+                                        )
+                                    }
                                 }
                             },
                             actions = {
@@ -3906,6 +3910,37 @@ fun MainAppContent(viewModel: MainViewModel) {
                 feedbackState = currentAuthFeedback,
                 onDismiss = { viewModel.dismissAuthFeedback() }
             )
+        }
+    }
+
+    val hideNavigationSidebar = viewModel.currentRoute == "pemutar_video" ||
+        viewModel.currentRoute == "immersive_file_viewer" ||
+        viewModel.currentRoute == "handy_talky"
+
+    if (desktopMode) {
+        Row(modifier = Modifier.fillMaxSize()) {
+            if (!hideNavigationSidebar) {
+                Box(modifier = Modifier.width(300.dp).fillMaxHeight()) {
+                    drawerSheetContent()
+                }
+                Box(
+                    modifier = Modifier
+                        .width(1.dp)
+                        .fillMaxHeight()
+                        .background(MaterialTheme.colorScheme.outlineVariant)
+                )
+            }
+            Box(modifier = Modifier.weight(1f).fillMaxHeight()) {
+                appContent()
+            }
+        }
+    } else {
+        ModalNavigationDrawer(
+            drawerState = drawerState,
+            gesturesEnabled = drawerState.isOpen || !hideNavigationSidebar,
+            drawerContent = { drawerSheetContent() }
+        ) {
+            appContent()
         }
     }
 }
