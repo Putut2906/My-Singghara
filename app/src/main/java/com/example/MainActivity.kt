@@ -127,10 +127,12 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
@@ -2448,7 +2450,7 @@ fun MainAppContent(viewModel: MainViewModel, desktopMode: Boolean = false) {
         Scaffold(
             modifier = Modifier.fillMaxSize(),
             topBar = {
-                if (viewModel.currentRoute != "semua_transaksi_belanja" && viewModel.currentRoute != "semua_catatan_tabungan" && viewModel.currentRoute != "preview_catatan" && viewModel.currentRoute != "immersive_file_viewer" && viewModel.currentRoute != "quran" && viewModel.currentRoute != "transfer_file" && viewModel.currentRoute != "handy_talky" && viewModel.currentRoute != "pemutar_video" && !viewModel.hideGlobalTopAppBar) {
+                if (!desktopMode && viewModel.currentRoute != "semua_transaksi_belanja" && viewModel.currentRoute != "semua_catatan_tabungan" && viewModel.currentRoute != "preview_catatan" && viewModel.currentRoute != "immersive_file_viewer" && viewModel.currentRoute != "quran" && viewModel.currentRoute != "transfer_file" && viewModel.currentRoute != "handy_talky" && viewModel.currentRoute != "pemutar_video" && !viewModel.hideGlobalTopAppBar) {
                     Box(
                         modifier = Modifier
                             .statusBarsPadding()
@@ -3913,25 +3915,52 @@ fun MainAppContent(viewModel: MainViewModel, desktopMode: Boolean = false) {
         }
     }
 
+    val desktopWindowConfiguration = LocalConfiguration.current
+    val desktopUiScale = remember(desktopWindowConfiguration.screenWidthDp) {
+        when {
+            desktopWindowConfiguration.screenWidthDp >= 1600 -> 1.2f
+            desktopWindowConfiguration.screenWidthDp >= 1200 -> 1.12f
+            desktopWindowConfiguration.screenWidthDp >= 900 -> 1.05f
+            else -> 1.0f
+        }
+    }
+
     val hideNavigationSidebar = viewModel.currentRoute == "pemutar_video" ||
         viewModel.currentRoute == "immersive_file_viewer" ||
         viewModel.currentRoute == "handy_talky"
 
     if (desktopMode) {
-        Row(modifier = Modifier.fillMaxSize()) {
-            if (!hideNavigationSidebar) {
-                Box(modifier = Modifier.width(300.dp).fillMaxHeight()) {
-                    drawerSheetContent()
+        val baseDensity = LocalDensity.current
+        val desktopDensity = remember(baseDensity.density, baseDensity.fontScale, desktopUiScale) {
+            Density(baseDensity.density * desktopUiScale, baseDensity.fontScale * desktopUiScale)
+        }
+        CompositionLocalProvider(LocalDensity provides desktopDensity) {
+            Row(modifier = Modifier.fillMaxSize()) {
+                if (!hideNavigationSidebar) {
+                    Box(modifier = Modifier.width(300.dp).fillMaxHeight()) {
+                        drawerSheetContent()
+                    }
+                    Box(
+                        modifier = Modifier
+                            .width(1.dp)
+                            .fillMaxHeight()
+                            .background(MaterialTheme.colorScheme.outlineVariant)
+                    )
                 }
                 Box(
-                    modifier = Modifier
-                        .width(1.dp)
-                        .fillMaxHeight()
-                        .background(MaterialTheme.colorScheme.outlineVariant)
-                )
-            }
-            Box(modifier = Modifier.weight(1f).fillMaxHeight()) {
-                appContent()
+                    modifier = Modifier.weight(1f).fillMaxHeight(),
+                    contentAlignment = Alignment.TopCenter
+                ) {
+                    Box(
+                        modifier = if (hideNavigationSidebar) {
+                            Modifier.fillMaxSize()
+                        } else {
+                            Modifier.widthIn(max = 1440.dp).fillMaxSize()
+                        }
+                    ) {
+                        appContent()
+                    }
+                }
             }
         }
     } else {
