@@ -370,7 +370,7 @@ fun FirstInstallSetupScreen(
 }
 
 @Composable
-private fun AppLauncherIcon(
+internal fun AppLauncherIcon(
     modifier: Modifier = Modifier,
     contentDescription: String = "Logo Aplikasi"
 ) {

@@ -26,6 +26,8 @@ import androidx.compose.material.icons.filled.AdminPanelSettings
 import androidx.compose.material.icons.filled.Badge
 import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.outlined.Groups
+import androidx.compose.material.icons.filled.VideoLibrary
+import androidx.compose.material.icons.outlined.VideoLibrary
 import androidx.compose.material.icons.filled.DateRange
 import androidx.compose.material.icons.filled.DeleteForever
 import androidx.compose.material.icons.filled.Share
@@ -1489,7 +1491,7 @@ fun MainAppContent(viewModel: MainViewModel) {
 
     ModalNavigationDrawer(
         drawerState = drawerState,
-        gesturesEnabled = drawerState.isOpen || (viewModel.currentRoute != "handy_talky" && viewModel.currentRoute != "immersive_file_viewer"),
+        gesturesEnabled = drawerState.isOpen || (viewModel.currentRoute != "handy_talky" && viewModel.currentRoute != "immersive_file_viewer" && viewModel.currentRoute != "pemutar_video"),
         drawerContent = {
             ModalDrawerSheet(
                 modifier = Modifier.width(300.dp),
@@ -1966,6 +1968,50 @@ fun MainAppContent(viewModel: MainViewModel) {
                         }
                     }
 
+                    // Menu Utama: Pemutar Video (Boxed Group Card, di luar sub menu Manajemen Mandiri)
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 14.dp, vertical = 6.dp)
+                            .border(
+                                width = 1.dp,
+                                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
+                                shape = RoundedCornerShape(12.dp)
+                            )
+                            .background(
+                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.1f),
+                                shape = RoundedCornerShape(12.dp)
+                            )
+                            .padding(vertical = 8.dp)
+                    ) {
+                        val isVideoPlayerSelected = viewModel.currentRoute == "pemutar_video"
+                        NavigationDrawerItem(
+                            icon = {
+                                Icon(
+                                    imageVector = if (isVideoPlayerSelected) Icons.Default.VideoLibrary else Icons.Outlined.VideoLibrary,
+                                    contentDescription = "Pemutar Video",
+                                    tint = if (isVideoPlayerSelected) MaterialTheme.colorScheme.primary else Color(0xFF7C3AED)
+                                )
+                            },
+                            label = { Text(text = "Pemutar Video", fontWeight = FontWeight.SemiBold, fontSize = 13.sp) },
+                            selected = isVideoPlayerSelected,
+                            onClick = {
+                                viewModel.currentRoute = "pemutar_video"
+                                scope.launch { drawerState.close() }
+                            },
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                            colors = NavigationDrawerItemDefaults.colors(
+                                selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                                selectedTextColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                                selectedIconColor = MaterialTheme.colorScheme.primary,
+                                unselectedContainerColor = Color.Transparent,
+                                unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
+                            )
+                        )
+                    }
+
                     // Menu Utama: Arisan Keluarga (Boxed Group Card, seragam dengan Beranda)
                     Column(
                         modifier = Modifier
@@ -2366,7 +2412,7 @@ fun MainAppContent(viewModel: MainViewModel) {
         Scaffold(
             modifier = Modifier.fillMaxSize(),
             topBar = {
-                if (viewModel.currentRoute != "semua_transaksi_belanja" && viewModel.currentRoute != "semua_catatan_tabungan" && viewModel.currentRoute != "preview_catatan" && viewModel.currentRoute != "immersive_file_viewer" && viewModel.currentRoute != "quran" && viewModel.currentRoute != "transfer_file" && viewModel.currentRoute != "handy_talky" && !viewModel.hideGlobalTopAppBar) {
+                if (viewModel.currentRoute != "semua_transaksi_belanja" && viewModel.currentRoute != "semua_catatan_tabungan" && viewModel.currentRoute != "preview_catatan" && viewModel.currentRoute != "immersive_file_viewer" && viewModel.currentRoute != "quran" && viewModel.currentRoute != "transfer_file" && viewModel.currentRoute != "handy_talky" && viewModel.currentRoute != "pemutar_video" && !viewModel.hideGlobalTopAppBar) {
                     Box(
                         modifier = Modifier
                             .statusBarsPadding()
@@ -3491,7 +3537,7 @@ fun MainAppContent(viewModel: MainViewModel) {
                 }
             },
             bottomBar = {
-                val hideBottomBarRoutes = listOf("jurnal_umum", "buku_besar", "neraca_saldo", "jurnal_penyesuaian", "neraca_saldo_disesuaikan", "laba_rugi", "jurnal_penutup", "neraca_saldo_setelah_tutup", "pemutar_musik", "pembukuan_usaha", "semua_transaksi_belanja", "semua_catatan_tabungan", "preview_catatan", "immersive_file_viewer", "quran", "handy_talky", "telegram_ai")
+                val hideBottomBarRoutes = listOf("jurnal_umum", "buku_besar", "neraca_saldo", "jurnal_penyesuaian", "neraca_saldo_disesuaikan", "laba_rugi", "jurnal_penutup", "neraca_saldo_setelah_tutup", "pemutar_musik", "pemutar_video", "pembukuan_usaha", "semua_transaksi_belanja", "semua_catatan_tabungan", "preview_catatan", "immersive_file_viewer", "quran", "handy_talky", "telegram_ai")
                 val isEditingNote = viewModel.currentRoute == "catatan" && viewModel.selectedNote != null
                 if (viewModel.isBottomBarVisible && !hideBottomBarRoutes.contains(viewModel.currentRoute) && !isEditingNote) {
                     BottomNavBar(viewModel = viewModel)
@@ -3692,6 +3738,10 @@ fun MainAppContent(viewModel: MainViewModel) {
                             }
                         )
                         "pemutar_musik" -> PemutarMusikScreen(viewModel = viewModel, onOpenDrawer = { scope.launch { drawerState.open() } })
+                        "pemutar_video" -> com.example.ui.screens.PemutarVideoScreen(
+                            viewModel = viewModel,
+                            onBack = { viewModel.currentRoute = "home" }
+                        )
                         "pembukuan_usaha" -> PembukuanScreen(viewModel = viewModel)
                         "my_kasir" -> MyKasirScreen(viewModel = viewModel)
                         "jurnal_umum" -> JurnalUmumScreen(

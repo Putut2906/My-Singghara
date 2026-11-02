@@ -761,26 +761,14 @@ fun TentangAplikasiScreen(
                             .padding(20.dp),
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
-                        // App Logo Badge
-                        Box(
+                        // App Logo Badge: memakai ikon launcher aplikasi agar seragam
+                        AppLauncherIcon(
                             modifier = Modifier
                                 .size(76.dp)
-                                .clip(RoundedCornerShape(20.dp))
-                                .background(
-                                    Brush.linearGradient(
-                                        listOf(Color(0xFF0F766E), Color(0xFF14B8A6), Color(0xFF0284C7))
-                                    )
-                                )
-                                .shadow(6.dp, RoundedCornerShape(20.dp)),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.CloudSync,
-                                contentDescription = "My Singghara Logo",
-                                tint = Color.White,
-                                modifier = Modifier.size(42.dp)
-                            )
-                        }
+                                .shadow(6.dp, RoundedCornerShape(20.dp))
+                                .clip(RoundedCornerShape(20.dp)),
+                            contentDescription = "Logo My Singghara"
+                        )
 
                         Spacer(modifier = Modifier.height(12.dp))
 
