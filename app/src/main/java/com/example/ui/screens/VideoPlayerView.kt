@@ -5,6 +5,8 @@ import android.app.PictureInPictureParams
 import android.content.Context
 import android.content.ContextWrapper
 import android.content.Intent
+import android.content.pm.ActivityInfo
+import android.content.res.Configuration
 import android.media.AudioManager
 import android.media.audiofx.BassBoost
 import android.media.audiofx.Equalizer
@@ -20,7 +22,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -51,10 +52,13 @@ import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material.icons.filled.Memory
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PictureInPictureAlt
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Replay10
+import androidx.compose.material.icons.filled.ScreenRotation
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Subtitles
 import androidx.compose.material.icons.filled.VolumeUp
@@ -90,6 +94,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.input.pointer.pointerInput
@@ -98,6 +103,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.media3.common.C
@@ -131,6 +138,7 @@ internal fun VideoPlayerView(item: VideoItem, onClose: () -> Unit) {
     }
     val lifecycleOwner = LocalLifecycleOwner.current
     val scope = rememberCoroutineScope()
+    val isLandscape = LocalConfiguration.current.orientation == Configuration.ORIENTATION_LANDSCAPE
 
     var decoderMode by remember { mutableStateOf(VideoPrefs.loadDecoder(context)) }
     var subtitleSize by remember { mutableStateOf(VideoPrefs.loadSubtitleSize(context)) }
@@ -197,12 +205,32 @@ internal fun VideoPlayerView(item: VideoItem, onClose: () -> Unit) {
         val window = activity?.window
         val originalBrightness = window?.attributes?.screenBrightness ?: -1f
         onDispose {
+            activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
             window?.let { w ->
                 val attrs = w.attributes
                 attrs.screenBrightness = originalBrightness
                 w.attributes = attrs
+                WindowInsetsControllerCompat(w, w.decorView)
+                    .show(WindowInsetsCompat.Type.systemBars())
             }
         }
+    }
+
+    // Fullscreen immersive: status/navigation bar tampil bersama kontrol dan
+    // tersembunyi saat kontrol auto-hide (usap dari tepi atas memunculkannya lagi).
+    DisposableEffect(activity, controlsVisible, locked) {
+        val window = activity?.window
+        if (window != null) {
+            val controller = WindowInsetsControllerCompat(window, window.decorView)
+            controller.systemBarsBehavior =
+                WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            if (!locked && controlsVisible) {
+                controller.show(WindowInsetsCompat.Type.systemBars())
+            } else {
+                controller.hide(WindowInsetsCompat.Type.systemBars())
+            }
+        }
+        onDispose { }
     }
 
     val playerListener = remember {
@@ -296,6 +324,16 @@ internal fun VideoPlayerView(item: VideoItem, onClose: () -> Unit) {
         }
     }
 
+    fun toggleOrientation() {
+        val act = activity ?: return
+        act.requestedOrientation =
+            if (act.resources.configuration.orientation == Configuration.ORIENTATION_LANDSCAPE) {
+                ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT
+            } else {
+                ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
+            }
+    }
+
     fun enterPip() {
         val act = activity ?: return
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -361,11 +399,14 @@ internal fun VideoPlayerView(item: VideoItem, onClose: () -> Unit) {
                     var accumulatedSeekPx = 0f
                     var brightness = 0.5f
                     var volume = 0
+                    var startNearTop = false
+                    val revealThresholdPx = 56.dp.toPx()
                     val maxVolume = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
                     detectDragGestures(
-                        onDragStart = {
+                        onDragStart = { start ->
                             mode = 0
                             accumulatedSeekPx = 0f
+                            startNearTop = start.y < revealThresholdPx
                             val currentBrightness = activity?.window?.attributes?.screenBrightness ?: -1f
                             brightness = if (currentBrightness < 0f) 0.5f else currentBrightness
                             volume = audioManager.getStreamVolume(AudioManager.STREAM_MUSIC)
@@ -375,15 +416,19 @@ internal fun VideoPlayerView(item: VideoItem, onClose: () -> Unit) {
                             val width = size.width.toFloat().coerceAtLeast(1f)
                             val height = size.height.toFloat().coerceAtLeast(1f)
                             if (mode == 0) {
-                                mode = if (abs(dragAmount.x) > abs(dragAmount.y)) {
-                                    1
-                                } else if (change.position.x < size.width / 2f) {
-                                    2
-                                } else {
-                                    3
+                                mode = when {
+                                    startNearTop && dragAmount.y > 0f -> 4
+                                    abs(dragAmount.x) > abs(dragAmount.y) -> 1
+                                    change.position.x < size.width / 2f -> 2
+                                    else -> 3
                                 }
                             }
                             when (mode) {
+                                4 -> {
+                                    controlsVisible = true
+                                    hudText = null
+                                    hudIcon = null
+                                }
                                 1 -> {
                                     accumulatedSeekPx += dragAmount.x
                                     val deltaMs = (accumulatedSeekPx / width * 90_000f).toLong()
@@ -502,10 +547,13 @@ internal fun VideoPlayerView(item: VideoItem, onClose: () -> Unit) {
                         )
                     }
                     IconButton(
-                        onClick = { enterPip() },
+                        onClick = { toggleOrientation() },
                         colors = IconButtonDefaults.iconButtonColors(contentColor = Color.White)
                     ) {
-                        Icon(Icons.Default.PictureInPictureAlt, contentDescription = "Mode PIP")
+                        Icon(
+                            Icons.Default.ScreenRotation,
+                            contentDescription = if (isLandscape) "Mode potret" else "Mode lanskap"
+                        )
                     }
                     IconButton(
                         onClick = {
@@ -617,34 +665,6 @@ internal fun VideoPlayerView(item: VideoItem, onClose: () -> Unit) {
                             fontWeight = FontWeight.Medium
                         )
                     }
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .horizontalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        PlayerChip(
-                            label = if (speed == 1f) "Kecepatan 1x" else "Kecepatan ${speed}x",
-                            icon = Icons.Default.Speed,
-                            onClick = { showSpeedDialog = true }
-                        )
-                        PlayerChip(
-                            label = if (subtitlesEnabled) "Subtitle" else "Subtitle Off",
-                            icon = Icons.Default.Subtitles,
-                            onClick = { showSubtitleDialog = true }
-                        )
-                        PlayerChip(
-                            label = "Equalizer",
-                            icon = Icons.Default.GraphicEq,
-                            onClick = { showEqualizerDialog = true }
-                        )
-                        PlayerChip(
-                            label = "Dekoder ${decoderMode.label}",
-                            icon = Icons.Default.Memory,
-                            onClick = { showDecoderDialog = true }
-                        )
-                    }
                 }
             }
 
@@ -666,7 +686,10 @@ internal fun VideoPlayerView(item: VideoItem, onClose: () -> Unit) {
                         shape = CircleShape,
                         color = Color.Black.copy(alpha = 0.45f)
                     ) {
-                        IconButton(onClick = { locked = false }) {
+                        IconButton(onClick = {
+                            locked = false
+                            controlsVisible = true
+                        }) {
                             Icon(
                                 Icons.Default.LockOpen,
                                 contentDescription = "Buka kunci layar",
@@ -792,6 +815,30 @@ internal fun VideoPlayerView(item: VideoItem, onClose: () -> Unit) {
     if (showMoreDialog) {
         MoreOptionsDialog(
             backgroundPlay = backgroundPlay,
+            speed = speed,
+            subtitlesEnabled = subtitlesEnabled,
+            decoderLabel = decoderMode.label,
+            isLandscape = isLandscape,
+            onSpeed = {
+                showMoreDialog = false
+                showSpeedDialog = true
+            },
+            onSubtitle = {
+                showMoreDialog = false
+                showSubtitleDialog = true
+            },
+            onEqualizer = {
+                showMoreDialog = false
+                showEqualizerDialog = true
+            },
+            onDecoder = {
+                showMoreDialog = false
+                showDecoderDialog = true
+            },
+            onToggleOrientation = {
+                showMoreDialog = false
+                toggleOrientation()
+            },
             onBackgroundPlayChange = {
                 backgroundPlay = it
                 VideoPrefs.saveBackgroundPlay(context, it)
@@ -819,21 +866,30 @@ internal fun VideoPlayerView(item: VideoItem, onClose: () -> Unit) {
 }
 
 @Composable
-private fun PlayerChip(label: String, icon: ImageVector, onClick: () -> Unit) {
-    Surface(
-        shape = RoundedCornerShape(10.dp),
-        color = Color.White.copy(alpha = 0.14f),
+private fun OptionRow(
+    icon: ImageVector,
+    title: String,
+    value: String? = null,
+    onClick: () -> Unit
+) {
+    Row(
         modifier = Modifier
-            .clip(RoundedCornerShape(10.dp))
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(8.dp))
             .clickable(onClick = onClick)
+            .padding(horizontal = 8.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        Row(
-            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Icon(icon, contentDescription = null, tint = Color.White, modifier = Modifier.size(14.dp))
-            Spacer(modifier = Modifier.width(5.dp))
-            Text(label, color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Medium)
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.size(18.dp)
+        )
+        Spacer(modifier = Modifier.width(10.dp))
+        Text(text = title, fontSize = 13.sp, modifier = Modifier.weight(1f))
+        if (value != null) {
+            Text(text = value, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
 }
@@ -1146,6 +1202,15 @@ private fun DecoderModeDialog(
 @Composable
 private fun MoreOptionsDialog(
     backgroundPlay: Boolean,
+    speed: Float,
+    subtitlesEnabled: Boolean,
+    decoderLabel: String,
+    isLandscape: Boolean,
+    onSpeed: () -> Unit,
+    onSubtitle: () -> Unit,
+    onEqualizer: () -> Unit,
+    onDecoder: () -> Unit,
+    onToggleOrientation: () -> Unit,
     onBackgroundPlayChange: (Boolean) -> Unit,
     onLock: () -> Unit,
     onPip: () -> Unit,
@@ -1157,11 +1222,47 @@ private fun MoreOptionsDialog(
         onDismissRequest = onDismiss,
         title = { Text("Opsi Pemutaran") },
         text = {
-            Column {
+            Column(
+                modifier = Modifier
+                    .heightIn(max = 460.dp)
+                    .verticalScroll(rememberScrollState())
+            ) {
+                OptionRow(
+                    icon = Icons.Default.Speed,
+                    title = "Kecepatan putar",
+                    value = if (speed == 1f) "1x" else "${speed}x",
+                    onClick = onSpeed
+                )
+                OptionRow(
+                    icon = Icons.Default.Subtitles,
+                    title = "Subtitle",
+                    value = if (subtitlesEnabled) "Aktif" else "Nonaktif",
+                    onClick = onSubtitle
+                )
+                OptionRow(
+                    icon = Icons.Default.GraphicEq,
+                    title = "Equalizer & suara",
+                    onClick = onEqualizer
+                )
+                OptionRow(
+                    icon = Icons.Default.Memory,
+                    title = "Mesin dekoder",
+                    value = decoderLabel,
+                    onClick = onDecoder
+                )
+                OptionRow(
+                    icon = Icons.Default.ScreenRotation,
+                    title = "Orientasi layar",
+                    value = if (isLandscape) "Lanskap" else "Potret",
+                    onClick = onToggleOrientation
+                )
+
+                HorizontalDivider(modifier = Modifier.padding(vertical = 6.dp))
+
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(vertical = 4.dp),
+                        .padding(horizontal = 8.dp, vertical = 6.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Column(modifier = Modifier.weight(1f)) {
@@ -1174,19 +1275,29 @@ private fun MoreOptionsDialog(
                     }
                     Switch(checked = backgroundPlay, onCheckedChange = onBackgroundPlayChange)
                 }
-                HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
-                TextButton(onClick = onLock, modifier = Modifier.fillMaxWidth()) {
-                    Text("Kunci layar (Kids Lock)", modifier = Modifier.fillMaxWidth())
-                }
-                TextButton(onClick = onPip, modifier = Modifier.fillMaxWidth()) {
-                    Text("Popup Play (Picture-in-Picture)", modifier = Modifier.fillMaxWidth())
-                }
-                TextButton(onClick = onOpenExternal, modifier = Modifier.fillMaxWidth()) {
-                    Text("Buka dengan aplikasi lain", modifier = Modifier.fillMaxWidth())
-                }
-                TextButton(onClick = onShare, modifier = Modifier.fillMaxWidth()) {
-                    Text("Bagikan video", modifier = Modifier.fillMaxWidth())
-                }
+
+                HorizontalDivider(modifier = Modifier.padding(vertical = 6.dp))
+
+                OptionRow(
+                    icon = Icons.Default.Lock,
+                    title = "Kunci layar (Kids Lock)",
+                    onClick = onLock
+                )
+                OptionRow(
+                    icon = Icons.Default.PictureInPictureAlt,
+                    title = "Popup Play (Picture-in-Picture)",
+                    onClick = onPip
+                )
+                OptionRow(
+                    icon = Icons.Default.OpenInNew,
+                    title = "Buka dengan aplikasi lain",
+                    onClick = onOpenExternal
+                )
+                OptionRow(
+                    icon = Icons.Default.Share,
+                    title = "Bagikan video",
+                    onClick = onShare
+                )
             }
         },
         confirmButton = {
