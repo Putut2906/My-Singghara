@@ -680,21 +680,21 @@ class MusicService : Service() {
         initMediaSession()
         updateMediaSessionState()
 
-        val flags = PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        val pendingFlags = PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         val prevIntent = PendingIntent.getBroadcast(
-            this, 1, Intent("com.example.music.PREVIOUS"), flags
+            this, 1, Intent("com.example.music.PREVIOUS"), pendingFlags
         )
         val playPauseIntent = PendingIntent.getBroadcast(
-            this, 2, Intent("com.example.music.PLAY_PAUSE"), flags
+            this, 2, Intent("com.example.music.PLAY_PAUSE"), pendingFlags
         )
         val nextIntent = PendingIntent.getBroadcast(
-            this, 3, Intent("com.example.music.NEXT"), flags
+            this, 3, Intent("com.example.music.NEXT"), pendingFlags
         )
         val shuffleIntent = PendingIntent.getBroadcast(
-            this, 4, Intent("com.example.music.SHUFFLE"), flags
+            this, 4, Intent("com.example.music.SHUFFLE"), pendingFlags
         )
         val stopIntent = PendingIntent.getBroadcast(
-            this, 5, Intent("com.example.music.STOP"), flags
+            this, 5, Intent("com.example.music.STOP"), pendingFlags
         )
 
         val contentIntent = PendingIntent.getActivity(
@@ -702,7 +702,7 @@ class MusicService : Service() {
                 flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
                 putExtra("NAVIGATE_TO", "pemutar_musik")
             },
-            flags
+            pendingFlags
         )
 
         val albumArt = getNotificationArt(track)
