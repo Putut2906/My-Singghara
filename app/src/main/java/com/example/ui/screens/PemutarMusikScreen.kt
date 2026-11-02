@@ -37,6 +37,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
@@ -45,6 +46,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.ui.MainViewModel
@@ -194,10 +196,18 @@ fun PemutarMusikScreen(viewModel: MainViewModel, onOpenDrawer: () -> Unit) {
     // Lyrics and Custom Album Art state
     var isLyricsMode by remember { mutableStateOf(false) }
     var lyricsEditMode by remember { mutableStateOf(false) }
-    var lyricTabSelected by remember { mutableStateOf(1) } // Default to 1 (Input Manual), removing 0 (Lirik File)
     var manualLyricsText by remember { mutableStateOf("") }
     var isLyricsFullScreen by remember { mutableStateOf(false) }
     var fileLyricsText by remember { mutableStateOf("") }
+
+    // Lirik manual (bila pengguna menyimpannya) menjadi koreksi; selain itu lirik
+    // yang tertanam di file audio ditampilkan otomatis saat lagu diputar.
+    val activeLyricsText = manualLyricsText.ifBlank { fileLyricsText }
+    val lyricsSourceLabel = when {
+        manualLyricsText.isNotBlank() -> "Lirik manual"
+        fileLyricsText.isNotBlank() -> "Lirik tertanam"
+        else -> "Lirik"
+    }
 
     val backupLyricsLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.CreateDocument("application/json")
@@ -246,8 +256,14 @@ fun PemutarMusikScreen(viewModel: MainViewModel, onOpenDrawer: () -> Unit) {
             isLyricsFullScreen = false // Reset full screen lyrics when changing tracks
             
             // Extract lyrics from the file in background thread
-            fileLyricsText = withContext(Dispatchers.IO) {
+            val embeddedLyrics = withContext(Dispatchers.IO) {
                 getEmbeddedLyrics(context, activeTrack.uriStr) ?: ""
+            }
+            fileLyricsText = embeddedLyrics
+
+            // Lagu yang membawa lirik tertanam langsung menampilkan lirik saat diputar.
+            if (embeddedLyrics.isNotBlank()) {
+                isLyricsMode = true
             }
         } else {
             fileLyricsText = ""
@@ -906,20 +922,18 @@ fun PemutarMusikScreen(viewModel: MainViewModel, onOpenDrawer: () -> Unit) {
                                     .padding(horizontal = 16.dp)
                                     .align(Alignment.CenterHorizontally)
                             ) {
-                                val currentLyrics = remember(activeTrack, lyricTabSelected, manualLyricsText, viewModel.musicTotalDuration) {
-                                    if (activeTrack == null) emptyList()
-                                    else {
-                                        if (lyricTabSelected == 0) {
-                                            if (fileLyricsText.isBlank()) emptyList() else parseLyrics(fileLyricsText, viewModel.musicTotalDuration.toLong())
-                                        } else {
-                                            if (manualLyricsText.isBlank()) {
-                                                emptyList()
-                                            } else {
-                                                parseLyrics(manualLyricsText, viewModel.musicTotalDuration.toLong())
-                                            }
-                                        }
-                                    }
+                                val currentLyrics = remember(activeTrack, activeLyricsText, viewModel.musicTotalDuration) {
+                                    if (activeTrack == null || activeLyricsText.isBlank()) emptyList()
+                                    else parseLyrics(activeLyricsText, viewModel.musicTotalDuration.toLong())
                                 }
+
+                                // Posisi audio dihaluskan per frame agar sorotan teks bergerak
+                                // mengikuti ketukan tanpa tersendat oleh pembaruan 100 ms dari service.
+                                val smoothPosition by rememberSmoothMusicPosition(
+                                    viewModel.musicPlaybackPosition,
+                                    viewModel.isMusicPlaying,
+                                    enabled = isLyricsMode && !lyricsEditMode && !isLyricsFullScreen
+                                )
 
                                 val activeLyricIndex = remember(currentLyrics, viewModel.musicPlaybackPosition) {
                                     val pos = viewModel.musicPlaybackPosition.toLong()
@@ -938,9 +952,14 @@ fun PemutarMusikScreen(viewModel: MainViewModel, onOpenDrawer: () -> Unit) {
                                     if (isLyricsMode) {
                                         // LYRICS VIEW
                                         if (lyricsEditMode) {
-                                            // Local state for cursor tracking & text input
-                                            var editorValue by remember(manualLyricsText) {
-                                                mutableStateOf(androidx.compose.ui.text.input.TextFieldValue(manualLyricsText))
+                                            // Sesi editor dibuat sekali per lagu agar posisi kursor
+                                            // tidak melompat saat teks diketik.
+                                            var editorValue by remember(activeTrack, lyricsEditMode) {
+                                                mutableStateOf(
+                                                    androidx.compose.ui.text.input.TextFieldValue(
+                                                        manualLyricsText.ifBlank { fileLyricsText }
+                                                    )
+                                                )
                                             }
 
                                             Column(
@@ -1017,7 +1036,43 @@ fun PemutarMusikScreen(viewModel: MainViewModel, onOpenDrawer: () -> Unit) {
                                                             modifier = Modifier.size(14.dp)
                                                         )
                                                         Spacer(modifier = Modifier.width(4.dp))
-                                                        Text("Sisipkan Waktu", fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                                        Text("Waktu Baris", fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                                    }
+
+                                                    // 1b. Insert word (karaoke) timestamp at current cursor
+                                                    Button(
+                                                        onClick = {
+                                                            val currentPos = viewModel.musicPlaybackPosition
+                                                            val min = currentPos / 60000
+                                                            val sec = (currentPos % 60000) / 1000
+                                                            val hundredths = (currentPos % 1000) / 10
+                                                            val timestamp = String.format("<%02d:%02d.%02d>", min, sec, hundredths)
+
+                                                            val text = editorValue.text
+                                                            val selection = editorValue.selection
+                                                            val start = selection.start
+                                                            val end = selection.end
+                                                            val newText = text.substring(0, start) + timestamp + text.substring(end)
+                                                            editorValue = androidx.compose.ui.text.input.TextFieldValue(
+                                                                text = newText,
+                                                                selection = androidx.compose.ui.text.TextRange(start + timestamp.length)
+                                                            )
+                                                            manualLyricsText = newText
+                                                        },
+                                                        colors = ButtonDefaults.buttonColors(
+                                                            containerColor = MaterialTheme.colorScheme.secondaryContainer,
+                                                            contentColor = MaterialTheme.colorScheme.onSecondaryContainer
+                                                        ),
+                                                        modifier = Modifier.weight(1.3f),
+                                                        contentPadding = PaddingValues(horizontal = 6.dp, vertical = 4.dp)
+                                                    ) {
+                                                        Icon(
+                                                            imageVector = Icons.Default.Schedule,
+                                                            contentDescription = null,
+                                                            modifier = Modifier.size(14.dp)
+                                                        )
+                                                        Spacer(modifier = Modifier.width(4.dp))
+                                                        Text("Waktu Kata", fontSize = 10.sp, fontWeight = FontWeight.Bold)
                                                     }
 
                                                     // 2. Load LRC Template
@@ -1027,7 +1082,8 @@ fun PemutarMusikScreen(viewModel: MainViewModel, onOpenDrawer: () -> Unit) {
                                                                     "[ar:Artis Hebat]\n" +
                                                                     "[00:00.00] ~ Intro Instrumental ~\n" +
                                                                     "[00:08.50] \n" +
-                                                                    "[00:10.00] Ini adalah contoh baris lirik pertama\n" +
+                                                                    "[00:10.00] <00:10.00>Ini <00:10.55>adalah <00:11.10>contoh <00:11.80>lirik <00:12.40>pertama\n" +
+                                                                    "[00:13.60] Tanpa tag kata, lirik tetap tersinkron per baris\n" +
                                                                     "[00:15.20] Yang dinyanyikan dengan tempo teratur\n" +
                                                                     "[00:20.00] \n" +
                                                                     "[00:22.00] Masuk ke bait berikutnya di sini\n" +
@@ -1073,7 +1129,7 @@ fun PemutarMusikScreen(viewModel: MainViewModel, onOpenDrawer: () -> Unit) {
                                                         .padding(vertical = 4.dp),
                                                     placeholder = {
                                                         Text(
-                                                            "Tulis/tempel lirik di sini. Putar lagu, ketuk kursor pada baris lirik lalu ketuk 'Sisipkan Waktu' untuk merekam ketukan lagu secara real-time!",
+                                                            "Tulis/tempel lirik di sini. Gunakan [mm:ss.cc] untuk baris dan <mm:ss.cc> untuk kata agar sorotan warna mengikuti vokal secara presisi.",
                                                             fontSize = 11.sp,
                                                             color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
                                                         )
@@ -1141,7 +1197,7 @@ fun PemutarMusikScreen(viewModel: MainViewModel, onOpenDrawer: () -> Unit) {
                                                             modifier = Modifier.size(16.dp)
                                                         )
                                                         Text(
-                                                            text = "Lirik Lagu",
+                                                            text = lyricsSourceLabel,
                                                             fontSize = 11.sp,
                                                             fontWeight = FontWeight.Bold,
                                                             color = MaterialTheme.colorScheme.primary
@@ -1149,20 +1205,18 @@ fun PemutarMusikScreen(viewModel: MainViewModel, onOpenDrawer: () -> Unit) {
                                                     }
                                                     
                                                     Row(verticalAlignment = Alignment.CenterVertically) {
-                                                        if (lyricTabSelected == 1) {
-                                                            IconButton(
-                                                                onClick = { lyricsEditMode = true },
-                                                                modifier = Modifier.size(28.dp)
-                                                            ) {
-                                                                Icon(
-                                                                    imageVector = Icons.Default.Edit,
-                                                                    contentDescription = "Edit Lirik",
-                                                                    tint = MaterialTheme.colorScheme.primary,
-                                                                    modifier = Modifier.size(16.dp)
-                                                                )
-                                                            }
-                                                            Spacer(modifier = Modifier.width(4.dp))
+                                                        IconButton(
+                                                            onClick = { lyricsEditMode = true },
+                                                            modifier = Modifier.size(28.dp)
+                                                        ) {
+                                                            Icon(
+                                                                imageVector = Icons.Default.Edit,
+                                                                contentDescription = "Edit Lirik",
+                                                                tint = MaterialTheme.colorScheme.primary,
+                                                                modifier = Modifier.size(16.dp)
+                                                            )
                                                         }
+                                                        Spacer(modifier = Modifier.width(4.dp))
                                                         
                                                         IconButton(
                                                             onClick = { isLyricsMode = false },
@@ -1190,21 +1244,21 @@ fun PemutarMusikScreen(viewModel: MainViewModel, onOpenDrawer: () -> Unit) {
                                                         verticalArrangement = Arrangement.Center
                                                     ) {
                                                         Icon(
-                                                            imageVector = if (lyricTabSelected == 0) Icons.Default.Lyrics else Icons.Default.BorderColor,
+                                                            imageVector = Icons.Default.Lyrics,
                                                             contentDescription = null,
                                                             tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
                                                             modifier = Modifier.size(36.dp)
                                                         )
                                                         Spacer(modifier = Modifier.height(8.dp))
                                                         Text(
-                                                            text = if (lyricTabSelected == 0) "Tidak ada lirik tertanam" else "Belum ada lirik manual",
+                                                            text = "Lirik tertanam tidak ditemukan",
                                                             fontSize = 12.sp,
                                                             fontWeight = FontWeight.Bold,
                                                             color = MaterialTheme.colorScheme.onSurfaceVariant
                                                         )
                                                         Spacer(modifier = Modifier.height(4.dp))
                                                         Text(
-                                                            text = if (lyricTabSelected == 0) "Gunakan tab 'Input Manual' jika ingin menambahkan lirik secara manual." else "Ketuk ikon pensil di atas untuk menulis/menempelkan lirik Anda.",
+                                                            text = "Tempelkan file .lrc di samping lagu, simpan tag SYLT/USLT di file audio, atau ketuk ikon pensil untuk menulis lirik manual beserta kode waktu.",
                                                             fontSize = 10.sp,
                                                             color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
                                                             textAlign = TextAlign.Center,
@@ -1232,48 +1286,14 @@ fun PemutarMusikScreen(viewModel: MainViewModel, onOpenDrawer: () -> Unit) {
                                                                 )
                                                                 
                                                                 val textContent = if (isActive) {
-                                                                    val words = remember(line.text) { line.text.split("\\s+".toRegex()).filter { it.isNotEmpty() } }
-                                                                    val lineDuration = remember(currentLyrics, index, viewModel.musicTotalDuration) {
-                                                                        if (index < currentLyrics.size - 1) {
-                                                                            currentLyrics[index + 1].timeMs - line.timeMs
-                                                                        } else {
-                                                                            (viewModel.musicTotalDuration.toLong() - line.timeMs).coerceAtLeast(3000L)
-                                                                        }
-                                                                    }
-                                                                    val elapsed = (viewModel.musicPlaybackPosition.toLong() - line.timeMs).coerceIn(0L, lineDuration)
-                                                                    val elapsedRatio = if (lineDuration > 0) elapsed.toFloat() / lineDuration.toFloat() else 1f
-                                                                    val wordCount = words.size
-
-                                                                    buildAnnotatedString {
-                                                                        words.forEachIndexed { i, word ->
-                                                                            val wordStartProgress = i.toFloat() / wordCount
-                                                                            val wordEndProgress = (i + 1).toFloat() / wordCount
-
-                                                                            val isWordSung = elapsedRatio >= wordEndProgress
-                                                                            val isWordActive = elapsedRatio >= wordStartProgress && elapsedRatio < wordEndProgress
-
-                                                                            val wordColor = if (isWordSung) {
-                                                                                MaterialTheme.colorScheme.primary
-                                                                            } else if (isWordActive) {
-                                                                                MaterialTheme.colorScheme.secondary
-                                                                            } else {
-                                                                                MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
-                                                                            }
-
-                                                                            val wordWeight = if (isWordSung || isWordActive) {
-                                                                                FontWeight.ExtraBold
-                                                                            } else {
-                                                                                FontWeight.Normal
-                                                                            }
-
-                                                                            withStyle(SpanStyle(color = wordColor, fontWeight = wordWeight)) {
-                                                                                append(word)
-                                                                            }
-                                                                            if (i < words.size - 1) {
-                                                                                append(" ")
-                                                                            }
-                                                                        }
-                                                                    }
+                                                                    buildKaraokeLine(
+                                                                        line = line,
+                                                                        positionMs = smoothPosition,
+                                                                        pendingColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                                                                        sungColor = MaterialTheme.colorScheme.primary,
+                                                                        pendingWeight = FontWeight.Medium,
+                                                                        sungWeight = FontWeight.ExtraBold
+                                                                    )
                                                                 } else {
                                                                     buildAnnotatedString {
                                                                         withStyle(SpanStyle(color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f), fontWeight = FontWeight.Medium)) {
@@ -1690,7 +1710,6 @@ fun PemutarMusikScreen(viewModel: MainViewModel, onOpenDrawer: () -> Unit) {
                         viewModel = viewModel,
                         fileLyricsText = fileLyricsText,
                         manualLyricsText = manualLyricsText,
-                        lyricTabSelected = lyricTabSelected,
                         onDismiss = { isLyricsFullScreen = false }
                     )
                 }
@@ -2539,7 +2558,33 @@ fun getEmbeddedPicture(context: android.content.Context, uriStr: String): Bitmap
     return null
 }
 
-data class LyricLine(val timeMs: Long, val text: String)
+data class LyricWord(
+    val startMs: Long,
+    val endMs: Long,
+    val text: String
+)
+
+data class LyricLine(
+    val timeMs: Long,
+    val text: String,
+    val words: List<LyricWord> = emptyList()
+)
+
+private val lyricLineTagRegex = Regex("\\[(\\d+):(\\d+)(?:[:.](\\d+))?\\]")
+private val lyricWordTagRegex = Regex("<(\\d+):(\\d+)(?:[:.](\\d+))?>")
+private val lyricOffsetTagRegex = Regex("\\[offset:\\s*([+-]?\\d+)\\]", RegexOption.IGNORE_CASE)
+private val lyricWordTokenRegex = Regex("\\S+\\s*")
+
+private fun parseLyricTimestamp(minutes: Long, seconds: Long, fraction: String?): Long {
+    val frac = fraction ?: "0"
+    val msPart = when (frac.length) {
+        0 -> 0L
+        1 -> (frac.toLongOrNull() ?: 0L) * 100L
+        2 -> (frac.toLongOrNull() ?: 0L) * 10L
+        else -> frac.take(3).toLongOrNull() ?: 0L
+    }
+    return (minutes * 60L + seconds) * 1000L + msPart
+}
 
 fun generateAutomaticLyrics(title: String, durationMs: Long): List<LyricLine> {
     val cleanTitle = title.replace(Regex("[^a-zA-Z0-9 ]"), "")
@@ -2572,63 +2617,249 @@ fun generateAutomaticLyrics(title: String, durationMs: Long): List<LyricLine> {
     }
 }
 
+private data class LyricDraft(
+    val timeMs: Long,
+    val text: String,
+    val wordStarts: List<Pair<Long, String>>
+)
+
+private fun buildLyricDraft(timeMs: Long, content: String, offsetMs: Long): LyricDraft {
+    val cleanedContent = content.replace("<>", "")
+    val wordTags = lyricWordTagRegex.findAll(cleanedContent).toList()
+    if (wordTags.isEmpty()) return LyricDraft(timeMs, cleanedContent.trim(), emptyList())
+
+    val prefix = cleanedContent.substring(0, wordTags.first().range.first)
+    val segments = mutableListOf<Pair<Long, String>>()
+
+    wordTags.forEachIndexed { index, tag ->
+        val textStart = tag.range.last + 1
+        val textEnd = if (index < wordTags.lastIndex) wordTags[index + 1].range.first else cleanedContent.length
+        if (textStart >= textEnd) return@forEachIndexed
+        val text = cleanedContent.substring(textStart, textEnd)
+        val startMs = parseLyricTimestamp(
+            tag.groupValues[1].toLongOrNull() ?: 0L,
+            tag.groupValues[2].toLongOrNull() ?: 0L,
+            tag.groupValues.getOrNull(3)
+        ) + offsetMs
+
+        if (text.isNotBlank()) {
+            segments.add(startMs to text)
+        } else if (segments.isNotEmpty()) {
+            // Pertahankan spasi antar kata agar hasil render tidak menempel.
+            val last = segments.removeAt(segments.lastIndex)
+            segments.add(last.first to last.second + text)
+        }
+    }
+
+    if (segments.isEmpty()) return LyricDraft(timeMs, cleanedContent.trim(), emptyList())
+    if (prefix.isNotEmpty()) {
+        val first = segments[0]
+        segments[0] = first.first to (prefix + first.second)
+    }
+
+    val fullText = segments.joinToString("") { it.second }.trim()
+    return LyricDraft(timeMs, fullText, segments)
+}
+
+private fun countLyricSyllables(word: String): Int {
+    val vowels = "aeiouyAEIOUY"
+    var count = 0
+    var previousWasVowel = false
+    word.forEach { char ->
+        val isVowel = char in vowels
+        if (isVowel && !previousWasVowel) count++
+        previousWasVowel = isVowel
+    }
+    return count.coerceAtLeast(1)
+}
+
+/**
+ * Membagi durasi satu baris ke kata-katanya secara proporsional terhadap jumlah suku kata.
+ * Dipakai saat file hanya menyediakan timestamp per baris; baris yang punya tag kata
+ * (<mm:ss.xxx>) memakai waktu aslinya sehingga cocok dengan vokal.
+ */
+private fun autoTimeLyricWords(text: String, startMs: Long, endMs: Long): List<LyricWord> {
+    val tokens = lyricWordTokenRegex.findAll(text).map { it.value }.filter { it.isNotBlank() }.toList()
+    if (tokens.isEmpty()) return emptyList()
+
+    val weights = tokens.map { countLyricSyllables(it) }
+    val totalWeight = weights.sum().coerceAtLeast(1)
+    val span = (endMs - startMs).coerceAtLeast(300L)
+    var cursor = startMs
+
+    return tokens.mapIndexed { index, token ->
+        val weightDuration = span * weights[index] / totalWeight
+        val wordStart = cursor
+        val wordEnd = if (index == tokens.lastIndex) startMs + span else cursor + weightDuration
+        cursor = wordEnd
+        LyricWord(wordStart, wordEnd.coerceAtLeast(wordStart + 60L), token)
+    }
+}
+
 fun parseLyrics(manualText: String, durationMs: Long): List<LyricLine> {
     if (manualText.isBlank()) return emptyList()
-    
-    val lines = manualText.lines().map { it.trim() }.filter { it.isNotEmpty() }
-    
-    // Support standard [mm:ss.xx] or [mm:ss:xx] or [mm:ss] format, allowing multiple timestamps on one line
-    val singleTagRegex = Regex("\\[(\\d+):(\\d+)(?:[:.](\\d+))?\\]")
-    var hasTimestamps = false
-    
-    val parsed = mutableListOf<LyricLine>()
-    
-    lines.forEach { line ->
-        val matches = singleTagRegex.findAll(line).toList()
-        if (matches.isNotEmpty()) {
-            hasTimestamps = true
-            // Extract the lyric text (everything that remains after removing all timestamps)
-            var lyricText = line
-            matches.forEach { match ->
-                lyricText = lyricText.replace(match.value, "")
+
+    val normalizedText = manualText.removePrefix("\uFEFF")
+    val rawLines = normalizedText.replace("\r\n", "\n").replace('\r', '\n').lines()
+
+    var offsetMs = 0L
+    rawLines.forEach { line ->
+        lyricOffsetTagRegex.find(line)?.let { match ->
+            offsetMs = match.groupValues[1].toLongOrNull() ?: 0L
+        }
+    }
+
+    val drafts = mutableListOf<LyricDraft>()
+    var hasLineTimestamps = false
+
+    rawLines.forEach { rawLine ->
+        val line = rawLine.trim()
+        if (line.isEmpty()) return@forEach
+
+        val lineTags = lyricLineTagRegex.findAll(line).toList()
+        if (lineTags.isEmpty()) {
+            if (lyricWordTagRegex.containsMatchIn(line)) {
+                // Tag kata tanpa tag baris: menempel ke baris sebelumnya.
+                val anchor = drafts.lastOrNull()?.timeMs ?: 0L
+                drafts.add(buildLyricDraft(anchor, line, offsetMs))
+            } else if (!lyricOffsetTagRegex.containsMatchIn(line) && !(line.startsWith("[") && line.contains(":"))) {
+                val lastTime = drafts.lastOrNull()?.timeMs ?: 0L
+                drafts.add(LyricDraft(lastTime + 1000L, line, emptyList()))
             }
-            lyricText = lyricText.trim()
-            
-            // Add a separate entry for each timestamp found on this line (supports duplication/repetition)
-            matches.forEach { match ->
-                val min = match.groups[1]?.value?.toLongOrNull() ?: 0L
-                val sec = match.groups[2]?.value?.toLongOrNull() ?: 0L
-                val msStr = match.groups[3]?.value ?: "0"
-                
-                // Convert millisecond part accurately (e.g., .4 -> 400ms, .45 -> 450ms, .456 -> 456ms)
-                val msPart = when (msStr.length) {
-                    1 -> msStr.toLongOrNull()?.let { it * 100 } ?: 0L
-                    2 -> msStr.toLongOrNull()?.let { it * 10 } ?: 0L
-                    else -> msStr.take(3).toLongOrNull() ?: 0L
-                }
-                
-                val timeMs = (min * 60 + sec) * 1000L + msPart
-                parsed.add(LyricLine(timeMs, lyricText))
-            }
+            return@forEach
+        }
+
+        hasLineTimestamps = true
+        var content = line
+        lineTags.forEach { content = content.replace(it.value, "") }
+        content = content.trim()
+
+        lineTags.forEach { tag ->
+            val timeMs = parseLyricTimestamp(
+                tag.groupValues[1].toLongOrNull() ?: 0L,
+                tag.groupValues[2].toLongOrNull() ?: 0L,
+                tag.groupValues.getOrNull(3)
+            ) + offsetMs
+            drafts.add(buildLyricDraft(timeMs, content, offsetMs))
+        }
+    }
+
+    if (drafts.isEmpty()) return emptyList()
+
+    val fallbackDuration = drafts.maxOf { it.timeMs } + 5000L
+    val duration = if (durationMs > 0) durationMs else fallbackDuration
+
+    if (!hasLineTimestamps) {
+        val interval = (duration / drafts.size.coerceAtLeast(1)).coerceAtLeast(500L)
+        return drafts.mapIndexed { index, draft ->
+            val start = index * interval
+            val end = if (index < drafts.lastIndex) (index + 1) * interval else duration.coerceAtLeast(start + 3000L)
+            LyricLine(start, draft.text, autoTimeLyricWords(draft.text, start, end))
+        }
+    }
+
+    val sorted = drafts.sortedBy { it.timeMs }
+    return sorted.mapIndexed { index, draft ->
+        val naturalEnd = when {
+            index < sorted.lastIndex -> sorted[index + 1].timeMs
+            else -> duration
+        }
+        // Batasi rentang sorotan agar satu baris tidak "menyeret" sepanjang jeda instrumental.
+        val lineEnd = naturalEnd
+            .coerceAtMost(draft.timeMs + 10000L)
+            .coerceAtLeast(draft.timeMs + 500L)
+
+        val words = if (draft.wordStarts.isEmpty()) {
+            autoTimeLyricWords(draft.text, draft.timeMs, lineEnd)
         } else {
-            // Check if it's a metadata header e.g. [ar:Artist] - if so, ignore it. Otherwise, add as normal text.
-            if (!line.startsWith("[") || !line.contains(":")) {
-                val lastTime = parsed.lastOrNull()?.timeMs ?: 0L
-                parsed.add(LyricLine(lastTime + 1000L, line))
+            val starts = draft.wordStarts.sortedBy { it.first }
+            starts.mapIndexed { wordIndex, (start, text) ->
+                val end = if (wordIndex < starts.lastIndex) starts[wordIndex + 1].first else lineEnd
+                LyricWord(start, end.coerceAtLeast(start + 60L), text)
+            }
+        }
+        LyricLine(draft.timeMs, draft.text, words)
+    }
+}
+
+/**
+ * Posisi audio yang diperhalus per frame (60 fps) dengan koreksi drift terhadap
+ * posisi resmi dari service setiap kali nilai baru dikirim (interval 100 ms).
+ */
+@Composable
+fun rememberSmoothMusicPosition(reportedMs: Int, isPlaying: Boolean, enabled: Boolean = true): State<Long> {
+    val smoothPosition = remember { mutableLongStateOf(reportedMs.toLong()) }
+
+    LaunchedEffect(reportedMs, isPlaying, enabled) {
+        val reported = reportedMs.toLong()
+        val current = smoothPosition.longValue
+        smoothPosition.longValue = when {
+            !isPlaying || !enabled -> reported
+            kotlin.math.abs(current - reported) > 400L -> reported
+            current < reported -> reported
+            // Nilai interpolasi per frame dipertahankan; hanya koreksi bila menyimpang jauh.
+            else -> current
+        }
+    }
+
+    LaunchedEffect(isPlaying, enabled) {
+        if (!isPlaying || !enabled) return@LaunchedEffect
+        var lastFrameNanos = withFrameNanos { it }
+        while (true) {
+            withFrameNanos { now ->
+                // Batasi delta agar layar yang sempat tertidur tidak melompat jauh.
+                val deltaMs = ((now - lastFrameNanos) / 1_000_000L).coerceIn(0L, 100L)
+                lastFrameNanos = now
+                smoothPosition.longValue += deltaMs
             }
         }
     }
-    
-    if (hasTimestamps) {
-        return parsed.sortedBy { it.timeMs }
-    } else {
-        val duration = if (durationMs > 0) durationMs else 180000L
-        val interval = duration / (lines.size.coerceAtLeast(1))
-        return lines.mapIndexed { index, text ->
-            LyricLine(
-                timeMs = index * interval,
-                text = text
-            )
+
+    return smoothPosition
+}
+
+/** Membangun teks lirik dengan sorotan warna bertahap per huruf (karaoke). */
+fun buildKaraokeLine(
+    line: LyricLine,
+    positionMs: Long,
+    pendingColor: Color,
+    sungColor: Color,
+    pendingWeight: FontWeight,
+    sungWeight: FontWeight
+): AnnotatedString = buildAnnotatedString {
+    if (line.words.isEmpty()) {
+        withStyle(SpanStyle(color = pendingColor, fontWeight = pendingWeight)) {
+            append(line.text)
+        }
+        return@buildAnnotatedString
+    }
+
+    line.words.forEach { word ->
+        val wordDuration = (word.endMs - word.startMs).coerceAtLeast(1L)
+        val wordProgress = ((positionMs - word.startMs).toFloat() / wordDuration.toFloat()).coerceIn(0f, 1f)
+        val chars = word.text
+
+        when {
+            wordProgress <= 0f -> withStyle(SpanStyle(color = pendingColor, fontWeight = pendingWeight)) {
+                append(chars)
+            }
+            wordProgress >= 1f -> withStyle(SpanStyle(color = sungColor, fontWeight = sungWeight)) {
+                append(chars)
+            }
+            else -> {
+                val charCount = chars.length.coerceAtLeast(1)
+                for (index in chars.indices) {
+                    val charProgress = ((wordProgress * charCount) - index).coerceIn(0f, 1f)
+                    withStyle(
+                        SpanStyle(
+                            color = lerp(pendingColor, sungColor, charProgress),
+                            fontWeight = if (charProgress > 0f) sungWeight else pendingWeight
+                        )
+                    ) {
+                        append(chars[index])
+                    }
+                }
+            }
         }
     }
 }
@@ -2644,23 +2875,230 @@ fun findActivity(context: android.content.Context): android.app.Activity? {
     return null
 }
 
+private const val MAX_ID3_TAG_BYTES = 4 * 1024 * 1024
+
+private data class Mp3TagLyrics(val synced: String?, val plain: String?)
+
+private fun decodeLyricTagText(data: ByteArray, start: Int, end: Int, encoding: Int): String {
+    if (start >= end) return ""
+    val charset = when (encoding) {
+        1 -> Charsets.UTF_16
+        2 -> Charsets.UTF_16BE
+        3 -> Charsets.UTF_8
+        else -> Charsets.ISO_8859_1
+    }
+    return String(data, start, end - start, charset)
+}
+
+private fun readTerminatedLyricString(
+    data: ByteArray,
+    start: Int,
+    limit: Int,
+    encoding: Int
+): Pair<String, Int> {
+    val isUtf16 = encoding == 1 || encoding == 2
+    var cursor = start
+    while (cursor < limit) {
+        if (isUtf16) {
+            if (cursor + 1 >= limit) { cursor = limit; break }
+            if (data[cursor] == 0.toByte() && data[cursor + 1] == 0.toByte()) {
+                return decodeLyricTagText(data, start, cursor, encoding) to (cursor + 2).coerceAtMost(limit)
+            }
+            cursor += 2
+        } else {
+            if (data[cursor] == 0.toByte()) {
+                return decodeLyricTagText(data, start, cursor, encoding) to (cursor + 1).coerceAtMost(limit)
+            }
+            cursor++
+        }
+    }
+    return decodeLyricTagText(data, start, limit, encoding) to limit
+}
+
+private fun formatLyricTag(timeMs: Long): String {
+    val totalSeconds = timeMs.coerceAtLeast(0L) / 1000L
+    return String.format("%02d:%02d.%03d", totalSeconds / 60L, totalSeconds % 60L, timeMs.coerceAtLeast(0L) % 1000L)
+}
+
+/** USLT: encoding(1) + language(3) + descriptor + lyric text. */
+private fun parseUsltFrame(data: ByteArray, offset: Int, size: Int): String? {
+    val end = offset + size
+    if (size <= 4) return null
+    val encoding = data[offset].toInt() and 0xFF
+    val (_, afterDescriptor) = readTerminatedLyricString(data, offset + 4, end, encoding)
+    if (afterDescriptor >= end) return null
+    return decodeLyricTagText(data, afterDescriptor, end, encoding).trim().ifBlank { null }
+}
+
+/**
+ * SYLT: encoding(1) + language(3) + timestamp format(1) + content type(1) + descriptor,
+ * lalu pasangan teks + timestamp 4 byte. Format timestamp dalam milidetik (2) dipakai
+ * langsung, sehingga posisi tiap suku kata presisi mengikuti vokal.
+ */
+private fun parseSyltFrame(data: ByteArray, offset: Int, size: Int): String? {
+    val end = offset + size
+    if (size < 8) return null
+    val encoding = data[offset].toInt() and 0xFF
+    val timestampFormat = data[offset + 4].toInt() and 0xFF
+    val contentType = data[offset + 5].toInt() and 0xFF
+    if (contentType != 1 || timestampFormat != 2) return null
+
+    val (_, afterDescriptor) = readTerminatedLyricString(data, offset + 6, end, encoding)
+    var cursor = afterDescriptor
+    val entries = mutableListOf<Pair<Long, String>>()
+
+    while (cursor < end - 1) {
+        val (text, afterText) = readTerminatedLyricString(data, cursor, end, encoding)
+        if (afterText + 4 > end) break
+        val timeMs = ((data[afterText].toLong() and 0xFF) shl 24) or
+                ((data[afterText + 1].toLong() and 0xFF) shl 16) or
+                ((data[afterText + 2].toLong() and 0xFF) shl 8) or
+                (data[afterText + 3].toLong() and 0xFF)
+        cursor = afterText + 4
+        if (text.isNotEmpty()) entries.add(timeMs to text)
+    }
+    if (entries.isEmpty()) return null
+
+    // Ubah entri SYLT menjadi Enhanced LRC agar memakai parser & renderer yang sama.
+    // Baris baru dimulai saat ada karakter newline atau jeda antar frasa (> 900 ms).
+    val builder = StringBuilder()
+    var lineHasWords = false
+    var lastTimeMs = -1L
+    var breakAfterPrevious = false
+    entries.forEach { (timeMs, rawText) ->
+        if (lineHasWords && (breakAfterPrevious || timeMs - lastTimeMs > 900L)) {
+            builder.append('\n')
+            lineHasWords = false
+        }
+        val stamp = formatLyricTag(timeMs)
+        if (!lineHasWords) builder.append('[').append(stamp).append(']')
+
+        val hasLineBreak = rawText.contains('\n') || rawText.contains('\r')
+        val cleaned = rawText.replace("\r", " ").replace("\n", " ").trim()
+        if (cleaned.isNotEmpty()) {
+            if (lineHasWords) builder.append(' ')
+            builder.append('<').append(stamp).append('>').append(cleaned)
+            lineHasWords = true
+        }
+        breakAfterPrevious = hasLineBreak
+        lastTimeMs = timeMs
+    }
+    return builder.toString().ifBlank { null }
+}
+
+private fun readMp3TagLyrics(context: android.content.Context, uriStr: String): Mp3TagLyrics {
+    try {
+        context.contentResolver.openInputStream(Uri.parse(uriStr))?.use { stream ->
+            val header = ByteArray(10)
+            var headerRead = 0
+            while (headerRead < 10) {
+                val r = stream.read(header, headerRead, 10 - headerRead)
+                if (r <= 0) break
+                headerRead += r
+            }
+            if (headerRead < 10) return Mp3TagLyrics(null, null)
+            if (header[0] != 'I'.code.toByte() || header[1] != 'D'.code.toByte() || header[2] != '3'.code.toByte()) {
+                return Mp3TagLyrics(null, null)
+            }
+
+            val version = header[3].toInt() and 0xFF
+            if (version != 3 && version != 4) return Mp3TagLyrics(null, null)
+
+            val tagSize = ((header[6].toInt() and 0x7F) shl 21) or
+                    ((header[7].toInt() and 0x7F) shl 14) or
+                    ((header[8].toInt() and 0x7F) shl 7) or
+                    (header[9].toInt() and 0x7F)
+            if (tagSize <= 10 || tagSize > MAX_ID3_TAG_BYTES) return Mp3TagLyrics(null, null)
+
+            val tag = ByteArray(tagSize)
+            var tagRead = 0
+            while (tagRead < tagSize) {
+                val r = stream.read(tag, tagRead, tagSize - tagRead)
+                if (r <= 0) break
+                tagRead += r
+            }
+            if (tagRead < 12) return Mp3TagLyrics(null, null)
+
+            var offset = 0
+            if ((header[5].toInt() and 0x40) != 0) {
+                val extSize = if (version == 4) {
+                    ((tag[0].toInt() and 0x7F) shl 21) or ((tag[1].toInt() and 0x7F) shl 14) or
+                            ((tag[2].toInt() and 0x7F) shl 7) or (tag[3].toInt() and 0x7F)
+                } else {
+                    ((tag[0].toInt() and 0xFF) shl 24) or ((tag[1].toInt() and 0xFF) shl 16) or
+                            ((tag[2].toInt() and 0xFF) shl 8) or (tag[3].toInt() and 0xFF)
+                }
+                // ID3v2.4: ukuran extended header sudah termasuk medan ukurannya;
+                // ID3v2.3: ukuran belum termasuk 4 byte medan ukuran itu sendiri.
+                offset = if (version == 4) {
+                    extSize.coerceIn(0, tagRead)
+                } else {
+                    (extSize + 4).coerceIn(0, tagRead)
+                }
+            }
+
+            var synced: String? = null
+            var plain: String? = null
+
+            while (offset + 10 <= tagRead) {
+                val frameId = String(tag, offset, 4, Charsets.ISO_8859_1)
+                if (!frameId.all { it.isLetterOrDigit() }) break
+
+                val frameSize = if (version == 4) {
+                    ((tag[offset + 4].toInt() and 0x7F) shl 21) or
+                            ((tag[offset + 5].toInt() and 0x7F) shl 14) or
+                            ((tag[offset + 6].toInt() and 0x7F) shl 7) or
+                            (tag[offset + 7].toInt() and 0x7F)
+                } else {
+                    ((tag[offset + 4].toInt() and 0xFF) shl 24) or
+                            ((tag[offset + 5].toInt() and 0xFF) shl 16) or
+                            ((tag[offset + 6].toInt() and 0xFF) shl 8) or
+                            (tag[offset + 7].toInt() and 0xFF)
+                }
+                val dataStart = offset + 10
+                if (frameSize <= 0 || dataStart + frameSize > tagRead) break
+
+                when (frameId) {
+                    "SYLT" -> if (synced == null) synced = parseSyltFrame(tag, dataStart, frameSize)
+                    "USLT" -> if (plain == null) plain = parseUsltFrame(tag, dataStart, frameSize)
+                }
+                offset = dataStart + frameSize
+                if (synced != null && plain != null) break
+            }
+
+            return Mp3TagLyrics(synced, plain)
+        }
+    } catch (e: Exception) {
+        // ignore
+    }
+    return Mp3TagLyrics(null, null)
+}
+
 fun getEmbeddedLyrics(context: android.content.Context, uriStr: String): String? {
-    // 1. Try finding a matching .lrc file in the same folder as the MP3
+    // 1. Cari file .lrc dengan nama yang sama di folder yang sama (tanpa peduli huruf besar/kecil)
     try {
         val uri = Uri.parse(uriStr)
         val docFile = DocumentFile.fromSingleUri(context, uri)
         val parent = docFile?.parentFile
-        if (parent != null) {
-            val baseName = docFile.name?.substringBeforeLast(".") ?: ""
-            if (baseName.isNotEmpty()) {
-                val lrcFile = parent.findFile("$baseName.lrc") ?: parent.findFile("${baseName.lowercase()}.lrc") ?: parent.findFile("${baseName.uppercase()}.lrc")
-                if (lrcFile != null && lrcFile.exists() && lrcFile.isFile) {
-                    context.contentResolver.openInputStream(lrcFile.uri)?.use { stream ->
-                        val text = stream.bufferedReader().use { it.readText() }
-                        if (text.isNotBlank()) {
-                            return text
-                        }
-                    }
+        val rawName = docFile?.name ?: ""
+        val baseName = rawName.substringBeforeLast(".", rawName)
+        if (parent != null && baseName.isNotEmpty()) {
+            val siblingLrc = try {
+                parent.listFiles().firstOrNull { file ->
+                    file.isFile &&
+                        file.name?.substringAfterLast(".", "")?.equals("lrc", ignoreCase = true) == true &&
+                        file.name?.substringBeforeLast(".", "")?.equals(baseName, ignoreCase = true) == true
+                }
+            } catch (e: Exception) {
+                null
+            } ?: parent.findFile("$baseName.lrc")
+                ?: parent.findFile("${baseName.lowercase()}.lrc")
+                ?: parent.findFile("${baseName.uppercase()}.lrc")
+
+            if (siblingLrc != null && siblingLrc.exists() && siblingLrc.isFile) {
+                context.contentResolver.openInputStream(siblingLrc.uri)?.use { stream ->
+                    val text = stream.bufferedReader().use { it.readText() }
+                    if (text.isNotBlank()) return text
                 }
             }
         }
@@ -2668,89 +3106,24 @@ fun getEmbeddedLyrics(context: android.content.Context, uriStr: String): String?
         // ignore
     }
 
-    // 2. Try MediaMetadataRetriever (API 31+)
+    // 2. Tag ID3: SYLT (lirik tersinkron per kata) lebih diprioritaskan daripada USLT
+    val tagged = readMp3TagLyrics(context, uriStr)
+    if (!tagged.synced.isNullOrBlank()) return tagged.synced
+
+    // 3. MediaMetadataRetriever (MP4/FLAC/format lain yang menyimpan lirik)
     val retriever = MediaMetadataRetriever()
     try {
-        val uri = Uri.parse(uriStr)
-        retriever.setDataSource(context, uri)
-        
+        retriever.setDataSource(context, Uri.parse(uriStr))
         val lyrics = retriever.extractMetadata(1000)
-        if (!lyrics.isNullOrBlank()) {
-            return lyrics
-        }
+        if (!lyrics.isNullOrBlank()) return lyrics
     } catch (e: Exception) {
         // ignore
     } finally {
         try { retriever.release() } catch (e: Exception) {}
     }
 
-    // 3. Fallback: Parse USLT frame from MP3 file bytes directly
-    try {
-        val uri = Uri.parse(uriStr)
-        context.contentResolver.openInputStream(uri)?.use { inputStream ->
-            val buffer = ByteArray(512 * 1024)
-            val bytesRead = inputStream.read(buffer)
-            if (bytesRead > 10) {
-                if (buffer[0] == 'I'.toByte() && buffer[1] == 'D'.toByte() && buffer[2] == '3'.toByte()) {
-                    var index = 10
-                    while (index < bytesRead - 10) {
-                        if (buffer[index] == 'U'.toByte() && 
-                            buffer[index + 1] == 'S'.toByte() && 
-                            buffer[index + 2] == 'L'.toByte() && 
-                            buffer[index + 3] == 'T'.toByte()
-                        ) {
-                            val b1 = buffer[index + 4].toInt() and 0xFF
-                            val b2 = buffer[index + 5].toInt() and 0xFF
-                            val b3 = buffer[index + 6].toInt() and 0xFF
-                            val b4 = buffer[index + 7].toInt() and 0xFF
-                            
-                            var frameSize = (b1 shl 24) or (b2 shl 16) or (b3 shl 8) or b4
-                            val synchsafeSize = ((b1 and 0x7F) shl 21) or ((b2 and 0x7F) shl 14) or ((b3 and 0x7F) shl 7) or (b4 and 0x7F)
-                            
-                            if (frameSize > 100000 || frameSize <= 0) {
-                                frameSize = synchsafeSize
-                            }
-                            
-                            if (frameSize > 0 && frameSize < 100000 && index + 10 + frameSize <= bytesRead) {
-                                val textEncoding = buffer[index + 10].toInt() and 0xFF
-                                var payloadOffset = index + 14
-                                
-                                if (textEncoding == 1 || textEncoding == 2) {
-                                    while (payloadOffset < index + 10 + frameSize - 1 && 
-                                           !(buffer[payloadOffset] == 0.toByte() && buffer[payloadOffset + 1] == 0.toByte())) {
-                                        payloadOffset += 2
-                                    }
-                                    payloadOffset += 2
-                                } else {
-                                    while (payloadOffset < index + 10 + frameSize && buffer[payloadOffset] != 0.toByte()) {
-                                        payloadOffset++
-                                    }
-                                    payloadOffset++
-                                }
-                                
-                                val textBytesLength = (index + 10 + frameSize) - payloadOffset
-                                if (textBytesLength > 0) {
-                                    val charset = when (textEncoding) {
-                                        1 -> Charsets.UTF_16
-                                        2 -> Charsets.UTF_16BE
-                                        3 -> Charsets.UTF_8
-                                        else -> Charsets.ISO_8859_1
-                                    }
-                                    val rawText = String(buffer, payloadOffset, textBytesLength, charset).trim()
-                                    if (rawText.isNotBlank()) {
-                                        return rawText
-                                    }
-                                }
-                            }
-                        }
-                        index++
-                    }
-                }
-            }
-        }
-    } catch (e: Exception) {
-        // ignore
-    }
+    // 4. USLT (lirik tanpa timestamp) sebagai upaya terakhir
+    if (!tagged.plain.isNullOrBlank()) return tagged.plain
     return null
 }
 
@@ -2760,18 +3133,18 @@ fun FullScreenLyricsView(
     viewModel: MainViewModel,
     fileLyricsText: String,
     manualLyricsText: String,
-    lyricTabSelected: Int,
     onDismiss: () -> Unit
 ) {
-    val currentLyrics = remember(activeTrack, lyricTabSelected, fileLyricsText, manualLyricsText, viewModel.musicTotalDuration) {
-        if (lyricTabSelected == 0) {
-            if (fileLyricsText.isBlank()) emptyList()
-            else parseLyrics(fileLyricsText, viewModel.musicTotalDuration.toLong())
-        } else {
-            if (manualLyricsText.isBlank()) emptyList()
-            else parseLyrics(manualLyricsText, viewModel.musicTotalDuration.toLong())
-        }
+    val activeLyricsText = manualLyricsText.ifBlank { fileLyricsText }
+    val currentLyrics = remember(activeTrack, activeLyricsText, viewModel.musicTotalDuration) {
+        if (activeLyricsText.isBlank()) emptyList()
+        else parseLyrics(activeLyricsText, viewModel.musicTotalDuration.toLong())
     }
+
+    val smoothPosition by rememberSmoothMusicPosition(
+        viewModel.musicPlaybackPosition,
+        viewModel.isMusicPlaying
+    )
 
     val activeLyricIndex = remember(currentLyrics, viewModel.musicPlaybackPosition) {
         val pos = viewModel.musicPlaybackPosition.toLong()
@@ -2867,7 +3240,7 @@ fun FullScreenLyricsView(
                         )
                         Spacer(modifier = Modifier.height(16.dp))
                         Text(
-                            text = if (lyricTabSelected == 0) "Lagu ini tidak memiliki lirik tertanam." else "Belum ada lirik manual.",
+                            text = "Lagu ini tidak memiliki lirik tertanam maupun lirik manual.",
                             fontSize = 14.sp,
                             fontWeight = FontWeight.SemiBold,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -2907,48 +3280,14 @@ fun FullScreenLyricsView(
                             )
 
                             val textContent = if (isActive) {
-                                val words = remember(line.text) { line.text.split("\\s+".toRegex()).filter { it.isNotEmpty() } }
-                                val lineDuration = remember(currentLyrics, index, viewModel.musicTotalDuration) {
-                                    if (index < currentLyrics.size - 1) {
-                                        currentLyrics[index + 1].timeMs - line.timeMs
-                                    } else {
-                                        (viewModel.musicTotalDuration.toLong() - line.timeMs).coerceAtLeast(3000L)
-                                    }
-                                }
-                                val elapsed = (viewModel.musicPlaybackPosition.toLong() - line.timeMs).coerceIn(0L, lineDuration)
-                                val elapsedRatio = if (lineDuration > 0) elapsed.toFloat() / lineDuration.toFloat() else 1f
-                                val wordCount = words.size
-
-                                buildAnnotatedString {
-                                    words.forEachIndexed { i, word ->
-                                        val wordStartProgress = i.toFloat() / wordCount
-                                        val wordEndProgress = (i + 1).toFloat() / wordCount
-
-                                        val isWordSung = elapsedRatio >= wordEndProgress
-                                        val isWordActive = elapsedRatio >= wordStartProgress && elapsedRatio < wordEndProgress
-
-                                        val wordColor = if (isWordSung) {
-                                            MaterialTheme.colorScheme.primary
-                                        } else if (isWordActive) {
-                                            MaterialTheme.colorScheme.secondary
-                                        } else {
-                                            MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
-                                        }
-
-                                        val wordWeight = if (isWordSung || isWordActive) {
-                                            FontWeight.ExtraBold
-                                        } else {
-                                            FontWeight.Bold
-                                        }
-
-                                        withStyle(SpanStyle(color = wordColor, fontWeight = wordWeight)) {
-                                            append(word)
-                                        }
-                                        if (i < words.size - 1) {
-                                            append(" ")
-                                        }
-                                    }
-                                }
+                                buildKaraokeLine(
+                                    line = line,
+                                    positionMs = smoothPosition,
+                                    pendingColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
+                                    sungColor = MaterialTheme.colorScheme.primary,
+                                    pendingWeight = FontWeight.Bold,
+                                    sungWeight = FontWeight.ExtraBold
+                                )
                             } else {
                                 buildAnnotatedString {
                                     withStyle(SpanStyle(color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f), fontWeight = FontWeight.Bold)) {
