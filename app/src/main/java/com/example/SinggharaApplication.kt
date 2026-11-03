@@ -9,7 +9,38 @@ class SinggharaApplication : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        installCrashLogger()
         initFirebase()
+    }
+
+    private fun installCrashLogger() {
+        val previousHandler = Thread.getDefaultUncaughtExceptionHandler()
+        Thread.setDefaultUncaughtExceptionHandler { thread, throwable ->
+            try {
+                val uiMode = resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_TYPE_MASK
+                val isDeX = uiMode == android.content.res.Configuration.UI_MODE_TYPE_DESK
+                val versionName = try {
+                    packageManager.getPackageInfo(packageName, 0).versionName
+                } catch (_: Exception) {
+                    "?"
+                }
+                val logFile = java.io.File(
+                    com.example.util.SinggharaFolderManager.getRootFolder(this),
+                    "crash_log.txt"
+                )
+                if (logFile.length() > 256 * 1024) logFile.delete()
+                logFile.appendText(
+                    buildString {
+                        appendLine("===== ${java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss", java.util.Locale.getDefault()).format(java.util.Date())} =====")
+                        appendLine("versi: $versionName | DeX: $isDeX | thread: ${thread.name}")
+                        appendLine(Log.getStackTraceString(throwable))
+                        appendLine()
+                    }
+                )
+            } catch (_: Throwable) {
+            }
+            previousHandler?.uncaughtException(thread, throwable)
+        }
     }
 
     private fun initFirebase() {
