@@ -15,7 +15,6 @@ object KaryawanMuridWebScript {
         window.selectedAnggotaCardId = null;
         window.cardSide = 'front'; // 'front', 'back'
         window.html5QrScanner = null;
-        window.isWebcamScanning = false;
         window.batchSelectedIds = new Set();
 
         // Audio chime & speech synthesizer for attendance types
@@ -242,8 +241,8 @@ object KaryawanMuridWebScript {
 
         function setAnggotaActiveTab(tabName) {
             window.anggotaActiveTab = tabName;
-            if (tabName !== 'presensi' && window.isWebcamScanning) {
-                stopWebcamScanner();
+            if (tabName !== 'presensi' && window.cameraScannerActive) {
+                closeCameraScannerModal();
             }
             renderKaryawanMuridMainView();
             startCompanyAutoSync();
@@ -686,6 +685,12 @@ object KaryawanMuridWebScript {
             if (window.anggotaActiveTab === 'presensi') {
                 initPresensiSearchFocus();
             }
+        }
+
+        function initPresensiSearchFocus() {
+            const input = document.getElementById('presensiSearchInput');
+            if (!input || !window.matchMedia('(pointer: fine)').matches) return;
+            input.focus({ preventScroll: true });
         }
 
         // ====================================================
@@ -1410,7 +1415,7 @@ object KaryawanMuridWebScript {
                                 </button>
                                 
                                 <!-- 1. Pemindai Kamera Pop-Up Button (HP / Laptop) -->
-                                <button class="btn btn-sm text-white rounded-pill px-3 shadow-xs d-flex align-items-center gap-2" style="background: #0F766E;" onclick="openCameraScannerModal()" title="Buka Pemindai Kamera HP / Laptop">
+                                <button class="btn btn-sm text-white rounded-pill px-3 shadow-xs d-flex align-items-center gap-2" style="background: #0F766E;" onclick="openPresensiCameraScannerModal()" title="Buka Pemindai Kamera HP / Laptop">
                                     <i class="bi bi-camera-video-fill"></i>
                                     <span>Scan Kamera</span>
                                 </button>
@@ -1978,7 +1983,7 @@ object KaryawanMuridWebScript {
         window.lastScannedPayload = null;
         window.lastScannedTime = 0;
 
-        function openCameraScannerModal() {
+        function openPresensiCameraScannerModal() {
             const config = getPresensiConfig();
             let container = document.getElementById('presensiModalsContainer');
             if (!container) {

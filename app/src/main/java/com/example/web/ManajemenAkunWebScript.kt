@@ -301,7 +301,7 @@ object ManajemenAkunWebScript {
                         localStorage.setItem('mysingghara_admin_otp', JSON.stringify(window.adminOtpRequests));
                     } catch(e) {}
                     showAdminToast("Permintaan kode OTP berhasil dihapus!", "bi-trash3-fill", "#DC2626");
-                    renderOtpInboxListHtml();
+                    renderOtpListInModal();
                 }
             } catch(e) {
                 showAdminToast("Gagal menghapus OTP: " + e.message, "bi-exclamation-triangle-fill", "#DC2626");
@@ -322,7 +322,7 @@ object ManajemenAkunWebScript {
                         localStorage.setItem('mysingghara_admin_otp', JSON.stringify(window.adminOtpRequests));
                     } catch(e) {}
                     showAdminToast("Kode OTP ditandai selesai/digunakan.", "bi-check-circle-fill", "#059669");
-                    renderOtpInboxListHtml();
+                    renderOtpListInModal();
                 }
             } catch(e) {
                 showAdminToast("Gagal menandai OTP: " + e.message, "bi-exclamation-triangle-fill", "#DC2626");
@@ -521,7 +521,7 @@ object ManajemenAkunWebScript {
                         <!-- ACTION BAR KANAN: INPUT NOMOR ADMIN, ICON EMAIL OTP, ICON TITIK 3 -->
                         <div class="d-flex align-items-center gap-2">
                             <!-- INPUT NOMOR DEFAULT ADMIN 088806643415 (BISA DIGANTI) -->
-                            <div class="d-flex align-items-center gap-2 px-2 py-1 rounded-3 border shadow-sm admin-phone-input-bar" style="cursor: pointer; background: var(--card-bg, #f1f5f9);" onclick="openEditAdminPhoneModal()" title="Ubah Nomor Kontak Admin (WhatsApp)">
+                            <div class="d-flex align-items-center gap-2 px-2 py-1 rounded-3 border shadow-sm admin-phone-input-bar" style="cursor: pointer; background: var(--card-bg, #f1f5f9);" onclick="openAdminPhoneModal()" title="Ubah Nomor Kontak Admin (WhatsApp)">
                                 <div class="rounded-circle p-1 d-flex align-items-center justify-content-center" style="background: rgba(37, 211, 102, 0.2); width: 22px; height: 22px;">
                                     <i class="bi bi-telephone-fill" style="color: #16a34a; font-size: 11px;"></i>
                                 </div>
@@ -560,13 +560,13 @@ object ManajemenAkunWebScript {
                                     </li>
                                     <li><hr class="dropdown-divider my-1"></li>
                                     <li>
-                                        <a class="dropdown-item d-flex align-items-center gap-2 py-2 ${dol}{window.adminSelectedTab === 0 ? 'active text-white' : ''}" href="javascript:void(0)" onclick="setAdminSelectedTab(0)">
+                                        <a class="dropdown-item d-flex align-items-center gap-2 py-2 ${dol}{window.adminSelectedTab === 0 ? 'active text-white' : ''}" href="javascript:void(0)" onclick="setAdminTab(0)">
                                             <i class="bi bi-people-fill text-primary"></i>
                                             <span>Daftar Pengguna</span>
                                         </a>
                                     </li>
                                     <li>
-                                        <a class="dropdown-item d-flex align-items-center gap-2 py-2 ${dol}{window.adminSelectedTab === 1 ? 'active text-white' : ''}" href="javascript:void(0)" onclick="setAdminSelectedTab(1)">
+                                        <a class="dropdown-item d-flex align-items-center gap-2 py-2 ${dol}{window.adminSelectedTab === 1 ? 'active text-white' : ''}" href="javascript:void(0)" onclick="setAdminTab(1)">
                                             <i class="bi bi-megaphone-fill text-warning"></i>
                                             <span>Pesan Pengumuman</span>
                                         </a>
@@ -621,7 +621,7 @@ object ManajemenAkunWebScript {
 
         // Ganti Tab Utama (users vs messages vs whatsapp)
         function setAdminTab(tab) {
-            window.adminActiveTab = tab;
+            window.adminSelectedTab = tab;
             renderManajemenAkunUI();
         }
 
@@ -697,7 +697,7 @@ object ManajemenAkunWebScript {
                             <span class="rounded-circle d-inline-block" style="width: 7px; height: 7px; background: #06B6D4;"></span>
                             <span>Online (${dol}{onlineCount})</span>
                         </button>
-                        <button class="btn btn-sm btn-outline-secondary rounded-pill px-3 d-flex align-items-center gap-1" onclick="setAdminSelectedTab(1)">
+                        <button class="btn btn-sm btn-outline-secondary rounded-pill px-3 d-flex align-items-center gap-1" onclick="setAdminTab(1)">
                             <i class="bi bi-chat-left-text-fill text-primary"></i>
                             <span>Pesan (${dol}{(window.adminMessages || []).length})</span>
                         </button>
@@ -961,7 +961,7 @@ object ManajemenAkunWebScript {
                     
                     <!-- TOMBOL KEMBALI KE TABEL PENGGUNA PERSIS MANAJEMENAKUNSCREEN.KT -->
                     <div class="d-flex align-items-center">
-                        <button class="btn btn-sm btn-outline-primary rounded-pill px-3 py-1 fw-semibold d-flex align-items-center gap-1" onclick="setAdminSelectedTab(0)" style="font-size: 12px;">
+                        <button class="btn btn-sm btn-outline-primary rounded-pill px-3 py-1 fw-semibold d-flex align-items-center gap-1" onclick="setAdminTab(0)" style="font-size: 12px;">
                             <i class="bi bi-arrow-left"></i>
                             <span>Kembali ke Tabel Pengguna</span>
                         </button>

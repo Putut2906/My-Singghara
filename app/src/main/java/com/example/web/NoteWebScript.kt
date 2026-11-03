@@ -36,7 +36,7 @@ object NoteWebScript {
                 }
             };
         }
-        function invalidateApiCache(cacheKey) {
+        function invalidateNoteApiCache(cacheKey) {
             try {
                 if (typeof window.invalidateApiCache === 'function') {
                     window.invalidateApiCache(cacheKey);
@@ -783,7 +783,7 @@ object NoteWebScript {
                         window.notesData.unshift({ ...note });
                     }
 
-                    invalidateApiCache('notes');
+                    invalidateNoteApiCache('notes');
                     if (typeof StorageCache !== 'undefined' && StorageCache && StorageCache.set) {
                         StorageCache.set('notes', window.notesData);
                     }
@@ -1026,7 +1026,7 @@ object NoteWebScript {
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(found)
                 });
-                invalidateApiCache('notes');
+                invalidateNoteApiCache('notes');
                 if (typeof StorageCache !== 'undefined' && StorageCache && StorageCache.set) {
                     StorageCache.set('notes', window.notesData);
                 }
@@ -1050,7 +1050,7 @@ object NoteWebScript {
                         const res = await fetch('/api/notes?id=' + noteId, { method: 'DELETE' });
                         if (res.ok) {
                             window.notesData = (window.notesData || []).filter(n => n.id !== noteId);
-                            invalidateApiCache('notes');
+                            invalidateNoteApiCache('notes');
                             if (typeof StorageCache !== 'undefined' && StorageCache && StorageCache.set) {
                                 StorageCache.set('notes', window.notesData);
                             }
@@ -1441,7 +1441,7 @@ object NoteWebScript {
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(found)
                 });
-                invalidateApiCache('jadwal');
+                invalidateNoteApiCache('jadwal');
                 if (typeof StorageCache !== 'undefined' && StorageCache && StorageCache.set) {
                     StorageCache.set('jadwal', window.jadwalData);
                 }
@@ -1593,7 +1593,7 @@ object NoteWebScript {
                         if (backdrop) backdrop.remove();
                     }
 
-                    invalidateApiCache('jadwal');
+                    invalidateNoteApiCache('jadwal');
                     await loadJadwal();
                     showJadwalFeedbackToast(isEdit ? 'Jadwal berhasil diperbarui!' : 'Jadwal berhasil disimpan!', 'bi-check-circle-fill', '#43A047');
                 } else {
@@ -1617,7 +1617,7 @@ object NoteWebScript {
                         const res = await fetch('/api/jadwal?id=' + jadwalId, { method: 'DELETE' });
                         if (res.ok) {
                             window.jadwalData = (window.jadwalData || []).filter(j => j.id !== jadwalId);
-                            invalidateApiCache('jadwal');
+                            invalidateNoteApiCache('jadwal');
                             if (typeof StorageCache !== 'undefined' && StorageCache && StorageCache.set) {
                                 StorageCache.set('jadwal', window.jadwalData);
                             }

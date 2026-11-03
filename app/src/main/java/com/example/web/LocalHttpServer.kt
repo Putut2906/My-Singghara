@@ -31,9 +31,11 @@ import org.json.JSONObject
 import com.example.firebase.FirebaseAccountAdminManager
 import com.example.firebase.FirebaseAuthManager
 import com.example.ht.HandyTalkyManager
+import com.example.media.PhoneMediaScanner
 import com.example.telegram.TelegramAiEngine
 import com.example.telegram.TelegramBotManager
 import com.google.firebase.auth.FirebaseAuth
+import java.io.FileInputStream
 import java.io.OutputStream
 import java.net.Inet4Address
 import java.net.NetworkInterface
@@ -456,6 +458,7 @@ class LocalHttpServer(
 
                 var contentLength = 0
                 var userAgent = ""
+                var rangeHeader = ""
                 while (true) {
                     val line = readHttpLine(input) ?: break
                     if (line.isEmpty()) break
@@ -465,6 +468,11 @@ class LocalHttpServer(
                     }
                     if (headerLower.startsWith("user-agent:")) {
                         userAgent = line.substringAfter(":").trim()
+                    }
+                    // Pemutar media browser (Chrome/Firefox) meminta byte parsial agar bisa melompati
+                    // durasi; tanpa header ini respons 206 tidak akan pernah terbentuk.
+                    if (headerLower.startsWith("range:")) {
+                        rangeHeader = line.substringAfter(":").trim()
                     }
                 }
 
@@ -545,7 +553,9 @@ class LocalHttpServer(
                                 path.endsWith(".json") || path.endsWith(".webmanifest") -> "application/manifest+json; charset=utf-8"
                                 else -> "application/octet-stream"
                             }
-                            sendBinaryResponse(output, 200, "OK", mimeType, bytes, cacheable = true)
+                            // sw.js tidak boleh di-cache: browser perlu menemukan versi service worker
+                            // terbaru supaya perubahan dashboard langsung terpakai di PC.
+                            sendBinaryResponse(output, 200, "OK", mimeType, bytes, cacheable = path != "/sw.js")
                         } catch (e: Exception) {
                             sendResponse(output, 404, "Not Found", "text/plain", "Asset Not Found: $path")
                         }
@@ -673,6 +683,9 @@ class LocalHttpServer(
                     }
                     path.startsWith("/api/prayer/refresh") -> {
                         handlePrayerRefreshRoute(output)
+                    }
+                    path.startsWith("/api/phone_media") -> {
+                        handlePhoneMediaRoute(path, queryParams, rangeHeader, output)
                     }
                     path.startsWith("/api/auth") -> {
                         handleAuthRoute(method, queryParams, body, output, clientIp, userAgent)
@@ -4771,6 +4784,208 @@ class LocalHttpServer(
         }
     }
 
+    // =========================================================================
+    // --- PUSTAKA MEDIA HP (audio/video milik perangkat untuk Web Connect) ---
+    // Hanya entri MediaStore yang bisa diambil: klien mengirim id numerik, jadi tidak ada
+    // cara membaca berkas di luar indeks media melalui endpoint ini.
+    // =========================================================================
+
+    private suspend fun handlePhoneMediaRoute(
+        path: String,
+        queryParams: Map<String, String>,
+        rangeHeader: String,
+        output: OutputStream
+    ) {
+        val action = path.removePrefix("/api/phone_media").trim('/')
+        val type = queryParams["type"]?.lowercase()?.takeIf {
+            it == PhoneMediaScanner.TYPE_AUDIO || it == PhoneMediaScanner.TYPE_VIDEO
+        } ?: PhoneMediaScanner.TYPE_AUDIO
+        val id = queryParams["id"]?.toLongOrNull() ?: -1L
+
+        when (action) {
+            "audio" -> sendJsonResponse(output, buildPhoneMediaListJson(PhoneMediaScanner.TYPE_AUDIO))
+            "video" -> sendJsonResponse(output, buildPhoneMediaListJson(PhoneMediaScanner.TYPE_VIDEO))
+            "stream" -> streamPhoneMedia(type, id, rangeHeader, output)
+            "art" -> sendPhoneMediaArt(type, id, output)
+            "lyrics" -> sendPhoneMediaLyrics(type, id, output)
+            else -> sendResponse(output, 404, "Not Found", "text/plain", "Endpoint media tidak dikenal")
+        }
+    }
+
+    private suspend fun buildPhoneMediaListJson(type: String): String {
+        val payload = JSONObject()
+        val items = JSONArray()
+        val hasAccess = PhoneMediaScanner.hasMediaAccess(context)
+        payload.put("type", type)
+        payload.put("hasPermission", hasAccess)
+
+        if (hasAccess) {
+            if (type == PhoneMediaScanner.TYPE_VIDEO) {
+                PhoneMediaScanner.scanVideo(context).forEach { clip ->
+                    items.put(JSONObject().apply {
+                        put("id", clip.id)
+                        put("title", clip.name)
+                        put("artist", clip.folder)
+                        put("folder", clip.folder)
+                        put("durationMs", clip.durationMs)
+                        put("durationLabel", PhoneMediaScanner.formatDurationMs(clip.durationMs))
+                        put("sizeBytes", clip.sizeBytes)
+                        put("sizeLabel", PhoneMediaScanner.formatSize(clip.sizeBytes))
+                        put("dateAddedSec", clip.dateAddedSec)
+                        put("mime", clip.mimeType)
+                        put("url", "/api/phone_media/stream?type=video&id=${clip.id}")
+                        put("artUrl", "/api/phone_media/art?type=video&id=${clip.id}")
+                    })
+                }
+            } else {
+                PhoneMediaScanner.scanAudio(context).forEach { track ->
+                    val hasLyrics = track.lyricsPath != null
+                    items.put(JSONObject().apply {
+                        put("id", track.id)
+                        put("title", track.title)
+                        put("artist", track.artist)
+                        put("album", track.album)
+                        put("folder", track.folder)
+                        put("durationMs", track.durationMs)
+                        put("durationLabel", PhoneMediaScanner.formatDurationMs(track.durationMs))
+                        put("sizeBytes", track.sizeBytes)
+                        put("sizeLabel", PhoneMediaScanner.formatSize(track.sizeBytes))
+                        put("mime", track.mimeType)
+                        put("url", "/api/phone_media/stream?type=audio&id=${track.id}")
+                        put("artUrl", "/api/phone_media/art?type=audio&id=${track.id}")
+                        put("hasLyrics", hasLyrics)
+                        put("lyricsUrl", if (hasLyrics) "/api/phone_media/lyrics?type=audio&id=${track.id}" else "")
+                    })
+                }
+            }
+        }
+
+        payload.put("items", items)
+        payload.put("total", items.length())
+        return payload.toString()
+    }
+
+    private suspend fun sendPhoneMediaArt(type: String, id: Long, output: OutputStream) {
+        val bytes = withContext(Dispatchers.IO) { PhoneMediaScanner.artwork(context, type, id) }
+        if (bytes == null || bytes.isEmpty()) {
+            sendResponse(output, 404, "Not Found", "text/plain", "Tidak ada sampul")
+            return
+        }
+        sendBinaryResponse(output, 200, "OK", "image/jpeg", bytes)
+    }
+
+    private suspend fun sendPhoneMediaLyrics(type: String, id: Long, output: OutputStream) {
+        val text = withContext(Dispatchers.IO) { PhoneMediaScanner.lyricsFor(context, type, id) }
+        if (text.isNullOrBlank()) {
+            sendResponse(output, 404, "Not Found", "text/plain", "Tidak ada berkas lirik (.lrc)")
+            return
+        }
+        sendResponse(output, 200, "OK", "text/plain; charset=utf-8", text)
+    }
+
+    /**
+     * Mengirim berkas media MediaStore dengan dukungan HTTP Range agar pemutar di browser
+     * bisa melakukan seek tanpa mengunduh seluruh file lebih dulu.
+     */
+    private suspend fun streamPhoneMedia(type: String, id: Long, rangeHeader: String, output: OutputStream) {
+        val uri = PhoneMediaScanner.uriFor(type, id)
+        if (uri == null) {
+            sendResponse(output, 404, "Not Found", "text/plain", "Media HP tidak dikenali")
+            return
+        }
+
+        val total = withContext(Dispatchers.IO) {
+            val columnSize = PhoneMediaScanner.sizeOf(context, type, id)
+            if (columnSize > 0L) columnSize else PhoneMediaScanner.descriptorLength(context, uri)
+        }
+        if (total <= 0L) {
+            sendResponse(output, 404, "Not Found", "text/plain", "Berkas media tidak lagi tersedia di HP")
+            return
+        }
+
+        val mime = withContext(Dispatchers.IO) { PhoneMediaScanner.mimeTypeFor(context, type, id) }
+            ?: if (type == PhoneMediaScanner.TYPE_VIDEO) "video/mp4" else "audio/mpeg"
+
+        var start = 0L
+        var end = total - 1
+        var isPartial = false
+        var isUnsatisfiable = false
+        if (rangeHeader.isNotBlank()) {
+            val value = rangeHeader.lowercase().substringAfter("bytes=", "").trim()
+            val dash = value.indexOf('-')
+            if (value.isNotEmpty() && dash >= 0 && !value.contains(",")) {
+                val startText = value.substring(0, dash)
+                val endText = value.substring(dash + 1)
+                val suffixLength = endText.toLongOrNull() ?: 0L
+                val parsedStart = if (startText.isEmpty()) {
+                    if (suffixLength > 0L) (total - suffixLength).coerceAtLeast(0L) else null
+                } else {
+                    startText.toLongOrNull()
+                }
+                if (parsedStart != null) {
+                    if (parsedStart >= total) {
+                        isUnsatisfiable = true
+                    } else {
+                        start = parsedStart
+                        end = if (endText.isEmpty()) total - 1 else (endText.toLongOrNull() ?: (total - 1)).coerceIn(parsedStart, total - 1)
+                        isPartial = true
+                    }
+                }
+            }
+        }
+
+        if (isUnsatisfiable) {
+            val rejection = "HTTP/1.1 416 Range Not Satisfiable\r\n" +
+                    "Content-Range: bytes */$total\r\n" +
+                    "Accept-Ranges: bytes\r\n" +
+                    "Content-Length: 0\r\n" +
+                    "Connection: close\r\n\r\n"
+            try {
+                output.write(rejection.toByteArray(Charsets.UTF_8))
+                output.flush()
+            } catch (_: Exception) {
+            }
+            return
+        }
+
+        val contentLength = end - start + 1
+        val headers = (if (isPartial) "HTTP/1.1 206 Partial Content\r\n" else "HTTP/1.1 200 OK\r\n") +
+                "Content-Type: $mime\r\n" +
+                "Content-Length: $contentLength\r\n" +
+                (if (isPartial) "Content-Range: bytes $start-$end/$total\r\n" else "") +
+                "Accept-Ranges: bytes\r\n" +
+                "Cache-Control: no-store\r\n" +
+                "Access-Control-Allow-Origin: *\r\n" +
+                "Connection: close\r\n\r\n"
+
+        try {
+            withContext(Dispatchers.IO) {
+                output.write(headers.toByteArray(Charsets.UTF_8))
+                output.flush()
+                context.contentResolver.openFileDescriptor(uri, "r")?.use { descriptor ->
+                    FileInputStream(descriptor.fileDescriptor).use { stream ->
+                        val channel = stream.channel
+                        if (start > 0L) channel.position(start)
+                        val buffer = java.nio.ByteBuffer.allocate(65536)
+                        var remaining = contentLength
+                        while (remaining > 0L) {
+                            buffer.clear()
+                            if (remaining < buffer.capacity()) buffer.limit(remaining.toInt())
+                            val read = channel.read(buffer)
+                            if (read <= 0) break
+                            output.write(buffer.array(), 0, read)
+                            remaining -= read
+                        }
+                    }
+                }
+                output.flush()
+            }
+        } catch (e: Exception) {
+            // Browser sering memutus koneksi saat melompati durasi; ini bukan kegagalan server.
+            e.printStackTrace()
+        }
+    }
+
     private suspend fun handleNotificationsRoute(method: String, queryParams: Map<String, String>, body: String, output: OutputStream) {
         val mainPrefs = context.getSharedPreferences("mysingghara_prefs", Context.MODE_PRIVATE)
 
@@ -5109,6 +5324,9 @@ class LocalHttpServer(
         val response = "HTTP/1.1 $statusCode $statusText\r\n" +
                 "Content-Type: $contentType\r\n" +
                 "Content-Length: ${contentBytes.size}\r\n" +
+                // Dashboard dibuat dinamis oleh aplikasi; cache browser PC akan menyajikan versi lama
+                // sehingga fitur baru tidak pernah terlihat.
+                "Cache-Control: no-store, must-revalidate\r\n" +
                 "Access-Control-Allow-Origin: *\r\n" +
                 "Access-Control-Allow-Methods: GET, POST, PUT, DELETE, OPTIONS\r\n" +
                 "Access-Control-Allow-Headers: Content-Type\r\n" +
@@ -11907,6 +12125,69 @@ class LocalHttpServer(
                 .replace(/'/g, "&#039;");
         }
 
+        function showCustomToast(message, durationMs) {
+            let holder = document.getElementById('globalToastHolder');
+            if (!holder) {
+                holder = document.createElement('div');
+                holder.id = 'globalToastHolder';
+                holder.style.cssText = 'position:fixed;top:18px;right:18px;z-index:2000;display:flex;flex-direction:column;gap:8px;align-items:flex-end;pointer-events:none;';
+                document.body.appendChild(holder);
+            }
+            const toast = document.createElement('div');
+            toast.style.cssText = 'max-width:340px;background:rgba(17,24,39,0.94);color:#fff;border:1px solid rgba(13,110,253,0.45);border-radius:12px;padding:10px 14px;font-size:13px;font-weight:600;box-shadow:0 8px 24px rgba(0,0,0,0.28);opacity:0;transform:translateY(-6px);transition:opacity 0.18s ease,transform 0.18s ease;';
+            toast.textContent = message === null || message === undefined ? '' : String(message);
+            holder.appendChild(toast);
+            requestAnimationFrame(() => {
+                toast.style.opacity = '1';
+                toast.style.transform = 'translateY(0)';
+            });
+            setTimeout(() => {
+                toast.style.opacity = '0';
+                setTimeout(() => toast.remove(), 220);
+            }, durationMs || 2600);
+        }
+
+        function copyToClipboard(text) {
+            if (!navigator.clipboard || !navigator.clipboard.writeText) {
+                showCustomToast('Browser tidak mengizinkan akses clipboard.');
+                return;
+            }
+            navigator.clipboard.writeText(String(text || '')).then(() => {
+                showCustomToast('Teks berhasil disalin ke clipboard.');
+            }).catch(() => {
+                showCustomToast('Gagal menyalin teks ke clipboard.');
+            });
+        }
+
+        function showCustomModal(bodyHtml, titleText) {
+            const existing = document.getElementById('genericCustomModal');
+            if (existing) existing.remove();
+            document.body.insertAdjacentHTML('beforeend', `
+                <div class="modal fade" id="genericCustomModal" tabindex="-1" aria-hidden="true">
+                    <div class="modal-dialog modal-dialog-centered modal-dialog-scrollable" style="max-width: 580px;">
+                        <div class="modal-content card-custom p-3" style="border-radius: 22px;">
+                            <div class="modal-header border-bottom-0 pb-1">
+                                <h5 class="modal-title fw-bold text-main" style="font-size: 16px;">${dol}{escapeHtml(titleText || 'Detail')}</h5>
+                                <button type="button" class="btn-close btn-close-custom" data-bs-dismiss="modal"></button>
+                            </div>
+                            <div class="modal-body pt-2">${dol}{bodyHtml}</div>
+                        </div>
+                    </div>
+                </div>
+            `);
+            const modalEl = document.getElementById('genericCustomModal');
+            modalEl.addEventListener('hidden.bs.modal', function () { modalEl.remove(); }, { once: true });
+            new bootstrap.Modal(modalEl).show();
+        }
+
+        function closeCustomModal() {
+            const modalEl = document.getElementById('genericCustomModal');
+            if (!modalEl) return;
+            const instance = bootstrap.Modal.getInstance(modalEl);
+            if (instance) instance.hide();
+            else modalEl.remove();
+        }
+
         function escapeJs(text) {
             if (!text) return '';
             return text.toString().replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/\n/g, '\\n');
@@ -13323,10 +13604,7 @@ class LocalHttpServer(
 
                                 <!-- 8x8 BOARD GRID (Identical Deep Slate Jewel Theme) -->
                                 <div class="puzzle-board-container mx-auto" 
-                                     id="puzzleBoardContainer"
-                                     ondragover="handlePuzzleBoardDragOver(event)"
-                                     ondragleave="handlePuzzleBoardDragLeave(event)"
-                                     ondrop="handlePuzzleBoardDrop(event)">
+                                     id="puzzleBoardContainer">
                                     <div class="puzzle-grid" id="puzzleBoardGrid">
                     `;
 
@@ -13340,9 +13618,7 @@ class LocalHttpServer(
                                 <div class="puzzle-cell ${dol}{filled ? 'puzzle-cell-filled' : 'puzzle-cell-empty'}"
                                      id="puzzle-cell-${dol}{r}-${dol}{c}"
                                      data-r="${dol}{r}" data-c="${dol}{c}"
-                                     onclick="handlePuzzleCellClick(${dol}{r}, ${dol}{c})"
-                                     onmouseenter="handlePuzzleCellMouseEnter(${dol}{r}, ${dol}{c})"
-                                     onmouseleave="handlePuzzleCellMouseLeave(${dol}{r}, ${dol}{c})">
+                                     onclick="handlePuzzleCellClick(${dol}{r}, ${dol}{c})">
                                     ${dol}{filled ? getJewelBlockSvg(bgCol) : ''}
                                 </div>
                             `;
@@ -16300,7 +16576,7 @@ class LocalHttpServer(
                     localStorage.setItem('singghara_notifications_cache', JSON.stringify(window.allNotificationsData));
                     updateNotificationNavbarBadge(window.allNotificationsData);
                     renderNotificationModal(window.allNotificationsData);
-                    showToast('Semua pesan ditandai sudah dibaca');
+                    showCustomToast('Semua pesan ditandai sudah dibaca');
                 }
             } catch(e) {
                 console.error('Error markAllNotificationsRead:', e);
@@ -16341,7 +16617,7 @@ class LocalHttpServer(
                     localStorage.setItem('singghara_notifications_cache', JSON.stringify(window.allNotificationsData));
                     updateNotificationNavbarBadge(window.allNotificationsData);
                     renderNotificationModal(window.allNotificationsData);
-                    showToast('Riwayat notifikasi berhasil dibersihkan');
+                    showCustomToast('Riwayat notifikasi berhasil dibersihkan');
                 }
             } catch(e) {
                 console.error('Error clearAllNotifications:', e);

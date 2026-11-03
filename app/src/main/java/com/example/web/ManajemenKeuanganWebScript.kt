@@ -121,7 +121,7 @@ object ManajemenKeuanganWebScript {
                                 <div>
                                     <div class="d-flex align-items-center gap-2 flex-wrap">
                                         <h4 class="fw-bold mb-0 text-break">${dol}{escapeHtml(namaUsaha)}</h4>
-                                        <button class="btn btn-sm btn-outline-primary border-0 rounded-circle p-1" title="Ubah Nama Usaha" onclick="openEditNamaUsahaModal()">
+                                        <button class="btn btn-sm btn-outline-primary border-0 rounded-circle p-1" title="Ubah Nama Usaha" onclick="openKasirNamaUsahaModal()">
                                             <i class="bi bi-pencil-square fs-6"></i>
                                         </button>
                                     </div>
@@ -1319,7 +1319,7 @@ object ManajemenKeuanganWebScript {
             }
         }
 
-        function openEditNamaUsahaModal() {
+        function openKasirNamaUsahaModal() {
             const modalId = 'modalEditNamaUsaha';
             let modalEl = document.getElementById(modalId);
             if (modalEl) modalEl.remove();

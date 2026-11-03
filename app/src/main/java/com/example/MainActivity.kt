@@ -187,8 +187,9 @@ class MainActivity : FragmentActivity() {
     ) { permissions ->
         val readGranted = permissions[Manifest.permission.READ_EXTERNAL_STORAGE] ?: false
         val writeGranted = permissions[Manifest.permission.WRITE_EXTERNAL_STORAGE] ?: false
+        val mediaGranted = permissions.entries.any { it.value && it.key.startsWith("android.permission.READ_MEDIA_") }
 
-        if (readGranted || writeGranted) {
+        if (readGranted || writeGranted || mediaGranted) {
             com.example.util.SinggharaFolderManager.ensureFoldersExist(this)
             viewModel.showToastPopup("Akses file diizinkan.")
         } else {
@@ -606,6 +607,13 @@ class MainActivity : FragmentActivity() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             // Android 11+ (API 30+) menggunakan MANAGE_EXTERNAL_STORAGE untuk akses file langsung di folder publik
             if (!Environment.isExternalStorageManager()) {
+                // Tanpa akses semua file, MediaStore hanya bisa dibaca lewat izin media perjenis (Android 13+).
+                // Dialog izin diminta lebih dulu; layar pengaturan dibuka pada kesempatan berikutnya.
+                val missingMediaPermissions = missingMediaPermissionNames()
+                if (missingMediaPermissions.isNotEmpty()) {
+                    requestPermissionLauncher.launch(missingMediaPermissions.toTypedArray())
+                    return
+                }
                 try {
                     val intent = Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION).apply {
                         data = Uri.parse("package:${packageName}")
@@ -649,6 +657,13 @@ class MainActivity : FragmentActivity() {
                 requestPermissionLauncher.launch(permissionsList.toTypedArray())
             }
         }
+    }
+
+    /** Izin media yang belum diberikan; kosong pada Android 12 ke bawah karena memakai READ_EXTERNAL_STORAGE. */
+    private fun missingMediaPermissionNames(): List<String> {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return emptyList()
+        return listOf(Manifest.permission.READ_MEDIA_AUDIO, Manifest.permission.READ_MEDIA_VIDEO)
+            .filter { ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED }
     }
 }
 
@@ -827,6 +842,11 @@ fun MainAppContent(viewModel: MainViewModel, desktopMode: Boolean = false) {
             val driveResult = GoogleDriveUpdateManager.checkForDriveUpdate(context)
             if (driveResult is DriveUpdateCheckState.UpdateAvailable) {
                 startupDriveUpdateResult = driveResult
+                NotificationScheduler.showUpdateAvailableNotification(
+                    context = context,
+                    versionLabel = driveResult.latestApk.name,
+                    source = "Google Drive"
+                )
                 return
             }
         }
@@ -848,6 +868,11 @@ fun MainAppContent(viewModel: MainViewModel, desktopMode: Boolean = false) {
             GitHubUpdateManager.isRemoteVersionNewer(BuildConfig.VERSION_NAME, result.release.tagName)
         ) {
             startupUpdateResult = result
+            NotificationScheduler.showUpdateAvailableNotification(
+                context = context,
+                versionLabel = "v${result.newVersion}",
+                source = "GitHub"
+            )
         }
     }
 

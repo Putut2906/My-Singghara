@@ -17,6 +17,16 @@ object MusikWebScript {
         window.musicPlaybackPosition = 0;
         window.musicTotalDuration = 0;
 
+        // Sumber berkas: 'phone' = penyimpanan HP (MediaStore), 'pc' = berkas yang diimpor browser.
+        window.musicSourceFilter = window.musicSourceFilter || 'all'; // 'all' | 'phone' | 'pc'
+        window.musicPhoneTracksLoaded = window.musicPhoneTracksLoaded || false;
+        window.musicPhoneAutoTried = false;
+        window.musicPhoneLoading = false;
+        window.musicPhonePermission = true;
+        window.musicPhoneError = '';
+        window.musicFetchedLyrics = window.musicFetchedLyrics || {}; // { [trackId]: lrcText }
+        window.musicDockTrackId = null;
+
         // Tabs & Navigation State (Identical to PemutarMusikScreen.kt)
         window.musicSelectedTab = window.musicSelectedTab || 0; // 0: Folder, 1: Favorit, 2: Daftar Putar
         window.musicSelectedSubTab = window.musicSelectedSubTab || 0; // 0: Baru Ditambahkan, 1: Paling Sering, 2: Baru Saja, 3: Daftar Putar Saya
@@ -109,9 +119,12 @@ object MusikWebScript {
                                 if (st.blob) {
                                     st.url = URL.createObjectURL(st.blob);
                                 }
+                                st.origin = 'pc';
                             });
                             window.musicPlaylist = savedTracks;
-                            if (window.currentTab === 'musik') {
+                            // `currentTab` adalah binding top-level (let) di dashboard, bukan properti
+                            // window — memakainya lewat window selalu bernilai undefined.
+                            if (typeof currentTab !== 'undefined' && currentTab === 'musik') {
                                 loadMusik();
                             }
                         }
@@ -165,6 +178,7 @@ object MusikWebScript {
 
                 // Update real-time lyrics scrolling and word highlight
                 updateLyricsHighlight(cur);
+                updateDockLyricLine(cur);
             });
 
             window.musicPlayerAudio.addEventListener('loadedmetadata', () => {
@@ -182,12 +196,26 @@ object MusikWebScript {
                 handleTrackEnded();
             });
 
+            window.musicPlayerAudio.addEventListener('error', () => {
+                const failed = window.musicPlaylist[window.currentMusicIndex];
+                if (failed && failed.origin === 'phone') {
+                    showCustomToast('Berkas HP tidak bisa diputar (mungkin sudah dipindah/dihapus).');
+                }
+                syncMusicDockState();
+            });
+
+            window.musicPlayerAudio.addEventListener('volumechange', () => {
+                saveMusicSettings();
+            });
+
             window.musicPlayerAudio.addEventListener('play', () => {
                 updatePlayPauseStateInUI(true);
+                syncMusicDockState();
             });
 
             window.musicPlayerAudio.addEventListener('pause', () => {
                 updatePlayPauseStateInUI(false);
+                syncMusicDockState();
             });
         }
 
@@ -233,10 +261,10 @@ object MusikWebScript {
             if (bigBtn) {
                 bigBtn.innerHTML = `<i class="bi ${dol}{isPlaying ? 'bi-pause-fill' : 'bi-play-fill'}" style="font-size: 38px; color: white;"></i>`;
             }
-            // Update mini player button
-            const miniBtn = document.getElementById('musicMiniPlayPauseBtn');
-            if (miniBtn) {
-                miniBtn.innerHTML = `<i class="bi ${dol}{isPlaying ? 'bi-pause-fill' : 'bi-play-fill'}" style="font-size: 24px;"></i>`;
+            // Update the persistent now-playing dock button
+            const dockBtn = document.getElementById('musicDockPlayPauseBtn');
+            if (dockBtn) {
+                dockBtn.innerHTML = `<i class="bi ${dol}{isPlaying ? 'bi-pause-fill' : 'bi-play-fill'}" style="font-size: 26px;"></i>`;
             }
             // Update rotating disc animation
             const disc = document.getElementById('musicVinylArtDisc');
@@ -253,6 +281,362 @@ object MusikWebScript {
                     icon.innerHTML = '<i class="bi bi-pause-circle text-primary"></i>';
                 }
             });
+        }
+
+        // =========================================================================
+        // --- SUMBER BERKAS HP (MediaStore) + MINI PLAYER PERSISTEN ---
+        // =========================================================================
+
+        function getVisibleMusicPlaylist() {
+            const filter = window.musicSourceFilter || 'all';
+            if (filter === 'all') return window.musicPlaylist;
+            if (filter === 'phone') return window.musicPlaylist.filter(function (t) { return t.origin === 'phone'; });
+            return window.musicPlaylist.filter(function (t) { return t.origin !== 'phone'; });
+        }
+
+        function setMusicSourceFilter(filter) {
+            window.musicSourceFilter = filter;
+            loadMusik();
+        }
+
+        function getTrackCover(track) {
+            if (!track) return null;
+            const arts = window.musicCustomAlbumArts || {};
+            if (arts[track.id]) return arts[track.id];
+            if (arts[track.title]) return arts[track.title];
+            if (track.artUrl) return track.artUrl;
+            return null;
+        }
+
+        function getTrackLyrics(track) {
+            if (!track) return '';
+            const manual = window.musicManualLyrics || {};
+            if (manual[track.id]) return manual[track.id];
+            if (manual[track.title]) return manual[track.title];
+            if (window.musicFetchedLyrics[track.id]) return window.musicFetchedLyrics[track.id];
+            if (window.musicFetchedLyrics[track.title]) return window.musicFetchedLyrics[track.title];
+            return '';
+        }
+
+        // Berkas .lrc di samping lagu HP dimuat sekali per trek, tidak disimpan ke localStorage
+        // karena id MediaStore sudah stabil lintas sesi.
+        async function ensurePhoneLyricsLoaded(track) {
+            if (!track || track.origin !== 'phone' || !track.lyricsUrl) return;
+            if (window.musicFetchedLyrics[track.id] !== undefined) return;
+            try {
+                const res = await fetch(track.lyricsUrl, { cache: 'no-store' });
+                window.musicFetchedLyrics[track.id] = res.ok ? await res.text() : '';
+            } catch (err) {
+                window.musicFetchedLyrics[track.id] = '';
+            }
+            const nowTrack = window.musicPlaylist[window.currentMusicIndex];
+            if (nowTrack && nowTrack.id === track.id) refreshLyricsViews();
+        }
+
+        function refreshLyricsViews() {
+            const card = document.getElementById('musicCentralArtCard');
+            const currentTrack = window.musicPlaylist[window.currentMusicIndex];
+            if (card && currentTrack && window.musicIsLyricsMode && !window.musicLyricsEditMode) {
+                card.innerHTML = getCentralArtCardInnerHtml(currentTrack);
+            }
+            updateDockLyricLine(window.musicPlaybackPosition || 0);
+        }
+
+        async function loadPhoneMusicLibrary(showToast) {
+            if (window.musicPhoneLoading) return;
+            window.musicPhoneLoading = true;
+            if (showToast) showCustomToast('Memindai musik yang ada di HP...');
+            try {
+                const res = await fetch('/api/phone_media/audio', { cache: 'no-store' });
+                const data = await res.json();
+                window.musicPhonePermission = data.hasPermission !== false;
+                window.musicPhoneError = window.musicPhonePermission ? '' : 'Izin baca audio di HP belum diberikan.';
+                const playingId = window.musicPlaylist[window.currentMusicIndex] ? window.musicPlaylist[window.currentMusicIndex].id : null;
+                const phoneTracks = (data.items || []).map(function (item) {
+                    return {
+                        id: 'phone_audio_' + item.id,
+                        mediaId: item.id,
+                        origin: 'phone',
+                        title: item.title || 'Audio',
+                        artist: item.artist || 'Penyanyi Tidak Diketahui',
+                        album: item.album || '',
+                        folder: item.folder || 'Musik HP',
+                        size: item.sizeLabel || '-',
+                        sizeBytes: item.sizeBytes || 0,
+                        durationMs: item.durationMs || 0,
+                        url: item.url,
+                        artUrl: item.artUrl,
+                        lyricsUrl: item.lyricsUrl || '',
+                        addedAt: (item.dateAddedSec || 0) * 1000
+                    };
+                });
+                window.musicPlaylist = window.musicPlaylist
+                    .filter(function (t) { return t.origin !== 'phone'; })
+                    .concat(phoneTracks);
+                window.musicPhoneTracksLoaded = true;
+                if (playingId) {
+                    const restoredIndex = window.musicPlaylist.findIndex(function (t) { return t.id === playingId; });
+                    if (restoredIndex >= 0) window.currentMusicIndex = restoredIndex;
+                }
+                if (showToast) showCustomToast(phoneTracks.length + ' lagu dari HP berhasil dimuat.');
+            } catch (err) {
+                window.musicPhoneError = 'Layanan media HP tidak terjangkau: ' + err.message;
+                if (showToast) showCustomToast('Gagal memuat musik dari HP.');
+            } finally {
+                window.musicPhoneLoading = false;
+                if (typeof currentTab !== 'undefined' && currentTab === 'musik') loadMusik();
+            }
+        }
+
+        function getMusicSourceChipsHtml() {
+            const phoneCount = window.musicPlaylist.filter(function (t) { return t.origin === 'phone'; }).length;
+            const pcCount = window.musicPlaylist.length - phoneCount;
+            return '' +
+                '<div class="d-flex align-items-center gap-2 mb-3 flex-wrap">' +
+                '  <div class="music-source-chip ' + (window.musicSourceFilter === 'all' ? 'active' : '') + '" onclick="setMusicSourceFilter(\'all\')">Semua (' + window.musicPlaylist.length + ')</div>' +
+                '  <div class="music-source-chip ' + (window.musicSourceFilter === 'phone' ? 'active' : '') + '" onclick="setMusicSourceFilter(\'phone\')"><i class="bi bi-phone me-1"></i>HP (' + phoneCount + ')</div>' +
+                '  <div class="music-source-chip ' + (window.musicSourceFilter === 'pc' ? 'active' : '') + '" onclick="setMusicSourceFilter(\'pc\')"><i class="bi bi-pc-display me-1"></i>PC (' + pcCount + ')</div>' +
+                '  <button class="btn btn-sm btn-outline-primary ms-auto" onclick="loadPhoneMusicLibrary(true)"><i class="bi bi-arrow-repeat me-1"></i>' + (phoneCount > 0 ? 'Pindai Ulang HP' : 'Muat Musik HP') + '</button>' +
+                '</div>';
+        }
+
+        // --- DOCK "NOW PLAYING" DI LEVEL BODY (tetap tampil di semua halaman) ---
+
+        function mountMusicDock() {
+            const track = window.musicPlaylist[window.currentMusicIndex];
+            let dock = document.getElementById('musicGlobalDock');
+            if (!track || !window.musicDockTrackId) {
+                if (dock) dock.remove();
+                document.body.classList.remove('has-music-dock');
+                return;
+            }
+            if (!dock) {
+                dock = document.createElement('div');
+                dock.id = 'musicGlobalDock';
+                dock.className = 'music-global-dock';
+                document.body.appendChild(dock);
+            }
+            if (dock.getAttribute('data-track-id') !== track.id) {
+                dock.innerHTML = getGlobalDockHtml(track);
+                dock.setAttribute('data-track-id', track.id);
+            }
+            dock.style.display = window.musicIsPlayerExpanded ? 'none' : '';
+            document.body.classList.add('has-music-dock');
+        }
+
+        function syncMusicDockState() {
+            const track = window.musicPlaylist[window.currentMusicIndex];
+            if (!track || !window.musicDockTrackId) return;
+            mountMusicDock();
+            const isPlaying = !window.musicPlayerAudio.paused && !window.musicPlayerAudio.ended;
+
+            const btn = document.getElementById('musicDockPlayPauseBtn');
+            if (btn) btn.innerHTML = '<i class="bi ' + (isPlaying ? 'bi-pause-fill' : 'bi-play-fill') + '" style="font-size: 26px;"></i>';
+
+            const titleEl = document.getElementById('dockTrackTitle');
+            if (titleEl) titleEl.innerText = track.title;
+            const artistEl = document.getElementById('dockTrackArtist');
+            if (artistEl) artistEl.innerText = track.artist || track.folder || 'Musik';
+
+            const coverBox = document.getElementById('dockCoverArt');
+            if (coverBox) {
+                const src = getTrackCover(track);
+                coverBox.innerHTML = src
+                    ? '<img src="' + src + '" style="width:100%;height:100%;object-fit:cover;">'
+                    : '<i class="bi bi-music-note-beamed text-primary fs-4"></i>';
+            }
+
+            const favBtn = document.getElementById('dockFavoriteBtn');
+            if (favBtn) {
+                const isFav = isTrackFavorite(track);
+                favBtn.innerHTML = '<i class="bi ' + (isFav ? 'bi-heart-fill text-danger' : 'bi-heart text-secondary') + '" style="font-size: 19px;"></i>';
+            }
+
+            const volume = document.getElementById('dockVolumeSlider');
+            if (volume) volume.value = window.musicPlayerAudio.volume;
+
+            const slider = document.getElementById('dockSeekSlider');
+            if (slider && !window.isSeekingMusic) {
+                slider.max = window.musicTotalDuration || 0;
+                slider.value = window.musicPlaybackPosition || 0;
+            }
+
+            updateRepeatButtonUI();
+            updateShuffleButtonUI();
+            updateDockLyricLine(window.musicPlaybackPosition || 0);
+            updateMediaSession(track);
+        }
+
+        function getGlobalDockHtml(track) {
+            const isPlaying = window.musicPlayerAudio && !window.musicPlayerAudio.paused && !window.musicPlayerAudio.ended;
+            const src = getTrackCover(track);
+            const dur = window.musicTotalDuration || 0;
+            const pos = window.musicPlaybackPosition || 0;
+            const originBadge = track.origin === 'phone'
+                ? '<span class="badge text-bg-primary ms-1" style="font-size:9px">HP</span>'
+                : '<span class="badge text-bg-secondary ms-1" style="font-size:9px">PC</span>';
+
+            let html = '';
+            html += '<style>' + getMusicDockCss() + '</style>';
+            html += '<div class="music-dock-card">';
+            html += '  <div class="music-dock-progress-row">';
+            html += '    <span class="music-cur-time-text music-dock-time">' + formatAudioTime(pos) + '</span>';
+            html += '    <input type="range" class="music-dock-slider music-seek-slider" id="dockSeekSlider" min="0" max="' + dur + '" value="' + pos + '" oninput="handleMusicSeekInput(this.value)" onchange="handleMusicSeekChange(this.value)">';
+            html += '    <span class="music-dur-time-text music-dock-time">' + formatAudioTime(dur) + '</span>';
+            html += '  </div>';
+            html += '  <div class="music-dock-main-row">';
+            html += '    <div class="music-dock-cover" id="dockCoverArt" onclick="expandMusicPlayerDeck()" title="Buka pemutar penuh">' +
+                (src ? '<img src="' + src + '" style="width:100%;height:100%;object-fit:cover;">' : '<i class="bi bi-music-note-beamed text-primary fs-4"></i>') + '</div>';
+            html += '    <div class="music-dock-meta" onclick="expandMusicPlayerDeck()" title="Buka pemutar penuh">';
+            html += '      <div class="music-dock-title text-truncate" id="dockTrackTitle">' + escapeHtml(track.title) + originBadge + '</div>';
+            html += '      <div class="music-dock-artist text-truncate" id="dockTrackArtist">' + escapeHtml(track.artist || track.folder || 'Musik') + '</div>';
+            html += '      <div class="music-dock-lyric text-truncate" id="dockLyricLine"></div>';
+            html += '    </div>';
+            html += '    <div class="music-dock-controls">';
+            html += '      <button class="music-dock-btn music-shuffle-btn' + (window.isMusicShuffle ? ' is-active' : '') + '" onclick="toggleShuffleMode()" title="Acak"><i class="bi bi-shuffle"></i></button>';
+            html += '      <button class="music-dock-btn" onclick="prevMusicTrack()" title="Sebelumnya"><i class="bi bi-skip-start-fill"></i></button>';
+            html += '      <button class="music-dock-play-btn" id="musicDockPlayPauseBtn" onclick="togglePlayMusic()" title="Putar / Jeda"><i class="bi ' + (isPlaying ? 'bi-pause-fill' : 'bi-play-fill') + '" style="font-size:26px"></i></button>';
+            html += '      <button class="music-dock-btn" onclick="nextMusicTrack()" title="Selanjutnya"><i class="bi bi-skip-end-fill"></i></button>';
+            html += '      <button class="music-dock-btn music-repeat-btn" onclick="cycleRepeatMode()" title="Pengulangan"><i class="bi bi-repeat"></i></button>';
+            html += '      <button class="music-dock-btn" id="dockFavoriteBtn" onclick="toggleTrackFavorite(\'' + track.id + '\', event)" title="Favorit"><i class="bi bi-heart text-secondary"></i></button>';
+            html += '      <button class="music-dock-btn" onclick="openMusicDeckWithLyrics()" title="Lirik"><i class="bi bi-text-center"></i></button>';
+            html += '      <button class="music-dock-btn" onclick="openMusicQueueModal()" title="Antrean Lagu"><i class="bi bi-music-note-list"></i></button>';
+            html += '      <button class="music-dock-btn music-dock-optional" onclick="downloadMusicTrack(\'' + track.id + '\')" title="Unduh ke PC"><i class="bi bi-download"></i></button>';
+            html += '      <input type="range" id="dockVolumeSlider" class="music-dock-volume" min="0" max="1" step="0.01" value="' + window.musicPlayerAudio.volume + '" oninput="setMusicVolume(this.value)" title="Volume">';
+            html += '      <button class="music-dock-btn music-dock-optional" onclick="expandMusicPlayerDeck()" title="Perbesar"><i class="bi bi-arrows-angle-expand"></i></button>';
+            html += '      <button class="music-dock-btn text-danger" onclick="stopMusicPlayback()" title="Hentikan Putar"><i class="bi bi-x-lg"></i></button>';
+            html += '    </div>';
+            html += '  </div>';
+            html += '</div>';
+            return html;
+        }
+
+        function getMusicDockCss() {
+            return '' +
+                '.music-global-dock{position:fixed;left:var(--sidebar-width,0px);right:0;bottom:0;z-index:1050;padding:0 16px 12px;pointer-events:none;transition:left .3s ease;}' +
+                '.music-global-dock .music-dock-card{pointer-events:auto;background:var(--bs-body-bg,#fff);border:1px solid rgba(13,110,253,.28);border-radius:16px;box-shadow:0 -6px 24px rgba(0,0,0,.18);padding:8px 12px;}' +
+                'body.has-music-dock .content-wrapper{padding-bottom:132px;}' +
+                '.music-dock-progress-row{display:flex;align-items:center;gap:10px;margin-bottom:2px;}' +
+                '.music-dock-time{font-size:10.5px;color:var(--bs-secondary);min-width:38px;text-align:center;}' +
+                '.music-dock-slider{flex:1;height:4px;accent-color:var(--bs-primary,#0d6efd);}' +
+                '.music-dock-main-row{display:flex;align-items:center;gap:12px;}' +
+                '.music-dock-cover{width:46px;height:46px;min-width:46px;border-radius:10px;overflow:hidden;background:linear-gradient(135deg,#1f2937,#111827);display:flex;align-items:center;justify-content:center;cursor:pointer;}' +
+                '.music-dock-meta{flex:1;min-width:0;cursor:pointer;}' +
+                '.music-dock-title{font-size:13px;font-weight:700;}' +
+                '.music-dock-artist{font-size:11px;color:var(--bs-secondary);}' +
+                '.music-dock-lyric{font-size:11px;color:var(--bs-primary);font-weight:600;min-height:14px;}' +
+                '.music-dock-controls{display:flex;align-items:center;gap:2px;flex-shrink:0;}' +
+                '.music-dock-btn{position:relative;background:transparent;border:0;color:var(--bs-secondary);width:30px;height:30px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:16px;cursor:pointer;}' +
+                '.music-dock-btn:hover{background:rgba(127,127,127,.14);}' +
+                '.music-dock-btn.is-active{color:var(--bs-primary);}' +
+                '.music-repeat-badge{position:absolute;top:-1px;right:0;font-size:8px;font-weight:800;line-height:1;}' +
+                '.music-dock-play-btn{background:var(--bs-primary,#0d6efd);border:0;color:#fff;width:42px;height:42px;border-radius:50%;display:flex;align-items:center;justify-content:center;cursor:pointer;}' +
+                '.music-dock-play-btn:hover{filter:brightness(1.08);}' +
+                '.music-dock-volume{width:70px;height:4px;accent-color:var(--bs-primary,#0d6efd);}' +
+                '@media (max-width:1100px){.music-global-dock{left:0;}}' +
+                '@media (max-width:900px){.music-dock-volume{display:none;}.music-dock-lyric{display:none;}.music-dock-optional{display:none;}}';
+        }
+
+        function updateDockLyricLine(currentSec) {
+            const el = document.getElementById('dockLyricLine');
+            if (!el) return;
+            const track = window.musicPlaylist[window.currentMusicIndex];
+            if (!track) { el.innerText = ''; return; }
+            const lrcText = getTrackLyrics(track);
+            let lines;
+            if (window._dockLrcTrack === track.id && window._dockLrcSource === lrcText) {
+                lines = window._dockLrcLines;
+            } else {
+                lines = lrcText ? parseLrcLyrics(lrcText) : [];
+                window._dockLrcTrack = track.id;
+                window._dockLrcSource = lrcText;
+                window._dockLrcLines = lines;
+            }
+            if (!lines || lines.length === 0) {
+                el.innerText = track.origin === 'phone' ? (track.folder || 'Berkas HP') : (track.folder || 'Berkas PC');
+                return;
+            }
+            let active = lines[0].text;
+            for (let i = 0; i < lines.length; i++) {
+                if (lines[i].timeSec <= currentSec) active = lines[i].text; else break;
+            }
+            el.innerText = active;
+        }
+
+        function stopMusicPlayback() {
+            window.musicPlayerAudio.pause();
+            window.musicPlayerAudio.removeAttribute('src');
+            window.musicPlayerAudio.load();
+            window.musicDockTrackId = null;
+            window.musicIsPlayerExpanded = false;
+            const dock = document.getElementById('musicGlobalDock');
+            if (dock) dock.remove();
+            document.body.classList.remove('has-music-dock');
+            const deck = document.getElementById('musicExpandedPlayerDeck');
+            if (deck) deck.style.display = 'none';
+            if ('mediaSession' in navigator) {
+                try { navigator.mediaSession.metadata = null; } catch (err) {}
+            }
+            if (typeof currentTab !== 'undefined' && currentTab === 'musik') loadMusik();
+        }
+
+        function downloadMusicTrack(trackId) {
+            const track = window.musicPlaylist.find(function (t) { return t.id === trackId; });
+            if (!track || !track.url) return;
+            const link = document.createElement('a');
+            link.href = track.url;
+            link.download = track.title || 'lagu';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            showCustomToast('Mengunduh ' + (track.title || 'lagu'));
+        }
+
+        function setMusicVolume(val) {
+            const volume = Math.max(0, Math.min(1, parseFloat(val) || 0));
+            window.musicPlayerAudio.volume = volume;
+            saveMusicSettings();
+        }
+
+        function openMusicDeckWithLyrics() {
+            window.musicIsLyricsMode = true;
+            window.musicLyricsEditMode = false;
+            expandMusicPlayerDeck();
+        }
+
+        // Tombol media sistem (keyboard/OS) memakai Media Session API bila tersedia.
+        function setupMusicMediaSession() {
+            if (!('mediaSession' in navigator)) return;
+            try {
+                navigator.mediaSession.setActionHandler('play', function () { window.musicPlayerAudio.play().catch(function () {}); });
+                navigator.mediaSession.setActionHandler('pause', function () { window.musicPlayerAudio.pause(); });
+                navigator.mediaSession.setActionHandler('previoustrack', function () { prevMusicTrack(); });
+                navigator.mediaSession.setActionHandler('nexttrack', function () { nextMusicTrack(false); });
+                navigator.mediaSession.setActionHandler('seekto', function (details) {
+                    if (details && typeof details.seekTime === 'number') window.musicPlayerAudio.currentTime = details.seekTime;
+                });
+            } catch (err) {}
+        }
+
+        function updateMediaSession(track) {
+            if (!('mediaSession' in navigator)) return;
+            try {
+                const cover = getTrackCover(track);
+                navigator.mediaSession.metadata = new MediaMetadata({
+                    title: track.title || 'Tanpa Judul',
+                    artist: track.artist || track.folder || 'My Singghara',
+                    album: track.album || track.folder || 'My Singghara',
+                    artwork: cover ? [{ src: cover, sizes: '512x512', type: 'image/jpeg' }] : []
+                });
+                const duration = window.musicPlayerAudio.duration;
+                if (isFinite(duration) && duration > 0) {
+                    navigator.mediaSession.setPositionState({
+                        duration: duration,
+                        position: Math.min(window.musicPlayerAudio.currentTime || 0, duration),
+                        playbackRate: window.musicPlayerAudio.playbackRate || 1
+                    });
+                }
+            } catch (err) {}
         }
 
         // --- PARSING & LYRICS ENGINE (LRC COMPLIANT) ---
@@ -301,7 +685,7 @@ object MusikWebScript {
             const currentTrack = window.musicPlaylist[window.currentMusicIndex];
             if (!currentTrack) return;
 
-            const lrcText = window.musicManualLyrics[currentTrack.id] || window.musicManualLyrics[currentTrack.title] || '';
+            const lrcText = getTrackLyrics(currentTrack);
             if (!lrcText) return;
 
             const lines = parseLrcLyrics(lrcText);
@@ -418,10 +802,16 @@ object MusikWebScript {
                 });
             }
 
+            window.musicDockTrackId = track.id;
+            setupMusicMediaSession();
+            ensurePhoneLyricsLoaded(track);
+            refreshLyricsViews();
+
             renderActiveMusicTabContent();
             updateExpandedDeckTrackInfo();
-            updateMiniPlayerInfo();
             updateDeckActionIcons();
+            syncMusicDockState();
+            updateMediaSession();
         }
 
         function togglePlayMusic() {
@@ -479,31 +869,39 @@ object MusikWebScript {
         }
 
         function updateRepeatButtonUI() {
-            const btn = document.getElementById('deckRepeatBtn');
-            if (!btn) return;
             const mode = window.musicRepeatMode;
-            let badge = '';
-            let isActive = mode !== 'NONE';
+            const isActive = mode !== 'NONE';
+            let badgeText = '';
+            if (mode === 'ONE') badgeText = '1';
+            else if (mode === 'ALL') badgeText = 'A';
+            else if (mode === 'AZ') badgeText = 'A-Z';
 
-            if (mode === 'ONE') badge = '<span style="position: absolute; font-size: 10px; font-weight: 800; top: 12px; left: 19px;">1</span>';
-            else if (mode === 'ALL') badge = '<span style="position: absolute; font-size: 9px; font-weight: 800; top: 13px; left: 18px;">A</span>';
-            else if (mode === 'AZ') badge = '<span style="position: absolute; font-size: 7px; font-weight: 900; top: 13px; left: 15px;">A-Z</span>';
+            // Tombol pengulangan ada dua: di dock mini player dan di deck penuh.
+            document.querySelectorAll('.music-repeat-btn').forEach(function (btn) {
+                const isDock = btn.classList.contains('music-dock-btn');
+                const iconSize = isDock ? 16 : 24;
+                const badge = badgeText
+                    ? '<span style="position:absolute;top:' + (isDock ? '-1' : '2') + 'px;right:' + (isDock ? '0' : '4') + 'px;font-size:' + (mode === 'AZ' ? 7 : 9) + 'px;font-weight:800;line-height:1;">' + badgeText + '</span>'
+                    : '';
+                btn.innerHTML = '<i class="bi bi-repeat ' + (isActive ? 'text-primary' : 'text-secondary') + '" style="font-size:' + iconSize + 'px;"></i>' + badge;
+            });
+        }
 
-            btn.innerHTML = `
-                <div style="position: relative; width: 44px; height: 44px; display: flex; align-items: center; justify-content: center;">
-                    <i class="bi bi-repeat ${dol}{isActive ? 'text-primary' : 'text-secondary'}" style="font-size: 24px;"></i>
-                    ${dol}{badge}
-                </div>
-            `;
+        function updateShuffleButtonUI() {
+            document.querySelectorAll('.music-shuffle-btn').forEach(function (btn) {
+                if (btn.classList.contains('music-dock-btn')) {
+                    btn.classList.toggle('is-active', window.isMusicShuffle);
+                } else {
+                    btn.classList.toggle('text-primary', window.isMusicShuffle);
+                    btn.classList.toggle('text-secondary', !window.isMusicShuffle);
+                }
+            });
         }
 
         function toggleShuffleMode() {
             window.isMusicShuffle = !window.isMusicShuffle;
             saveMusicSettings();
-            const btn = document.getElementById('deckShuffleBtn');
-            if (btn) {
-                btn.className = `btn btn-link p-0 ${dol}{window.isMusicShuffle ? 'text-primary' : 'text-secondary'}`;
-            }
+            updateShuffleButtonUI();
             showCustomToast(window.isMusicShuffle ? 'Mode Acak (Shuffle) Aktif' : 'Mode Acak Dinonaktifkan');
         }
 
@@ -697,9 +1095,6 @@ object MusikWebScript {
 
         // --- MAIN RENDER FUNCTION: loadMusik() ---
         function loadMusik() {
-            const hasTracks = window.musicPlaylist.length > 0;
-            const currentTrack = hasTracks ? (window.musicPlaylist[window.currentMusicIndex] || window.musicPlaylist[0]) : null;
-
             let html = `
                 <!-- STYLES TO ENSURE 100% IDENTICAL LOOK TO JETPACK COMPOSE -->
                 <style>
@@ -745,6 +1140,26 @@ object MusikWebScript {
                     }
                     .music-subtab-chip:hover {
                         filter: brightness(1.1);
+                    }
+                    .music-source-chip {
+                        cursor: pointer;
+                        border-radius: 20px;
+                        padding: 6px 14px;
+                        font-size: 12px;
+                        font-weight: 700;
+                        user-select: none;
+                        border: 1px solid rgba(127, 127, 127, 0.25);
+                        background: rgba(127, 127, 127, 0.08);
+                        color: var(--bs-secondary);
+                        transition: all 0.15s ease;
+                    }
+                    .music-source-chip.active {
+                        background: var(--bs-primary);
+                        border-color: var(--bs-primary);
+                        color: #fff;
+                    }
+                    .music-source-chip:hover {
+                        filter: brightness(1.08);
                     }
                     .music-card-item {
                         border-radius: 12px;
@@ -822,12 +1237,44 @@ object MusikWebScript {
 
                 <!-- MAIN SCROLLABLE CONTENT AREA -->
                 <div id="musicTabContentArea">
-                    ${dol}{renderActiveMusicTabContentHtml()}
+                    ${dol}{renderActiveMusicTabContentWithChips()}
                 </div>
+            `;
 
-                <!-- PERSISTENT MINI PLAYER DOCK AT BOTTOM -->
-                ${dol}{hasTracks && currentTrack ? getMiniPlayerHtml(currentTrack) : ''}
+            document.getElementById('tab-content').innerHTML = html;
 
+            // Deck, modal dan input file dipasang di level body agar tetap hidup saat
+            // pengguna berpindah halaman (dock "Kini Memutar" juga tampil di luar tab musik).
+            ensureMusicShellMounted();
+            refreshMusicDeck();
+            mountMusicDock();
+
+            // Bind swipe gesture listeners for vinyl/album art
+            setupMusicArtworkGestures();
+            updateRepeatButtonUI();
+            updateShuffleButtonUI();
+            syncMusicDockState();
+
+            // Sekali per sesi browser: isi otomatis daftar lagu dengan musik yang ada di HP.
+            if (!window.musicPhoneTracksLoaded && !window.musicPhoneAutoTried) {
+                window.musicPhoneAutoTried = true;
+                loadPhoneMusicLibrary(false);
+            }
+        }
+
+        function ensureMusicShellMounted() {
+            const existing = document.getElementById('musicWebShell');
+            if (existing) return existing;
+            const shell = document.createElement('div');
+            shell.id = 'musicWebShell';
+            shell.innerHTML = getMusicShellHtml();
+            document.body.appendChild(shell);
+            return shell;
+        }
+
+        function getMusicShellHtml() {
+            const currentTrack = window.musicPlaylist[window.currentMusicIndex];
+            return `
                 <!-- HIDDEN FILE INPUTS -->
                 <input type="file" id="musicFolderPickerInput" webkitdirectory directory multiple class="d-none" onchange="handleMusicFilesImport(event)">
                 <input type="file" id="musicFilesPickerInput" accept="audio/*" multiple class="d-none" onchange="handleMusicFilesImport(event)">
@@ -835,7 +1282,7 @@ object MusikWebScript {
                 <input type="file" id="musicLrcRestoreInput" accept=".json,application/json" class="d-none" onchange="handleRestoreLyricsFile(event)">
 
                 <!-- FULL IMMERSIVE PLAYER DECK OVERLAY -->
-                <div id="musicExpandedPlayerDeck" style="display: ${dol}{window.musicIsPlayerExpanded ? 'block' : 'none'}; position: fixed; inset: 0; z-index: 1060; background: var(--bs-body-bg); overflow-y: auto;">
+                <div id="musicExpandedPlayerDeck" style="display: none; position: fixed; inset: 0; z-index: 1060; background: var(--bs-body-bg); overflow-y: auto;">
                     ${dol}{currentTrack ? getExpandedPlayerDeckHtml(currentTrack) : ''}
                 </div>
 
@@ -870,19 +1317,21 @@ object MusikWebScript {
                                 </div>
                                 <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
                             </div>
-                            <div class="modal-body p-3">
+                            <div class="modal-body p-3" id="musicSettingsModalBody">
                                 ${dol}{getMusicSettingsHtml()}
                             </div>
                         </div>
                     </div>
                 </div>
             `;
+        }
 
-            document.getElementById('tab-content').innerHTML = html;
-
-            // Bind swipe gesture listeners for vinyl/album art
-            setupMusicArtworkGestures();
-            updateRepeatButtonUI();
+        function refreshMusicDeck() {
+            const deck = document.getElementById('musicExpandedPlayerDeck');
+            if (!deck) return;
+            const currentTrack = window.musicPlaylist[window.currentMusicIndex];
+            if (currentTrack) deck.innerHTML = getExpandedPlayerDeckHtml(currentTrack);
+            deck.style.display = window.musicIsPlayerExpanded ? 'block' : 'none';
         }
 
         function getMusicHeaderTabsHtml() {
@@ -947,16 +1396,21 @@ object MusikWebScript {
         function renderActiveMusicTabContent() {
             const container = document.getElementById('musicTabContentArea');
             if (container) {
-                container.innerHTML = renderActiveMusicTabContentHtml();
+                container.innerHTML = renderActiveMusicTabContentWithChips();
             }
+        }
+
+        function renderActiveMusicTabContentWithChips() {
+            return getMusicSourceChipsHtml() + renderActiveMusicTabContentHtml();
         }
 
         function renderActiveMusicTabContentHtml() {
             const query = (window.musicSearchQuery || '').toLowerCase().trim();
+            const sourceTracks = getVisibleMusicPlaylist();
 
             // TAB 0: FOLDER
             if (window.musicSelectedTab === 0) {
-                if (window.musicPlaylist.length === 0) {
+                if (sourceTracks.length === 0) {
                     return `
                         <div class="card card-custom p-5 text-center my-3" style="border-radius: 20px;">
                             <div class="rounded-circle d-flex align-items-center justify-content-center mx-auto mb-3" style="width: 76px; height: 76px; background-color: rgba(13, 110, 253, 0.12); color: var(--bs-primary);">
@@ -964,11 +1418,14 @@ object MusikWebScript {
                             </div>
                             <h6 class="fw-bold mb-2">Folder Musik Belum Dipilih</h6>
                             <p class="text-secondary small mb-4" style="max-width: 440px; margin-inline: auto;">
-                                Pilih folder musik dari komputer Anda atau tambahkan file lagu untuk mulai memutar musik.
+                                Pilih folder musik dari komputer Anda, muat lagu yang tersimpan di HP, atau tambahkan file lagu untuk mulai memutar musik.
                             </p>
                             <div class="d-flex justify-content-center gap-2 flex-wrap">
                                 <button class="btn btn-brand px-4 py-2" onclick="document.getElementById('musicFolderPickerInput').click()">
                                     <i class="bi bi-folder-plus me-2"></i> Pilih Folder Musik
+                                </button>
+                                <button class="btn btn-outline-primary px-3 py-2" onclick="loadPhoneMusicLibrary(true)">
+                                    <i class="bi bi-phone me-1"></i> Muat Musik HP
                                 </button>
                                 <button class="btn btn-outline-secondary px-3 py-2" onclick="document.getElementById('musicFilesPickerInput').click()">
                                     <i class="bi bi-file-earmark-music me-1"></i> Tambah Berkas
@@ -977,13 +1434,14 @@ object MusikWebScript {
                                     <i class="bi bi-play-circle me-1"></i> Putar Demo Offline
                                 </button>
                             </div>
+                            ${dol}{window.musicPhoneError ? '<p class="text-danger small mb-0 mt-3">' + escapeHtml(window.musicPhoneError) + '</p>' : ''}
                         </div>
                     `;
                 }
 
                 // Group tracks by folder / artist
                 const grouped = {};
-                window.musicPlaylist.forEach(trk => {
+                sourceTracks.forEach(trk => {
                     const fName = trk.folder || trk.artist || 'Folder Musik';
                     if (!grouped[fName]) grouped[fName] = [];
                     grouped[fName].push(trk);
@@ -1043,7 +1501,7 @@ object MusikWebScript {
 
             // TAB 1: FAVORIT
             if (window.musicSelectedTab === 1) {
-                const favTracks = window.musicPlaylist.filter(t => isTrackFavorite(t))
+                const favTracks = sourceTracks.filter(t => isTrackFavorite(t))
                     .sort((a, b) => a.title.localeCompare(b.title));
                 const filtered = query ? favTracks.filter(t => t.title.toLowerCase().includes(query) || (t.artist && t.artist.toLowerCase().includes(query))) : favTracks;
 
@@ -1089,17 +1547,17 @@ object MusikWebScript {
                 let emptyMsg = '';
 
                 if (window.musicSelectedSubTab === 0) {
-                    list = [...window.musicPlaylist].reverse();
+                    list = [...sourceTracks].reverse();
                     emptyMsg = 'Tidak ada lagu yang baru ditambahkan.';
                 } else if (window.musicSelectedSubTab === 1) {
-                    list = window.musicPlaylist.filter(t => (window.musicPlayCounts[t.id] || 0) > 0)
+                    list = sourceTracks.filter(t => (window.musicPlayCounts[t.id] || 0) > 0)
                         .sort((a, b) => (window.musicPlayCounts[b.id] || 0) - (window.musicPlayCounts[a.id] || 0));
                     emptyMsg = 'Belum ada lagu yang sering diputar.';
                 } else if (window.musicSelectedSubTab === 2) {
-                    list = window.musicRecentlyPlayed.filter(t => window.musicPlaylist.some(p => p.id === t.id));
+                    list = window.musicRecentlyPlayed.filter(t => sourceTracks.some(p => p.id === t.id));
                     emptyMsg = 'Belum ada lagu yang baru saja diputar.';
                 } else if (window.musicSelectedSubTab === 3) {
-                    list = window.musicPlaylist.filter(t => isTrackInMyPlaylist(t));
+                    list = sourceTracks.filter(t => isTrackInMyPlaylist(t));
                     emptyMsg = 'Belum ada lagu di Daftar Putar Anda. Klik tombol Plus (+) di pemutar musik untuk menambahkan.';
                 }
 
@@ -1138,7 +1596,7 @@ object MusikWebScript {
             const isActive = globalIndex === window.currentMusicIndex;
             const isPlaying = isActive && !window.musicPlayerAudio.paused && !window.musicPlayerAudio.ended;
             const isFav = isTrackFavorite(track);
-            const coverUrl = window.musicCustomAlbumArts[track.id] || window.musicCustomAlbumArts[track.title] || null;
+            const coverUrl = getTrackCover(track);
 
             return `
                 <div class="music-card-item ${dol}{isActive ? 'active-playing' : ''}" onclick="playTrackByIndex(${dol}{globalIndex})">
@@ -1178,70 +1636,13 @@ object MusikWebScript {
             renderActiveMusicTabContent();
         }
 
-        function getMiniPlayerHtml(currentTrack) {
-            if (!currentTrack) return '';
-            const isPlaying = window.musicPlayerAudio && !window.musicPlayerAudio.paused && !window.musicPlayerAudio.ended;
-            const coverUrl = (window.musicCustomAlbumArts && (window.musicCustomAlbumArts[currentTrack.id] || window.musicCustomAlbumArts[currentTrack.title])) || null;
-
-            return `
-                <div class="music-mini-dock">
-                    <div class="card card-custom p-2 shadow-lg" 
-                         style="border-radius: 16px; border: 1px solid rgba(13, 110, 253, 0.25); background: var(--bs-body-bg); cursor: pointer;"
-                         onclick="expandMusicPlayerDeck()">
-                        <div class="d-flex align-items-center justify-content-between px-2 py-1 gap-2">
-                            <!-- ALBUM ART -->
-                            <div class="rounded-3 flex-shrink-0 d-flex align-items-center justify-content-center overflow-hidden" 
-                                 style="width: 44px; height: 44px; background: linear-gradient(135deg, #1f2937, #111827);">
-                                ${dol}{coverUrl ? `<img src="${dol}{coverUrl}" style="width: 100%; height: 100%; object-fit: cover;">` : '<i class="bi bi-music-note-beamed text-primary fs-5"></i>'}
-                            </div>
-
-                            <!-- TITLE & ARTIST -->
-                            <div class="overflow-hidden flex-grow-1 px-1">
-                                <div class="fw-bold text-truncate" style="font-size: 13px;" id="miniPlayerTrackTitle">
-                                    ${dol}{escapeHtml(currentTrack.title)}
-                                </div>
-                                <small class="text-secondary text-truncate d-block" style="font-size: 11px;" id="miniPlayerTrackArtist">
-                                    ${dol}{escapeHtml(currentTrack.artist || currentTrack.folder || 'Musik')}
-                                </small>
-                            </div>
-
-                            <!-- CONTROLS: PREV, PLAY/PAUSE, NEXT, QUEUE -->
-                            <div class="d-flex align-items-center gap-1 flex-shrink-0" onclick="event.stopPropagation()">
-                                <button class="btn btn-sm btn-link text-secondary p-1" onclick="prevMusicTrack()" title="Sebelumnya">
-                                    <i class="bi bi-skip-start-fill fs-5"></i>
-                                </button>
-                                <button class="btn btn-sm btn-link text-primary p-1" onclick="togglePlayMusic()" id="musicMiniPlayPauseBtn" title="Putar/Jeda">
-                                    <i class="bi ${dol}{isPlaying ? 'bi-pause-fill' : 'bi-play-fill'}" style="font-size: 24px;"></i>
-                                </button>
-                                <button class="btn btn-sm btn-link text-secondary p-1" onclick="nextMusicTrack()" title="Selanjutnya">
-                                    <i class="bi bi-skip-end-fill fs-5"></i>
-                                </button>
-                                <button class="btn btn-sm btn-link text-secondary p-1" onclick="openMusicQueueModal()" title="Lihat Antrean">
-                                    <i class="bi bi-music-note-list fs-5"></i>
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            `;
-        }
-
-        function updateMiniPlayerInfo() {
-            const currentTrack = window.musicPlaylist[window.currentMusicIndex];
-            if (!currentTrack) return;
-            const tEl = document.getElementById('miniPlayerTrackTitle');
-            if (tEl) tEl.innerText = currentTrack.title;
-            const aEl = document.getElementById('miniPlayerTrackArtist');
-            if (aEl) aEl.innerText = currentTrack.artist || currentTrack.folder || 'Musik';
-        }
-
         function getExpandedPlayerDeckHtml(currentTrack) {
             if (!currentTrack) return '';
             const isPlaying = window.musicPlayerAudio && !window.musicPlayerAudio.paused && !window.musicPlayerAudio.ended;
             const isFav = isTrackFavorite(currentTrack);
             const inPl = isTrackInMyPlaylist(currentTrack);
-            const coverUrl = (window.musicCustomAlbumArts && (window.musicCustomAlbumArts[currentTrack.id] || window.musicCustomAlbumArts[currentTrack.title])) || null;
-            const lrcText = (window.musicManualLyrics && (window.musicManualLyrics[currentTrack.id] || window.musicManualLyrics[currentTrack.title])) || '';
+            const coverUrl = getTrackCover(currentTrack);
+            const lrcText = getTrackLyrics(currentTrack);
 
             return `
                 <div class="container py-3" style="max-width: 480px; min-height: 100vh; display: flex; flex-column; justify-content: space-between;">
@@ -1312,7 +1713,7 @@ object MusikWebScript {
                         <!-- MAIN MEDIA CONTROL DECK (SHUFFLE, PREV, BIG PLAY, NEXT, REPEAT) -->
                         <div class="d-flex align-items-center justify-content-between px-2 mb-4">
                             <!-- 1. SHUFFLE -->
-                            <button class="btn btn-link p-0 ${dol}{window.isMusicShuffle ? 'text-primary' : 'text-secondary'}" 
+                            <button class="btn btn-link p-0 music-shuffle-btn"
                                     id="deckShuffleBtn" onclick="toggleShuffleMode()" title="Acak / Shuffle">
                                 <i class="bi bi-shuffle" style="font-size: 24px;"></i>
                             </button>
@@ -1336,7 +1737,7 @@ object MusikWebScript {
                             </button>
 
                             <!-- 5. REPEAT MODE -->
-                            <button class="btn btn-link p-0" id="deckRepeatBtn" onclick="cycleRepeatMode()" title="Mode Pengulangan">
+                            <button class="btn btn-link p-0 music-repeat-btn" id="deckRepeatBtn" onclick="cycleRepeatMode()" title="Mode Pengulangan" style="position:relative;">
                                 <i class="bi bi-repeat text-secondary" style="font-size: 24px;"></i>
                             </button>
                         </div>
@@ -1348,8 +1749,8 @@ object MusikWebScript {
         function getCentralArtCardInnerHtml(currentTrack) {
             if (!currentTrack) return '';
             const isPlaying = window.musicPlayerAudio && !window.musicPlayerAudio.paused && !window.musicPlayerAudio.ended;
-            const coverUrl = (window.musicCustomAlbumArts && (window.musicCustomAlbumArts[currentTrack.id] || window.musicCustomAlbumArts[currentTrack.title])) || null;
-            const lrcText = (window.musicManualLyrics && (window.musicManualLyrics[currentTrack.id] || window.musicManualLyrics[currentTrack.title])) || '';
+            const coverUrl = getTrackCover(currentTrack);
+            const lrcText = getTrackLyrics(currentTrack);
 
             if (window.musicIsLyricsMode) {
                 // MODE LIRIK
@@ -1453,21 +1854,28 @@ object MusikWebScript {
         }
 
         function expandMusicPlayerDeck() {
+            const currentTrack = window.musicPlaylist[window.currentMusicIndex];
+            if (!currentTrack) return;
             window.musicIsPlayerExpanded = true;
+            ensureMusicShellMounted();
             const deck = document.getElementById('musicExpandedPlayerDeck');
             if (deck) {
-                const currentTrack = window.musicPlaylist[window.currentMusicIndex];
-                if (currentTrack) deck.innerHTML = getExpandedPlayerDeckHtml(currentTrack);
+                deck.innerHTML = getExpandedPlayerDeckHtml(currentTrack);
                 deck.style.display = 'block';
                 updateRepeatButtonUI();
+                updateShuffleButtonUI();
                 setupMusicArtworkGestures();
             }
+            const dock = document.getElementById('musicGlobalDock');
+            if (dock) dock.style.display = 'none';
         }
 
         function collapseMusicPlayerDeck() {
             window.musicIsPlayerExpanded = false;
             const deck = document.getElementById('musicExpandedPlayerDeck');
             if (deck) deck.style.display = 'none';
+            const dock = document.getElementById('musicGlobalDock');
+            if (dock) dock.style.display = '';
         }
 
         function updateExpandedDeckTrackInfo() {
@@ -1611,6 +2019,7 @@ object MusikWebScript {
 
         // --- ANTREAN LAGU (QUEUE) SHEET HTML ---
         function openMusicQueueModal() {
+            ensureMusicShellMounted();
             const currentTrack = window.musicPlaylist[window.currentMusicIndex];
             const sub = document.getElementById('musicQueueFolderSubtitle');
             if (sub && currentTrack) sub.innerText = 'Folder: ' + (currentTrack.folder || 'Daftar Lagu');
@@ -1630,7 +2039,7 @@ object MusikWebScript {
             let html = '<div class="d-flex flex-column gap-2">';
             window.musicPlaylist.forEach((trk, idx) => {
                 const isPlaying = idx === window.currentMusicIndex;
-                const coverUrl = window.musicCustomAlbumArts[trk.id] || window.musicCustomAlbumArts[trk.title] || null;
+                const coverUrl = getTrackCover(trk);
                 html += `
                     <div class="music-card-item ${dol}{isPlaying ? 'active-playing' : ''}" onclick="playTrackByIndex(${dol}{idx}); bootstrap.Modal.getInstance(document.getElementById('musicQueueModal'))?.hide();">
                         <div class="d-flex align-items-center gap-3 overflow-hidden flex-grow-1">
@@ -1653,6 +2062,9 @@ object MusikWebScript {
 
         // --- PENGATURAN (SETTINGS) MODAL HTML ---
         function openMusicSettingsModal() {
+            ensureMusicShellMounted();
+            const body = document.getElementById('musicSettingsModalBody');
+            if (body) body.innerHTML = getMusicSettingsHtml();
             const modalEl = document.getElementById('musicSettingsModal');
             if (modalEl && window.bootstrap) {
                 const modal = new bootstrap.Modal(modalEl);
@@ -1662,6 +2074,7 @@ object MusikWebScript {
 
         function getMusicSettingsHtml() {
             const isConnected = window.musicPlaylist.length > 0;
+            const phoneMusicCount = window.musicPlaylist.filter(function (t) { return t.origin === 'phone'; }).length;
             return `
                 <div class="d-flex flex-column gap-3">
                     <!-- 1. FOLDER MUSIK SAF / LOCAL -->
@@ -1679,7 +2092,22 @@ object MusikWebScript {
                         </div>
                     </div>
 
-                    <!-- 2. PINDAI ULANG FOLDER -->
+                    <!-- 2. MUSIK DARI PENYIMPANAN HP -->
+                    <div class="p-3 rounded-3 cursor-pointer d-flex align-items-center gap-3 dashboard-subcard"
+                         onclick="loadPhoneMusicLibrary(true)">
+                        <div class="rounded-3 d-flex align-items-center justify-content-center flex-shrink-0"
+                             style="width: 44px; height: 44px; background: rgba(25, 135, 84, 0.15); color: #198754;">
+                            <i class="bi bi-phone fs-5"></i>
+                        </div>
+                        <div class="flex-grow-1">
+                            <div class="fw-bold" style="font-size: 14.5px;">Musik dari HP</div>
+                            <small class="${dol}{phoneMusicCount > 0 ? 'text-primary' : 'text-secondary'} d-block">
+                                ${dol}{phoneMusicCount > 0 ? phoneMusicCount + ' lagu terbaca dari pemutar media HP (ketuk untuk pindai ulang)' : 'Ketuk untuk memindai lagu yang tersimpan di HP'}
+                            </small>
+                        </div>
+                    </div>
+
+                    <!-- 3. PINDAI ULANG FOLDER -->
                     <div class="p-3 rounded-3 cursor-pointer d-flex align-items-center gap-3 dashboard-subcard" 
                          onclick="rescanMusicFolder()">
                         <div class="rounded-3 d-flex align-items-center justify-content-center flex-shrink-0" 
@@ -1804,6 +2232,13 @@ object MusikWebScript {
             window.musicPlaylist = [];
             window.currentMusicIndex = 0;
             window.musicSelectedFolder = null;
+            window.musicPhoneTracksLoaded = false;
+            window.musicPhoneAutoTried = true;
+            window.musicFetchedLyrics = {};
+            window.musicDockTrackId = null;
+            const dockEl = document.getElementById('musicGlobalDock');
+            if (dockEl) dockEl.remove();
+            document.body.classList.remove('has-music-dock');
 
             // Clear IndexedDB tracks
             const db = await openMusicDatabase();

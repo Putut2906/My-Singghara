@@ -31,6 +31,7 @@ object NotificationScheduler {
     const val CHANNEL_WEB_SECURITY_RESULT = "web_security_result_channel"
     const val CHANNEL_HOLIDAY = "holiday_channel"
     const val CHANNEL_FCM = "fcm_cloud_messaging_channel"
+    const val CHANNEL_APP_UPDATE = "app_update_channel"
 
     const val NOTIFICATION_ID_AGENDA = 8888
     const val NOTIFICATION_ID_PRAYER = 9999
@@ -38,6 +39,7 @@ object NotificationScheduler {
     const val NOTIFICATION_ID_WEB_SECURITY_RESULT = 7778
     const val NOTIFICATION_ID_HOLIDAY = 6666
     const val NOTIFICATION_ID_FCM = 5555
+    const val NOTIFICATION_ID_APP_UPDATE = 4804
 
     const val ACTION_DAILY_AGENDA_CHECK = "com.example.ACTION_DAILY_AGENDA_CHECK"
     const val ACTION_MORNING_HOLIDAY_CHECK = "com.example.ACTION_MORNING_HOLIDAY_CHECK"
@@ -190,7 +192,74 @@ object NotificationScheduler {
                 )
             }
             notificationManager.createNotificationChannel(fcmChannel)
+
+            // 6. Pembaruan Versi Aplikasi Channel
+            val appUpdateChannel = NotificationChannel(
+                CHANNEL_APP_UPDATE,
+                "Pembaruan Versi Aplikasi",
+                NotificationManager.IMPORTANCE_HIGH
+            ).apply {
+                description = "Notifikasi saat versi My Singghara yang baru tersedia untuk diunduh"
+                enableVibration(true)
+                lockscreenVisibility = android.app.Notification.VISIBILITY_PUBLIC
+                val soundUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
+                setSound(soundUri, android.media.AudioAttributes.Builder()
+                    .setUsage(android.media.AudioAttributes.USAGE_NOTIFICATION)
+                    .setContentType(android.media.AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                    .build()
+                )
+            }
+            notificationManager.createNotificationChannel(appUpdateChannel)
         }
+    }
+
+    // Muncul di status bar ketika pemeriksa versi menemukan build yang lebih baru.
+    // Satu versi hanya sekali dinotifikasikan (kunci dedup disimpan di SharedPreferences).
+    fun showUpdateAvailableNotification(context: Context, versionLabel: String, source: String) {
+        if (versionLabel.isBlank()) return
+        val prefs = context.getSharedPreferences("mysingghara_prefs", Context.MODE_PRIVATE)
+        val notifiedKey = "notified_update_version"
+        val dedupKey = "$source:$versionLabel"
+        if (prefs.getString(notifiedKey, null) == dedupKey) return
+
+        createNotificationChannels(context)
+        val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        if (!notificationManager.areNotificationsEnabled()) return
+
+        val intent = Intent(context, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+            putExtra("NAVIGATE_TO", "tentang_aplikasi")
+        }
+        val pendingIntent = PendingIntent.getActivity(
+            context,
+            NOTIFICATION_ID_APP_UPDATE,
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        val notification = NotificationCompat.Builder(context, CHANNEL_APP_UPDATE)
+            .setSmallIcon(R.drawable.ic_stat_singghara)
+            .setContentTitle("Pembaruan My Singghara tersedia")
+            .setContentText("$versionLabel via $source. Ketuk untuk mengunduh dan memasang.")
+            .setStyle(NotificationCompat.BigTextStyle().bigText(
+                "Versi terbaru My Singghara ($versionLabel) sudah tersedia melalui $source.\n\n" +
+                    "Ketuk notifikasi ini untuk membuka halaman pembaruan di dalam aplikasi, lalu unduh dan pasang APK-nya."
+            ))
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setCategory(NotificationCompat.CATEGORY_SERVICE)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .setAutoCancel(true)
+            .setOngoing(false)
+            .setContentIntent(pendingIntent)
+            .build()
+
+        notificationManager.notify(NOTIFICATION_ID_APP_UPDATE, notification)
+        prefs.edit().putString(notifiedKey, dedupKey).apply()
+    }
+
+    fun cancelUpdateAvailableNotification(context: Context) {
+        val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        notificationManager.cancel(NOTIFICATION_ID_APP_UPDATE)
     }
 
     fun showFcmNotification(context: Context, title: String, body: String, dataPayload: String = "") {

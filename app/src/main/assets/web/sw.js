@@ -1,5 +1,5 @@
 // Service Worker untuk Progressive Web App (PWA) My Singghara - Akses PC 100% Offline
-const CACHE_NAME = 'my-singghara-pwa-v3';
+const CACHE_NAME = 'my-singghara-pwa-v4';
 
 const STATIC_ASSETS = [
     '/',
@@ -74,6 +74,29 @@ self.addEventListener('fetch', (event) => {
                 if (cached) return cached;
                 return new Response(JSON.stringify({ status: 'offline', offline: true }), {
                     headers: { 'Content-Type': 'application/json' }
+                });
+            })
+        );
+        return;
+    }
+
+    // Halaman dashboard: Network-first. Dashboard disusun ulang oleh aplikasi di HP, jadi
+    // cache-first akan mengunci PC pada versi lama (fitur baru tidak pernah muncul).
+    const isPageRequest = event.request.mode === 'navigate' ||
+        url.pathname === '/' || url.pathname === '/index.html' || url.pathname.endsWith('.html');
+    if (isPageRequest) {
+        event.respondWith(
+            fetch(event.request).then((networkResponse) => {
+                if (networkResponse && networkResponse.status === 200) {
+                    const copy = networkResponse.clone();
+                    caches.open(CACHE_NAME).then((cache) => cache.put(event.request, copy));
+                }
+                return networkResponse;
+            }).catch(async () => {
+                const cached = await caches.match(event.request);
+                return cached || caches.match('/') || new Response('Server My Singghara di HP sedang mati.', {
+                    status: 503,
+                    headers: { 'Content-Type': 'text/plain; charset=utf-8' }
                 });
             })
         );
