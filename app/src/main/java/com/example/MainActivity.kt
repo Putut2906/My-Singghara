@@ -41,7 +41,6 @@ import androidx.compose.material.icons.filled.Fingerprint
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.LockOpen
 import androidx.compose.material.icons.filled.Backspace
-import androidx.compose.material.icons.filled.ChevronLeft
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Home
@@ -1526,30 +1525,6 @@ fun MainAppContent(viewModel: MainViewModel, desktopMode: Boolean = false) {
                             .verticalScroll(rememberScrollState())
                             .padding(bottom = if (viewModel.currentFirebaseUser != null) 68.dp else 16.dp)
                     ) {
-                        if (desktopMode) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(start = 20.dp, end = 8.dp, top = 4.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text(
-                                    text = "MENU",
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.weight(1f)
-                                )
-                                IconButton(onClick = { isDesktopSidebarExpanded = false }) {
-                                    Icon(
-                                        imageVector = Icons.Default.ChevronLeft,
-                                        contentDescription = "Sembunyikan menu",
-                                        modifier = Modifier.size(20.dp)
-                                    )
-                                }
-                            }
-                            Spacer(modifier = Modifier.height(4.dp))
-                        }
                         Spacer(modifier = Modifier.height(16.dp))
 
                         // Profil Header (Salinan dari halaman profil: Foto Avatar & Nama Pengguna untuk akses cepat)
@@ -3964,27 +3939,9 @@ fun MainAppContent(viewModel: MainViewModel, desktopMode: Boolean = false) {
         }
         CompositionLocalProvider(LocalDensity provides desktopDensity) {
             Row(modifier = Modifier.fillMaxSize()) {
-                if (!hideNavigationSidebar) {
-                    if (isDesktopSidebarExpanded) {
-                        Box(modifier = Modifier.width(300.dp).fillMaxHeight()) {
-                            drawerSheetContent()
-                        }
-                    } else {
-                        Column(
-                            modifier = Modifier
-                                .width(64.dp)
-                                .fillMaxHeight()
-                                .background(MaterialTheme.colorScheme.surface),
-                            horizontalAlignment = Alignment.CenterHorizontally
-                        ) {
-                            Spacer(modifier = Modifier.height(8.dp))
-                            IconButton(onClick = { isDesktopSidebarExpanded = true }) {
-                                Icon(
-                                    imageVector = Icons.Default.Menu,
-                                    contentDescription = "Tampilkan menu"
-                                )
-                            }
-                        }
+                if (!hideNavigationSidebar && isDesktopSidebarExpanded) {
+                    Box(modifier = Modifier.width(300.dp).fillMaxHeight()) {
+                        drawerSheetContent()
                     }
                     Box(
                         modifier = Modifier
