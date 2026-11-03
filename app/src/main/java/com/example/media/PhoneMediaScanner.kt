@@ -29,7 +29,7 @@ data class PhoneAudioTrack(
     val sizeBytes: Long,
     val mimeType: String,
     val dateAddedSec: Long,
-    val lyricsPath: String
+    val lyricsPath: String?
 )
 
 data class PhoneVideoClip(
