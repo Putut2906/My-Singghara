@@ -2591,6 +2591,23 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     var isMusicShuffle by mutableStateOf(false)
     var isMusicLoading by mutableStateOf(false)
 
+    // State panel pemutar diangkat ke sini agar Mini Player tetap tampil dan deck
+    // tetap terbuka saat pengguna berpindah halaman di dalam aplikasi.
+    var musicPlayerExpanded by mutableStateOf(false)
+    var musicQueueSheetVisible by mutableStateOf(false)
+    var musicLyricsMode by mutableStateOf(false)
+    var musicLyricsEditMode by mutableStateOf(false)
+    var musicLyricsFullScreen by mutableStateOf(false)
+    var musicManualLyricsText by mutableStateOf("")
+    var musicFileLyricsText by mutableStateOf("")
+
+    val activeMusicTrack: MusicTrack?
+        get() = if (currentTrackIndex in musicPlaylist.indices) musicPlaylist[currentTrackIndex] else null
+
+    /** Mini player cukup ditampilkan bila ada lagu yang sedang dipegang antreannya. */
+    val hasMusicSession: Boolean
+        get() = activeMusicTrack != null
+
     val favoriteTrackUris = mutableStateListOf<String>().apply {
         addAll(sharedPrefs.getStringSet("music_favorites", emptySet()) ?: emptySet())
     }

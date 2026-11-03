@@ -31,6 +31,7 @@ object NotificationScheduler {
     const val CHANNEL_WEB_SECURITY_RESULT = "web_security_result_channel"
     const val CHANNEL_HOLIDAY = "holiday_channel"
     const val CHANNEL_FCM = "fcm_cloud_messaging_channel"
+    const val CHANNEL_APP_UPDATE = "app_update_channel"
 
     const val NOTIFICATION_ID_AGENDA = 8888
     const val NOTIFICATION_ID_PRAYER = 9999
@@ -38,6 +39,9 @@ object NotificationScheduler {
     const val NOTIFICATION_ID_WEB_SECURITY_RESULT = 7778
     const val NOTIFICATION_ID_HOLIDAY = 6666
     const val NOTIFICATION_ID_FCM = 5555
+    const val NOTIFICATION_ID_APP_UPDATE = 4444
+
+    const val EXTRA_OPEN_APP_UPDATE = "open_app_update"
 
     const val ACTION_DAILY_AGENDA_CHECK = "com.example.ACTION_DAILY_AGENDA_CHECK"
     const val ACTION_MORNING_HOLIDAY_CHECK = "com.example.ACTION_MORNING_HOLIDAY_CHECK"
@@ -190,6 +194,104 @@ object NotificationScheduler {
                 )
             }
             notificationManager.createNotificationChannel(fcmChannel)
+
+            // 6. Pembaruan Aplikasi Channel
+            val appUpdateChannel = NotificationChannel(
+                CHANNEL_APP_UPDATE,
+                "Pembaruan Aplikasi",
+                NotificationManager.IMPORTANCE_DEFAULT
+            ).apply {
+                description = "Pemberitahuan bila versi My Singghara yang lebih baru tersedia"
+                enableVibration(true)
+                val soundUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
+                setSound(soundUri, android.media.AudioAttributes.Builder()
+                    .setUsage(android.media.AudioAttributes.USAGE_NOTIFICATION)
+                    .setContentType(android.media.AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                    .build()
+                )
+            }
+            notificationManager.createNotificationChannel(appUpdateChannel)
+        }
+    }
+
+    /**
+     * Notifikasi status bar saat versi baru ditemukan. Satu versi hanya diberitahu
+     * sekali (kecuali force) supaya tidak menumpuk setiap kali aplikasi dibuka.
+     * Bila APK-nya sudah terlanjur diunduh, tombol langsung mengarah ke pemasangan.
+     */
+    @SuppressLint("NotificationPermission")
+    fun showUpdateAvailableNotification(
+        context: Context,
+        newVersion: String,
+        apkUrl: String = "",
+        changelog: String = "",
+        downloadedApkPath: String? = null,
+        force: Boolean = false
+    ) {
+        createNotificationChannels(context)
+
+        val prefs = context.getSharedPreferences("github_update_prefs", Context.MODE_PRIVATE)
+        val notifiedKey = "notified_update_version"
+        if (!force && prefs.getString(notifiedKey, "") == newVersion) return
+
+        val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+
+        val title = "Pembaruan Tersedia: v$newVersion"
+        val body = if (downloadedApkPath != null) {
+            "Versi baru sudah terunduh di HP. Ketuk untuk memasang."
+        } else if (changelog.isNotBlank()) {
+            "Ketuk untuk mengunduh dan memasang. Perubahan: ${changelog.take(180)}"
+        } else {
+            "Versi baru My Singghara siap diunduh. Ketuk untuk membuka halaman pembaruan."
+        }
+
+        val contentIntent = if (downloadedApkPath != null) {
+            PendingIntent.getBroadcast(
+                context,
+                4445,
+                com.example.update.ApkInstallReceiver.intentFor(context, downloadedApkPath),
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+        } else {
+            PendingIntent.getActivity(
+                context,
+                4446,
+                Intent(context, MainActivity::class.java).apply {
+                    flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+                    putExtra(EXTRA_OPEN_APP_UPDATE, true)
+                },
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+        }
+
+        val builder = NotificationCompat.Builder(context, CHANNEL_APP_UPDATE)
+            .setSmallIcon(R.drawable.ic_stat_singghara)
+            .setContentTitle(title)
+            .setContentText(body)
+            .setStyle(NotificationCompat.BigTextStyle().bigText(body))
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .setCategory(NotificationCompat.CATEGORY_SYSTEM)
+            .setAutoCancel(true)
+            .setContentIntent(contentIntent)
+
+        if (downloadedApkPath == null && apkUrl.isNotBlank()) {
+            val openUpdateAction = PendingIntent.getActivity(
+                context,
+                4447,
+                Intent(context, MainActivity::class.java).apply {
+                    flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
+                    putExtra(EXTRA_OPEN_APP_UPDATE, true)
+                },
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+            builder.addAction(R.drawable.ic_stat_singghara, "Unduh & Pasang", openUpdateAction)
+        }
+
+        try {
+            notificationManager.notify(NOTIFICATION_ID_APP_UPDATE, builder.build())
+            prefs.edit().putString(notifiedKey, newVersion).apply()
+        } catch (e: Exception) {
+            Log.w("NotificationScheduler", "Notifikasi pembaruan gagal: ${e.message}")
         }
     }
 

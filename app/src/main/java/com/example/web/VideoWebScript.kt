@@ -16,6 +16,17 @@ object VideoWebScript {
         window.webVideoSpeed = window.webVideoSpeed || 1;
         window.webVideoFitCover = false;
 
+        // Sumber berkas: 'pc' = pustaka browser (IndexedDB), 'phone' = video yang ada di HP.
+        window.webVideoPcList = window.webVideoPcList || [];
+        window.webVideoPhoneList = window.webVideoPhoneList || [];
+        window.webVideoPhoneLoaded = false;
+        try {
+            const savedVideoSource = localStorage.getItem('singghara_video_source');
+            window.webVideoSource = (savedVideoSource === 'phone' || savedVideoSource === 'pc') ? savedVideoSource : 'pc';
+        } catch (e) {
+            window.webVideoSource = 'pc';
+        }
+
         function webVideoEscape(text) {
             if (typeof escapeHtml === 'function') return escapeHtml(text);
             return (text || '').toString().replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
@@ -54,6 +65,68 @@ object VideoWebScript {
             if (gb >= 1) return gb.toFixed(2) + ' GB';
             if (mb >= 1) return mb.toFixed(1) + ' MB';
             return Math.floor(kb) + ' KB';
+        }
+
+        function applyWebVideoSource() {
+            window.webVideoList = (window.webVideoSource === 'phone') ? window.webVideoPhoneList : window.webVideoPcList;
+            if (window.webVideoActiveId && !window.webVideoList.some(function (item) { return item.id === window.webVideoActiveId; })) {
+                window.webVideoActiveId = null;
+            }
+        }
+
+        async function loadPhoneVideoLibrary(force) {
+            if (window.webVideoPhoneLoaded && !force) return window.webVideoPhoneList;
+            try {
+                const response = await fetch('/api/media/library?type=video' + (force ? '&refresh=1' : ''));
+                const payload = await response.json();
+                const files = (payload && payload.files) || [];
+                window.webVideoPhoneList = files.map(function (file) {
+                    return {
+                        id: file.id,
+                        name: file.name,
+                        size: file.size || 0,
+                        type: file.mimeType || 'video/mp4',
+                        duration: Math.round((file.duration || 0) / 1000),
+                        dateAdded: (file.dateAdded || 0) * 1000,
+                        folder: file.folder || 'Video di HP',
+                        origin: 'phone',
+                        streamUrl: file.streamUrl,
+                        thumbUrl: file.thumbUrl
+                    };
+                });
+                window.webVideoPhoneLoaded = true;
+            } catch (err) {
+                console.warn('Pustaka video HP gagal dimuat:', err);
+                window.webVideoPhoneList = [];
+                showWebVideoToast('Pustaka video HP gagal dimuat. Pastikan izin media di HP sudah diberikan.');
+            }
+            return window.webVideoPhoneList;
+        }
+
+        async function setWebVideoSource(source) {
+            window.webVideoSource = source;
+            try { localStorage.setItem('singghara_video_source', source); } catch (e) {}
+            if (source === 'phone' && !window.webVideoPhoneLoaded) {
+                await loadPhoneVideoLibrary();
+            }
+            applyWebVideoSource();
+            window.renderVideoLibrary();
+        }
+
+        async function refreshPhoneVideoLibrary() {
+            await loadPhoneVideoLibrary(true);
+            await setWebVideoSource('phone');
+            showWebVideoToast(window.webVideoPhoneList.length + ' video dari HP dimuat.');
+        }
+
+        // Berkas HP diputar langsung lewat server lokal (mendukung Range), berkas PC lewat blob.
+        function getWebVideoPlayUrl(item) {
+            if (item.origin === 'phone') return item.streamUrl;
+            return getWebVideoObjectUrl(item);
+        }
+
+        function getWebVideoPosterUrl(item) {
+            return item.origin === 'phone' ? (item.thumbUrl || '') : '';
         }
 
         function openWebVideoDatabase() {
@@ -113,7 +186,11 @@ object VideoWebScript {
                     }
                 });
             }
-            window.webVideoList = items;
+            window.webVideoPcList = items;
+            if (window.webVideoSource === 'phone' && !window.webVideoPhoneLoaded) {
+                await loadPhoneVideoLibrary();
+            }
+            applyWebVideoSource();
             window.renderVideoLibrary();
         }
 
@@ -151,6 +228,14 @@ object VideoWebScript {
             return url;
         }
 
+        function getWebVideoPreviewHtml(item, fit) {
+            const poster = getWebVideoPosterUrl(item);
+            if (poster) {
+                return '<img src="' + poster + '" alt="" loading="lazy" style="width:100%;height:100%;object-fit:' + fit + ';pointer-events:none">';
+            }
+            return '<video src="' + getWebVideoPlayUrl(item) + '#t=0.5" preload="metadata" muted playsinline style="width:100%;height:100%;object-fit:' + fit + ';pointer-events:none"></video>';
+        }
+
         function renderVideoLibrary() {
             const container = document.getElementById('tab-content');
             if (!container) return;
@@ -166,9 +251,14 @@ object VideoWebScript {
             html += '<div class="d-flex flex-wrap justify-content-between align-items-center mb-3 gap-2">';
             html += '  <div>';
             html += '    <h4 class="fw-bold mb-0 d-flex align-items-center gap-2"><i class="bi bi-camera-reels" style="color:var(--primary-color)"></i> Pemutar Video</h4>';
-            html += '    <small class="text-secondary">' + window.webVideoList.length + ' video • ' + formatWebVideoDuration(totalDuration) + ' • ' + formatWebVideoSize(totalSize) + ' (offline)</small>';
+            html += '    <small class="text-secondary">' + (window.webVideoSource === 'phone' ? 'Berkas di HP' : 'Berkas di komputer') + ' • ' + window.webVideoList.length + ' video • ' + formatWebVideoDuration(totalDuration) + ' • ' + formatWebVideoSize(totalSize) + ' (offline)</small>';
             html += '  </div>';
             html += '  <div class="d-flex flex-wrap align-items-center gap-2">';
+            html += '    <div class="btn-group btn-group-sm">';
+            html += '      <button type="button" class="btn ' + (window.webVideoSource === 'phone' ? 'btn-primary' : 'btn-outline-secondary') + '" onclick="setWebVideoSource(\'phone\')" title="Video yang tersimpan di HP"><i class="bi bi-phone me-1"></i>HP (' + window.webVideoPhoneList.length + ')</button>';
+            html += '      <button type="button" class="btn ' + (window.webVideoSource === 'pc' ? 'btn-primary' : 'btn-outline-secondary') + '" onclick="setWebVideoSource(\'pc\')" title="Pustaka video browser"><i class="bi bi-pc-display me-1"></i>PC (' + window.webVideoPcList.length + ')</button>';
+            html += '      <button type="button" class="btn btn-outline-secondary" onclick="refreshPhoneVideoLibrary()" title="Muat ulang daftar video HP"><i class="bi bi-arrow-clockwise"></i></button>';
+            html += '    </div>';
             html += '    <input class="form-control form-control-sm" style="width:190px" placeholder="Cari video..." value="' + webVideoEscape(window.webVideoSearch) + '" oninput="window.webVideoSearch=this.value; window.renderVideoLibrary();" />';
             html += '    <select class="form-select form-select-sm" style="width:150px" onchange="window.webVideoSort=this.value; window.renderVideoLibrary();">';
             html += '      <option value="DATE_DESC"' + (window.webVideoSort === 'DATE_DESC' ? ' selected' : '') + '>Terbaru</option>';
@@ -183,27 +273,38 @@ object VideoWebScript {
             html += '  </div>';
             html += '</div>';
 
+            window.webVideoRenderedItems = visible;
+
             if (visible.length === 0) {
+                const fromPhone = window.webVideoSource === 'phone';
                 html += '<div class="card card-custom p-5 text-center">';
-                html += '  <i class="bi bi-camera-reels" style="font-size:42px;color:var(--primary-color)"></i>';
-                html += '  <h6 class="fw-bold mt-3 mb-1">' + (window.webVideoList.length === 0 ? 'Belum ada video di pustaka offline' : 'Video tidak ditemukan') + '</h6>';
-                html += '  <p class="text-secondary small mb-0">' + (window.webVideoList.length === 0 ? 'Ketuk "Tambah Video" untuk memuat berkas dari PC. Semua video tersimpan di browser dan dapat diputar tanpa internet.' : 'Coba kata kunci lain atau ubah urutan pencarian.') + '</p>';
+                html += '  <i class="bi ' + (fromPhone ? 'bi-phone' : 'bi-camera-reels') + '" style="font-size:42px;color:var(--primary-color)"></i>';
+                html += '  <h6 class="fw-bold mt-3 mb-1">' + (window.webVideoList.length === 0 ? (fromPhone ? 'Tidak ada video di HP' : 'Belum ada video di pustaka offline') : 'Video tidak ditemukan') + '</h6>';
+                html += '  <p class="text-secondary small mb-0">' + (window.webVideoList.length === 0
+                    ? (fromPhone
+                        ? 'Pastikan izin media di HP sudah diberikan saat server web dinyalakan, lalu simpan video pada folder Movies/Download di HP, atau muat ulang daftar video.'
+                        : 'Ketuk "Tambah Video" untuk memuat berkas dari PC, atau pilih HP untuk memutar video yang ada di ponsel.')
+                    : 'Coba kata kunci lain atau ubah urutan pencarian.') + '</p>';
+                if (fromPhone) {
+                    html += '  <button type="button" class="btn btn-sm btn-primary mt-3" onclick="refreshPhoneVideoLibrary()"><i class="bi bi-arrow-clockwise me-1"></i> Muat Ulang Video HP</button>';
+                }
                 html += '</div>';
             } else if (window.webVideoGrid) {
                 html += '<div class="row g-3">';
-                visible.forEach(function (item) {
-                    const url = getWebVideoObjectUrl(item);
+                visible.forEach(function (item, index) {
                     html += '<div class="col-12 col-sm-6 col-lg-4 col-xxl-3">';
-                    html += '  <div class="card card-custom h-100 overflow-hidden" style="border-radius:16px;cursor:pointer" onclick="window.playWebVideo(\'' + item.id + '\')">';
+                    html += '  <div class="card card-custom h-100 overflow-hidden" style="border-radius:16px;cursor:pointer" onclick="window.onWebVideoCardClick(' + index + ')">';
                     html += '    <div style="position:relative;aspect-ratio:16/9;background:#0f172a;overflow:hidden">';
-                    html += '      <video src="' + url + '#t=0.5" preload="metadata" muted playsinline style="width:100%;height:100%;object-fit:cover;pointer-events:none"></video>';
+                    html += '      ' + getWebVideoPreviewHtml(item, 'cover');
                     html += '      <span class="badge" style="position:absolute;right:8px;bottom:8px;background:rgba(0,0,0,.7);color:#fff;font-size:11px">' + formatWebVideoDuration(item.duration) + '</span>';
-                    html += '      <button type="button" class="btn btn-sm" style="position:absolute;top:6px;right:6px;width:28px;height:28px;padding:0;border-radius:50%;background:rgba(0,0,0,.6);color:#fff" title="Hapus video" onclick="event.stopPropagation(); window.deleteWebVideo(\'' + item.id + '\')"><i class="bi bi-trash"></i></button>';
+                    if (item.origin !== 'phone') {
+                        html += '      <button type="button" class="btn btn-sm" style="position:absolute;top:6px;right:6px;width:28px;height:28px;padding:0;border-radius:50%;background:rgba(0,0,0,.6);color:#fff" title="Hapus dari pustaka browser" onclick="event.stopPropagation(); window.deleteWebVideoAt(' + index + ')"><i class="bi bi-trash"></i></button>';
+                    }
                     html += '      <i class="bi bi-play-circle-fill" style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);font-size:44px;color:rgba(255,255,255,.85);pointer-events:none"></i>';
                     html += '    </div>';
                     html += '    <div class="p-3">';
                     html += '      <div class="fw-semibold text-truncate" style="font-size:13px" title="' + webVideoEscape(item.name) + '">' + webVideoEscape(item.name) + '</div>';
-                    html += '      <div class="text-secondary" style="font-size:11px">' + formatWebVideoSize(item.size) + '</div>';
+                    html += '      <div class="text-secondary" style="font-size:11px">' + (item.origin === 'phone' ? 'Berkas di HP • ' : '') + formatWebVideoSize(item.size) + '</div>';
                     html += '    </div>';
                     html += '  </div>';
                     html += '</div>';
@@ -211,15 +312,16 @@ object VideoWebScript {
                 html += '</div>';
             } else {
                 html += '<div class="d-flex flex-column gap-2">';
-                visible.forEach(function (item) {
-                    const url = getWebVideoObjectUrl(item);
-                    html += '<div class="card card-custom p-2 d-flex align-items-center gap-3" style="border-radius:14px;cursor:pointer" onclick="window.playWebVideo(\'' + item.id + '\')">';
-                    html += '  <div style="width:96px;min-width:96px;aspect-ratio:16/9;border-radius:10px;overflow:hidden;background:#0f172a"><video src="' + url + '#t=0.5" preload="metadata" muted playsinline style="width:100%;height:100%;object-fit:cover;pointer-events:none"></video></div>';
+                visible.forEach(function (item, index) {
+                    html += '<div class="card card-custom p-2 d-flex align-items-center gap-3" style="border-radius:14px;cursor:pointer" onclick="window.onWebVideoCardClick(' + index + ')">';
+                    html += '  <div style="width:96px;min-width:96px;aspect-ratio:16/9;border-radius:10px;overflow:hidden;background:#0f172a">' + getWebVideoPreviewHtml(item, 'cover') + '</div>';
                     html += '  <div class="flex-grow-1 overflow-hidden">';
                     html += '    <div class="fw-semibold text-truncate" style="font-size:13px">' + webVideoEscape(item.name) + '</div>';
-                    html += '    <div class="text-secondary" style="font-size:11px">' + formatWebVideoDuration(item.duration) + ' • ' + formatWebVideoSize(item.size) + '</div>';
+                    html += '    <div class="text-secondary" style="font-size:11px">' + (item.origin === 'phone' ? 'Berkas di HP • ' : '') + formatWebVideoDuration(item.duration) + ' • ' + formatWebVideoSize(item.size) + '</div>';
                     html += '  </div>';
-                    html += '  <button type="button" class="btn btn-sm btn-outline-danger" title="Hapus video" onclick="event.stopPropagation(); window.deleteWebVideo(\'' + item.id + '\')"><i class="bi bi-trash"></i></button>';
+                    if (item.origin !== 'phone') {
+                        html += '  <button type="button" class="btn btn-sm btn-outline-danger" title="Hapus dari pustaka browser" onclick="event.stopPropagation(); window.deleteWebVideoAt(' + index + ')"><i class="bi bi-trash"></i></button>';
+                    }
                     html += '</div>';
                 });
                 html += '</div>';
@@ -277,6 +379,7 @@ object VideoWebScript {
                 }
             }
             await loadVideoLibrary();
+            await setWebVideoSource('pc');
             showWebVideoToast(saved > 0 ? (saved + ' video ditambahkan ke pustaka offline.') : 'Gagal menyimpan video (kuota browser penuh).');
         }
 
@@ -285,7 +388,9 @@ object VideoWebScript {
             const container = document.getElementById('tab-content');
             if (!item || !container) return;
             window.webVideoActiveId = id;
-            const url = getWebVideoObjectUrl(item);
+            window.webVideoActiveItem = item;
+            const url = getWebVideoPlayUrl(item);
+            const poster = getWebVideoPosterUrl(item);
             window.webVideoSpeed = 1;
             window.webVideoFitCover = false;
 
@@ -295,7 +400,7 @@ object VideoWebScript {
             html += '    <button type="button" class="btn btn-sm text-white" title="Kembali" onclick="window.closeWebVideo()"><i class="bi bi-arrow-left fs-5"></i></button>';
             html += '    <div class="flex-grow-1 overflow-hidden">';
             html += '      <div class="text-truncate" style="font-size:13px;font-weight:600">' + webVideoEscape(item.name) + '</div>';
-            html += '      <div class="text-truncate" style="font-size:11px;color:#94a3b8">' + formatWebVideoDuration(item.duration) + ' • ' + formatWebVideoSize(item.size) + '</div>';
+            html += '      <div class="text-truncate" style="font-size:11px;color:#94a3b8">' + (item.origin === 'phone' ? 'Berkas di HP • ' : 'Pustaka browser • ') + formatWebVideoDuration(item.duration) + ' • ' + formatWebVideoSize(item.size) + '</div>';
             html += '    </div>';
             html += '    <div class="dropdown">';
             html += '      <button type="button" class="btn btn-sm text-white" data-bs-toggle="dropdown" title="Opsi"><i class="bi bi-three-dots-vertical fs-5"></i></button>';
@@ -306,13 +411,15 @@ object VideoWebScript {
             });
             html += '        <li><hr class="dropdown-divider"></li>';
             html += '        <li><a class="dropdown-item" href="javascript:void(0)" onclick="window.toggleWebVideoFit()"><i class="bi bi-aspect-ratio me-1"></i> Sesuai layar / isi layar</a></li>';
-            html += '        <li><a class="dropdown-item" href="javascript:void(0)" onclick="window.downloadWebVideo(\'' + item.id + '\')"><i class="bi bi-download me-1"></i> Unduh ke PC</a></li>';
-            html += '        <li><a class="dropdown-item text-danger" href="javascript:void(0)" onclick="window.closeWebVideo(); window.deleteWebVideo(\'' + item.id + '\')"><i class="bi bi-trash me-1"></i> Hapus dari pustaka</a></li>';
+            html += '        <li><a class="dropdown-item" href="javascript:void(0)" onclick="window.downloadActiveWebVideo()"><i class="bi bi-download me-1"></i> Unduh ke PC</a></li>';
+            if (item.origin !== 'phone') {
+                html += '        <li><a class="dropdown-item text-danger" href="javascript:void(0)" onclick="window.closeWebVideo(); window.deleteActiveWebVideo()"><i class="bi bi-trash me-1"></i> Hapus dari pustaka</a></li>';
+            }
             html += '      </ul>';
             html += '    </div>';
             html += '  </div>';
             html += '  <div class="flex-grow-1 d-flex align-items-center justify-content-center" style="overflow:hidden">';
-            html += '    <video id="webVideoPlayer" src="' + url + '" controls autoplay playsinline preload="metadata" style="width:100%;height:100%;object-fit:contain;background:#000"></video>';
+            html += '    <video id="webVideoPlayer" src="' + url + '"' + (poster ? ' poster="' + poster + '"' : '') + ' controls autoplay playsinline preload="metadata" style="width:100%;height:100%;object-fit:contain;background:#000"></video>';
             html += '  </div>';
             html += '  <div class="text-center" style="background:#0f172a;color:#94a3b8;font-size:11px;padding:6px">Spasi: putar/jeda • Panah kiri/kanan: 5 detik • Esc: kembali</div>';
             html += '</div>';
@@ -368,9 +475,9 @@ object VideoWebScript {
         }
 
         function downloadWebVideo(id) {
-            const item = window.webVideoList.find(function (v) { return v.id === id; });
+            const item = window.webVideoList.find(function (v) { return v.id === id; }) || window.webVideoActiveItem;
             if (!item) return;
-            const url = getWebVideoObjectUrl(item);
+            const url = item.origin === 'phone' ? (item.streamUrl + '&download=1') : getWebVideoObjectUrl(item);
             const link = document.createElement('a');
             link.href = url;
             link.download = item.name || 'video.mp4';
@@ -380,9 +487,34 @@ object VideoWebScript {
             showWebVideoToast('Mengunduh ' + item.name);
         }
 
+        function downloadActiveWebVideo() {
+            if (window.webVideoActiveItem) downloadWebVideo(window.webVideoActiveItem.id);
+        }
+
+        function deleteActiveWebVideo() {
+            if (window.webVideoActiveItem && window.webVideoActiveItem.origin !== 'phone') {
+                deleteWebVideo(window.webVideoActiveItem.id);
+            }
+        }
+
+        function onWebVideoCardClick(index) {
+            const item = (window.webVideoRenderedItems || [])[index];
+            if (item) playWebVideo(item.id);
+        }
+
+        function deleteWebVideoAt(index) {
+            const item = (window.webVideoRenderedItems || [])[index];
+            if (!item) return;
+            if (item.origin === 'phone') {
+                showWebVideoToast('Berkas di HP tidak dihapus dari browser. Hapus lewat aplikasi di HP.');
+                return;
+            }
+            deleteWebVideo(item.id);
+        }
+
         async function deleteWebVideo(id) {
             const item = window.webVideoList.find(function (v) { return v.id === id; });
-            if (!item) return;
+            if (!item || item.origin === 'phone') return;
             const db = await openWebVideoDatabase();
             if (db) {
                 await new Promise(function (resolve) {

@@ -110,6 +110,11 @@ fun WebConnectScreen(
         viewModel.refreshConnectedWebDevices()
     }
 
+    // Browser hanya bisa membuka pustaka musik/video HP bila izin baca media diberikan.
+    val mediaPermissionLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+        contract = androidx.activity.result.contract.ActivityResultContracts.RequestMultiplePermissions()
+    ) { }
+
     // Intercept hardware/gesture Back Button on Android to return to Profile
     BackHandler {
         onBackClick()
@@ -530,6 +535,10 @@ fun WebConnectScreen(
                             checked = isServerActive,
                             onCheckedChange = { checked ->
                                 if (checked) {
+                                    val pendingPermissions = pendingWebConnectMediaPermissions(context)
+                                    if (pendingPermissions.isNotEmpty()) {
+                                        mediaPermissionLauncher.launch(pendingPermissions)
+                                    }
                                     viewModel.startWebServer(
                                         onStarted = { url ->
                                             isServerActive = true
@@ -1238,4 +1247,21 @@ fun InstructionStep(
             )
         }
     }
+}
+
+/** Izin baca media yang belum diberikan; Android 13+ memakai izin per jenis media. */
+private fun pendingWebConnectMediaPermissions(context: android.content.Context): Array<String> {
+    val requested = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+        arrayOf(
+            android.Manifest.permission.READ_MEDIA_AUDIO,
+            android.Manifest.permission.READ_MEDIA_VIDEO
+        )
+    } else {
+        @Suppress("DEPRECATION")
+        arrayOf(android.Manifest.permission.READ_EXTERNAL_STORAGE)
+    }
+    return requested.filter {
+        androidx.core.content.ContextCompat.checkSelfPermission(context, it) !=
+            android.content.pm.PackageManager.PERMISSION_GRANTED
+    }.toTypedArray()
 }

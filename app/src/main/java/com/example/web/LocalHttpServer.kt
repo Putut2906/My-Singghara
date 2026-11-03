@@ -310,6 +310,11 @@ class LocalHttpServer(
         // Batas aman untuk body (mis. berkas cadangan JSON yang memuat foto/audio base64).
         private const val MAX_REQUEST_BODY_BYTES = 128 * 1024 * 1024
 
+        // Pustaka media HP disimpan sebentar agar browser tidak memicu pemindaian
+        // MediaStore berulang kali saat membuka tab musik/video.
+        private const val MEDIA_LIBRARY_TTL_MS = 20_000L
+        private const val MEDIA_STREAM_CHUNK_BYTES = 64 * 1024
+
         fun parseDeviceName(userAgent: String, clientIp: String): String {
             val ua = userAgent.lowercase()
             val os = when {
@@ -456,6 +461,7 @@ class LocalHttpServer(
 
                 var contentLength = 0
                 var userAgent = ""
+                var rangeHeader = ""
                 while (true) {
                     val line = readHttpLine(input) ?: break
                     if (line.isEmpty()) break
@@ -465,6 +471,9 @@ class LocalHttpServer(
                     }
                     if (headerLower.startsWith("user-agent:")) {
                         userAgent = line.substringAfter(":").trim()
+                    }
+                    if (headerLower.startsWith("range:")) {
+                        rangeHeader = line.substringAfter(":").trim()
                     }
                 }
 
@@ -622,6 +631,9 @@ class LocalHttpServer(
                     }
                     path.startsWith("/api/transfer_file") -> {
                         handleTransferFileRoute(path, method, queryParams, body, output)
+                    }
+                    path.startsWith("/api/media") -> {
+                        handleMediaRoute(path, method, queryParams, rangeHeader, output)
                     }
                     path.startsWith("/api/ht") || path.startsWith("/api/handy_talky") -> {
                         handleHandyTalkyRoute(path, method, queryParams, body, output)
@@ -3010,6 +3022,280 @@ class LocalHttpServer(
             put("status", "Aktif & Terhubung")
         }
         sendJsonResponse(output, resObj.toString())
+    }
+
+    // =========================================================================
+    // PUSTAKA MEDIA HP (audio & video) untuk pemutar pada Web Connect
+    // =========================================================================
+
+    private val mediaThumbnailCache = android.util.LruCache<String, ByteArray>(32)
+    private var audioLibraryCache: Pair<Long, List<PhoneMediaItem>>? = null
+    private var videoLibraryCache: Pair<Long, List<PhoneMediaItem>>? = null
+
+    private suspend fun phoneMediaItems(kind: String, forceRescan: Boolean = false): List<PhoneMediaItem> {
+        val isAudio = kind == PhoneMediaLibrary.KIND_AUDIO
+        if (!forceRescan) {
+            val cached = if (isAudio) audioLibraryCache else videoLibraryCache
+            if (cached != null && System.currentTimeMillis() - cached.first < MEDIA_LIBRARY_TTL_MS) return cached.second
+        }
+        val scanned = PhoneMediaLibrary.scan(context, kind)
+        val stamped = Pair(System.currentTimeMillis(), scanned)
+        if (isAudio) audioLibraryCache = stamped else videoLibraryCache = stamped
+        return scanned
+    }
+
+    /** Cari berkas HP dari id opaque; id berkas biasa (file:...) tetap bisa dipakai. */
+    private suspend fun resolvePhoneMedia(id: String): PhoneMediaItem? {
+        if (id.isEmpty()) return null
+        val audio = phoneMediaItems(PhoneMediaLibrary.KIND_AUDIO)
+        audio.find { it.id == id }?.let { return it }
+        val video = phoneMediaItems(PhoneMediaLibrary.KIND_VIDEO)
+        video.find { it.id == id }?.let { return it }
+
+        // Pustaka berubah sejak cache dibuat (lagu/video baru saja dipindahkan ke HP)
+        phoneMediaItems(PhoneMediaLibrary.KIND_AUDIO, forceRescan = true).find { it.id == id }?.let { return it }
+        phoneMediaItems(PhoneMediaLibrary.KIND_VIDEO, forceRescan = true).find { it.id == id }?.let { return it }
+
+        if (id.startsWith("file:")) {
+            val file = java.io.File(id.removePrefix("file:"))
+            if (file.isFile && file.canRead()) {
+                val kind = PhoneMediaLibrary.kindForFile(file.name) ?: PhoneMediaLibrary.KIND_AUDIO
+                return PhoneMediaItem(
+                    id = id,
+                    kind = kind,
+                    name = file.name,
+                    sizeBytes = file.length(),
+                    durationMs = 0L,
+                    bucketName = file.parentFile?.name?.takeIf { it.isNotBlank() } ?: "Lainnya",
+                    dateAddedSec = file.lastModified() / 1000L,
+                    mimeType = PhoneMediaLibrary.mimeForName(file.name, kind),
+                    contentUri = android.net.Uri.fromFile(file)
+                )
+            }
+        }
+        return null
+    }
+
+    private suspend fun handleMediaRoute(
+        path: String,
+        method: String,
+        queryParams: Map<String, String>,
+        rangeHeader: String,
+        output: OutputStream
+    ) {
+        val action = queryParams["action"] ?: path.removePrefix("/api/media").trim('/')
+        if (method != "GET") {
+            sendResponse(output, 405, "Method Not Allowed", "text/plain", "405 Method Not Allowed")
+            return
+        }
+        when (action) {
+            "", "library", "list" -> handleMediaLibraryRoute(queryParams, output)
+            "stream" -> handleMediaStreamRoute(queryParams, rangeHeader, output)
+            "thumb" -> handleMediaThumbRoute(queryParams, output)
+            else -> sendResponse(output, 404, "Not Found", "text/plain", "404 Media Action Not Found")
+        }
+    }
+
+    private suspend fun handleMediaLibraryRoute(queryParams: Map<String, String>, output: OutputStream) {
+        val kind = if (queryParams["type"] == PhoneMediaLibrary.KIND_VIDEO) {
+            PhoneMediaLibrary.KIND_VIDEO
+        } else {
+            PhoneMediaLibrary.KIND_AUDIO
+        }
+        val items = phoneMediaItems(kind, forceRescan = queryParams["refresh"] == "1")
+        val folderCounts = LinkedHashMap<String, Int>()
+        val filesArray = JSONArray()
+        items.forEach { item ->
+            folderCounts[item.bucketName] = (folderCounts[item.bucketName] ?: 0) + 1
+            val encodedId = java.net.URLEncoder.encode(item.id, "UTF-8")
+            filesArray.put(JSONObject().apply {
+                put("id", item.id)
+                put("kind", item.kind)
+                put("name", item.name)
+                put("title", PhoneMediaLibrary.displayNameWithoutExtension(item))
+                put("artist", item.bucketName)
+                put("folder", item.bucketName)
+                put("origin", "phone")
+                put("size", item.sizeBytes)
+                put("formattedSize", com.example.transfer.FileTransferManager.formatFileSize(item.sizeBytes))
+                put("duration", item.durationMs)
+                put("durationLabel", com.example.ui.video.formatDuration(item.durationMs))
+                put("mimeType", item.mimeType)
+                put("dateAdded", item.dateAddedSec)
+                put("streamUrl", "/api/media/stream?id=$encodedId")
+                put("thumbUrl", "/api/media/thumb?id=$encodedId")
+            })
+        }
+        val foldersArray = JSONArray()
+        folderCounts.forEach { (name, count) ->
+            foldersArray.put(JSONObject().put("name", name).put("count", count))
+        }
+        val totalSize = items.sumOf { it.sizeBytes }
+        val result = JSONObject().apply {
+            put("status", "ok")
+            put("type", kind)
+            put("deviceName", android.os.Build.MODEL ?: "Android Device")
+            put("count", items.size)
+            put("totalSize", totalSize)
+            put("formattedTotalSize", com.example.transfer.FileTransferManager.formatFileSize(totalSize))
+            put("folders", foldersArray)
+            put("files", filesArray)
+        }
+        sendJsonResponse(output, result.toString())
+    }
+
+    private suspend fun handleMediaStreamRoute(queryParams: Map<String, String>, rangeHeader: String, output: OutputStream) {
+        val item = resolvePhoneMedia(queryParams["id"] ?: "")
+        if (item == null) {
+            sendResponse(output, 404, "Not Found", "text/plain", "Berkas media tidak ditemukan")
+            return
+        }
+        // ?download=1 dipakai tombol "Unduh ke PC"; tanpa itu berkas diputar inline.
+        val disposition = if (queryParams["download"] == "1") "attachment" else "inline"
+        streamMediaWithRange(item.contentUri, item.mimeType, item.name, rangeHeader, disposition, output)
+    }
+
+    private suspend fun handleMediaThumbRoute(queryParams: Map<String, String>, output: OutputStream) {
+        val id = queryParams["id"] ?: ""
+        val cached = mediaThumbnailCache.get(id)
+        if (cached != null) {
+            sendBinaryResponse(output, 200, "OK", "image/jpeg", cached, cacheable = true)
+            return
+        }
+        val item = resolvePhoneMedia(id)
+        if (item == null) {
+            sendResponse(output, 404, "Not Found", "text/plain", "Thumbnail tidak tersedia")
+            return
+        }
+        val bytes = PhoneMediaLibrary.loadThumbnailBytes(context, item)
+        if (bytes == null || bytes.isEmpty()) {
+            sendResponse(output, 404, "Not Found", "text/plain", "Thumbnail tidak tersedia")
+            return
+        }
+        mediaThumbnailCache.put(id, bytes)
+        sendBinaryResponse(output, 200, "OK", "image/jpeg", bytes, cacheable = true)
+    }
+
+    /**
+     * Pemutar <audio>/<video> di browser meminta byte parsial (header Range) untuk bisa
+     * melompat posisi, jadi balasan 206 + Content-Range wajib ada; tanpa itu seek restart
+     * dari awal dan video besar gagal dimuat.
+     */
+    private suspend fun streamMediaWithRange(
+        uri: android.net.Uri,
+        mimeType: String,
+        displayName: String,
+        rangeHeader: String,
+        disposition: String,
+        output: OutputStream
+    ) {
+        var descriptor: android.os.ParcelFileDescriptor? = null
+        try {
+            descriptor = withContext(Dispatchers.IO) {
+                try {
+                    context.contentResolver.openFileDescriptor(uri, "r")
+                } catch (_: Exception) {
+                    null
+                }
+            }
+        } catch (_: Exception) {
+            descriptor = null
+        }
+
+        if (descriptor == null) {
+            val fallbackFile = if (uri.scheme == "file") java.io.File(uri.path ?: "") else null
+            if (fallbackFile != null && fallbackFile.isFile && fallbackFile.canRead()) {
+                descriptor = android.os.ParcelFileDescriptor.open(fallbackFile, android.os.ParcelFileDescriptor.MODE_READ_ONLY)
+            }
+            if (descriptor == null) {
+                sendResponse(output, 404, "Not Found", "text/plain", "Berkas media tidak dapat dibuka")
+                return
+            }
+        }
+
+        try {
+            val total = descriptor.statSize.coerceAtLeast(0L)
+            var start = 0L
+            var end = if (total > 0) total - 1 else -1L
+            var isPartial = false
+
+            if (total > 0 && rangeHeader.isNotBlank()) {
+                val spec = rangeHeader.removePrefix("bytes=").substringBefore(",").trim()
+                val dash = spec.indexOf('-')
+                if (dash >= 0) {
+                    val startText = spec.substring(0, dash).trim()
+                    val endText = spec.substring(dash + 1).trim()
+                    val parsedStart = startText.toLongOrNull()
+                    val parsedEnd = endText.toLongOrNull()
+                    if (parsedStart != null) {
+                        start = parsedStart
+                        end = parsedEnd?.coerceAtMost(total - 1) ?: (total - 1)
+                    } else if (parsedEnd != null) {
+                        // "bytes=-N" berarti N byte terakhir, bukan byte ke-N.
+                        start = (total - parsedEnd).coerceAtLeast(0L)
+                        end = total - 1
+                    }
+                    if (start >= total || start > end) {
+                        val unsatisfiable = "HTTP/1.1 416 Requested Range Not Satisfiable\r\n" +
+                                "Content-Range: bytes */$total\r\n" +
+                                "Content-Length: 0\r\n" +
+                                "Access-Control-Allow-Origin: *\r\n" +
+                                "Connection: close\r\n\r\n"
+                        output.write(unsatisfiable.toByteArray(Charsets.UTF_8))
+                        output.flush()
+                        return
+                    }
+                    isPartial = true
+                }
+            }
+
+            val contentType = if (mimeType.isNotBlank()) mimeType else "application/octet-stream"
+            val safeName = displayName.replace("\"", "")
+            val statusLine = if (isPartial) "HTTP/1.1 206 Partial Content" else "HTTP/1.1 200 OK"
+            val headers = StringBuilder()
+            headers.append("$statusLine\r\n")
+            headers.append("Content-Type: $contentType\r\n")
+            if (total > 0) headers.append("Content-Length: ${if (isPartial) end - start + 1 else total}\r\n")
+            headers.append("Accept-Ranges: bytes\r\n")
+            if (isPartial) headers.append("Content-Range: bytes $start-$end/$total\r\n")
+            headers.append("Content-Disposition: $disposition; filename=\"$safeName\"\r\n")
+            headers.append("Cache-Control: no-store\r\n")
+            headers.append("Access-Control-Allow-Origin: *\r\n")
+            headers.append("Connection: close\r\n\r\n")
+            output.write(headers.toString().toByteArray(Charsets.UTF_8))
+
+            val requestedStart = start
+            val requestedLength = if (total > 0) end - start + 1 else -1L
+            val fileDescriptor = descriptor!!
+            withContext(Dispatchers.IO) {
+                // FileInputStream di sini berbagi FileDescriptor dengan descriptor, jadi hanya
+                // descriptor yang ditutup supaya tidak ada double close.
+                val input = java.io.FileInputStream(fileDescriptor.fileDescriptor)
+                var toSkip = requestedStart
+                while (toSkip > 0) {
+                    val skipped = input.skip(toSkip)
+                    if (skipped <= 0) break
+                    toSkip -= skipped
+                }
+                val buffer = ByteArray(MEDIA_STREAM_CHUNK_BYTES)
+                var remaining = requestedLength
+                while (remaining != 0L) {
+                    val chunkSize = if (remaining > 0) minOf(remaining, buffer.size.toLong()).toInt() else buffer.size
+                    val read = input.read(buffer, 0, chunkSize)
+                    if (read <= 0) break
+                    output.write(buffer, 0, read)
+                    if (remaining > 0) remaining -= read
+                }
+                output.flush()
+            }
+        } catch (_: Exception) {
+            // Browser menutup koneksi saat melompat posisi; bukan kesalahan yang perlu dilaporkan.
+        } finally {
+            try {
+                descriptor?.close()
+            } catch (_: Exception) {
+            }
+        }
     }
 
     private suspend fun handleTransferFileRoute(path: String, method: String, queryParams: Map<String, String>, body: String, output: OutputStream) {

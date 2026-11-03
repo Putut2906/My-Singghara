@@ -36,6 +36,99 @@ object MusikWebScript {
         window.musicPlayCounts = window.musicPlayCounts || {}; // { [trackIdOrTitle]: number }
         window.musicRecentlyPlayed = window.musicRecentlyPlayed || []; // [track objects]
 
+        // Sumber berkas: 'pc' = folder yang dipilih di browser (IndexedDB),
+        // 'phone' = pustaka musik yang tersimpan di HP (lewat server lokal).
+        window.musicSource = window.musicSource || 'pc';
+        window.musicPcTracks = window.musicPcTracks || [];
+        window.musicPhoneTracks = window.musicPhoneTracks || [];
+        window.musicPhoneLibraryLoaded = false;
+
+        function applyMusicSource() {
+            window.musicPlaylist = (window.musicSource === 'phone') ? window.musicPhoneTracks : window.musicPcTracks;
+            if (window.currentMusicIndex >= window.musicPlaylist.length) window.currentMusicIndex = 0;
+        }
+
+        async function loadPhoneMusicLibrary(force) {
+            if (window.musicPhoneLibraryLoaded && !force) return window.musicPhoneTracks;
+            try {
+                const response = await fetch('/api/media/library?type=audio' + (force ? '&refresh=1' : ''));
+                const payload = await response.json();
+                const files = (payload && payload.files) || [];
+                window.musicPhoneTracks = files.map(function (file) {
+                    return {
+                        id: file.id,
+                        title: file.title || file.name,
+                        artist: file.artist || file.folder || 'Musik di HP',
+                        folder: file.folder || 'Musik di HP',
+                        size: file.formattedSize,
+                        sizeBytes: file.size || 0,
+                        durationMs: file.duration || 0,
+                        url: file.streamUrl,
+                        thumb: file.thumbUrl,
+                        origin: 'phone',
+                        addedAt: (file.dateAdded || 0) * 1000
+                    };
+                });
+                window.musicPhoneLibraryLoaded = true;
+            } catch (err) {
+                console.warn('Pustaka musik HP gagal dimuat:', err);
+                showCustomToast('Pustaka musik HP gagal dimuat. Pastikan izin media di HP sudah diberikan.');
+            }
+            return window.musicPhoneTracks;
+        }
+
+        async function switchMusicSource(source) {
+            if (window.musicSource === source) return;
+            window.musicSource = source;
+            try { localStorage.setItem('singghara_music_source', source); } catch (e) {}
+            window.musicSelectedFolder = null;
+            window.musicSearchQuery = '';
+            if (source === 'phone') {
+                await loadPhoneMusicLibrary(true);
+            }
+            applyMusicSource();
+            loadMusik();
+            showCustomToast(source === 'phone'
+                ? (window.musicPhoneTracks.length > 0 ? window.musicPhoneTracks.length + ' lagu dari HP dimuat.' : 'Tidak ada lagu terdeteksi di HP.')
+                : 'Menampilkan pustaka musik dari komputer.');
+        }
+
+        async function refreshPhoneMusicLibrary() {
+            await loadPhoneMusicLibrary(true);
+            if (window.musicSource !== 'phone') {
+                window.musicSource = 'phone';
+                try { localStorage.setItem('singghara_music_source', 'phone'); } catch (e) {}
+                window.musicSelectedFolder = null;
+            }
+            applyMusicSource();
+            loadMusik();
+            showCustomToast(window.musicPhoneTracks.length + ' lagu dari HP diperbarui.');
+        }
+
+        function getMusicTrackCoverUrl(track) {
+            if (!track) return null;
+            const custom = window.musicCustomAlbumArts && (window.musicCustomAlbumArts[track.id] || window.musicCustomAlbumArts[track.title]);
+            return custom || track.thumb || null;
+        }
+
+        function getMusicSourceSwitchHtml() {
+            const onPhone = window.musicSource === 'phone';
+            const pillBase = 'cursor:pointer;border-radius:999px;padding:6px 14px;font-size:12px;font-weight:700;display:inline-flex;align-items:center;gap:6px;border:1px solid rgba(127,127,127,0.25);';
+            const activeStyle = 'background:var(--bs-primary);color:#fff;border-color:var(--bs-primary);';
+            const idleStyle = 'background:rgba(127,127,127,0.08);color:var(--bs-secondary);';
+            return `
+                <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
+                    <span style="${dol}{pillBase}${dol}{onPhone ? activeStyle : idleStyle}" onclick="switchMusicSource('phone')">
+                        <i class="bi bi-phone-fill"></i> Berkas di HP (${dol}{window.musicPhoneTracks.length})
+                    </span>
+                    <span style="${dol}{pillBase}${dol}{!onPhone ? activeStyle : idleStyle}" onclick="switchMusicSource('pc')">
+                        <i class="bi bi-pc-display"></i> Berkas di Komputer (${dol}{window.musicPcTracks.length})
+                    </span>
+                    ${dol}{onPhone ? `<button class="btn btn-sm btn-link text-secondary p-0 ms-1" title="Muat ulang pustaka HP" onclick="refreshPhoneMusicLibrary()"><i class="bi bi-arrow-clockwise"></i></button>` : ''}
+                </div>
+            `;
+        }
+
         // --- INDEXEDDB & LOCALSTORAGE PERSISTENCE (100% OFFLINE) ---
         const MUSIC_DB_NAME = 'SinggharaMusicOfflineDB';
         const MUSIC_DB_VERSION = 1;
@@ -96,26 +189,37 @@ object MusikWebScript {
                     if (typeof s.volume === 'number') window.musicPlayerAudio.volume = s.volume;
                 }
 
+                const source = localStorage.getItem('singghara_music_source');
+                if (source === 'phone' || source === 'pc') window.musicSource = source;
+
                 // Restore cached tracks from IndexedDB
                 const db = await openMusicDatabase();
-                if (db && window.musicPlaylist.length === 0) {
-                    const tx = db.transaction('tracks', 'readonly');
-                    const store = tx.objectStore('tracks');
-                    const getAllReq = store.getAll();
-                    getAllReq.onsuccess = () => {
-                        const savedTracks = getAllReq.result || [];
-                        if (savedTracks.length > 0) {
-                            savedTracks.forEach(st => {
-                                if (st.blob) {
-                                    st.url = URL.createObjectURL(st.blob);
-                                }
-                            });
-                            window.musicPlaylist = savedTracks;
-                            if (window.currentTab === 'musik') {
-                                loadMusik();
-                            }
+                if (db && window.musicPcTracks.length === 0) {
+                    const savedTracks = await new Promise((resolve) => {
+                        try {
+                            const getAllReq = db.transaction('tracks', 'readonly').objectStore('tracks').getAll();
+                            getAllReq.onsuccess = () => resolve(getAllReq.result || []);
+                            getAllReq.onerror = () => resolve([]);
+                        } catch (e) {
+                            resolve([]);
                         }
-                    };
+                    });
+                    savedTracks.forEach(st => {
+                        // Berkas dari HP tidak punya blob; hanya trek PC yang dibuat URL blob.
+                        if (st.blob) {
+                            st.url = URL.createObjectURL(st.blob);
+                        }
+                    });
+                    window.musicPcTracks = savedTracks;
+                }
+
+                if (window.musicSource === 'phone') {
+                    await loadPhoneMusicLibrary();
+                }
+                applyMusicSource();
+
+                if (window.currentTab === 'musik') {
+                    loadMusik();
                 }
             } catch (err) {
                 console.warn('Failed to load music persistence:', err);
@@ -136,6 +240,7 @@ object MusikWebScript {
                 localStorage.setItem('singghara_music_recently_played', JSON.stringify(window.musicRecentlyPlayed.slice(0, 50)));
                 localStorage.setItem('singghara_music_manual_lyrics', JSON.stringify(window.musicManualLyrics));
                 localStorage.setItem('singghara_music_custom_covers', JSON.stringify(window.musicCustomAlbumArts));
+                localStorage.setItem('singghara_music_source', window.musicSource);
             } catch (e) {
                 console.warn('Error saving music settings:', e);
             }
@@ -525,7 +630,7 @@ object MusikWebScript {
 
             const db = await openMusicDatabase();
             const newTracks = [];
-            const startIndex = window.musicPlaylist.length;
+            const startIndex = window.musicPcTracks.length;
 
             for (let i = 0; i < files.length; i++) {
                 const file = files[i];
@@ -543,11 +648,12 @@ object MusikWebScript {
                     size: sizeMb,
                     url: url,
                     blob: file,
+                    origin: 'pc',
                     addedAt: Date.now()
                 };
 
                 newTracks.push(trackObj);
-                window.musicPlaylist.push(trackObj);
+                window.musicPcTracks.push(trackObj);
 
                 // Persist to IndexedDB
                 if (db) {
@@ -562,6 +668,11 @@ object MusikWebScript {
 
             event.target.value = '';
             showCustomToast(newTracks.length + ' file musik berhasil ditambahkan!');
+
+            // Berkas yang baru dipilih ada di sisi komputer, jadi tampilkan pustaka PC.
+            window.musicSource = 'pc';
+            try { localStorage.setItem('singghara_music_source', 'pc'); } catch (e) {}
+            applyMusicSource();
 
             if (startIndex === 0 && window.musicPlaylist.length > 0) {
                 playTrackByIndex(0);
@@ -637,7 +748,10 @@ object MusikWebScript {
                     "[00:18.00] Ketuk album art untuk melihat mode lirik\n" +
                     "[00:22.00] ~ Melodi Cmaj7 - Am7 - Dm7 - G7 ~";
 
-                window.musicPlaylist.unshift(demoTrack);
+                window.musicPcTracks.unshift(demoTrack);
+                window.musicSource = 'pc';
+                try { localStorage.setItem('singghara_music_source', 'pc'); } catch (e) {}
+                applyMusicSource();
                 saveMusicSettings();
                 showCustomToast('Demo musik offline berhasil dimuat!');
                 playTrackByIndex(0);
@@ -805,6 +919,9 @@ object MusikWebScript {
                     }
                 </style>
 
+                <!-- SUMBER BERKAS: PUSTAKA HP ATAU KOMPUTER -->
+                ${dol}{getMusicSourceSwitchHtml()}
+
                 <!-- TOP BAR WITH TABS, SEARCH & SETTINGS -->
                 <div class="d-flex align-items-center justify-content-between mb-3 py-1 gap-2">
                     <div class="d-flex align-items-center flex-grow-1" id="musicHeaderBarContainer">
@@ -957,6 +1074,27 @@ object MusikWebScript {
             // TAB 0: FOLDER
             if (window.musicSelectedTab === 0) {
                 if (window.musicPlaylist.length === 0) {
+                    if (window.musicSource === 'phone') {
+                        return `
+                            <div class="card card-custom p-5 text-center my-3" style="border-radius: 20px;">
+                                <div class="rounded-circle d-flex align-items-center justify-content-center mx-auto mb-3" style="width: 76px; height: 76px; background-color: rgba(13, 110, 253, 0.12); color: var(--bs-primary);">
+                                    <i class="bi bi-phone fs-1"></i>
+                                </div>
+                                <h6 class="fw-bold mb-2">Tidak Ada Musik di HP</h6>
+                                <p class="text-secondary small mb-4" style="max-width: 460px; margin-inline: auto;">
+                                    Pustaka musik di HP masih kosong. Pastikan izin media di HP sudah diterima saat server web dinyalakan, lalu simpan lagu pada folder Music di HP atau melalui menu Kirim Berkas ke HP.
+                                </p>
+                                <div class="d-flex justify-content-center gap-2 flex-wrap">
+                                    <button class="btn btn-brand px-4 py-2" onclick="refreshPhoneMusicLibrary()">
+                                        <i class="bi bi-arrow-clockwise me-2"></i> Muat Ulang Pustaka HP
+                                    </button>
+                                    <button class="btn btn-outline-primary px-3 py-2" onclick="switchMusicSource('pc')">
+                                        <i class="bi bi-pc-display me-1"></i> Pakai Berkas Komputer
+                                    </button>
+                                </div>
+                            </div>
+                        `;
+                    }
                     return `
                         <div class="card card-custom p-5 text-center my-3" style="border-radius: 20px;">
                             <div class="rounded-circle d-flex align-items-center justify-content-center mx-auto mb-3" style="width: 76px; height: 76px; background-color: rgba(13, 110, 253, 0.12); color: var(--bs-primary);">
@@ -1138,7 +1276,7 @@ object MusikWebScript {
             const isActive = globalIndex === window.currentMusicIndex;
             const isPlaying = isActive && !window.musicPlayerAudio.paused && !window.musicPlayerAudio.ended;
             const isFav = isTrackFavorite(track);
-            const coverUrl = window.musicCustomAlbumArts[track.id] || window.musicCustomAlbumArts[track.title] || null;
+            const coverUrl = getMusicTrackCoverUrl(track);
 
             return `
                 <div class="music-card-item ${dol}{isActive ? 'active-playing' : ''}" onclick="playTrackByIndex(${dol}{globalIndex})">
@@ -1181,7 +1319,7 @@ object MusikWebScript {
         function getMiniPlayerHtml(currentTrack) {
             if (!currentTrack) return '';
             const isPlaying = window.musicPlayerAudio && !window.musicPlayerAudio.paused && !window.musicPlayerAudio.ended;
-            const coverUrl = (window.musicCustomAlbumArts && (window.musicCustomAlbumArts[currentTrack.id] || window.musicCustomAlbumArts[currentTrack.title])) || null;
+            const coverUrl = getMusicTrackCoverUrl(currentTrack);
 
             return `
                 <div class="music-mini-dock">
@@ -1240,7 +1378,7 @@ object MusikWebScript {
             const isPlaying = window.musicPlayerAudio && !window.musicPlayerAudio.paused && !window.musicPlayerAudio.ended;
             const isFav = isTrackFavorite(currentTrack);
             const inPl = isTrackInMyPlaylist(currentTrack);
-            const coverUrl = (window.musicCustomAlbumArts && (window.musicCustomAlbumArts[currentTrack.id] || window.musicCustomAlbumArts[currentTrack.title])) || null;
+            const coverUrl = getMusicTrackCoverUrl(currentTrack);
             const lrcText = (window.musicManualLyrics && (window.musicManualLyrics[currentTrack.id] || window.musicManualLyrics[currentTrack.title])) || '';
 
             return `
@@ -1348,7 +1486,7 @@ object MusikWebScript {
         function getCentralArtCardInnerHtml(currentTrack) {
             if (!currentTrack) return '';
             const isPlaying = window.musicPlayerAudio && !window.musicPlayerAudio.paused && !window.musicPlayerAudio.ended;
-            const coverUrl = (window.musicCustomAlbumArts && (window.musicCustomAlbumArts[currentTrack.id] || window.musicCustomAlbumArts[currentTrack.title])) || null;
+            const coverUrl = getMusicTrackCoverUrl(currentTrack);
             const lrcText = (window.musicManualLyrics && (window.musicManualLyrics[currentTrack.id] || window.musicManualLyrics[currentTrack.title])) || '';
 
             if (window.musicIsLyricsMode) {
@@ -1630,7 +1768,7 @@ object MusikWebScript {
             let html = '<div class="d-flex flex-column gap-2">';
             window.musicPlaylist.forEach((trk, idx) => {
                 const isPlaying = idx === window.currentMusicIndex;
-                const coverUrl = window.musicCustomAlbumArts[trk.id] || window.musicCustomAlbumArts[trk.title] || null;
+                const coverUrl = getMusicTrackCoverUrl(trk);
                 html += `
                     <div class="music-card-item ${dol}{isPlaying ? 'active-playing' : ''}" onclick="playTrackByIndex(${dol}{idx}); bootstrap.Modal.getInstance(document.getElementById('musicQueueModal'))?.hide();">
                         <div class="d-flex align-items-center gap-3 overflow-hidden flex-grow-1">
@@ -1798,10 +1936,13 @@ object MusikWebScript {
         }
 
         async function resetEntireMusicPlaylist() {
-            if (!confirm('Apakah Anda yakin ingin mengosongkan seluruh daftar lagu?')) return;
+            if (!confirm('Kosongkan daftar lagu hasil unduhan dari komputer? Berkas musik di HP tidak ikut terhapus.')) return;
             window.musicPlayerAudio.pause();
             window.musicPlayerAudio.src = '';
-            window.musicPlaylist = [];
+            window.musicPcTracks = [];
+            window.musicSource = 'pc';
+            try { localStorage.setItem('singghara_music_source', 'pc'); } catch (e) {}
+            applyMusicSource();
             window.currentMusicIndex = 0;
             window.musicSelectedFolder = null;
 

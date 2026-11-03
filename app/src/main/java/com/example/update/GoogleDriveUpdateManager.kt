@@ -940,7 +940,7 @@ object GoogleDriveUpdateManager {
     /**
      * Extracts semantic version string from APK name (e.g. MySingghara-v1.2.apk -> 1.2).
      */
-    private fun extractVersionName(fileName: String): String {
+    fun extractVersionName(fileName: String): String {
         val regex = Pattern.compile("[vV](\\d+(\\.\\d+)+)")
         val matcher = regex.matcher(fileName)
         if (matcher.find()) {

@@ -449,6 +449,9 @@ class MainActivity : FragmentActivity() {
         if (navigateTo != null) {
             viewModel.currentRoute = navigateTo
         }
+        if (intent.getBooleanExtra(NotificationScheduler.EXTRA_OPEN_APP_UPDATE, false)) {
+            viewModel.currentRoute = "tentang_aplikasi"
+        }
         if (intent.getBooleanExtra("CONFIRM_DELETE_NOTIFICATION", false)) {
             viewModel.showConfirmDeleteNotificationDialog = true
         }
@@ -827,6 +830,14 @@ fun MainAppContent(viewModel: MainViewModel, desktopMode: Boolean = false) {
             val driveResult = GoogleDriveUpdateManager.checkForDriveUpdate(context)
             if (driveResult is DriveUpdateCheckState.UpdateAvailable) {
                 startupDriveUpdateResult = driveResult
+                NotificationScheduler.showUpdateAvailableNotification(
+                    context = context,
+                    newVersion = GoogleDriveUpdateManager
+                        .extractVersionName(driveResult.latestApk.name)
+                        .ifBlank { driveResult.latestApk.name },
+                    apkUrl = driveResult.latestApk.url,
+                    changelog = driveResult.detectionReason
+                )
                 return
             }
         }
@@ -848,6 +859,12 @@ fun MainAppContent(viewModel: MainViewModel, desktopMode: Boolean = false) {
             GitHubUpdateManager.isRemoteVersionNewer(BuildConfig.VERSION_NAME, result.release.tagName)
         ) {
             startupUpdateResult = result
+            NotificationScheduler.showUpdateAvailableNotification(
+                context = context,
+                newVersion = result.release.cleanVersionName,
+                apkUrl = result.apkAsset.browserDownloadUrl,
+                changelog = result.release.body
+            )
         }
     }
 
@@ -857,6 +874,15 @@ fun MainAppContent(viewModel: MainViewModel, desktopMode: Boolean = false) {
             if (GoogleDriveUpdateManager.isFirstLaunchAfterInstall(context)) {
                 GoogleDriveUpdateManager.markFirstLaunchDone(context)
                 return@LaunchedEffect
+            }
+            // APK yang sudah terunduh tapi belum dipasang tetap harus muncul di status bar.
+            val pending = com.example.update.PendingUpdateStore.load(context)
+            if (pending != null) {
+                NotificationScheduler.showUpdateAvailableNotification(
+                    context = context,
+                    newVersion = pending.displayVersion,
+                    downloadedApkPath = pending.apkPath
+                )
             }
             runAutomaticUpdateCheck(includeDrive = true)
         } catch (_: Exception) {}
@@ -3826,6 +3852,32 @@ fun MainAppContent(viewModel: MainViewModel, desktopMode: Boolean = false) {
                             }
                         )
                         else -> HomeScreen(viewModel = viewModel)
+                    }
+                }
+
+                // Pemutar mini: tampil di semua halaman, kecuali halaman musik yang
+                // sudah punya dock sendiri dan layar yang mengambil seluruh viewport.
+                val miniPlayerTrack = viewModel.activeMusicTrack
+                val miniPlayerHiddenRoutes = setOf(
+                    "pemutar_musik", "pemutar_video", "immersive_file_viewer", "handy_talky"
+                )
+                if (miniPlayerTrack != null && !miniPlayerHiddenRoutes.contains(viewModel.currentRoute)) {
+                    Box(
+                        modifier = Modifier.align(Alignment.BottomCenter)
+                    ) {
+                        com.example.ui.components.MusicMiniPlayer(
+                            viewModel = viewModel,
+                            track = miniPlayerTrack,
+                            onExpand = {
+                                viewModel.musicPlayerExpanded = true
+                                viewModel.currentRoute = "pemutar_musik"
+                            },
+                            onOpenQueue = {
+                                viewModel.musicQueueSheetVisible = true
+                                viewModel.currentRoute = "pemutar_musik"
+                            },
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)
+                        )
                     }
                 }
             }

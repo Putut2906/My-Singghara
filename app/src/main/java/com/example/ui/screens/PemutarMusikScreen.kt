@@ -82,7 +82,7 @@ fun PemutarMusikScreen(viewModel: MainViewModel, onOpenDrawer: () -> Unit) {
     var selectedTab by remember { mutableStateOf(0) } // 0: Folder, 1: Favorit, 2: Daftar Putar
     var selectedSubTab by remember { mutableStateOf(0) } // 0: Baru Ditambahkan, 1: Paling Sering, 2: Baru Saja
     var selectedFolder by remember { mutableStateOf<String?>(null) }
-    var showQueueSheet by remember { mutableStateOf(false) }
+    var showQueueSheet by viewModel::musicQueueSheetVisible
     var searchQuery by remember { mutableStateOf("") }
     var isSearchExpanded by remember { mutableStateOf(false) }
     val focusRequester = remember { FocusRequester() }
@@ -106,7 +106,9 @@ fun PemutarMusikScreen(viewModel: MainViewModel, onOpenDrawer: () -> Unit) {
     }
     
     // Panel state: Expanded (Full screen deck) vs Collapsed (Mini player at bottom)
-    var isPlayerExpanded by remember { mutableStateOf(false) }
+    // Disimpan di MainViewModel supaya Mini Player global dan deck tetap sinkron
+    // ketika pengguna berpindah halaman.
+    var isPlayerExpanded by viewModel::musicPlayerExpanded
 
     // Use system/OS back button to exit selected folder or collapse player
     BackHandler(enabled = isPlayerExpanded || selectedFolder != null) {
@@ -194,12 +196,13 @@ fun PemutarMusikScreen(viewModel: MainViewModel, onOpenDrawer: () -> Unit) {
         viewModel.musicPlaylist[viewModel.currentTrackIndex]
     } else null
 
-    // Lyrics and Custom Album Art state
-    var isLyricsMode by remember { mutableStateOf(false) }
-    var lyricsEditMode by remember { mutableStateOf(false) }
-    var manualLyricsText by remember { mutableStateOf("") }
-    var isLyricsFullScreen by remember { mutableStateOf(false) }
-    var fileLyricsText by remember { mutableStateOf("") }
+    // Lyrics and Custom Album Art state (di MainViewModel agar Mini Player global
+    // dapat membuka deck lirik tanpa kehilangan status)
+    var isLyricsMode by viewModel::musicLyricsMode
+    var lyricsEditMode by viewModel::musicLyricsEditMode
+    var manualLyricsText by viewModel::musicManualLyricsText
+    var isLyricsFullScreen by viewModel::musicLyricsFullScreen
+    var fileLyricsText by viewModel::musicFileLyricsText
 
     // Lirik manual (bila pengguna menyimpannya) menjadi koreksi; selain itu lirik
     // yang tertanam di file audio ditampilkan otomatis saat lagu diputar.
@@ -746,119 +749,20 @@ fun PemutarMusikScreen(viewModel: MainViewModel, onOpenDrawer: () -> Unit) {
                 }
             }
 
-            // MINI MUSIC PLAYER PANEL (Sleek, persistent glassmorphic dock at bottom)
+            // MINI MUSIC PLAYER PANEL (komponen yang sama dengan pemutar mini global)
             if (activeTrack != null) {
                 Box(
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
                         .padding(horizontal = 16.dp, vertical = 12.dp)
                 ) {
-                    Card(
-                        shape = RoundedCornerShape(16.dp),
-                        colors = CardDefaults.cardColors(
-                            containerColor = MaterialTheme.colorScheme.surfaceColorAtElevation(6.dp)
-                        ),
-                        elevation = CardDefaults.cardElevation(defaultElevation = 8.dp),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .border(
-                                width = 1.dp,
-                                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.25f),
-                                shape = RoundedCornerShape(16.dp)
-                            )
-                            .clickable { isPlayerExpanded = true }
-                    ) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 12.dp, vertical = 10.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            // Rounded Square Album Art Cover as requested
-                            Box(
-                                modifier = Modifier
-                                    .size(44.dp)
-                                    .clip(RoundedCornerShape(8.dp))
-                            ) {
-                                TrackAlbumArt(track = activeTrack, viewModel = viewModel, modifier = Modifier.fillMaxSize())
-                            }
-
-                            Spacer(modifier = Modifier.width(12.dp))
-
-                            // Titles
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = activeTrack.title,
-                                    fontSize = 13.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.onSurface,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                    modifier = Modifier.basicMarquee(iterations = Int.MAX_VALUE)
-                                )
-                                Text(
-                                    text = activeTrack.artist,
-                                    fontSize = 10.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
-                                )
-                            }
-
-                            Spacer(modifier = Modifier.width(4.dp))
-
-                            // Controls (Previous, Play/Pause, Next, Queue) as requested
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                IconButton(
-                                    onClick = { viewModel.playPrevious(context) },
-                                    modifier = Modifier.size(36.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.SkipPrevious,
-                                        contentDescription = "Sebelumnya",
-                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        modifier = Modifier.size(20.dp)
-                                    )
-                                }
-
-                                IconButton(
-                                    onClick = { viewModel.togglePlayPause() },
-                                    modifier = Modifier.size(36.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = if (viewModel.isMusicPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
-                                        contentDescription = "Main/Jeda",
-                                        tint = MaterialTheme.colorScheme.primary,
-                                        modifier = Modifier.size(22.dp)
-                                    )
-                                }
-
-                                IconButton(
-                                    onClick = { viewModel.playNext(context) },
-                                    modifier = Modifier.size(36.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.SkipNext,
-                                        contentDescription = "Selanjutnya",
-                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        modifier = Modifier.size(20.dp)
-                                    )
-                                }
-
-                                IconButton(
-                                    onClick = { showQueueSheet = true },
-                                    modifier = Modifier.size(36.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.QueueMusic,
-                                        contentDescription = "Antrean",
-                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        modifier = Modifier.size(20.dp)
-                                    )
-                                }
-                            }
-                        }
-                    }
+                    com.example.ui.components.MusicMiniPlayer(
+                        viewModel = viewModel,
+                        track = activeTrack,
+                        onExpand = { isPlayerExpanded = true },
+                        onOpenQueue = { showQueueSheet = true },
+                        modifier = Modifier.fillMaxWidth()
+                    )
                 }
             }
 
