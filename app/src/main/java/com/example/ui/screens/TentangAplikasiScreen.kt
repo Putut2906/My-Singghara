@@ -116,6 +116,7 @@ fun TentangAplikasiScreen(
     val lastSavedApkName = (githubTask as? GithubUpdateTask.Completed)?.fileName
     var updateStatusPopup by remember { mutableStateOf<UpdateStatusPopup?>(null) }
     var installedVersionCheck by remember { mutableStateOf<InstalledVersionCheck?>(null) }
+    var githubVersionCheckRunning by remember { mutableStateOf(false) }
     var dialogDownloadStarted by remember { mutableStateOf(false) }
     var taskStartedHere by remember { mutableStateOf(false) }
     var pendingSaveAction by remember { mutableStateOf<(() -> Unit)?>(null) }
@@ -231,20 +232,6 @@ fun TentangAplikasiScreen(
         }
     }
 
-    // Function to perform Google Drive Apps Script update check
-    fun triggerDriveCheck() {
-        scope.launch {
-            driveUpdateState = DriveUpdateCheckState.Loading()
-            val result = GoogleDriveUpdateManager.checkForDriveUpdate(context)
-            driveUpdateState = result
-            // Suppress popup dialog completely on this screen.
-            // If auto-install is enabled, start inline download directly.
-            if (result is DriveUpdateCheckState.UpdateAvailable && isDriveAutoInstall) {
-                downloadAndInstall(result.latestApk)
-            }
-        }
-    }
-
     // Starts the foreground-service check. The service skips the download entirely when the
     // installed version is already the newest release, and keeps running in the background.
     fun refreshCheckAndSaveApk() {
@@ -261,28 +248,53 @@ fun TentangAplikasiScreen(
     }
 
     // Click on the installed-version chip: compare this build against the newest GitHub release.
-    fun checkInstalledVersion() {
-        if (installedVersionCheck?.isChecking == true) return
+    // When quiet, only a real update opens the dialog so entering this screen is not disruptive.
+    fun checkInstalledVersion(quiet: Boolean = false) {
+        if (githubVersionCheckRunning) return
+        if (quiet && (installedVersionCheck != null || dialogDownloadStarted)) return
+        githubVersionCheckRunning = true
         dialogDownloadStarted = false
-        installedVersionCheck = InstalledVersionCheck(isChecking = true)
+        if (!quiet) installedVersionCheck = InstalledVersionCheck(isChecking = true)
         scope.launch {
-            installedVersionCheck = when (val result = GitHubUpdateManager.checkForUpdate(context)) {
-                is UpdateCheckState.UpdateAvailable -> {
-                    // Reuse a copy that was already downloaded so the prompt goes straight to install.
-                    val pending = PendingUpdateStore.load(context)
-                    val pendingPath = if (
-                        pending != null &&
-                        !GitHubUpdateManager.isRemoteVersionNewer(pending.versionTag, result.release.tagName)
-                    ) pending.apkPath else null
-                    InstalledVersionCheck(
-                        isUpToDate = false,
-                        latestVersion = result.newVersion,
-                        downloadedApkPath = pendingPath
-                    )
+            try {
+                installedVersionCheck = when (val result = GitHubUpdateManager.checkForUpdate(context)) {
+                    is UpdateCheckState.UpdateAvailable -> {
+                        // Reuse a copy that was already downloaded so the prompt goes straight to install.
+                        val pending = PendingUpdateStore.load(context)
+                        val pendingPath = if (
+                            pending != null &&
+                            !GitHubUpdateManager.isRemoteVersionNewer(pending.versionTag, result.release.tagName)
+                        ) pending.apkPath else null
+                        InstalledVersionCheck(
+                            isUpToDate = false,
+                            latestVersion = result.newVersion,
+                            downloadedApkPath = pendingPath
+                        )
+                    }
+                    is UpdateCheckState.UpToDate -> if (quiet) null else InstalledVersionCheck(isUpToDate = true)
+                    is UpdateCheckState.Error -> if (quiet) null else InstalledVersionCheck(errorMessage = result.errorMessage)
+                    else -> if (quiet) null else InstalledVersionCheck(errorMessage = "Tidak dapat memeriksa versi terbaru. Coba lagi nanti.")
                 }
-                is UpdateCheckState.UpToDate -> InstalledVersionCheck(isUpToDate = true)
-                is UpdateCheckState.Error -> InstalledVersionCheck(errorMessage = result.errorMessage)
-                else -> InstalledVersionCheck(errorMessage = "Tidak dapat memeriksa versi terbaru. Coba lagi nanti.")
+            } finally {
+                githubVersionCheckRunning = false
+            }
+        }
+    }
+
+    // Function to perform Google Drive Apps Script update check
+    fun triggerDriveCheck() {
+        scope.launch {
+            driveUpdateState = DriveUpdateCheckState.Loading()
+            val result = GoogleDriveUpdateManager.checkForDriveUpdate(context)
+            driveUpdateState = result
+            // Keep the version popup suppressed on this screen, unless auto-install is enabled.
+            if (result is DriveUpdateCheckState.UpdateAvailable && isDriveAutoInstall) {
+                downloadAndInstall(result.latestApk)
+            }
+            // Drive has no newer APK: still compare against GitHub Releases so opening this
+            // screen surfaces a new release instead of looking already up to date.
+            if (result !is DriveUpdateCheckState.UpdateAvailable) {
+                checkInstalledVersion(quiet = true)
             }
         }
     }

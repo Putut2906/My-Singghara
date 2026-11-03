@@ -132,8 +132,9 @@ object GitHubUpdateManager {
             if (code == 200 && body.isNotBlank()) {
                 targetReleaseJson = JSONObject(body)
             } else {
-                // 2. If /releases/latest returned 404, fallback to /releases (list all releases including pre-releases)
-                val allReleasesUrl = "https://api.github.com/repos/$owner/$repo/releases?per_page=5"
+                // 2. /releases/latest answers 404 while a release is still being published or
+                //    when every release is a pre-release, so scan the full list as fallback.
+                val allReleasesUrl = "https://api.github.com/repos/$owner/$repo/releases?per_page=20"
                 var (allCode, allBody) = fetchGitHubJson(allReleasesUrl, useToken = true)
 
                 if ((allCode == 401 || allCode == 403) && config.token.isNotBlank()) {
@@ -144,8 +145,16 @@ object GitHubUpdateManager {
 
                 if (allCode == 200 && allBody.isNotBlank()) {
                     val releasesArray = JSONArray(allBody)
-                    if (releasesArray.length() > 0) {
-                        targetReleaseJson = releasesArray.getJSONObject(0)
+                    var bestTag = ""
+                    for (i in 0 until releasesArray.length()) {
+                        val candidate = releasesArray.optJSONObject(i) ?: continue
+                        if (candidate.optBoolean("draft", false)) continue
+                        val candidateTag = candidate.optString("tag_name", "")
+                        if (candidateTag.isBlank()) continue
+                        if (targetReleaseJson == null || isRemoteVersionNewer(bestTag, candidateTag)) {
+                            targetReleaseJson = candidate
+                            bestTag = candidateTag
+                        }
                     }
                 } else if (allCode == 404) {
                     // Check if repository exists
@@ -156,6 +165,55 @@ object GitHubUpdateManager {
                             errorMessage = "Repositori '$owner/$repo' tidak ditemukan di GitHub. Pastikan nama repositori sudah sesuai di Pengaturan."
                         )
                     }
+                } else {
+                    // The GitHub API rate-limits anonymous clients (HTTP 403) and sometimes
+                    // fails behind mobile proxies. The public release page is not rate-limited
+                    // the same way, so read the tag from there before giving up.
+                    val htmlTag = fetchLatestTagFromHtml(owner, repo)
+                    if (htmlTag != null) {
+                        val assetName = "MySingghara-$htmlTag.apk"
+                        val htmlRelease = GitHubReleaseResponse(
+                            tagName = htmlTag,
+                            name = htmlTag,
+                            body = "Catatan rilis lengkap tersedia di halaman GitHub Releases.",
+                            publishedAt = "",
+                            htmlUrl = "https://github.com/$owner/$repo/releases/tag/$htmlTag",
+                            assets = listOf(
+                                GitHubAsset(
+                                    name = assetName,
+                                    size = 0L,
+                                    browserDownloadUrl = "https://github.com/$owner/$repo/releases/download/$htmlTag/$assetName",
+                                    contentType = "application/vnd.android.package-archive"
+                                )
+                            )
+                        )
+                        val htmlAsset = htmlRelease.primaryApkAsset
+                        return@withContext if (htmlAsset != null &&
+                            isRemoteVersionNewer(currentVersion, htmlTag)
+                        ) {
+                            UpdateCheckState.UpdateAvailable(
+                                currentVersion = currentVersion,
+                                newVersion = htmlRelease.cleanVersionName,
+                                release = htmlRelease,
+                                apkAsset = htmlAsset
+                            )
+                        } else {
+                            UpdateCheckState.UpToDate(
+                                currentVersion = currentVersion,
+                                latestRelease = htmlRelease
+                            )
+                        }
+                    }
+                    // Report the failure instead of pretending the app is up to date:
+                    // a silent "up to date" hides a newer release when GitHub rate-limits
+                    // the request (HTTP 403) or the network is temporarily down.
+                    return@withContext UpdateCheckState.Error(
+                        errorMessage = if (allCode == 403 || allCode == 429) {
+                            "Batas permintaan GitHub API tercapai (HTTP $allCode). Coba periksa lagi beberapa saat lagi atau atur token GitHub di Pengaturan."
+                        } else {
+                            "Gagal memeriksa rilis GitHub (HTTP $allCode)."
+                        }
+                    )
                 }
             }
 
@@ -262,6 +320,33 @@ object GitHubUpdateManager {
             return cleanRemote > cleanLocal
         } catch (e: Exception) {
             return remoteTag.trim() != localVer.trim()
+        }
+    }
+
+    /**
+     * Reads the newest tag from the public releases page. OkHttp follows the
+     * /releases/latest redirect, so the resolved URL carries the tag name.
+     */
+    private fun fetchLatestTagFromHtml(owner: String, repo: String): String? {
+        var response: okhttp3.Response? = null
+        return try {
+            val request = Request.Builder()
+                .url("https://github.com/$owner/$repo/releases/latest")
+                .addHeader("User-Agent", "Mozilla/5.0 (Linux; Android 13) MySingghara")
+                .build()
+            val resp = okHttpClient.newCall(request).execute()
+            response = resp
+            if (!resp.isSuccessful) {
+                null
+            } else {
+                Regex("/releases/tag/([^/?#]+)").find(resp.request.url.toString())
+                    ?.groupValues?.getOrNull(1)
+                    ?.let { java.net.URLDecoder.decode(it, "UTF-8") }
+            }
+        } catch (_: Exception) {
+            null
+        } finally {
+            try { response?.close() } catch (_: Exception) {}
         }
     }
 

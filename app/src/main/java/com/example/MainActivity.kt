@@ -129,6 +129,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
@@ -138,6 +139,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.content.ContextCompat
 import androidx.fragment.app.FragmentActivity
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import androidx.biometric.BiometricManager
 import androidx.biometric.BiometricPrompt
 import androidx.compose.ui.window.Dialog
@@ -812,6 +815,42 @@ fun MainAppContent(viewModel: MainViewModel, desktopMode: Boolean = false) {
     var startupUpdateResult by remember { mutableStateOf<UpdateCheckState.UpdateAvailable?>(null) }
     var startupDriveUpdateResult by remember { mutableStateOf<DriveUpdateCheckState.UpdateAvailable?>(null) }
 
+    // Throttles the automatic checks that run whenever the app returns to the foreground.
+    val lastAutoUpdateCheckAt = remember { java.util.concurrent.atomic.AtomicLong(System.currentTimeMillis()) }
+
+    suspend fun runAutomaticUpdateCheck(includeDrive: Boolean) {
+        lastAutoUpdateCheckAt.set(System.currentTimeMillis())
+        if (startupUpdateResult != null || startupDriveUpdateResult != null) return
+
+        // Check Google Drive first (based on latest upload time via Apps Script)
+        if (includeDrive && GoogleDriveUpdateManager.isAutoCheckOnStartup(context)) {
+            val driveResult = GoogleDriveUpdateManager.checkForDriveUpdate(context)
+            if (driveResult is DriveUpdateCheckState.UpdateAvailable) {
+                startupDriveUpdateResult = driveResult
+                return
+            }
+        }
+
+        val cfg = GitHubUpdateManager.loadConfig(context)
+        if (!cfg.autoCheckOnStartup) return
+
+        // The automatic check often starts before mobile data / Wi-Fi is ready, so retry a
+        // couple of times instead of losing the popup for the whole session.
+        var result: UpdateCheckState = UpdateCheckState.Error("")
+        for (attempt in 0 until 3) {
+            result = GitHubUpdateManager.checkForUpdate(context)
+            if (result !is UpdateCheckState.Error) break
+            delay(3_000L * (attempt + 1))
+        }
+
+        // Hanya tampilkan popup bila rilis benar-benar lebih baru dari versi terpasang.
+        if (result is UpdateCheckState.UpdateAvailable &&
+            GitHubUpdateManager.isRemoteVersionNewer(BuildConfig.VERSION_NAME, result.release.tagName)
+        ) {
+            startupUpdateResult = result
+        }
+    }
+
     LaunchedEffect(Unit) {
         try {
             // Cegah munculnya pop up pembaruan otomatis saat pertama kali instal membuka aplikasi
@@ -819,28 +858,25 @@ fun MainAppContent(viewModel: MainViewModel, desktopMode: Boolean = false) {
                 GoogleDriveUpdateManager.markFirstLaunchDone(context)
                 return@LaunchedEffect
             }
-
-            // Check Google Drive update first (based on latest upload time via Apps Script)
-            if (GoogleDriveUpdateManager.isAutoCheckOnStartup(context)) {
-                val driveResult = GoogleDriveUpdateManager.checkForDriveUpdate(context)
-                if (driveResult is DriveUpdateCheckState.UpdateAvailable) {
-                    startupDriveUpdateResult = driveResult
-                }
-            }
-            // Fallback to GitHub update check if no Drive update detected
-            if (startupDriveUpdateResult == null) {
-                val cfg = GitHubUpdateManager.loadConfig(context)
-                if (cfg.autoCheckOnStartup) {
-                    val result = GitHubUpdateManager.checkForUpdate(context)
-                    // Hanya tampilkan popup bila rilis benar-benar lebih baru dari versi terpasang.
-                    if (result is UpdateCheckState.UpdateAvailable &&
-                        GitHubUpdateManager.isRemoteVersionNewer(BuildConfig.VERSION_NAME, result.release.tagName)
-                    ) {
-                        startupUpdateResult = result
-                    }
-                }
-            }
+            runAutomaticUpdateCheck(includeDrive = true)
         } catch (_: Exception) {}
+    }
+
+    val updateLifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(updateLifecycleOwner, context) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME &&
+                System.currentTimeMillis() - lastAutoUpdateCheckAt.get() > 10 * 60 * 1000L
+            ) {
+                scope.launch {
+                    try {
+                        runAutomaticUpdateCheck(includeDrive = false)
+                    } catch (_: Exception) {}
+                }
+            }
+        }
+        updateLifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { updateLifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
     startupDriveUpdateResult?.let { updateData ->
