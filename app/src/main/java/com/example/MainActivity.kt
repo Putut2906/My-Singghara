@@ -660,6 +660,26 @@ private fun isDesktopModeActive(context: android.content.Context): Boolean {
     }
 }
 
+@Composable
+private fun DrawerMenuCard(content: @Composable ColumnScope.() -> Unit) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 14.dp, vertical = 6.dp)
+            .border(
+                width = 1.dp,
+                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
+                shape = RoundedCornerShape(12.dp)
+            )
+            .background(
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.1f),
+                shape = RoundedCornerShape(12.dp)
+            )
+            .padding(vertical = 8.dp),
+        content = content
+    )
+}
+
 @OptIn(ExperimentalAnimationApi::class, ExperimentalMaterial3Api::class)
 @Composable
 fun MainAppContent(viewModel: MainViewModel, desktopMode: Boolean = false) {
@@ -1594,21 +1614,7 @@ fun MainAppContent(viewModel: MainViewModel, desktopMode: Boolean = false) {
                         Spacer(modifier = Modifier.height(10.dp))
 
                         val isHomeSelected = viewModel.currentRoute == "home"
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 14.dp, vertical = 6.dp)
-                                .border(
-                                    width = 1.dp,
-                                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
-                                    shape = RoundedCornerShape(12.dp)
-                                )
-                                .background(
-                                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.1f),
-                                    shape = RoundedCornerShape(12.dp)
-                                )
-                                .padding(vertical = 8.dp)
-                        ) {
+                        DrawerMenuCard {
                             NavigationDrawerItem(
                                 icon = {
                                     Icon(
@@ -1637,21 +1643,7 @@ fun MainAppContent(viewModel: MainViewModel, desktopMode: Boolean = false) {
                         }
 
                         val isVideoPlayerSelected = viewModel.currentRoute == "pemutar_video"
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 14.dp, vertical = 6.dp)
-                                .border(
-                                    width = 1.dp,
-                                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
-                                    shape = RoundedCornerShape(12.dp)
-                                )
-                                .background(
-                                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.1f),
-                                    shape = RoundedCornerShape(12.dp)
-                                )
-                                .padding(vertical = 8.dp)
-                        ) {
+                        DrawerMenuCard {
                             NavigationDrawerItem(
                                 icon = {
                                     Icon(
@@ -1680,21 +1672,7 @@ fun MainAppContent(viewModel: MainViewModel, desktopMode: Boolean = false) {
                         }
 
                         val isArisanKeluargaSelected = viewModel.currentRoute == "arisan_keluarga"
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 14.dp, vertical = 6.dp)
-                                .border(
-                                    width = 1.dp,
-                                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
-                                    shape = RoundedCornerShape(12.dp)
-                                )
-                                .background(
-                                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.1f),
-                                    shape = RoundedCornerShape(12.dp)
-                                )
-                                .padding(vertical = 8.dp)
-                        ) {
+                        DrawerMenuCard {
                             NavigationDrawerItem(
                                 icon = {
                                     Icon(
@@ -1723,21 +1701,7 @@ fun MainAppContent(viewModel: MainViewModel, desktopMode: Boolean = false) {
                         }
 
                     // Group: COMPANY (Boxed Group Card)
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 14.dp, vertical = 6.dp)
-                            .border(
-                                width = 1.dp,
-                                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
-                                shape = RoundedCornerShape(12.dp)
-                            )
-                            .background(
-                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.1f),
-                                shape = RoundedCornerShape(12.dp)
-                            )
-                            .padding(vertical = 8.dp)
-                    ) {
+                    DrawerMenuCard {
                         // Header Clickable to Expand/Collapse
                         Row(
                             modifier = Modifier
@@ -1875,21 +1839,7 @@ fun MainAppContent(viewModel: MainViewModel, desktopMode: Boolean = false) {
                     }
 
                     // Group 2: MANAJEMEN MANDIRI (Boxed Group Card)
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 14.dp, vertical = 6.dp)
-                            .border(
-                                width = 1.dp,
-                                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
-                                shape = RoundedCornerShape(12.dp)
-                            )
-                            .background(
-                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.1f),
-                                shape = RoundedCornerShape(12.dp)
-                            )
-                            .padding(vertical = 8.dp)
-                    ) {
+                    DrawerMenuCard {
                         // Header Clickable to Expand/Collapse
                         Row(
                             modifier = Modifier
@@ -2079,21 +2029,7 @@ fun MainAppContent(viewModel: MainViewModel, desktopMode: Boolean = false) {
                     }
 
                     // Group 3: AKUNTANSI & KEUANGAN (Boxed Group Card)
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 14.dp, vertical = 6.dp)
-                            .border(
-                                width = 1.dp,
-                                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
-                                shape = RoundedCornerShape(12.dp)
-                            )
-                            .background(
-                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.1f),
-                                shape = RoundedCornerShape(12.dp)
-                            )
-                            .padding(vertical = 8.dp)
-                    ) {
+                    DrawerMenuCard {
                         // Header Clickable
                         Row(
                             modifier = Modifier
@@ -2181,21 +2117,7 @@ fun MainAppContent(viewModel: MainViewModel, desktopMode: Boolean = false) {
                     }
 
                     // Group: KONEKSI & BERBAGI (Boxed Group Card)
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 14.dp, vertical = 6.dp)
-                            .border(
-                                width = 1.dp,
-                                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
-                                shape = RoundedCornerShape(12.dp)
-                            )
-                            .background(
-                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.1f),
-                                shape = RoundedCornerShape(12.dp)
-                            )
-                            .padding(vertical = 8.dp)
-                    ) {
+                    DrawerMenuCard {
                         // Header Clickable to Expand/Collapse
                         Row(
                             modifier = Modifier
