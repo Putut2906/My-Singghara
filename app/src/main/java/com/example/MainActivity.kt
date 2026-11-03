@@ -125,6 +125,7 @@ import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
@@ -678,6 +679,42 @@ private fun DrawerMenuCard(content: @Composable ColumnScope.() -> Unit) {
             .padding(vertical = 8.dp),
         content = content
     )
+}
+
+@Composable
+private fun PrimaryDrawerEntry(
+    label: String,
+    icon: ImageVector,
+    selected: Boolean,
+    onClick: () -> Unit
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(8.dp))
+            .background(
+                if (selected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.8f)
+                else Color.Transparent
+            )
+            .clickable(onClick = onClick)
+            .padding(horizontal = 14.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = label,
+            tint = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.size(18.dp)
+        )
+        Spacer(modifier = Modifier.width(8.dp))
+        Text(
+            text = label,
+            fontSize = 13.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = if (selected) MaterialTheme.colorScheme.onPrimaryContainer
+            else MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
 }
 
 @OptIn(ExperimentalAnimationApi::class, ExperimentalMaterial3Api::class)
@@ -1615,88 +1652,40 @@ fun MainAppContent(viewModel: MainViewModel, desktopMode: Boolean = false) {
 
                         val isHomeSelected = viewModel.currentRoute == "home"
                         DrawerMenuCard {
-                            NavigationDrawerItem(
-                                icon = {
-                                    Icon(
-                                        imageVector = if (isHomeSelected) Icons.Default.Home else Icons.Outlined.Home,
-                                        contentDescription = "Beranda",
-                                        tint = MaterialTheme.colorScheme.primary
-                                    )
-                                },
-                                label = { Text(text = "Beranda", fontWeight = FontWeight.Medium, fontSize = 13.sp) },
+                            PrimaryDrawerEntry(
+                                label = "Beranda",
+                                icon = if (isHomeSelected) Icons.Default.Home else Icons.Outlined.Home,
                                 selected = isHomeSelected,
                                 onClick = {
                                     viewModel.currentRoute = "home"
                                     scope.launch { drawerState.close() }
-                                },
-                                shape = RoundedCornerShape(8.dp),
-                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 2.dp),
-                                colors = NavigationDrawerItemDefaults.colors(
-                                    selectedContainerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.8f),
-                                    selectedTextColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                                    selectedIconColor = MaterialTheme.colorScheme.primary,
-                                    unselectedContainerColor = Color.Transparent,
-                                    unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-                                )
+                                }
                             )
                         }
 
                         val isVideoPlayerSelected = viewModel.currentRoute == "pemutar_video"
                         DrawerMenuCard {
-                            NavigationDrawerItem(
-                                icon = {
-                                    Icon(
-                                        imageVector = if (isVideoPlayerSelected) Icons.Default.VideoLibrary else Icons.Outlined.VideoLibrary,
-                                        contentDescription = "Pemutar Video",
-                                        tint = MaterialTheme.colorScheme.primary
-                                    )
-                                },
-                                label = { Text(text = "Pemutar Video", fontWeight = FontWeight.Medium, fontSize = 13.sp) },
+                            PrimaryDrawerEntry(
+                                label = "Pemutar Video",
+                                icon = if (isVideoPlayerSelected) Icons.Default.VideoLibrary else Icons.Outlined.VideoLibrary,
                                 selected = isVideoPlayerSelected,
                                 onClick = {
                                     viewModel.currentRoute = "pemutar_video"
                                     scope.launch { drawerState.close() }
-                                },
-                                shape = RoundedCornerShape(8.dp),
-                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 2.dp),
-                                colors = NavigationDrawerItemDefaults.colors(
-                                    selectedContainerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.8f),
-                                    selectedTextColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                                    selectedIconColor = MaterialTheme.colorScheme.primary,
-                                    unselectedContainerColor = Color.Transparent,
-                                    unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-                                )
+                                }
                             )
                         }
 
                         val isArisanKeluargaSelected = viewModel.currentRoute == "arisan_keluarga"
                         DrawerMenuCard {
-                            NavigationDrawerItem(
-                                icon = {
-                                    Icon(
-                                        imageVector = if (isArisanKeluargaSelected) Icons.Default.Groups else Icons.Outlined.Groups,
-                                        contentDescription = "Arisan Keluarga",
-                                        tint = MaterialTheme.colorScheme.primary
-                                    )
-                                },
-                                label = { Text(text = "Arisan Keluarga", fontWeight = FontWeight.Medium, fontSize = 13.sp) },
+                            PrimaryDrawerEntry(
+                                label = "Arisan Keluarga",
+                                icon = if (isArisanKeluargaSelected) Icons.Default.Groups else Icons.Outlined.Groups,
                                 selected = isArisanKeluargaSelected,
                                 onClick = {
                                     viewModel.currentRoute = "arisan_keluarga"
                                     scope.launch { drawerState.close() }
-                                },
-                                shape = RoundedCornerShape(8.dp),
-                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 2.dp),
-                                colors = NavigationDrawerItemDefaults.colors(
-                                    selectedContainerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.8f),
-                                    selectedTextColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                                    selectedIconColor = MaterialTheme.colorScheme.primary,
-                                    unselectedContainerColor = Color.Transparent,
-                                    unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-                                )
+                                }
                             )
                         }
 
