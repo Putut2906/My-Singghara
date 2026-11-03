@@ -662,7 +662,7 @@ fun MainAppContent(viewModel: MainViewModel, desktopMode: Boolean = false) {
 
     val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
     val scope = rememberCoroutineScope()
-    var isDesktopSidebarExpanded by remember { mutableStateOf(true) }
+    var isDesktopSidebarExpanded by remember { mutableStateOf(false) }
 
     // Firebase Auth State
     var showAuthDialog by remember { mutableStateOf(false) }
@@ -703,7 +703,6 @@ fun MainAppContent(viewModel: MainViewModel, desktopMode: Boolean = false) {
 
     var showSearchDialog by remember { mutableStateOf(false) }
     var showNotificationsDialog by remember { mutableStateOf(false) }
-    var isUtamaExpanded by remember { mutableStateOf(true) }
     var isCompanyExpanded by remember { mutableStateOf(false) }
     var isManajemenExpanded by remember { mutableStateOf(false) }
     var isKeuanganExpanded by remember { mutableStateOf(false) }
@@ -713,7 +712,6 @@ fun MainAppContent(viewModel: MainViewModel, desktopMode: Boolean = false) {
     // Otomatis tutup semua sub menu saat sidebar/drawer di-collapse (tertutup)
     LaunchedEffect(drawerState.targetValue) {
         if (drawerState.targetValue == androidx.compose.material3.DrawerValue.Closed) {
-            isUtamaExpanded = true
             isCompanyExpanded = false
             isManajemenExpanded = false
             isKeuanganExpanded = false
@@ -723,7 +721,6 @@ fun MainAppContent(viewModel: MainViewModel, desktopMode: Boolean = false) {
     }
     LaunchedEffect(drawerState.isClosed) {
         if (drawerState.isClosed) {
-            isUtamaExpanded = true
             isCompanyExpanded = false
             isManajemenExpanded = false
             isKeuanganExpanded = false
@@ -1587,155 +1584,86 @@ fun MainAppContent(viewModel: MainViewModel, desktopMode: Boolean = false) {
 
                         Spacer(modifier = Modifier.height(10.dp))
 
-                        // Group 1: MENU UTAMA (Boxed Group Card, seragam dengan Manajemen Mandiri)
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 14.dp, vertical = 6.dp)
-                            .border(
-                                width = 1.dp,
-                                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
-                                shape = RoundedCornerShape(12.dp)
-                            )
-                            .background(
-                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.1f),
-                                shape = RoundedCornerShape(12.dp)
-                            )
-                            .padding(vertical = 8.dp)
-                    ) {
-                        // Header Clickable to Expand/Collapse
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable {
-                                    val next = !isUtamaExpanded
-                                    if (next) {
-                                        isCompanyExpanded = false
-                                        isManajemenExpanded = false
-                                        isKeuanganExpanded = false
-                                        isKoneksiBerbagiExpanded = false
-                                    }
-                                    isUtamaExpanded = next
-                                }
-                                .padding(horizontal = 14.dp, vertical = 6.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                            ) {
+                        // Menu utama tampil langsung tanpa grup/sub menu
+                        val isHomeSelected = viewModel.currentRoute == "home"
+                        NavigationDrawerItem(
+                            icon = {
                                 Icon(
-                                    imageVector = Icons.Default.Menu,
-                                    contentDescription = "Menu utama",
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(18.dp)
+                                    imageVector = if (isHomeSelected) Icons.Default.Home else Icons.Outlined.Home,
+                                    contentDescription = "Beranda"
                                 )
-                                Text(
-                                    text = "MENU UTAMA",
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.onSurface,
-                                    letterSpacing = 1.sp
-                                )
-                            }
-                            Icon(
-                                imageVector = if (isUtamaExpanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
-                                contentDescription = if (isUtamaExpanded) "Sembunyikan" else "Tampilkan",
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(16.dp)
+                            },
+                            label = { Text(text = "Beranda", fontWeight = FontWeight.Medium, fontSize = 13.sp) },
+                            selected = isHomeSelected,
+                            onClick = {
+                                viewModel.currentRoute = "home"
+                                scope.launch { drawerState.close() }
+                            },
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 2.dp),
+                            colors = NavigationDrawerItemDefaults.colors(
+                                selectedContainerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.8f),
+                                selectedTextColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                                selectedIconColor = MaterialTheme.colorScheme.primary,
+                                unselectedContainerColor = Color.Transparent,
+                                unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
                             )
-                        }
+                        )
 
-                        AnimatedVisibility(
-                            visible = isUtamaExpanded,
-                            enter = expandVertically() + fadeIn(),
-                            exit = shrinkVertically() + fadeOut()
-                        ) {
-                            Column(modifier = Modifier.fillMaxWidth()) {
-                                // Sub-item: Beranda
-                                val isHomeSelected = viewModel.currentRoute == "home"
-                                NavigationDrawerItem(
-                                    icon = {
-                                        Icon(
-                                            imageVector = if (isHomeSelected) Icons.Default.Home else Icons.Outlined.Home,
-                                            contentDescription = "Beranda"
-                                        )
-                                    },
-                                    label = { Text(text = "Beranda", fontWeight = FontWeight.Medium, fontSize = 13.sp) },
-                                    selected = isHomeSelected,
-                                    onClick = {
-                                        viewModel.currentRoute = "home"
-                                        scope.launch { drawerState.close() }
-                                    },
-                                    shape = RoundedCornerShape(8.dp),
-                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 2.dp),
-                                    colors = NavigationDrawerItemDefaults.colors(
-                                        selectedContainerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.8f),
-                                        selectedTextColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                                        selectedIconColor = MaterialTheme.colorScheme.primary,
-                                        unselectedContainerColor = Color.Transparent,
-                                        unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-                                    )
+                        val isVideoPlayerSelected = viewModel.currentRoute == "pemutar_video"
+                        NavigationDrawerItem(
+                            icon = {
+                                Icon(
+                                    imageVector = if (isVideoPlayerSelected) Icons.Default.VideoLibrary else Icons.Outlined.VideoLibrary,
+                                    contentDescription = "Pemutar Video"
                                 )
+                            },
+                            label = { Text(text = "Pemutar Video", fontWeight = FontWeight.Medium, fontSize = 13.sp) },
+                            selected = isVideoPlayerSelected,
+                            onClick = {
+                                viewModel.currentRoute = "pemutar_video"
+                                scope.launch { drawerState.close() }
+                            },
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 2.dp),
+                            colors = NavigationDrawerItemDefaults.colors(
+                                selectedContainerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.8f),
+                                selectedTextColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                                selectedIconColor = MaterialTheme.colorScheme.primary,
+                                unselectedContainerColor = Color.Transparent,
+                                unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                            )
+                        )
 
-                                // Sub-item: Pemutar Video
-                                val isVideoPlayerSelected = viewModel.currentRoute == "pemutar_video"
-                                NavigationDrawerItem(
-                                    icon = {
-                                        Icon(
-                                            imageVector = if (isVideoPlayerSelected) Icons.Default.VideoLibrary else Icons.Outlined.VideoLibrary,
-                                            contentDescription = "Pemutar Video"
-                                        )
-                                    },
-                                    label = { Text(text = "Pemutar Video", fontWeight = FontWeight.Medium, fontSize = 13.sp) },
-                                    selected = isVideoPlayerSelected,
-                                    onClick = {
-                                        viewModel.currentRoute = "pemutar_video"
-                                        scope.launch { drawerState.close() }
-                                    },
-                                    shape = RoundedCornerShape(8.dp),
-                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 2.dp),
-                                    colors = NavigationDrawerItemDefaults.colors(
-                                        selectedContainerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.8f),
-                                        selectedTextColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                                        selectedIconColor = MaterialTheme.colorScheme.primary,
-                                        unselectedContainerColor = Color.Transparent,
-                                        unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-                                    )
+                        val isArisanKeluargaSelected = viewModel.currentRoute == "arisan_keluarga"
+                        NavigationDrawerItem(
+                            icon = {
+                                Icon(
+                                    imageVector = if (isArisanKeluargaSelected) Icons.Default.Groups else Icons.Outlined.Groups,
+                                    contentDescription = "Arisan Keluarga"
                                 )
+                            },
+                            label = { Text(text = "Arisan Keluarga", fontWeight = FontWeight.Medium, fontSize = 13.sp) },
+                            selected = isArisanKeluargaSelected,
+                            onClick = {
+                                viewModel.currentRoute = "arisan_keluarga"
+                                scope.launch { drawerState.close() }
+                            },
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 2.dp),
+                            colors = NavigationDrawerItemDefaults.colors(
+                                selectedContainerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.8f),
+                                selectedTextColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                                selectedIconColor = MaterialTheme.colorScheme.primary,
+                                unselectedContainerColor = Color.Transparent,
+                                unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                            )
+                        )
 
-                                // Sub-item: Arisan Keluarga
-                                val isArisanKeluargaSelected = viewModel.currentRoute == "arisan_keluarga"
-                                NavigationDrawerItem(
-                                    icon = {
-                                        Icon(
-                                            imageVector = if (isArisanKeluargaSelected) Icons.Default.Groups else Icons.Outlined.Groups,
-                                            contentDescription = "Arisan Keluarga"
-                                        )
-                                    },
-                                    label = { Text(text = "Arisan Keluarga", fontWeight = FontWeight.Medium, fontSize = 13.sp) },
-                                    selected = isArisanKeluargaSelected,
-                                    onClick = {
-                                        viewModel.currentRoute = "arisan_keluarga"
-                                        scope.launch { drawerState.close() }
-                                    },
-                                    shape = RoundedCornerShape(8.dp),
-                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 2.dp),
-                                    colors = NavigationDrawerItemDefaults.colors(
-                                        selectedContainerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.8f),
-                                        selectedTextColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                                        selectedIconColor = MaterialTheme.colorScheme.primary,
-                                        unselectedContainerColor = Color.Transparent,
-                                        unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-                                    )
-                                )
-                            }
-                        }
-                    }
+                        Spacer(modifier = Modifier.height(6.dp))
 
                     // Group: COMPANY (Boxed Group Card)
                     Column(
@@ -3934,8 +3862,12 @@ fun MainAppContent(viewModel: MainViewModel, desktopMode: Boolean = false) {
 
     if (desktopMode) {
         val baseDensity = LocalDensity.current
+        val desktopFontBoost = 1.15f
         val desktopDensity = remember(baseDensity.density, baseDensity.fontScale, desktopUiScale) {
-            Density(baseDensity.density * desktopUiScale, baseDensity.fontScale * desktopUiScale)
+            Density(
+                density = baseDensity.density * desktopUiScale,
+                fontScale = baseDensity.fontScale * desktopUiScale * desktopFontBoost
+            )
         }
         CompositionLocalProvider(LocalDensity provides desktopDensity) {
             Row(modifier = Modifier.fillMaxSize()) {
