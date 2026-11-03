@@ -3,6 +3,7 @@ package com.example.ui.screens
 
 import android.content.Context
 import android.content.Intent
+import android.content.res.Configuration
 import android.os.Build
 
 import com.example.ui.models.AppRegistry
@@ -116,10 +117,13 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -235,6 +239,21 @@ object HijriCalendarHelper {
         val finalDay = hDay.coerceAtLeast(1)
 
         return "$finalDay ${MONTHS[finalMonthIdx]} ${hYear} H"
+    }
+}
+
+@Composable
+private fun DexDoubleFontScale(content: @Composable () -> Unit) {
+    val isDesktopMode = (LocalConfiguration.current.uiMode and Configuration.UI_MODE_TYPE_MASK) ==
+        Configuration.UI_MODE_TYPE_DESK
+    val density = LocalDensity.current
+    if (isDesktopMode) {
+        CompositionLocalProvider(
+            LocalDensity provides Density(density = density.density, fontScale = density.fontScale * 2f),
+            content = content
+        )
+    } else {
+        content()
     }
 }
 
@@ -1996,219 +2015,221 @@ fun HomeScreen(viewModel: MainViewModel) {
 
         // SECTION 5: INTERACTIVE CALENDAR WITH JAVANESE AND HIJRI LABELS
         item {
-            Card(
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(20.dp),
-                border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
-            ) {
-                Column(modifier = Modifier.padding(16.dp)) {
-                    // Navigation calendar Month
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        IconButton(onClick = {
-                            val newCal = viewCalendar.clone() as Calendar
-                            newCal.add(Calendar.MONTH, -1)
-                            viewCalendar = newCal
-                        }) {
-                            Icon(Icons.Default.ChevronLeft, "Bulan Sebelumnya", tint = MaterialTheme.colorScheme.primary)
-                        }
-
-                        val calendarMonthName = viewCalendar.getDisplayName(
-                            Calendar.MONTH, Calendar.LONG, Locale("id", "ID")
-                        ) ?: ""
-                        val calendarYear = viewCalendar.get(Calendar.YEAR)
-
+            DexDoubleFontScale {
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(20.dp),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        // Navigation calendar Month
                         Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(12.dp))
-                                .clickable { showMonthEventsPopup = true }
-                                .padding(horizontal = 12.dp, vertical = 6.dp)
-                                .testTag("calendar_month_year_header")
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text(
-                                text = "$calendarMonthName $calendarYear",
-                                fontSize = 16.sp,
-                                fontWeight = FontWeight.Black,
-                                color = MaterialTheme.colorScheme.primary
-                            )
-                        }
-
-                        IconButton(onClick = {
-                            val newCal = viewCalendar.clone() as Calendar
-                            newCal.add(Calendar.MONTH, 1)
-                            viewCalendar = newCal
-                        }) {
-                            Icon(Icons.Default.ChevronRight, "Bulan Berikutnya", tint = MaterialTheme.colorScheme.primary)
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(12.dp))
-
-                    // Calendar Table headers (Days)
-                    val daysHeader = listOf("Min", "Sen", "Sel", "Rab", "Kam", "Jum", "Sab")
-                    Row(modifier = Modifier.fillMaxWidth()) {
-                        daysHeader.forEach { d ->
-                            Text(
-                                text = d,
-                                modifier = Modifier.weight(1f),
-                                textAlign = TextAlign.Center,
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = if (d == "Min") Color(0xFFEF4444) else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
-                            )
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    // Compute Calendar days (memoized to prevent frame drops during scrolling)
-                    val calendarGridRows = remember(viewCalendar, agendaItems, apiHolidays, todayCal) {
-                        val tempCal = viewCalendar.clone() as Calendar
-                        tempCal.set(Calendar.DAY_OF_MONTH, 1)
-                        val firstDayDayOfWeek = tempCal.get(Calendar.DAY_OF_WEEK) - 1 // 0=Sunday
-                        val totalDaysInMonth = tempCal.getActualMaximum(Calendar.DAY_OF_MONTH)
-
-                        val todayYear = todayCal.get(Calendar.YEAR)
-                        val todayMonth = todayCal.get(Calendar.MONTH) + 1
-                        val todayDay = todayCal.get(Calendar.DAY_OF_MONTH)
-
-                        val cellList = mutableListOf<CalendarCellData?>()
-                        for (i in 0 until firstDayDayOfWeek) {
-                            cellList.add(null)
-                        }
-
-                        for (day in 1..totalDaysInMonth) {
-                            val targetCal = (viewCalendar.clone() as Calendar).apply {
-                                set(Calendar.DAY_OF_MONTH, day)
+                            IconButton(onClick = {
+                                val newCal = viewCalendar.clone() as Calendar
+                                newCal.add(Calendar.MONTH, -1)
+                                viewCalendar = newCal
+                            }) {
+                                Icon(Icons.Default.ChevronLeft, "Bulan Sebelumnya", tint = MaterialTheme.colorScheme.primary)
                             }
-                            val mYear = targetCal.get(Calendar.YEAR)
-                            val mMonth = targetCal.get(Calendar.MONTH) + 1
-                            val mDay = targetCal.get(Calendar.DAY_OF_MONTH)
-                            val dateKey = String.format("%04d-%02d-%02d", mYear, mMonth, mDay)
 
-                            val jDate = JavaneseCalendarHelper.calculateJawa(mYear, mMonth, mDay)
-                            val isToday = mYear == todayYear && mMonth == todayMonth && mDay == todayDay
-                            val holidayName = apiHolidays[dateKey]
-                            val observanceName = HolidayClient.getObservanceForDate(mMonth, mDay)
-                            val hasAgenda = agendaItems.any { it.tanggal == dateKey }
-                            val dayOfWeekIdx = (firstDayDayOfWeek + day - 1) % 7
+                            val calendarMonthName = viewCalendar.getDisplayName(
+                                Calendar.MONTH, Calendar.LONG, Locale("id", "ID")
+                            ) ?: ""
+                            val calendarYear = viewCalendar.get(Calendar.YEAR)
 
-                            cellList.add(
-                                CalendarCellData(
-                                    dayNumber = day,
-                                    targetCal = targetCal,
-                                    pasaran = jDate.pasaran,
-                                    isToday = isToday,
-                                    holidayName = holidayName,
-                                    observanceName = observanceName,
-                                    hasAgenda = hasAgenda,
-                                    isSunday = (dayOfWeekIdx == 0)
-                                )
-                            )
-                        }
-                        cellList.chunked(7)
-                    }
-
-                    val isDarkTheme = isSystemInDarkTheme()
-
-                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                        calendarGridRows.forEach { weekRow ->
                             Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .clickable { showMonthEventsPopup = true }
+                                    .padding(horizontal = 12.dp, vertical = 6.dp)
+                                    .testTag("calendar_month_year_header")
                             ) {
-                                for (i in 0..6) {
-                                    val cell = weekRow.getOrNull(i)
-                                    if (cell == null) {
-                                        Box(modifier = Modifier.weight(1f))
-                                    } else {
-                                        val cellBorderColor = when {
-                                            cell.isToday -> MaterialTheme.colorScheme.primary
-                                            cell.holidayName != null -> Color(0xFFEF4444).copy(alpha = if (isDarkTheme) 0.55f else 0.35f)
-                                            cell.observanceName != null -> Color(0xFF10B981).copy(alpha = if (isDarkTheme) 0.55f else 0.35f)
-                                            else -> MaterialTheme.colorScheme.outlineVariant.copy(alpha = if (isDarkTheme) 0.3f else 0.55f)
-                                        }
+                                Text(
+                                    text = "$calendarMonthName $calendarYear",
+                                    fontSize = 16.sp,
+                                    fontWeight = FontWeight.Black,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                            }
 
-                                        Box(
-                                            modifier = Modifier
-                                                .weight(1f)
-                                                .aspectRatio(1.0f)
-                                                .clip(RoundedCornerShape(10.dp))
-                                                .border(
-                                                    width = if (cell.isToday) 1.5.dp else 1.dp,
-                                                    color = cellBorderColor,
-                                                    shape = RoundedCornerShape(10.dp)
-                                                )
-                                                .background(
-                                                    when {
-                                                        cell.isToday -> MaterialTheme.colorScheme.primaryContainer.copy(alpha = if (isDarkTheme) 0.45f else 0.35f)
-                                                        cell.holidayName != null -> Color(0xFFEF4444).copy(alpha = 0.08f)
-                                                        cell.observanceName != null -> Color(0xFF10B981).copy(alpha = 0.08f)
-                                                        else -> Color.Transparent
-                                                    }
-                                                )
-                                                .clickable { selectedDayAgenda = cell.targetCal }
-                                                .padding(2.dp),
-                                            contentAlignment = Alignment.Center
-                                        ) {
-                                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                                Text(
-                                                    text = cell.dayNumber.toString(),
-                                                    fontSize = 13.sp,
-                                                    fontWeight = if (cell.isToday) FontWeight.Black else FontWeight.Bold,
-                                                    color = when {
-                                                        cell.holidayName != null -> Color(0xFFEF4444)
-                                                        cell.isSunday -> Color(0xFFEF4444)
-                                                        cell.observanceName != null -> Color(0xFF10B981) // Teks hijau hari peringatan
-                                                        cell.isToday -> MaterialTheme.colorScheme.primary
-                                                        else -> MaterialTheme.colorScheme.onSurface
-                                                    }
-                                                )
-                                                Text(
-                                                    text = cell.pasaran,
-                                                    fontSize = 8.sp,
-                                                    fontWeight = FontWeight.Medium,
-                                                    color = when {
-                                                        cell.isToday -> MaterialTheme.colorScheme.primary.copy(alpha = 0.85f)
-                                                        cell.holidayName != null -> Color(0xFFEF4444).copy(alpha = 0.7f)
-                                                        cell.observanceName != null -> Color(0xFF10B981).copy(alpha = 0.7f)
-                                                        else -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.45f)
-                                                    }
-                                                )
-                                                if (cell.hasAgenda || cell.holidayName != null || cell.observanceName != null) {
-                                                    Spacer(modifier = Modifier.height(2.dp))
-                                                    Row(
-                                                        horizontalArrangement = Arrangement.spacedBy(2.dp),
-                                                        verticalAlignment = Alignment.CenterVertically
-                                                    ) {
-                                                        if (cell.holidayName != null) {
-                                                            Box(
-                                                                modifier = Modifier
-                                                                    .size(4.dp)
-                                                                    .clip(CircleShape)
-                                                                    .background(Color(0xFFEF4444))
-                                                            )
+                            IconButton(onClick = {
+                                val newCal = viewCalendar.clone() as Calendar
+                                newCal.add(Calendar.MONTH, 1)
+                                viewCalendar = newCal
+                            }) {
+                                Icon(Icons.Default.ChevronRight, "Bulan Berikutnya", tint = MaterialTheme.colorScheme.primary)
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        // Calendar Table headers (Days)
+                        val daysHeader = listOf("Min", "Sen", "Sel", "Rab", "Kam", "Jum", "Sab")
+                        Row(modifier = Modifier.fillMaxWidth()) {
+                            daysHeader.forEach { d ->
+                                Text(
+                                    text = d,
+                                    modifier = Modifier.weight(1f),
+                                    textAlign = TextAlign.Center,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (d == "Min") Color(0xFFEF4444) else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        // Compute Calendar days (memoized to prevent frame drops during scrolling)
+                        val calendarGridRows = remember(viewCalendar, agendaItems, apiHolidays, todayCal) {
+                            val tempCal = viewCalendar.clone() as Calendar
+                            tempCal.set(Calendar.DAY_OF_MONTH, 1)
+                            val firstDayDayOfWeek = tempCal.get(Calendar.DAY_OF_WEEK) - 1 // 0=Sunday
+                            val totalDaysInMonth = tempCal.getActualMaximum(Calendar.DAY_OF_MONTH)
+
+                            val todayYear = todayCal.get(Calendar.YEAR)
+                            val todayMonth = todayCal.get(Calendar.MONTH) + 1
+                            val todayDay = todayCal.get(Calendar.DAY_OF_MONTH)
+
+                            val cellList = mutableListOf<CalendarCellData?>()
+                            for (i in 0 until firstDayDayOfWeek) {
+                                cellList.add(null)
+                            }
+
+                            for (day in 1..totalDaysInMonth) {
+                                val targetCal = (viewCalendar.clone() as Calendar).apply {
+                                    set(Calendar.DAY_OF_MONTH, day)
+                                }
+                                val mYear = targetCal.get(Calendar.YEAR)
+                                val mMonth = targetCal.get(Calendar.MONTH) + 1
+                                val mDay = targetCal.get(Calendar.DAY_OF_MONTH)
+                                val dateKey = String.format("%04d-%02d-%02d", mYear, mMonth, mDay)
+
+                                val jDate = JavaneseCalendarHelper.calculateJawa(mYear, mMonth, mDay)
+                                val isToday = mYear == todayYear && mMonth == todayMonth && mDay == todayDay
+                                val holidayName = apiHolidays[dateKey]
+                                val observanceName = HolidayClient.getObservanceForDate(mMonth, mDay)
+                                val hasAgenda = agendaItems.any { it.tanggal == dateKey }
+                                val dayOfWeekIdx = (firstDayDayOfWeek + day - 1) % 7
+
+                                cellList.add(
+                                    CalendarCellData(
+                                        dayNumber = day,
+                                        targetCal = targetCal,
+                                        pasaran = jDate.pasaran,
+                                        isToday = isToday,
+                                        holidayName = holidayName,
+                                        observanceName = observanceName,
+                                        hasAgenda = hasAgenda,
+                                        isSunday = (dayOfWeekIdx == 0)
+                                    )
+                                )
+                            }
+                            cellList.chunked(7)
+                        }
+
+                        val isDarkTheme = isSystemInDarkTheme()
+
+                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            calendarGridRows.forEach { weekRow ->
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    for (i in 0..6) {
+                                        val cell = weekRow.getOrNull(i)
+                                        if (cell == null) {
+                                            Box(modifier = Modifier.weight(1f))
+                                        } else {
+                                            val cellBorderColor = when {
+                                                cell.isToday -> MaterialTheme.colorScheme.primary
+                                                cell.holidayName != null -> Color(0xFFEF4444).copy(alpha = if (isDarkTheme) 0.55f else 0.35f)
+                                                cell.observanceName != null -> Color(0xFF10B981).copy(alpha = if (isDarkTheme) 0.55f else 0.35f)
+                                                else -> MaterialTheme.colorScheme.outlineVariant.copy(alpha = if (isDarkTheme) 0.3f else 0.55f)
+                                            }
+
+                                            Box(
+                                                modifier = Modifier
+                                                    .weight(1f)
+                                                    .aspectRatio(1.0f)
+                                                    .clip(RoundedCornerShape(10.dp))
+                                                    .border(
+                                                        width = if (cell.isToday) 1.5.dp else 1.dp,
+                                                        color = cellBorderColor,
+                                                        shape = RoundedCornerShape(10.dp)
+                                                    )
+                                                    .background(
+                                                        when {
+                                                            cell.isToday -> MaterialTheme.colorScheme.primaryContainer.copy(alpha = if (isDarkTheme) 0.45f else 0.35f)
+                                                            cell.holidayName != null -> Color(0xFFEF4444).copy(alpha = 0.08f)
+                                                            cell.observanceName != null -> Color(0xFF10B981).copy(alpha = 0.08f)
+                                                            else -> Color.Transparent
                                                         }
-                                                        if (cell.observanceName != null) {
-                                                            Box(
-                                                                modifier = Modifier
-                                                                    .size(4.dp)
-                                                                    .clip(CircleShape)
-                                                                    .background(Color(0xFF10B981))
-                                                            )
+                                                    )
+                                                    .clickable { selectedDayAgenda = cell.targetCal }
+                                                    .padding(2.dp),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                                    Text(
+                                                        text = cell.dayNumber.toString(),
+                                                        fontSize = 13.sp,
+                                                        fontWeight = if (cell.isToday) FontWeight.Black else FontWeight.Bold,
+                                                        color = when {
+                                                            cell.holidayName != null -> Color(0xFFEF4444)
+                                                            cell.isSunday -> Color(0xFFEF4444)
+                                                            cell.observanceName != null -> Color(0xFF10B981) // Teks hijau hari peringatan
+                                                            cell.isToday -> MaterialTheme.colorScheme.primary
+                                                            else -> MaterialTheme.colorScheme.onSurface
                                                         }
-                                                        if (cell.hasAgenda) {
-                                                            Box(
-                                                                modifier = Modifier
-                                                                    .size(4.dp)
-                                                                    .clip(CircleShape)
-                                                                    .background(MaterialTheme.colorScheme.secondary)
-                                                            )
+                                                    )
+                                                    Text(
+                                                        text = cell.pasaran,
+                                                        fontSize = 8.sp,
+                                                        fontWeight = FontWeight.Medium,
+                                                        color = when {
+                                                            cell.isToday -> MaterialTheme.colorScheme.primary.copy(alpha = 0.85f)
+                                                            cell.holidayName != null -> Color(0xFFEF4444).copy(alpha = 0.7f)
+                                                            cell.observanceName != null -> Color(0xFF10B981).copy(alpha = 0.7f)
+                                                            else -> MaterialTheme.colorScheme.onSurface.copy(alpha = 0.45f)
+                                                        }
+                                                    )
+                                                    if (cell.hasAgenda || cell.holidayName != null || cell.observanceName != null) {
+                                                        Spacer(modifier = Modifier.height(2.dp))
+                                                        Row(
+                                                            horizontalArrangement = Arrangement.spacedBy(2.dp),
+                                                            verticalAlignment = Alignment.CenterVertically
+                                                        ) {
+                                                            if (cell.holidayName != null) {
+                                                                Box(
+                                                                    modifier = Modifier
+                                                                        .size(4.dp)
+                                                                        .clip(CircleShape)
+                                                                        .background(Color(0xFFEF4444))
+                                                                )
+                                                            }
+                                                            if (cell.observanceName != null) {
+                                                                Box(
+                                                                    modifier = Modifier
+                                                                        .size(4.dp)
+                                                                        .clip(CircleShape)
+                                                                        .background(Color(0xFF10B981))
+                                                                )
+                                                            }
+                                                            if (cell.hasAgenda) {
+                                                                Box(
+                                                                    modifier = Modifier
+                                                                        .size(4.dp)
+                                                                        .clip(CircleShape)
+                                                                        .background(MaterialTheme.colorScheme.secondary)
+                                                                )
+                                                            }
                                                         }
                                                     }
                                                 }

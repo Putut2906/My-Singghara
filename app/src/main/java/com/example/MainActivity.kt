@@ -1597,7 +1597,7 @@ fun MainAppContent(viewModel: MainViewModel, desktopMode: Boolean = false) {
                         Column(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(horizontal = 14.dp, vertical = 4.dp)
+                                .padding(horizontal = 14.dp, vertical = 6.dp)
                                 .border(
                                     width = 1.dp,
                                     color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
@@ -1607,13 +1607,14 @@ fun MainAppContent(viewModel: MainViewModel, desktopMode: Boolean = false) {
                                     color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.1f),
                                     shape = RoundedCornerShape(12.dp)
                                 )
-                                .padding(vertical = 6.dp)
+                                .padding(vertical = 8.dp)
                         ) {
                             NavigationDrawerItem(
                                 icon = {
                                     Icon(
                                         imageVector = if (isHomeSelected) Icons.Default.Home else Icons.Outlined.Home,
-                                        contentDescription = "Beranda"
+                                        contentDescription = "Beranda",
+                                        tint = MaterialTheme.colorScheme.primary
                                     )
                                 },
                                 label = { Text(text = "Beranda", fontWeight = FontWeight.Medium, fontSize = 13.sp) },
@@ -1639,7 +1640,7 @@ fun MainAppContent(viewModel: MainViewModel, desktopMode: Boolean = false) {
                         Column(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(horizontal = 14.dp, vertical = 4.dp)
+                                .padding(horizontal = 14.dp, vertical = 6.dp)
                                 .border(
                                     width = 1.dp,
                                     color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
@@ -1649,13 +1650,14 @@ fun MainAppContent(viewModel: MainViewModel, desktopMode: Boolean = false) {
                                     color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.1f),
                                     shape = RoundedCornerShape(12.dp)
                                 )
-                                .padding(vertical = 6.dp)
+                                .padding(vertical = 8.dp)
                         ) {
                             NavigationDrawerItem(
                                 icon = {
                                     Icon(
                                         imageVector = if (isVideoPlayerSelected) Icons.Default.VideoLibrary else Icons.Outlined.VideoLibrary,
-                                        contentDescription = "Pemutar Video"
+                                        contentDescription = "Pemutar Video",
+                                        tint = MaterialTheme.colorScheme.primary
                                     )
                                 },
                                 label = { Text(text = "Pemutar Video", fontWeight = FontWeight.Medium, fontSize = 13.sp) },
@@ -1681,7 +1683,7 @@ fun MainAppContent(viewModel: MainViewModel, desktopMode: Boolean = false) {
                         Column(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(horizontal = 14.dp, vertical = 4.dp)
+                                .padding(horizontal = 14.dp, vertical = 6.dp)
                                 .border(
                                     width = 1.dp,
                                     color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
@@ -1691,13 +1693,14 @@ fun MainAppContent(viewModel: MainViewModel, desktopMode: Boolean = false) {
                                     color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.1f),
                                     shape = RoundedCornerShape(12.dp)
                                 )
-                                .padding(vertical = 6.dp)
+                                .padding(vertical = 8.dp)
                         ) {
                             NavigationDrawerItem(
                                 icon = {
                                     Icon(
                                         imageVector = if (isArisanKeluargaSelected) Icons.Default.Groups else Icons.Outlined.Groups,
-                                        contentDescription = "Arisan Keluarga"
+                                        contentDescription = "Arisan Keluarga",
+                                        tint = MaterialTheme.colorScheme.primary
                                     )
                                 },
                                 label = { Text(text = "Arisan Keluarga", fontWeight = FontWeight.Medium, fontSize = 13.sp) },
