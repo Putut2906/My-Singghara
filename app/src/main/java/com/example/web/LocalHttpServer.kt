@@ -10312,6 +10312,11 @@ class LocalHttpServer(
                     <span class="nav-text">Dashboard</span>
                 </div>
 
+                <div class="nav-link-item" onclick="switchTab('pemutar_video', this)" data-title="Pemutar Video">
+                    <i class="bi bi-camera-reels fs-5" style="color: var(--primary-color);"></i>
+                    <span class="nav-text">Pemutar Video</span>
+                </div>
+
                 <hr class="my-2 border-secondary opacity-25 sidebar-divider">
 
                 <!-- MENU MY APLIKASI -->
@@ -10350,6 +10355,14 @@ class LocalHttpServer(
                         <div class="nav-link-item" onclick="switchTab('musik', this)" data-title="Musik">
                             <i class="bi bi-music-note-beamed fs-5" style="color: #E91E63;"></i>
                             <span class="nav-text">Musik</span>
+                        </div>
+                        <div class="nav-link-item" onclick="switchTab('pemutar_video', this)" data-title="Pemutar Video">
+                            <i class="bi bi-camera-reels fs-5" style="color: #0E7490;"></i>
+                            <span class="nav-text">Pemutar Video</span>
+                        </div>
+                        <div class="nav-link-item" onclick="switchTab('mindmap', this)" data-title="MindMap AI">
+                            <i class="bi bi-diagram-3-fill fs-5" style="color: #0288D1;"></i>
+                            <span class="nav-text">MindMap AI</span>
                         </div>
                         <div class="nav-link-item" onclick="switchTab('spinner', this)" data-title="Spinner">
                             <i class="bi bi-arrow-repeat fs-5" style="color: #8338EC;"></i>
@@ -11864,6 +11877,12 @@ class LocalHttpServer(
                 if (window.loadTelegramAi) window.loadTelegramAi();
             }
             else if (currentTab === 'manajemen_akun' || currentTab === 'admin') loadManajemenAkun();
+            else if (currentTab === 'pemutar_video' || currentTab === 'video') {
+                if (window.loadPemutarVideo) window.loadPemutarVideo();
+            }
+            else if (currentTab === 'mindmap' || currentTab === 'mind_map') {
+                if (window.loadMindMapPage) window.loadMindMapPage();
+            }
             else if (currentTab === 'profil' || currentTab === 'profile') {
                 if (window.loadProfile) window.loadProfile();
             }
@@ -11914,6 +11933,8 @@ class LocalHttpServer(
                 { id: 'pembukuan', title: "Pembukuan", desc: "Kalkulator modal, estimasi pendapatan harian/bulanan, dan pengeluaran operasional usaha.", icon: "bi-graph-up-arrow", color: "#E65100", badge: "Manajemen Usaha" },
                 { id: 'jurnal_umum', title: "Laporan Keuangan", desc: "Siklus akuntansi lengkap: Jurnal Umum, Buku Besar, Neraca Saldo, Penyesuaian, Laba Rugi, hingga Jurnal Penutup.", icon: "bi-file-earmark-spreadsheet", color: "#00838F", badge: "Laporan Keuangan" },
                 { id: 'musik', title: "Musik", desc: "Pemutar file musik audio MP3/WAV/AAC lokal dengan kontrol pemutaran lengkap dan daftar putar.", icon: "bi-music-note-beamed", color: "#E91E63", badge: "Pemutar Audio" },
+                { id: 'pemutar_video', title: "Pemutar Video", desc: "Pustaka video offline di browser PC dengan pencarian, urutan, tampilan grid/daftar, pemutar layar penuh, kecepatan, rasio layar, dan unduh.", icon: "bi-camera-reels", color: "#0E7490", badge: "Pemutar Video" },
+                { id: 'mindmap', title: "MindMap AI", desc: "Peta konsep bertingkat dari ide teks, tersimpan di perangkat dengan tampilan visual dan outline, 100% offline.", icon: "bi-diagram-3-fill", color: "#0288D1", badge: "Peta Konsep" },
                 { id: 'spinner', title: "Spinner", desc: "Roda putar keberuntungan serbaguna untuk undian, arisan, doorprize, atau pembagian kelompok.", icon: "bi-arrow-repeat", color: "#8338EC", badge: "Undian Acak" },
                 { id: 'kasir', title: "Kasir", desc: "Sistem kasir Point of Sale (POS) cepat dengan pemindai barcode kamera, manajemen stok, dan struk belanja.", icon: "bi-shop", color: "#00897B", badge: "Point of Sale" },
                 { id: 'shopping', title: "Daftar Belanja", desc: "Daftar belanja kebutuhan harian dan pencatatan riwayat transaksi belanja.", icon: "bi-cart3", color: "#3949AB", badge: "Manajemen Belanja" },
@@ -12958,6 +12979,8 @@ class LocalHttpServer(
         ${ManajemenAkunWebScript.getScript(dol)}
         ${SpinnerWebScript.getScript(dol)}
         ${MusikWebScript.getScript(dol)}
+        ${VideoWebScript.getScript(dol)}
+        ${MindMapWebScript.getScript(dol)}
         ${ProfilWebScript.getScript(dol)}
 
         // ==========================================
