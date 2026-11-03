@@ -1593,11 +1593,11 @@ fun MainAppContent(viewModel: MainViewModel, desktopMode: Boolean = false) {
 
                         Spacer(modifier = Modifier.height(10.dp))
 
-                        // Tiga menu utama dalam satu kotak, tanpa header/sub menu
+                        val isHomeSelected = viewModel.currentRoute == "home"
                         Column(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(horizontal = 14.dp, vertical = 6.dp)
+                                .padding(horizontal = 14.dp, vertical = 4.dp)
                                 .border(
                                     width = 1.dp,
                                     color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
@@ -1607,9 +1607,8 @@ fun MainAppContent(viewModel: MainViewModel, desktopMode: Boolean = false) {
                                     color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.1f),
                                     shape = RoundedCornerShape(12.dp)
                                 )
-                                .padding(vertical = 8.dp)
+                                .padding(vertical = 6.dp)
                         ) {
-                            val isHomeSelected = viewModel.currentRoute == "home"
                             NavigationDrawerItem(
                                 icon = {
                                     Icon(
@@ -1634,8 +1633,24 @@ fun MainAppContent(viewModel: MainViewModel, desktopMode: Boolean = false) {
                                     unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
                                 )
                             )
+                        }
 
-                            val isVideoPlayerSelected = viewModel.currentRoute == "pemutar_video"
+                        val isVideoPlayerSelected = viewModel.currentRoute == "pemutar_video"
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 14.dp, vertical = 4.dp)
+                                .border(
+                                    width = 1.dp,
+                                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
+                                    shape = RoundedCornerShape(12.dp)
+                                )
+                                .background(
+                                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.1f),
+                                    shape = RoundedCornerShape(12.dp)
+                                )
+                                .padding(vertical = 6.dp)
+                        ) {
                             NavigationDrawerItem(
                                 icon = {
                                     Icon(
@@ -1660,8 +1675,24 @@ fun MainAppContent(viewModel: MainViewModel, desktopMode: Boolean = false) {
                                     unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
                                 )
                             )
+                        }
 
-                            val isArisanKeluargaSelected = viewModel.currentRoute == "arisan_keluarga"
+                        val isArisanKeluargaSelected = viewModel.currentRoute == "arisan_keluarga"
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 14.dp, vertical = 4.dp)
+                                .border(
+                                    width = 1.dp,
+                                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
+                                    shape = RoundedCornerShape(12.dp)
+                                )
+                                .background(
+                                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.1f),
+                                    shape = RoundedCornerShape(12.dp)
+                                )
+                                .padding(vertical = 6.dp)
+                        ) {
                             NavigationDrawerItem(
                                 icon = {
                                     Icon(
@@ -3885,11 +3916,10 @@ fun MainAppContent(viewModel: MainViewModel, desktopMode: Boolean = false) {
 
     if (desktopMode) {
         val baseDensity = LocalDensity.current
-        val desktopFontBoost = 1.15f
         val desktopDensity = remember(baseDensity.density, baseDensity.fontScale, desktopUiScale) {
             Density(
                 density = baseDensity.density * desktopUiScale,
-                fontScale = baseDensity.fontScale * desktopUiScale * desktopFontBoost
+                fontScale = baseDensity.fontScale * 2.0f
             )
         }
         CompositionLocalProvider(LocalDensity provides desktopDensity) {
