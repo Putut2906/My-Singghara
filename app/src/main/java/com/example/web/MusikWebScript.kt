@@ -43,6 +43,29 @@ object MusikWebScript {
         window.musicPhoneTracks = window.musicPhoneTracks || [];
         window.musicPhoneLibraryLoaded = false;
 
+        // Panggung musik memakai showCustomToast di banyak tempat tetapi helper ini tidak
+        // pernah didefinisikan di halaman, jadi sediakan versi sendiri bila belum ada.
+        if (typeof window.showCustomToast !== 'function') {
+            window.showCustomToast = function (message) {
+                try {
+                    const holder = document.getElementById('toastContainer') || document.body;
+                    if (!holder) return;
+                    const item = document.createElement('div');
+                    item.className = 'alert alert-primary shadow';
+                    item.style.cssText = 'margin-top:8px;font-size:13px;font-weight:600;max-width:340px;pointer-events:none;opacity:0;transition:opacity .2s ease;';
+                    item.textContent = (message || '').toString();
+                    holder.appendChild(item);
+                    requestAnimationFrame(function () { item.style.opacity = '1'; });
+                    setTimeout(function () {
+                        item.style.opacity = '0';
+                        setTimeout(function () { if (item.parentNode) item.parentNode.removeChild(item); }, 250);
+                    }, 2600);
+                } catch (e) {
+                    console.warn('Toast gagal ditampilkan:', e);
+                }
+            };
+        }
+
         function applyMusicSource() {
             window.musicPlaylist = (window.musicSource === 'phone') ? window.musicPhoneTracks : window.musicPcTracks;
             if (window.currentMusicIndex >= window.musicPlaylist.length) window.currentMusicIndex = 0;

@@ -3544,7 +3544,8 @@ fun MainAppContent(viewModel: MainViewModel, desktopMode: Boolean = false) {
                 // Halaman yang sudah punya pemutar sendiri atau mengambil seluruh viewport.
                 val hideMiniPlayerRoutes = setOf("pemutar_musik", "pemutar_video", "immersive_file_viewer", "handy_talky")
                 val miniPlayerTrack = viewModel.activeMusicTrack
-                val showMiniPlayer = miniPlayerTrack != null && !hideMiniPlayerRoutes.contains(viewModel.currentRoute)
+                val showMiniPlayer = miniPlayerTrack != null && viewModel.isBottomBarVisible &&
+                    !hideMiniPlayerRoutes.contains(viewModel.currentRoute)
 
                 if (showBottomNav || showMiniPlayer) {
                     Column {
