@@ -3540,8 +3540,40 @@ fun MainAppContent(viewModel: MainViewModel, desktopMode: Boolean = false) {
             bottomBar = {
                 val hideBottomBarRoutes = listOf("jurnal_umum", "buku_besar", "neraca_saldo", "jurnal_penyesuaian", "neraca_saldo_disesuaikan", "laba_rugi", "jurnal_penutup", "neraca_saldo_setelah_tutup", "pemutar_musik", "pemutar_video", "pembukuan_usaha", "semua_transaksi_belanja", "semua_catatan_tabungan", "preview_catatan", "immersive_file_viewer", "quran", "handy_talky", "telegram_ai")
                 val isEditingNote = viewModel.currentRoute == "catatan" && viewModel.selectedNote != null
-                if (!desktopMode && viewModel.isBottomBarVisible && !hideBottomBarRoutes.contains(viewModel.currentRoute) && !isEditingNote) {
-                    BottomNavBar(viewModel = viewModel)
+                val showBottomNav = !desktopMode && viewModel.isBottomBarVisible && !hideBottomBarRoutes.contains(viewModel.currentRoute) && !isEditingNote
+                // Halaman yang sudah punya pemutar sendiri atau mengambil seluruh viewport.
+                val hideMiniPlayerRoutes = setOf("pemutar_musik", "pemutar_video", "immersive_file_viewer", "handy_talky")
+                val miniPlayerTrack = viewModel.activeMusicTrack
+                val showMiniPlayer = miniPlayerTrack != null && !hideMiniPlayerRoutes.contains(viewModel.currentRoute)
+
+                if (showBottomNav || showMiniPlayer) {
+                    Column {
+                        if (showMiniPlayer && miniPlayerTrack != null) {
+                            // Bar navigasi sudah memberi ruang sistem; bila bar itu disembunyikan,
+                            // pemutar mini yang mengambil alih sisa ruang bawah layar.
+                            Box(
+                                modifier = if (showBottomNav) Modifier
+                                else Modifier.navigationBarsPadding()
+                            ) {
+                                com.example.ui.components.MusicMiniPlayer(
+                                    viewModel = viewModel,
+                                    track = miniPlayerTrack,
+                                    onExpand = {
+                                        viewModel.musicPlayerExpanded = true
+                                        viewModel.currentRoute = "pemutar_musik"
+                                    },
+                                    onOpenQueue = {
+                                        viewModel.musicQueueSheetVisible = true
+                                        viewModel.currentRoute = "pemutar_musik"
+                                    },
+                                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)
+                                )
+                            }
+                        }
+                        if (showBottomNav) {
+                            BottomNavBar(viewModel = viewModel)
+                        }
+                    }
                 }
             }
         ) { innerPadding ->
@@ -3852,32 +3884,6 @@ fun MainAppContent(viewModel: MainViewModel, desktopMode: Boolean = false) {
                             }
                         )
                         else -> HomeScreen(viewModel = viewModel)
-                    }
-                }
-
-                // Pemutar mini: tampil di semua halaman, kecuali halaman musik yang
-                // sudah punya dock sendiri dan layar yang mengambil seluruh viewport.
-                val miniPlayerTrack = viewModel.activeMusicTrack
-                val miniPlayerHiddenRoutes = setOf(
-                    "pemutar_musik", "pemutar_video", "immersive_file_viewer", "handy_talky"
-                )
-                if (miniPlayerTrack != null && !miniPlayerHiddenRoutes.contains(viewModel.currentRoute)) {
-                    Box(
-                        modifier = Modifier.align(Alignment.BottomCenter)
-                    ) {
-                        com.example.ui.components.MusicMiniPlayer(
-                            viewModel = viewModel,
-                            track = miniPlayerTrack,
-                            onExpand = {
-                                viewModel.musicPlayerExpanded = true
-                                viewModel.currentRoute = "pemutar_musik"
-                            },
-                            onOpenQueue = {
-                                viewModel.musicQueueSheetVisible = true
-                                viewModel.currentRoute = "pemutar_musik"
-                            },
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)
-                        )
                     }
                 }
             }

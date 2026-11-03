@@ -3113,7 +3113,7 @@ class LocalHttpServer(
                 put("kind", item.kind)
                 put("name", item.name)
                 put("title", PhoneMediaLibrary.displayNameWithoutExtension(item))
-                put("artist", item.bucketName)
+                put("artist", item.artist.ifBlank { item.bucketName })
                 put("folder", item.bucketName)
                 put("origin", "phone")
                 put("size", item.sizeBytes)

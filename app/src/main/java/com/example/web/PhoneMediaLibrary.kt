@@ -30,7 +30,8 @@ data class PhoneMediaItem(
     val bucketName: String,
     val dateAddedSec: Long,
     val mimeType: String,
-    val contentUri: Uri
+    val contentUri: Uri,
+    val artist: String = ""
 )
 
 object PhoneMediaLibrary {
@@ -174,7 +175,12 @@ object PhoneMediaLibrary {
                         bucketName = bucket,
                         dateAddedSec = if (dateCol >= 0) cursor.getLong(dateCol) else 0L,
                         mimeType = mimeFromStore?.takeIf { it.isNotBlank() } ?: mimeForName(name, kind),
-                        contentUri = ContentUris.withAppendedId(collection, mediaId)
+                        contentUri = ContentUris.withAppendedId(collection, mediaId),
+                        artist = if (artistCol >= 0) {
+                            cursor.getString(artistCol)?.takeIf {
+                                it.isNotBlank() && !it.equals("<unknown>", ignoreCase = true)
+                            } ?: ""
+                        } else ""
                     )
                 )
             }
