@@ -5405,6 +5405,15 @@ class LocalHttpServer(
             --badge-bg: rgba(54, 116, 181, 0.12);
             --btn-close-filter: none;
             --card-shadow: var(--shadow-light);
+
+            /* Surface & semantic tokens shared by the music/video players */
+            --surface-subtle: rgba(127, 127, 127, 0.08);
+            --surface-hover: rgba(127, 127, 127, 0.16);
+            --success-color: #198754;
+            --success-subtle: rgba(25, 135, 84, 0.15);
+            --warning-color: #b45309;
+            --warning-subtle: rgba(255, 193, 7, 0.18);
+            --danger-subtle: rgba(231, 76, 60, 0.12);
         }
 
         body.dark, [data-theme="dark"] {
@@ -5434,6 +5443,15 @@ class LocalHttpServer(
             --badge-bg: rgba(56, 189, 248, 0.2);
             --btn-close-filter: invert(1) grayscale(100%) brightness(200%);
             --card-shadow: var(--shadow-dark);
+
+            --surface-subtle: rgba(148, 163, 184, 0.12);
+            --surface-hover: rgba(148, 163, 184, 0.22);
+            --success-color: #4ade80;
+            --success-subtle: rgba(74, 222, 128, 0.18);
+            --warning-color: #fbbf24;
+            --warning-subtle: rgba(251, 191, 36, 0.18);
+            --danger-color: #f87171;
+            --danger-subtle: rgba(248, 113, 113, 0.18);
         }
 
         @media (prefers-color-scheme: dark) {
@@ -5463,6 +5481,15 @@ class LocalHttpServer(
                 --badge-bg: rgba(56, 189, 248, 0.2);
                 --btn-close-filter: invert(1) grayscale(100%) brightness(200%);
                 --card-shadow: var(--shadow-dark);
+
+                --surface-subtle: rgba(148, 163, 184, 0.12);
+                --surface-hover: rgba(148, 163, 184, 0.22);
+                --success-color: #4ade80;
+                --success-subtle: rgba(74, 222, 128, 0.18);
+                --warning-color: #fbbf24;
+                --warning-subtle: rgba(251, 191, 36, 0.18);
+                --danger-color: #f87171;
+                --danger-subtle: rgba(248, 113, 113, 0.18);
             }
         }
 
@@ -6603,6 +6630,14 @@ class LocalHttpServer(
 
         .text-secondary, .text-muted {
             color: var(--text-sub) !important;
+        }
+
+        .text-primary {
+            color: var(--brand-green) !important;
+        }
+
+        .text-danger {
+            color: var(--danger-color) !important;
         }
 
         .btn-brand {

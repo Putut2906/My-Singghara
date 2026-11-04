@@ -34,7 +34,7 @@ object VideoWebScript {
             if (!el) {
                 el = document.createElement('div');
                 el.id = 'webVideoToast';
-                el.style.cssText = 'position:fixed;left:50%;bottom:28px;transform:translateX(-50%);background:rgba(15,23,42,.94);color:#fff;padding:10px 18px;border-radius:12px;font-size:13px;z-index:100000;box-shadow:0 8px 24px rgba(0,0,0,.35);opacity:0;transition:opacity .2s ease;max-width:90vw;text-align:center;pointer-events:none;';
+                el.style.cssText = 'position:fixed;left:50%;bottom:28px;transform:translateX(-50%);background:var(--card-bg,#0f172a);color:var(--text-main,#fff);padding:10px 18px;border-radius:12px;font-size:13px;z-index:100000;box-shadow:0 8px 24px rgba(0,0,0,.35);opacity:0;transition:opacity .2s ease;max-width:90vw;text-align:center;pointer-events:none;border:1px solid var(--border-color,#334155);';
                 document.body.appendChild(el);
             }
             el.textContent = message;
@@ -247,7 +247,7 @@ object VideoWebScript {
                 if (item.artUrl) {
                     return '<img src="' + item.artUrl + '" loading="lazy" alt="" style="' + style + '">';
                 }
-                return '<i class="bi bi-film" style="font-size:34px;color:rgba(255,255,255,.75)"></i>';
+                return '<i class="bi bi-film" style="font-size:34px;color:var(--text-sub)"></i>';
             }
             return '<video src="' + getWebVideoPlayUrl(item) + '#t=0.5" preload="metadata" muted playsinline style="' + style + '"></video>';
         }
@@ -267,7 +267,7 @@ object VideoWebScript {
             let html = '';
             html += '<div class="d-flex flex-wrap justify-content-between align-items-center mb-3 gap-2">';
             html += '  <div>';
-            html += '    <h4 class="fw-bold mb-0 d-flex align-items-center gap-2"><i class="bi bi-camera-reels" style="color:var(--primary-color)"></i> Pemutar Video</h4>';
+            html += '    <h4 class="fw-bold mb-0 d-flex align-items-center gap-2"><i class="bi bi-camera-reels" style="color:var(--brand-green)"></i> Pemutar Video</h4>';
             html += '    <small class="text-secondary">' + window.webVideoList.length + ' video • ' + formatWebVideoDuration(totalDuration) + ' • ' + formatWebVideoSize(totalSize) + ' (' + phoneCount + ' dari HP, ' + (window.webVideoList.length - phoneCount) + ' dari PC)</small>';
             html += '  </div>';
             html += '  <div class="d-flex flex-wrap align-items-center gap-2">';
@@ -289,7 +289,7 @@ object VideoWebScript {
 
             if (visible.length === 0) {
                 html += '<div class="card card-custom p-5 text-center">';
-                html += '  <i class="bi bi-camera-reels" style="font-size:42px;color:var(--primary-color)"></i>';
+                html += '  <i class="bi bi-camera-reels" style="font-size:42px;color:var(--brand-green)"></i>';
                 html += '  <h6 class="fw-bold mt-3 mb-1">' + (window.webVideoList.length === 0 ? 'Belum ada video di pustaka' : 'Video tidak ditemukan') + '</h6>';
                 html += '  <p class="text-secondary small mb-3">' + (window.webVideoList.length === 0 ? 'Ketuk "Tambah Video" untuk memuat berkas dari PC, atau "Muat Video HP" untuk memutar rekaman yang tersimpan di ponsel.' : 'Coba kata kunci lain, ubah urutan, atau pilih sumber berkas yang berbeda.') + '</p>';
                 if (window.webVideoList.length === 0) {
@@ -303,14 +303,14 @@ object VideoWebScript {
                     const thumbStyle = 'width:100%;height:100%;object-fit:cover;pointer-events:none';
                     html += '<div class="col-12 col-sm-6 col-lg-4 col-xxl-3">';
                     html += '  <div class="card card-custom h-100 overflow-hidden" style="border-radius:16px;cursor:pointer" onclick="window.playWebVideo(\'' + item.id + '\')">';
-                    html += '    <div style="position:relative;aspect-ratio:16/9;background:#0f172a;overflow:hidden;display:flex;align-items:center;justify-content:center">';
+                    html += '    <div style="position:relative;aspect-ratio:16/9;background:var(--surface-subtle);overflow:hidden;display:flex;align-items:center;justify-content:center">';
                     html += '      ' + getWebVideoThumbHtml(item, thumbStyle);
                     html += '      <span class="badge" style="position:absolute;right:8px;bottom:8px;background:rgba(0,0,0,.7);color:#fff;font-size:11px">' + formatWebVideoDuration(item.duration) + '</span>';
                     html += '      <span class="badge" style="position:absolute;left:8px;top:8px;background:rgba(0,0,0,.6);color:#fff;font-size:10px">' + (isPhone ? 'HP' : 'PC') + '</span>';
                     if (!isPhone) {
                         html += '      <button type="button" class="btn btn-sm" style="position:absolute;top:6px;right:6px;width:28px;height:28px;padding:0;border-radius:50%;background:rgba(0,0,0,.6);color:#fff" title="Hapus video" onclick="event.stopPropagation(); window.deleteWebVideo(\'' + item.id + '\')"><i class="bi bi-trash"></i></button>';
                     }
-                    html += '      <i class="bi bi-play-circle-fill" style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);font-size:44px;color:rgba(255,255,255,.85);pointer-events:none"></i>';
+                    html += '      <i class="bi bi-play-circle-fill" style="position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);font-size:44px;color:rgba(255,255,255,.85);pointer-events:none;filter:drop-shadow(0 1px 4px rgba(0,0,0,.6))"></i>';
                     html += '    </div>';
                     html += '    <div class="p-3">';
                     html += '      <div class="fw-semibold text-truncate" style="font-size:13px" title="' + webVideoEscape(item.name) + '">' + webVideoEscape(item.name) + '</div>';
@@ -326,12 +326,12 @@ object VideoWebScript {
                     const isPhone = item.origin === 'phone';
                     const thumbStyle = 'width:100%;height:100%;object-fit:cover;pointer-events:none';
                     html += '<div class="card card-custom p-2 d-flex align-items-center gap-3" style="border-radius:14px;cursor:pointer" onclick="window.playWebVideo(\'' + item.id + '\')">';
-                    html += '  <div style="width:96px;min-width:96px;aspect-ratio:16/9;border-radius:10px;overflow:hidden;background:#0f172a;display:flex;align-items:center;justify-content:center">' + getWebVideoThumbHtml(item, thumbStyle) + '</div>';
+                    html += '  <div style="width:96px;min-width:96px;aspect-ratio:16/9;border-radius:10px;overflow:hidden;background:var(--surface-subtle);display:flex;align-items:center;justify-content:center">' + getWebVideoThumbHtml(item, thumbStyle) + '</div>';
                     html += '  <div class="flex-grow-1 overflow-hidden">';
                     html += '    <div class="fw-semibold text-truncate" style="font-size:13px">' + webVideoEscape(item.name) + '</div>';
                     html += '    <div class="text-secondary" style="font-size:11px">' + formatWebVideoDuration(item.duration) + ' • ' + formatWebVideoSize(item.size) + ' • ' + webVideoEscape(item.folder || (isPhone ? 'Video HP' : 'Pustaka PC')) + '</div>';
                     html += '  </div>';
-                    html += '  <span class="badge" style="background:rgba(127,127,127,.18);color:var(--bs-secondary);font-size:10px">' + (isPhone ? 'HP' : 'PC') + '</span>';
+                    html += '  <span class="badge" style="background:var(--surface-hover);color:var(--text-sub);font-size:10px">' + (isPhone ? 'HP' : 'PC') + '</span>';
                     if (!isPhone) {
                         html += '  <button type="button" class="btn btn-sm btn-outline-danger" title="Hapus video" onclick="event.stopPropagation(); window.deleteWebVideo(\'' + item.id + '\')"><i class="bi bi-trash"></i></button>';
                     }
@@ -407,14 +407,14 @@ object VideoWebScript {
 
             let html = '';
             html += '<div id="webVideoPlayerShell" style="position:fixed;inset:0;background:#000;z-index:1300;display:flex;flex-direction:column">';
-            html += '  <div class="d-flex align-items-center gap-2 px-2 py-1" style="background:#0f172a;color:#fff">';
-            html += '    <button type="button" class="btn btn-sm text-white" title="Kembali" onclick="window.closeWebVideo()"><i class="bi bi-arrow-left fs-5"></i></button>';
+            html += '  <div class="d-flex align-items-center gap-2 px-2 py-1" style="background:var(--card-bg);color:var(--text-main);border-bottom:1px solid var(--border-color)">';
+            html += '    <button type="button" class="btn btn-sm text-body" title="Kembali" onclick="window.closeWebVideo()"><i class="bi bi-arrow-left fs-5"></i></button>';
             html += '    <div class="flex-grow-1 overflow-hidden">';
             html += '      <div class="text-truncate" style="font-size:13px;font-weight:600">' + webVideoEscape(item.name) + ' <span style="font-size:10px;opacity:.75">[' + (isPhone ? 'HP' : 'PC') + ']</span></div>';
-            html += '      <div class="text-truncate" style="font-size:11px;color:#94a3b8">' + formatWebVideoDuration(item.duration) + ' • ' + formatWebVideoSize(item.size) + ' • ' + webVideoEscape(item.folder || '') + '</div>';
+            html += '      <div class="text-truncate" style="font-size:11px;color:var(--text-sub)">' + formatWebVideoDuration(item.duration) + ' • ' + formatWebVideoSize(item.size) + ' • ' + webVideoEscape(item.folder || '') + '</div>';
             html += '    </div>';
             html += '    <div class="dropdown">';
-            html += '      <button type="button" class="btn btn-sm text-white" data-bs-toggle="dropdown" title="Opsi"><i class="bi bi-three-dots-vertical fs-5"></i></button>';
+            html += '      <button type="button" class="btn btn-sm text-body" data-bs-toggle="dropdown" title="Opsi"><i class="bi bi-three-dots-vertical fs-5"></i></button>';
             html += '      <ul class="dropdown-menu dropdown-menu-end">';
             html += '        <li><h6 class="dropdown-header">Kecepatan</h6></li>';
             [0.5, 0.75, 1, 1.25, 1.5, 2].forEach(function (speed) {
@@ -432,7 +432,7 @@ object VideoWebScript {
             html += '  <div class="flex-grow-1 d-flex align-items-center justify-content-center" style="overflow:hidden">';
             html += '    <video id="webVideoPlayer" src="' + url + '" controls autoplay playsinline preload="metadata" style="width:100%;height:100%;object-fit:contain;background:#000"></video>';
             html += '  </div>';
-            html += '  <div class="text-center" style="background:#0f172a;color:#94a3b8;font-size:11px;padding:6px">Spasi: putar/jeda • Panah kiri/kanan: 5 detik • Esc: kembali</div>';
+            html += '  <div class="text-center" style="background:var(--card-bg);color:var(--text-sub);font-size:11px;padding:6px;border-top:1px solid var(--border-color)">Spasi: putar/jeda • Panah kiri/kanan: 5 detik • Esc: kembali</div>';
             html += '</div>';
 
             container.innerHTML = html;

@@ -403,6 +403,7 @@ object MusikWebScript {
         // --- DOCK "NOW PLAYING" DI LEVEL BODY (tetap tampil di semua halaman) ---
 
         function mountMusicDock() {
+            ensureMusicShellMounted();
             const track = window.musicPlaylist[window.currentMusicIndex];
             let dock = document.getElementById('musicGlobalDock');
             if (!track || !window.musicDockTrackId) {
@@ -513,28 +514,41 @@ object MusikWebScript {
 
         function getMusicDockCss() {
             return '' +
-                '.music-global-dock{position:fixed;left:var(--sidebar-width,0px);right:0;bottom:0;z-index:1050;padding:0 16px 12px;pointer-events:none;transition:left .3s ease;}' +
-                '.music-global-dock .music-dock-card{pointer-events:auto;background:var(--bs-body-bg,#fff);border:1px solid rgba(13,110,253,.28);border-radius:16px;box-shadow:0 -6px 24px rgba(0,0,0,.18);padding:8px 12px;}' +
+                '.music-global-dock{position:fixed;left:var(--sidebar-width,0px);right:0;bottom:0;z-index:1050;padding:0 16px 12px;pointer-events:none;transition:left .3s cubic-bezier(0.4, 0, 0.2, 1);}' +
+                'body.sidebar-collapsed .music-global-dock{left:var(--sidebar-collapsed-width,72px);}' +
+                '.music-global-dock .music-dock-card{pointer-events:auto;background:var(--card-bg,#fff);border:1px solid var(--border-color,#dee2e6);border-radius:16px;box-shadow:0 -6px 24px rgba(0,0,0,.18);padding:8px 12px;}' +
                 'body.has-music-dock .content-wrapper{padding-bottom:132px;}' +
                 '.music-dock-progress-row{display:flex;align-items:center;gap:10px;margin-bottom:2px;}' +
-                '.music-dock-time{font-size:10.5px;color:var(--bs-secondary);min-width:38px;text-align:center;}' +
-                '.music-dock-slider{flex:1;height:4px;accent-color:var(--bs-primary,#0d6efd);}' +
+                '.music-dock-time{font-size:10.5px;color:var(--text-sub);min-width:38px;text-align:center;}' +
+                '.music-dock-slider{flex:1;height:4px;accent-color:var(--brand-green);}' +
                 '.music-dock-main-row{display:flex;align-items:center;gap:12px;}' +
                 '.music-dock-cover{width:46px;height:46px;min-width:46px;border-radius:10px;overflow:hidden;background:linear-gradient(135deg,#1f2937,#111827);display:flex;align-items:center;justify-content:center;cursor:pointer;}' +
                 '.music-dock-meta{flex:1;min-width:0;cursor:pointer;}' +
-                '.music-dock-title{font-size:13px;font-weight:700;}' +
-                '.music-dock-artist{font-size:11px;color:var(--bs-secondary);}' +
-                '.music-dock-lyric{font-size:11px;color:var(--bs-primary);font-weight:600;min-height:14px;}' +
+                '.music-dock-title{font-size:13px;font-weight:700;color:var(--text-main);}' +
+                '.music-dock-artist{font-size:11px;color:var(--text-sub);}' +
+                '.music-dock-lyric{font-size:11px;color:var(--brand-green);font-weight:600;min-height:14px;}' +
                 '.music-dock-controls{display:flex;align-items:center;gap:2px;flex-shrink:0;}' +
-                '.music-dock-btn{position:relative;background:transparent;border:0;color:var(--bs-secondary);width:30px;height:30px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:16px;cursor:pointer;}' +
-                '.music-dock-btn:hover{background:rgba(127,127,127,.14);}' +
-                '.music-dock-btn.is-active{color:var(--bs-primary);}' +
+                '.music-dock-btn{position:relative;background:transparent;border:0;color:var(--text-sub);width:30px;height:30px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:16px;cursor:pointer;transition:background .15s ease,color .15s ease;}' +
+                '.music-dock-btn:hover{background:var(--surface-hover);color:var(--text-main);}' +
+                '.music-dock-btn.is-active{color:var(--brand-green);}' +
+                '.music-dock-btn.is-active:hover{color:var(--brand-green-hover);}' +
                 '.music-repeat-badge{position:absolute;top:-1px;right:0;font-size:8px;font-weight:800;line-height:1;}' +
-                '.music-dock-play-btn{background:var(--bs-primary,#0d6efd);border:0;color:#fff;width:42px;height:42px;border-radius:50%;display:flex;align-items:center;justify-content:center;cursor:pointer;}' +
+                '.music-dock-play-btn{background:var(--brand-green);border:0;color:#fff;width:42px;height:42px;border-radius:50%;display:flex;align-items:center;justify-content:center;cursor:pointer;transition:filter .15s ease,transform .1s ease;}' +
                 '.music-dock-play-btn:hover{filter:brightness(1.08);}' +
-                '.music-dock-volume{width:70px;height:4px;accent-color:var(--bs-primary,#0d6efd);}' +
-                '@media (max-width:1100px){.music-global-dock{left:0;}}' +
-                '@media (max-width:900px){.music-dock-volume{display:none;}.music-dock-lyric{display:none;}.music-dock-optional{display:none;}}';
+                '.music-dock-play-btn:active{transform:scale(.94);}' +
+                '.music-dock-volume{width:70px;height:4px;accent-color:var(--brand-green);}' +
+                '.music-surface{background:var(--surface-subtle);border:1px solid var(--border-color);}' +
+                '.music-seek-slider::-webkit-slider-thumb{background-color:var(--brand-green);}' +
+                '.music-seek-slider::-moz-range-thumb{background-color:var(--brand-green);}' +
+                '.music-now-playing-page{position:fixed;top:64px;left:var(--sidebar-width,0px);right:0;bottom:0;z-index:1015;background:var(--bg-sidebar,#f8fafc);color:var(--text-main);overflow-y:auto;transition:left .3s cubic-bezier(0.4, 0, 0.2, 1);display:none;}' +
+                'body.sidebar-collapsed .music-now-playing-page{left:var(--sidebar-collapsed-width,72px);}' +
+                '.music-now-playing-inner{max-width:480px;margin:0 auto;min-height:100%;display:flex;flex-direction:column;justify-content:space-between;padding:16px 12px 24px;}' +
+                '@media (max-width:900px){.music-dock-volume{display:none;}.music-dock-lyric{display:none;}.music-dock-optional{display:none;}}' +
+                '@media (max-width:768px){' +
+                '.music-global-dock{left:0 !important;padding:0 8px 8px;}' +
+                '.music-now-playing-page{top:56px;left:0 !important;}' +
+                'body.sidebar-mobile-open .music-global-dock{display:none;}' +
+                '}';
         }
 
         function updateDockLyricLine(currentSec) {
@@ -1109,12 +1123,12 @@ object MusikWebScript {
                     }
                     .music-tab-link.active {
                         font-weight: 700;
-                        color: var(--bs-primary) !important;
+                        color: var(--brand-green) !important;
                         text-decoration: underline !important;
                         text-underline-offset: 4px;
                     }
                     .music-tab-link:not(.active) {
-                        color: var(--bs-secondary);
+                        color: var(--text-sub);
                         font-weight: 500;
                     }
                     .music-subtab-chip {
@@ -1130,13 +1144,13 @@ object MusikWebScript {
                         border: 1px solid transparent;
                     }
                     .music-subtab-chip.active {
-                        background: var(--bs-primary-bg-subtle, rgba(13, 110, 253, 0.18));
-                        color: var(--bs-primary);
-                        border-color: rgba(13, 110, 253, 0.3);
+                        background: var(--badge-bg);
+                        color: var(--brand-green);
+                        border-color: var(--border-color);
                     }
                     .music-subtab-chip:not(.active) {
-                        background: rgba(127, 127, 127, 0.08);
-                        color: var(--bs-secondary);
+                        background: var(--surface-subtle);
+                        color: var(--text-sub);
                     }
                     .music-subtab-chip:hover {
                         filter: brightness(1.1);
@@ -1148,14 +1162,14 @@ object MusikWebScript {
                         font-size: 12px;
                         font-weight: 700;
                         user-select: none;
-                        border: 1px solid rgba(127, 127, 127, 0.25);
-                        background: rgba(127, 127, 127, 0.08);
-                        color: var(--bs-secondary);
+                        border: 1px solid var(--border-color);
+                        background: var(--surface-subtle);
+                        color: var(--text-sub);
                         transition: all 0.15s ease;
                     }
                     .music-source-chip.active {
-                        background: var(--bs-primary);
-                        border-color: var(--bs-primary);
+                        background: var(--brand-green);
+                        border-color: var(--brand-green);
                         color: #fff;
                     }
                     .music-source-chip:hover {
@@ -1164,8 +1178,8 @@ object MusikWebScript {
                     .music-card-item {
                         border-radius: 12px;
                         padding: 12px 14px;
-                        background: rgba(127, 127, 127, 0.06);
-                        border: 1px solid rgba(127, 127, 127, 0.15);
+                        background: var(--surface-subtle);
+                        border: 1px solid var(--border-color);
                         display: flex;
                         align-items: center;
                         justify-content: space-between;
@@ -1173,11 +1187,11 @@ object MusikWebScript {
                         transition: background 0.15s ease, border-color 0.15s ease;
                     }
                     .music-card-item:hover {
-                        background: rgba(127, 127, 127, 0.12);
+                        background: var(--surface-hover);
                     }
                     .music-card-item.active-playing {
-                        background: rgba(13, 110, 253, 0.12);
-                        border-color: rgba(13, 110, 253, 0.35);
+                        background: var(--badge-bg);
+                        border-color: var(--brand-green);
                     }
                     .spinning-disc {
                         animation: spinDisc 12s linear infinite;
@@ -1198,7 +1212,7 @@ object MusikWebScript {
                         padding: 8px 16px;
                         text-align: center;
                         font-size: 13px;
-                        color: rgba(255, 255, 255, 0.6);
+                        color: var(--text-sub);
                         transition: all 0.25s ease;
                         cursor: pointer;
                         border-radius: 8px;
@@ -1206,9 +1220,9 @@ object MusikWebScript {
                     .lrc-line-item.active-lrc-line {
                         font-size: 16px;
                         font-weight: 800;
-                        color: var(--bs-primary) !important;
+                        color: var(--brand-green) !important;
                         transform: scale(1.1);
-                        background: rgba(13, 110, 253, 0.12);
+                        background: var(--badge-bg);
                     }
                     .music-marquee {
                         white-space: nowrap;
@@ -1281,8 +1295,9 @@ object MusikWebScript {
                 <input type="file" id="musicCoverPickerInput" accept="image/*" class="d-none" onchange="handleCustomCoverUpload(event)">
                 <input type="file" id="musicLrcRestoreInput" accept=".json,application/json" class="d-none" onchange="handleRestoreLyricsFile(event)">
 
-                <!-- FULL IMMERSIVE PLAYER DECK OVERLAY -->
-                <div id="musicExpandedPlayerDeck" style="display: none; position: fixed; inset: 0; z-index: 1060; background: var(--bs-body-bg); overflow-y: auto;">
+                <!-- FULL PLAYER "KINI MEMUTAR" — area halaman: navbar + sidebar tetap terlihat -->
+                <style>${dol}{getMusicDockCss()}</style>
+                <div id="musicExpandedPlayerDeck" class="music-now-playing-page">
                     ${dol}{currentTrack ? getExpandedPlayerDeckHtml(currentTrack) : ''}
                 </div>
 
@@ -1337,7 +1352,7 @@ object MusikWebScript {
         function getMusicHeaderTabsHtml() {
             if (window.musicIsSearchExpanded) {
                 return `
-                    <div class="d-flex align-items-center bg-body-tertiary rounded-pill px-3 py-1 flex-grow-1 border border-secondary-subtle">
+                    <div class="d-flex align-items-center music-surface rounded-pill px-3 py-1 flex-grow-1">
                         <i class="bi bi-search text-secondary me-2"></i>
                         <input type="text" class="form-control form-control-sm border-0 bg-transparent p-0 shadow-none" 
                                id="musicSearchInputField" placeholder="Cari..." value="${dol}{escapeHtml(window.musicSearchQuery)}"
@@ -1413,7 +1428,7 @@ object MusikWebScript {
                 if (sourceTracks.length === 0) {
                     return `
                         <div class="card card-custom p-5 text-center my-3" style="border-radius: 20px;">
-                            <div class="rounded-circle d-flex align-items-center justify-content-center mx-auto mb-3" style="width: 76px; height: 76px; background-color: rgba(13, 110, 253, 0.12); color: var(--bs-primary);">
+                            <div class="rounded-circle d-flex align-items-center justify-content-center mx-auto mb-3" style="width: 76px; height: 76px; background-color: var(--badge-bg); color: var(--brand-green);">
                                 <i class="bi bi-folder-fill fs-1"></i>
                             </div>
                             <h6 class="fw-bold mb-2">Folder Musik Belum Dipilih</h6>
@@ -1456,7 +1471,7 @@ object MusikWebScript {
                             <div class="music-card-item" onclick="selectMusicFolder('${dol}{escapeHtml(folderName)}')">
                                 <div class="d-flex align-items-center gap-3">
                                     <div class="rounded-circle d-flex align-items-center justify-content-center flex-shrink-0" 
-                                         style="width: 42px; height: 42px; background: rgba(13, 110, 253, 0.12); color: var(--bs-primary);">
+                                         style="width: 42px; height: 42px; background: var(--badge-bg); color: var(--brand-green);">
                                         <i class="bi bi-folder-fill fs-5"></i>
                                     </div>
                                     <div>
@@ -1508,7 +1523,7 @@ object MusikWebScript {
                 if (favTracks.length === 0) {
                     return `
                         <div class="card card-custom p-5 text-center my-3" style="border-radius: 20px;">
-                            <div class="rounded-circle d-flex align-items-center justify-content-center mx-auto mb-3" style="width: 72px; height: 72px; background: rgba(220, 53, 69, 0.1); color: #dc3545;">
+                            <div class="rounded-circle d-flex align-items-center justify-content-center mx-auto mb-3" style="width: 72px; height: 72px; background: var(--danger-subtle); color: var(--danger-color);">
                                 <i class="bi bi-heart fs-1"></i>
                             </div>
                             <h6 class="fw-bold mb-2">Belum Ada Lagu Favorit</h6>
@@ -1568,7 +1583,7 @@ object MusikWebScript {
                 if (list.length === 0) {
                     html += `
                         <div class="card card-custom p-5 text-center my-3" style="border-radius: 20px;">
-                            <div class="rounded-circle d-flex align-items-center justify-content-center mx-auto mb-3" style="width: 70px; height: 70px; background: rgba(127, 127, 127, 0.1); color: var(--bs-secondary);">
+                            <div class="rounded-circle d-flex align-items-center justify-content-center mx-auto mb-3" style="width: 70px; height: 70px; background: var(--surface-subtle); color: var(--text-sub);">
                                 <i class="bi bi-music-note-beamed fs-2"></i>
                             </div>
                             <p class="text-secondary small mb-0" style="max-width: 420px; margin-inline: auto;">
@@ -1645,10 +1660,10 @@ object MusikWebScript {
             const lrcText = getTrackLyrics(currentTrack);
 
             return `
-                <div class="container py-3" style="max-width: 480px; min-height: 100vh; display: flex; flex-column; justify-content: space-between;">
+                <div class="music-now-playing-inner">
                     <div>
-                        <!-- TOP BAR INSIDE EXPANDED DECK -->
-                        <div class="d-flex align-items-center justify-content-between mb-4">
+                        <!-- TOP ACTION BAR HALAMAN KINI MEMUTAR -->
+                        <div class="d-flex align-items-center justify-content-between mb-4 pb-2 border-bottom" style="--bs-border-color: var(--border-color);">
                             <button class="btn btn-link text-body p-0" onclick="collapseMusicPlayerDeck()" title="Perkecil">
                                 <i class="bi bi-chevron-down fs-2"></i>
                             </button>
@@ -1661,7 +1676,7 @@ object MusikWebScript {
                         <!-- BAGIAN TENGAH: SAMPUL ALBUM (CARD 1:1) / MODE LIRIK -->
                         <div class="card card-custom p-0 mx-auto shadow-lg mb-4" 
                              id="musicCentralArtCard"
-                             style="border-radius: 24px; width: 100%; max-width: 320px; aspect-ratio: 1 / 1; position: relative; overflow: hidden; background: rgba(127,127,127,0.08); border: 1px solid rgba(255,255,255,0.1);">
+                             style="border-radius: 24px; width: 100%; max-width: 320px; aspect-ratio: 1 / 1; position: relative; overflow: hidden; background: var(--surface-subtle); border: 1px solid var(--border-color);">
                             ${dol}{getCentralArtCardInnerHtml(currentTrack)}
                         </div>
 
@@ -1724,9 +1739,9 @@ object MusikWebScript {
                             </button>
 
                             <!-- 3. BIG PLAY/PAUSE BUTTON (72px CIRCLE) -->
-                            <div class="rounded-circle d-flex align-items-center justify-content-center shadow cursor-pointer bg-primary"
+                            <div class="rounded-circle d-flex align-items-center justify-content-center shadow cursor-pointer"
                                  id="musicBigPlayPauseBtn"
-                                 style="width: 72px; height: 72px; transition: transform 0.1s ease;"
+                                 style="width: 72px; height: 72px; background: var(--brand-green); transition: transform 0.1s ease;"
                                  onclick="togglePlayMusic()">
                                 <i class="bi ${dol}{isPlaying ? 'bi-pause-fill' : 'bi-play-fill'}" style="font-size: 38px; color: white;"></i>
                             </div>
@@ -1758,10 +1773,10 @@ object MusikWebScript {
                     // EDIT LRC MODE
                     const curPos = formatAudioTime(window.musicPlaybackPosition || 0);
                     return `
-                        <div class="p-3 d-flex flex-column h-100 bg-body-tertiary">
+                        <div class="p-3 d-flex flex-column h-100 music-surface">
                             <div class="d-flex justify-content-between align-items-center mb-2">
                                 <span class="fw-bold text-primary small">Tulis / Tempel Lirik (LRC)</span>
-                                <span class="badge bg-secondary-subtle text-secondary" style="font-size: 10px;">Posisi: ${dol}{curPos}</span>
+                                <span class="badge text-secondary" style="font-size: 10px; background: var(--surface-subtle);">Posisi: ${dol}{curPos}</span>
                             </div>
 
                             <div class="d-flex gap-2 mb-2">
@@ -1787,8 +1802,8 @@ object MusikWebScript {
                     // VIEW LYRICS MODE
                     const parsedLines = parseLrcLyrics(lrcText);
                     return `
-                        <div class="p-3 d-flex flex-column h-100 bg-body-tertiary">
-                            <div class="d-flex justify-content-between align-items-center mb-2 border-bottom border-secondary-subtle pb-2">
+                        <div class="p-3 d-flex flex-column h-100 music-surface">
+                            <div class="d-flex justify-content-between align-items-center mb-2 border-bottom pb-2" style="--bs-border-color: var(--border-color);">
                                 <div class="d-flex align-items-center gap-1 text-primary fw-bold small">
                                     <i class="bi bi-lyrics"></i> Lirik Lagu
                                 </div>
@@ -1862,6 +1877,7 @@ object MusikWebScript {
             if (deck) {
                 deck.innerHTML = getExpandedPlayerDeckHtml(currentTrack);
                 deck.style.display = 'block';
+                deck.scrollTop = 0;
                 updateRepeatButtonUI();
                 updateShuffleButtonUI();
                 setupMusicArtworkGestures();
@@ -2044,7 +2060,7 @@ object MusikWebScript {
                     <div class="music-card-item ${dol}{isPlaying ? 'active-playing' : ''}" onclick="playTrackByIndex(${dol}{idx}); bootstrap.Modal.getInstance(document.getElementById('musicQueueModal'))?.hide();">
                         <div class="d-flex align-items-center gap-3 overflow-hidden flex-grow-1">
                             <div class="rounded-3 flex-shrink-0 d-flex align-items-center justify-content-center overflow-hidden" 
-                                 style="width: 36px; height: 36px; background: rgba(127,127,127,0.15);">
+                                 style="width: 36px; height: 36px; background: var(--surface-hover);">
                                 ${dol}{coverUrl ? `<img src="${dol}{coverUrl}" style="width: 100%; height: 100%; object-fit: cover;">` : '<i class="bi bi-music-note-beamed text-secondary"></i>'}
                             </div>
                             <div class="overflow-hidden">
@@ -2081,7 +2097,7 @@ object MusikWebScript {
                     <div class="p-3 rounded-3 cursor-pointer d-flex align-items-center gap-3 dashboard-subcard" 
                          onclick="document.getElementById('musicFolderPickerInput').click()">
                         <div class="rounded-3 d-flex align-items-center justify-content-center flex-shrink-0" 
-                             style="width: 44px; height: 44px; background: rgba(13, 110, 253, 0.15); color: var(--bs-primary);">
+                             style="width: 44px; height: 44px; background: var(--badge-bg); color: var(--brand-green);">
                             <i class="bi bi-folder-fill fs-5"></i>
                         </div>
                         <div class="flex-grow-1">
@@ -2096,7 +2112,7 @@ object MusikWebScript {
                     <div class="p-3 rounded-3 cursor-pointer d-flex align-items-center gap-3 dashboard-subcard"
                          onclick="loadPhoneMusicLibrary(true)">
                         <div class="rounded-3 d-flex align-items-center justify-content-center flex-shrink-0"
-                             style="width: 44px; height: 44px; background: rgba(25, 135, 84, 0.15); color: #198754;">
+                             style="width: 44px; height: 44px; background: var(--success-subtle); color: var(--success-color);">
                             <i class="bi bi-phone fs-5"></i>
                         </div>
                         <div class="flex-grow-1">
@@ -2111,7 +2127,7 @@ object MusikWebScript {
                     <div class="p-3 rounded-3 cursor-pointer d-flex align-items-center gap-3 dashboard-subcard" 
                          onclick="rescanMusicFolder()">
                         <div class="rounded-3 d-flex align-items-center justify-content-center flex-shrink-0" 
-                             style="width: 44px; height: 44px; background: rgba(108, 117, 125, 0.15); color: var(--bs-secondary);">
+                             style="width: 44px; height: 44px; background: var(--surface-hover); color: var(--text-sub);">
                             <i class="bi bi-arrow-repeat fs-5"></i>
                         </div>
                         <div class="flex-grow-1">
@@ -2124,7 +2140,7 @@ object MusikWebScript {
                     <div class="p-3 rounded-3 cursor-pointer d-flex align-items-center gap-3 dashboard-subcard" 
                          onclick="clearMusicPlayHistory()">
                         <div class="rounded-3 d-flex align-items-center justify-content-center flex-shrink-0" 
-                             style="width: 44px; height: 44px; background: rgba(255, 193, 7, 0.15); color: #ffc107;">
+                             style="width: 44px; height: 44px; background: var(--warning-subtle); color: var(--warning-color);">
                             <i class="bi bi-trash fs-5"></i>
                         </div>
                         <div class="flex-grow-1">
@@ -2137,7 +2153,7 @@ object MusikWebScript {
                     <div class="p-3 rounded-3 cursor-pointer d-flex align-items-center gap-3 dashboard-subcard" 
                          onclick="exportManualLyricsJson()">
                         <div class="rounded-3 d-flex align-items-center justify-content-center flex-shrink-0" 
-                             style="width: 44px; height: 44px; background: rgba(13, 110, 253, 0.15); color: var(--bs-primary);">
+                             style="width: 44px; height: 44px; background: var(--badge-bg); color: var(--brand-green);">
                             <i class="bi bi-cloud-arrow-down-fill fs-5"></i>
                         </div>
                         <div class="flex-grow-1">
@@ -2150,7 +2166,7 @@ object MusikWebScript {
                     <div class="p-3 rounded-3 cursor-pointer d-flex align-items-center gap-3 dashboard-subcard" 
                          onclick="document.getElementById('musicLrcRestoreInput').click()">
                         <div class="rounded-3 d-flex align-items-center justify-content-center flex-shrink-0" 
-                             style="width: 44px; height: 44px; background: rgba(25, 135, 84, 0.15); color: #198754;">
+                             style="width: 44px; height: 44px; background: var(--success-subtle); color: var(--success-color);">
                             <i class="bi bi-cloud-arrow-up-fill fs-5"></i>
                         </div>
                         <div class="flex-grow-1">
@@ -2163,7 +2179,7 @@ object MusikWebScript {
                     <div class="p-3 rounded-3 cursor-pointer d-flex align-items-center gap-3 dashboard-subcard text-danger" 
                          onclick="resetEntireMusicPlaylist()">
                         <div class="rounded-3 d-flex align-items-center justify-content-center flex-shrink-0" 
-                             style="width: 44px; height: 44px; background: rgba(220, 53, 69, 0.15); color: #dc3545;">
+                             style="width: 44px; height: 44px; background: var(--danger-subtle); color: var(--danger-color);">
                             <i class="bi bi-x-circle-fill fs-5"></i>
                         </div>
                         <div class="flex-grow-1">
