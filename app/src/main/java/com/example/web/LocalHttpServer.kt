@@ -4915,10 +4915,11 @@ class LocalHttpServer(
 
         descriptor.use { pfd ->
             // ParcelFileDescriptor hanya exposes getStatSize(); posisi awal wilayah fd
-            // dibaca lewat fstat: provider yang membungkus sebagian berkas menyerahkan
-            // fd yang sudah di-seek ke awal konten, sehingga st_off adalah offset itu.
+            // dibaca lewat lseek SEEK_CUR: provider yang membungkus sebagian berkas
+            // menyerahkan fd yang sudah di-seek ke awal konten, jadi offset itu adalah
+            // posisi fd saat ini. StructStat sendiri tidak punya field st_off.
             val statOffset = try {
-                android.system.Os.fstat(pfd.fileDescriptor).st_off.coerceAtLeast(0L)
+                android.system.Os.lseek(pfd.fileDescriptor, 0L, android.system.OsConstants.SEEK_CUR).coerceAtLeast(0L)
             } catch (_: Exception) {
                 0L
             }
@@ -5039,7 +5040,7 @@ class LocalHttpServer(
                 }
                 pfd.use {
                     payload.put("fdOpened", true)
-                    payload.put("statOffset", try { android.system.Os.fstat(it.fileDescriptor).st_off } catch (_: Exception) { -1L })
+                    payload.put("statOffset", try { android.system.Os.lseek(it.fileDescriptor, 0L, android.system.OsConstants.SEEK_CUR) } catch (_: Exception) { -1L })
                     payload.put("statSize", it.statSize)
                     try {
                         // Jangan tutup FileInputStream-nya: fd yang sama ditutup oleh pfd.use,
