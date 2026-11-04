@@ -5,6 +5,7 @@ import android.content.Context
 import android.Manifest
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.os.Build
@@ -53,6 +54,8 @@ object PhoneMediaScanner {
     const val TYPE_VIDEO = "video"
 
     private val artCache = LruCache<String, ByteArray>(80)
+
+    private const val ART_MAX_SIDE = 440
 
     private fun audioCollection(): Uri =
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
@@ -256,7 +259,7 @@ object PhoneMediaScanner {
 
     private fun embeddedAudioArtwork(context: Context, uri: Uri): ByteArray? {
         val retriever = MediaMetadataRetriever()
-        return try {
+        val raw = try {
             retriever.setDataSource(context, uri)
             retriever.embeddedPicture
         } catch (_: Exception) {
@@ -266,6 +269,33 @@ object PhoneMediaScanner {
                 retriever.release()
             } catch (_: Exception) {
             }
+        }
+        if (raw == null || raw.isEmpty()) return null
+
+        // Frame PICTURE bisa berupa PNG beberapa MB. Dikecilkan ke JPEG hemat agar web
+        // player tidak menunggu unduhan besar tiap ganti trek; byte asli dipakai
+        // kembali hanya bila gambarnya tidak bisa di-decode.
+        return try {
+            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            BitmapFactory.decodeByteArray(raw, 0, raw.size, bounds)
+            if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return raw
+            var sample = 1
+            while (maxOf(bounds.outWidth, bounds.outHeight) / (sample * 2) >= ART_MAX_SIDE) sample *= 2
+            val bitmap = BitmapFactory.decodeByteArray(raw, 0, raw.size, BitmapFactory.Options().apply { inSampleSize = sample })
+                ?: return raw
+            val longest = maxOf(bitmap.width, bitmap.height)
+            if (longest <= ART_MAX_SIDE) return jpegOf(bitmap, 82)
+            val ratio = ART_MAX_SIDE.toFloat() / longest
+            val scaled = Bitmap.createScaledBitmap(
+                bitmap,
+                (bitmap.width * ratio).toInt().coerceAtLeast(1),
+                (bitmap.height * ratio).toInt().coerceAtLeast(1),
+                true
+            )
+            if (scaled !== bitmap) bitmap.recycle()
+            jpegOf(scaled, 82)
+        } catch (_: Exception) {
+            raw
         }
     }
 

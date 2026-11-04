@@ -57,6 +57,9 @@ class LocalHttpServer(
     private var isRunning = false
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
+    // Hasil ekstraksi lirik tertanam per URI (string kosong = sudah dicari, tidak ada).
+    private val webLyricsCache = android.util.LruCache<String, String>(40)
+
     private val httpClient = OkHttpClient.Builder()
         .followRedirects(true)
         .followSslRedirects(true)
@@ -446,6 +449,9 @@ class LocalHttpServer(
     private suspend fun handleClient(socket: Socket) {
         try {
             socket.use { s ->
+                // Socket spekulatif browser (preconnect tanpa request) sempat menahan
+                // thread IO selamanya; batas baca 15 detik melepas koneksi menganggur.
+                s.soTimeout = 15_000
                 val input = java.io.BufferedInputStream(s.getInputStream())
                 val output = s.getOutputStream()
 
@@ -4855,7 +4861,9 @@ class LocalHttpServer(
                         put("url", "/api/phone_media/stream?type=audio&id=${track.id}")
                         put("artUrl", "/api/phone_media/art?type=audio&id=${track.id}")
                         put("hasLyrics", hasLyrics)
-                        put("lyricsUrl", if (hasLyrics) "/api/phone_media/lyrics?type=audio&id=${track.id}" else "")
+                        // Lirik bisa datang dari .lrc samping ATAU tag tertanam (ID3/MP4/Vorbis),
+                        // yang baru terbaca saat diminta — jadi URL-nya selalu tersedia utk audio.
+                        put("lyricsUrl", "/api/phone_media/lyrics?type=audio&id=${track.id}")
                     })
                 }
             }
@@ -4872,13 +4880,33 @@ class LocalHttpServer(
             sendResponse(output, 404, "Not Found", "text/plain", "Tidak ada sampul")
             return
         }
-        sendBinaryResponse(output, 200, "OK", "image/jpeg", bytes)
+        // Sampul tidak berubah selama id MediaStore sama; header cache memangkas
+        // unduhan ulang tiap daftar musik di-render ulang di browser.
+        val mime = if (bytes.size > 8 && bytes[0] == 0x89.toByte() && bytes[1] == 'P'.code.toByte() &&
+            bytes[2] == 'N'.code.toByte() && bytes[3] == 'G'.code.toByte()) "image/png" else "image/jpeg"
+        sendBinaryResponse(output, 200, "OK", mime, bytes, cacheable = true)
     }
 
     private suspend fun sendPhoneMediaLyrics(type: String, id: Long, output: OutputStream) {
-        val text = withContext(Dispatchers.IO) { PhoneMediaScanner.lyricsFor(context, type, id) }
+        // Web memakai parser lirik yang sama dengan aplikasi: .lrc samping, ID3
+        // SYLT/USLT/TXXX, MediaMetadataRetriever, atom MP4 (c)lyr, komentar Vorbis.
+        val text = withContext(Dispatchers.IO) {
+            val sidecar = PhoneMediaScanner.lyricsFor(context, type, id)
+            if (!sidecar.isNullOrBlank()) return@withContext sidecar
+            val uriStr = PhoneMediaScanner.uriFor(type, id)?.toString() ?: return@withContext null
+            val cached = webLyricsCache.get(uriStr)
+            if (cached != null) {
+                cached.ifBlank { null }
+            } else {
+                // String kosong ikut disimpan sebagai penanda "tidak ada lirik" agar
+                // pemindaian 4 MB tidak terulang tiap trek yang sama diminta lagi.
+                val found = com.example.media.EmbeddedLyricsReader.lyricsFor(context, uriStr) ?: ""
+                webLyricsCache.put(uriStr, found)
+                found.ifBlank { null }
+            }
+        }
         if (text.isNullOrBlank()) {
-            sendResponse(output, 404, "Not Found", "text/plain", "Tidak ada berkas lirik (.lrc)")
+            sendResponse(output, 404, "Not Found", "text/plain", "Tidak ada lirik di berkas ini")
             return
         }
         sendResponse(output, 200, "OK", "text/plain; charset=utf-8", text)
