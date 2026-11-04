@@ -4806,6 +4806,7 @@ class LocalHttpServer(
             "audio" -> sendJsonResponse(output, buildPhoneMediaListJson(PhoneMediaScanner.TYPE_AUDIO))
             "video" -> sendJsonResponse(output, buildPhoneMediaListJson(PhoneMediaScanner.TYPE_VIDEO))
             "stream" -> streamPhoneMedia(type, id, rangeHeader, output)
+            "probe" -> sendPhoneMediaProbe(type, id, output)
             "art" -> sendPhoneMediaArt(type, id, output)
             "lyrics" -> sendPhoneMediaLyrics(type, id, output)
             else -> sendResponse(output, 404, "Not Found", "text/plain", "Endpoint media tidak dikenal")
@@ -4894,96 +4895,159 @@ class LocalHttpServer(
             return
         }
 
-        val total = withContext(Dispatchers.IO) {
-            val columnSize = PhoneMediaScanner.sizeOf(context, type, id)
-            if (columnSize > 0L) columnSize else PhoneMediaScanner.descriptorLength(context, uri)
-        }
-        if (total <= 0L) {
-            sendResponse(output, 404, "Not Found", "text/plain", "Berkas media tidak lagi tersedia di HP")
-            return
-        }
-
-        val mime = withContext(Dispatchers.IO) { PhoneMediaScanner.mimeTypeFor(context, type, id) }
-            ?: if (type == PhoneMediaScanner.TYPE_VIDEO) "video/mp4" else "audio/mpeg"
-
-        var start = 0L
-        var end = total - 1
-        var isPartial = false
-        var isUnsatisfiable = false
-        if (rangeHeader.isNotBlank()) {
-            val value = rangeHeader.lowercase().substringAfter("bytes=", "").trim()
-            val dash = value.indexOf('-')
-            if (value.isNotEmpty() && dash >= 0 && !value.contains(",")) {
-                val startText = value.substring(0, dash)
-                val endText = value.substring(dash + 1)
-                val suffixLength = endText.toLongOrNull() ?: 0L
-                val parsedStart = if (startText.isEmpty()) {
-                    if (suffixLength > 0L) (total - suffixLength).coerceAtLeast(0L) else null
-                } else {
-                    startText.toLongOrNull()
-                }
-                if (parsedStart != null) {
-                    if (parsedStart >= total) {
-                        isUnsatisfiable = true
-                    } else {
-                        start = parsedStart
-                        end = if (endText.isEmpty()) total - 1 else (endText.toLongOrNull() ?: (total - 1)).coerceIn(parsedStart, total - 1)
-                        isPartial = true
-                    }
-                }
-            }
-        }
-
-        if (isUnsatisfiable) {
-            val rejection = "HTTP/1.1 416 Range Not Satisfiable\r\n" +
-                    "Content-Range: bytes */$total\r\n" +
-                    "Accept-Ranges: bytes\r\n" +
-                    "Content-Length: 0\r\n" +
-                    "Connection: close\r\n\r\n"
+        // Descriptor dibuka SEBELUM header ditulis. Sebelumnya header bisa terkirim lalu
+        // openFileDescriptor gagal diam-diam, sehingga browser menerima respons terpotong
+        // tanpa alasan yang terlihat. statSize/statOffset juga dipakai sebagai ukuran resmi:
+        // kolom SIZE MediaStore bisa basi dan sebagian provider membungkus berkas pada
+        // offset > 0, sehingga posisi baca tanpa geseran statOffset mengirim byte salah
+        // (trompetnya trek HP: daftar muncul tapi tidak ada suara).
+        val descriptor = withContext(Dispatchers.IO) {
             try {
-                output.write(rejection.toByteArray(Charsets.UTF_8))
-                output.flush()
+                context.contentResolver.openFileDescriptor(uri, "r")
             } catch (_: Exception) {
+                null
             }
+        }
+        if (descriptor == null) {
+            sendResponse(output, 404, "Not Found", "text/plain", "Berkas media HP tidak bisa dibuka (izin dicabut atau berkas hilang)")
             return
         }
 
-        val contentLength = end - start + 1
-        val headers = (if (isPartial) "HTTP/1.1 206 Partial Content\r\n" else "HTTP/1.1 200 OK\r\n") +
-                "Content-Type: $mime\r\n" +
-                "Content-Length: $contentLength\r\n" +
-                (if (isPartial) "Content-Range: bytes $start-$end/$total\r\n" else "") +
-                "Accept-Ranges: bytes\r\n" +
-                "Cache-Control: no-store\r\n" +
-                "Access-Control-Allow-Origin: *\r\n" +
-                "Connection: close\r\n\r\n"
+        descriptor.use { pfd ->
+            val statOffset = if (pfd.statOffset > 0L) pfd.statOffset else 0L
+            val total = when {
+                pfd.statSize > 0L -> pfd.statSize
+                else -> withContext(Dispatchers.IO) { PhoneMediaScanner.sizeOf(context, type, id) }.coerceAtLeast(0L)
+            }
+            if (total <= 0L) {
+                sendResponse(output, 404, "Not Found", "text/plain", "Berkas media tidak lagi tersedia di HP")
+                return
+            }
 
-        try {
-            withContext(Dispatchers.IO) {
-                output.write(headers.toByteArray(Charsets.UTF_8))
-                output.flush()
-                context.contentResolver.openFileDescriptor(uri, "r")?.use { descriptor ->
-                    FileInputStream(descriptor.fileDescriptor).use { stream ->
-                        val channel = stream.channel
-                        if (start > 0L) channel.position(start)
-                        val buffer = java.nio.ByteBuffer.allocate(65536)
-                        var remaining = contentLength
-                        while (remaining > 0L) {
-                            buffer.clear()
-                            if (remaining < buffer.capacity()) buffer.limit(remaining.toInt())
-                            val read = channel.read(buffer)
-                            if (read <= 0) break
-                            output.write(buffer.array(), 0, read)
-                            remaining -= read
+            val mime = withContext(Dispatchers.IO) { PhoneMediaScanner.mimeTypeFor(context, type, id) }
+                ?: if (type == PhoneMediaScanner.TYPE_VIDEO) "video/mp4" else "audio/mpeg"
+
+            var start = 0L
+            var end = total - 1
+            var isPartial = false
+            var isUnsatisfiable = false
+            if (rangeHeader.isNotBlank()) {
+                val value = rangeHeader.lowercase().substringAfter("bytes=", "").trim()
+                val dash = value.indexOf('-')
+                if (value.isNotEmpty() && dash >= 0 && !value.contains(",")) {
+                    val startText = value.substring(0, dash)
+                    val endText = value.substring(dash + 1)
+                    val suffixLength = endText.toLongOrNull() ?: 0L
+                    val parsedStart = if (startText.isEmpty()) {
+                        if (suffixLength > 0L) (total - suffixLength).coerceAtLeast(0L) else null
+                    } else {
+                        startText.toLongOrNull()
+                    }
+                    if (parsedStart != null) {
+                        if (parsedStart >= total) {
+                            isUnsatisfiable = true
+                        } else {
+                            start = parsedStart
+                            end = if (endText.isEmpty()) total - 1 else (endText.toLongOrNull() ?: (total - 1)).coerceIn(parsedStart, total - 1)
+                            isPartial = true
                         }
                     }
                 }
-                output.flush()
+            }
+
+            if (isUnsatisfiable) {
+                val rejection = "HTTP/1.1 416 Range Not Satisfiable\r\n" +
+                        "Content-Range: bytes */$total\r\n" +
+                        "Accept-Ranges: bytes\r\n" +
+                        "Content-Length: 0\r\n" +
+                        "Connection: close\r\n\r\n"
+                try {
+                    output.write(rejection.toByteArray(Charsets.UTF_8))
+                    output.flush()
+                } catch (_: Exception) {
+                }
+                return
+            }
+
+            val contentLength = end - start + 1
+            val headers = (if (isPartial) "HTTP/1.1 206 Partial Content\r\n" else "HTTP/1.1 200 OK\r\n") +
+                    "Content-Type: $mime\r\n" +
+                    "Content-Length: $contentLength\r\n" +
+                    (if (isPartial) "Content-Range: bytes $start-$end/$total\r\n" else "") +
+                    "Accept-Ranges: bytes\r\n" +
+                    "Cache-Control: no-store\r\n" +
+                    "Access-Control-Allow-Origin: *\r\n" +
+                    "Connection: close\r\n\r\n"
+
+            try {
+                withContext(Dispatchers.IO) {
+                    output.write(headers.toByteArray(Charsets.UTF_8))
+                    output.flush()
+                    // FileInputStream tidak di-close() di sini: fd yang sama dimiliki pfd dan
+                    // sudah ditutup oleh descriptor.use di akhir respons (hindari double close).
+                    val stream = FileInputStream(pfd.fileDescriptor)
+                    val channel = stream.channel
+                    channel.position(statOffset + start)
+                    val buffer = java.nio.ByteBuffer.allocate(65536)
+                    var remaining = contentLength
+                    while (remaining > 0L) {
+                        buffer.clear()
+                        if (remaining < buffer.capacity()) buffer.limit(remaining.toInt())
+                        val read = channel.read(buffer)
+                        if (read <= 0) break
+                        output.write(buffer.array(), 0, read)
+                        remaining -= read
+                    }
+                    output.flush()
+                }
+            } catch (e: Exception) {
+                // Browser sering memutus koneksi saat melompati durasi; ini bukan kegagalan server.
+                e.printStackTrace()
+            }
+        }
+    }
+
+    /**
+     * Diagnostik satu trek HP untuk web player: melaporkan uri, ukuran kolom, mime,
+     * offset/ukuran descriptor, dan apakah byte pertama benar-benar terbaca. Web UI
+     * memanggil ini saat play() gagal supaya pesan error punya sebab yang jelas.
+     */
+    private suspend fun sendPhoneMediaProbe(type: String, id: Long, output: OutputStream) {
+        val payload = JSONObject()
+        val uri = PhoneMediaScanner.uriFor(type, id)
+        payload.put("uri", uri?.toString() ?: "")
+        if (uri == null) {
+            payload.put("error", "uri tidak dikenali")
+            sendJsonResponse(output, payload.toString())
+            return
+        }
+        payload.put("sizeColumn", withContext(Dispatchers.IO) { PhoneMediaScanner.sizeOf(context, type, id) })
+        payload.put("mime", withContext(Dispatchers.IO) { PhoneMediaScanner.mimeTypeFor(context, type, id) } ?: JSONObject.NULL)
+        try {
+            withContext(Dispatchers.IO) {
+                val pfd = context.contentResolver.openFileDescriptor(uri, "r")
+                if (pfd == null) {
+                    payload.put("fdOpened", false)
+                    return@withContext
+                }
+                pfd.use {
+                    payload.put("fdOpened", true)
+                    payload.put("statOffset", it.statOffset)
+                    payload.put("statSize", it.statSize)
+                    try {
+                        // Jangan tutup FileInputStream-nya: fd yang sama ditutup oleh pfd.use,
+                        // menutup dua kali akan melempar IOException dari within use.
+                        val stream = FileInputStream(it.fileDescriptor)
+                        payload.put("firstByteReadable", stream.read() >= 0)
+                    } catch (e: Exception) {
+                        payload.put("readError", e.message ?: e.javaClass.simpleName)
+                    }
+                }
             }
         } catch (e: Exception) {
-            // Browser sering memutus koneksi saat melompati durasi; ini bukan kegagalan server.
-            e.printStackTrace()
+            payload.put("error", e.message ?: e.javaClass.simpleName)
         }
+        sendJsonResponse(output, payload.toString())
     }
 
     private suspend fun handleNotificationsRoute(method: String, queryParams: Map<String, String>, body: String, output: OutputStream) {

@@ -196,10 +196,36 @@ object MusikWebScript {
                 handleTrackEnded();
             });
 
-            window.musicPlayerAudio.addEventListener('error', () => {
+            window.musicPlayerAudio.addEventListener('error', async () => {
                 const failed = window.musicPlaylist[window.currentMusicIndex];
+                const err = window.musicPlayerAudio.error;
+                // 'error' juga meledak saat src dikosongkan (stop/reset) atau saat user
+                // berpindah trek cepat (ABORTED) — dua-duanya bukan kegagalan playback.
+                if (!window.musicPlayerAudio.currentSrc || !err || err.code === 1) {
+                    syncMusicDockState();
+                    return;
+                }
+                const codeNames = { 1: 'ABORTED', 2: 'NETWORK', 3: 'DECODE', 4: 'SRC_NOT_SUPPORTED' };
+                const code = codeNames[err.code] || String(err.code);
                 if (failed && failed.origin === 'phone') {
-                    showCustomToast('Berkas HP tidak bisa diputar (mungkin sudah dipindah/dihapus).');
+                    // Minta sebab konkret ke server: uri/ukuran/mime/offset/fd bisa dibaca atau tidak.
+                    let detail = '';
+                    try {
+                        const res = await fetch('/api/phone_media/probe?type=audio&id=' + (failed.mediaId || -1), { cache: 'no-store' });
+                        if (res.ok) {
+                            const p = await res.json();
+                            if (p.error || p.fdOpened === false || p.firstByteReadable === false || (typeof p.statSize === 'number' && p.statSize <= 0)) {
+                                detail = ' Server: ' + JSON.stringify(p).slice(0, 180);
+                            }
+                        } else {
+                            detail = ' Diagnosis balas HTTP ' + res.status + '.';
+                        }
+                    } catch (e) {
+                        detail = ' Server diagnosis tidak terjangkau.';
+                    }
+                    showCustomToast('Lagu HP gagal diputar (' + code + ').' + detail);
+                } else {
+                    showCustomToast('Audio gagal diputar (' + code + ').');
                 }
                 syncMusicDockState();
             });
@@ -813,7 +839,12 @@ object MusikWebScript {
                     updatePlayPauseStateInUI(true);
                 }).catch(e => {
                     console.warn('Playback autoplay note:', e);
+                    if (e && e.name === 'NotAllowedError') {
+                        showCustomToast('Browser menolak autoplay — klik tombol play sekali lagi.');
+                    }
                 });
+            } else if (track.origin === 'phone') {
+                showCustomToast('Trek HP ini belum punya URL sumber — tekan "Muat Musik HP" ulang.');
             }
 
             window.musicDockTrackId = track.id;

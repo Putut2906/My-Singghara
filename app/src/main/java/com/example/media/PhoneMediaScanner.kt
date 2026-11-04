@@ -101,12 +101,6 @@ object PhoneMediaScanner {
         }
     }
 
-    fun descriptorLength(context: Context, uri: Uri): Long = try {
-        context.contentResolver.openFileDescriptor(uri, "r")?.use { it.statSize } ?: -1L
-    } catch (_: Exception) {
-        -1L
-    }
-
     fun hasMediaAccess(context: Context): Boolean {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && Environment.isExternalStorageManager()) {
             return true
