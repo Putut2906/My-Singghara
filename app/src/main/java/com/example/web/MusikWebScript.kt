@@ -798,6 +798,14 @@ object MusikWebScript {
                 '.np-card-minimize{position:absolute;left:0;right:0;bottom:0;padding:10px 14px 12px;text-align:center;font-size:12px;font-weight:800;letter-spacing:1.2px;text-transform:uppercase;color:#fff;background:linear-gradient(to top,rgba(0,0,0,.65),rgba(0,0,0,0));cursor:pointer;user-select:none;z-index:6;}' +
                 '.np-card-minimize:active{filter:brightness(.85);}' +
                 '#musicLyricsScrollContainer{-webkit-mask-image:linear-gradient(to bottom,transparent 0,#000 18%,#000 82%,transparent 100%);mask-image:linear-gradient(to bottom,transparent 0,#000 18%,#000 82%,transparent 100%);scroll-behavior:smooth;}' +
+                '@media (hover:hover) and (pointer:fine){' +
+                '.music-now-playing-page,.music-now-playing-page *{scrollbar-width:thin;scrollbar-color:transparent transparent;scrollbar-gutter:stable;transition:scrollbar-color .25s ease;}' +
+                '.music-now-playing-page:hover,.music-now-playing-page *:hover{scrollbar-color:var(--brand-green) transparent;}' +
+                '.music-now-playing-page::-webkit-scrollbar,.music-now-playing-page *::-webkit-scrollbar{width:10px;height:10px;background:transparent;}' +
+                '.music-now-playing-page::-webkit-scrollbar-thumb,.music-now-playing-page *::-webkit-scrollbar-thumb{background:transparent;border-radius:99px;border:2px solid transparent;background-clip:content-box;transition:background-color .25s ease;}' +
+                '.music-now-playing-page:hover::-webkit-scrollbar-thumb,.music-now-playing-page *:hover::-webkit-scrollbar-thumb,.music-now-playing-page:active::-webkit-scrollbar-thumb,.music-now-playing-page *:active::-webkit-scrollbar-thumb{background-color:var(--brand-green);}' +
+                '.music-now-playing-page::-webkit-scrollbar-corner,.music-now-playing-page *::-webkit-scrollbar-corner{background:transparent;}' +
+                '}' +
                 '@media (max-width:900px){.music-dock-volume{display:none;}.music-dock-lyric{display:none;}.music-dock-optional{display:none;}}' +
                 '@media (max-width:768px){' +
                 '.music-global-dock{left:0 !important;padding:0 8px 8px;}' +
