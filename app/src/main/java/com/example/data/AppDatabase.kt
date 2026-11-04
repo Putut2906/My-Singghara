@@ -20,6 +20,7 @@ import androidx.room.RoomDatabase
         RiwayatPresensi::class,
         GajiItem::class,
         BelanjaPasarItem::class,
+        BelanjaOnlineItem::class,
         FcmNotification::class,
         ArisanKelompok::class,
         ArisanPeserta::class,
@@ -27,7 +28,7 @@ import androidx.room.RoomDatabase
         ArisanKasTransaksi::class,
         ArisanPemenangRiwayat::class
     ],
-    version = 14,
+    version = 15,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -43,6 +44,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun presensiDao(): PresensiDao
     abstract fun gajiDao(): GajiDao
     abstract fun belanjaPasarDao(): BelanjaPasarDao
+    abstract fun belanjaOnlineDao(): BelanjaOnlineDao
     abstract fun fcmNotificationDao(): FcmNotificationDao
     abstract fun arisanDao(): ArisanDao
 

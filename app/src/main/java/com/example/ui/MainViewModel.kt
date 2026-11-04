@@ -1639,6 +1639,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val allBelanjaPasar: StateFlow<List<BelanjaPasarItem>> = repository.allBelanjaPasarItems
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    val allBelanjaOnline: StateFlow<List<com.example.data.BelanjaOnlineItem>> = repository.allBelanjaOnlineItems
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
     // Belanja Pasar Management
     fun saveBelanjaPasar(item: BelanjaPasarItem, onComplete: (Long) -> Unit = {}) {
         viewModelScope.launch {
@@ -1667,6 +1670,31 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun clearCompletedBelanjaPasar() {
         viewModelScope.launch {
             repository.clearCompletedBelanjaPasar()
+        }
+    }
+
+    // Belanja Online Management
+    fun saveBelanjaOnline(item: com.example.data.BelanjaOnlineItem, onComplete: (Long) -> Unit = {}) {
+        viewModelScope.launch {
+            val id = if (item.id == 0) {
+                repository.insertBelanjaOnline(item)
+            } else {
+                repository.updateBelanjaOnline(item)
+                item.id.toLong()
+            }
+            onComplete(id)
+        }
+    }
+
+    fun deleteBelanjaOnline(item: com.example.data.BelanjaOnlineItem) {
+        viewModelScope.launch {
+            repository.deleteBelanjaOnline(item)
+        }
+    }
+
+    fun deleteBelanjaOnlineById(id: Int) {
+        viewModelScope.launch {
+            repository.deleteBelanjaOnlineById(id)
         }
     }
 

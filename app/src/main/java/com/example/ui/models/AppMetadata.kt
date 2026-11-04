@@ -12,6 +12,7 @@ import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.ShoppingCart
+import androidx.compose.material.icons.filled.ShoppingBag
 import androidx.compose.material.icons.filled.TrendingUp
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -29,6 +30,7 @@ object AppRegistry {
     val allAppsMap = mapOf(
         "sliding_puzzle" to AppMetadata("sliding_puzzle", "Puzzle Geser", Icons.Default.DashboardCustomize, Color(0xFFE65100), gameSection = "sliding_puzzle"),
         "rekap_belanja_pasar" to AppMetadata("rekap_belanja_pasar", "Rekap Belanja", Icons.Default.ShoppingCart, Color(0xFF10B981), route = "rekap_belanja_pasar"),
+        "belanja_online" to AppMetadata("belanja_online", "Belanja Online", Icons.Default.ShoppingBag, Color(0xFF7C3AED), route = "belanja_online"),
         "arisan_keluarga" to AppMetadata("arisan_keluarga", "Arisan Keluarga", Icons.Default.Groups, Color(0xFFF59E0B), route = "arisan_keluarga"),
         "quran" to AppMetadata("quran", "Al-Qur'an", Icons.AutoMirrored.Filled.MenuBook, Color(0xFF00796B), route = "quran"),
         "pembukuan_usaha" to AppMetadata("pembukuan_usaha", "Pembukuan", Icons.Default.TrendingUp, Color(0xFFD84315), route = "pembukuan_usaha"),
@@ -40,6 +42,6 @@ object AppRegistry {
         "jadwal_harian" to AppMetadata("jadwal_harian", "Jadwal Harian", Icons.Default.AccessTime, Color(0xFF43A047), route = "jadwal_harian")
     )
 
-    val defaultOrder = listOf("sliding_puzzle", "rekap_belanja_pasar", "arisan_keluarga", "quran", "pembukuan_usaha", "mindmap", "pemutar_musik", "block_puzzle", "tetris", "undian_spinner", "jadwal_harian")
+    val defaultOrder = listOf("sliding_puzzle", "rekap_belanja_pasar", "belanja_online", "arisan_keluarga", "quran", "pembukuan_usaha", "mindmap", "pemutar_musik", "block_puzzle", "tetris", "undian_spinner", "jadwal_harian")
 }
 

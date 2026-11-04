@@ -159,6 +159,24 @@ data class BelanjaPasarItem(
     val tanggal: String = "" // YYYY-MM-DD
 )
 
+@Entity(tableName = "belanja_online")
+data class BelanjaOnlineItem(
+    @PrimaryKey(autoGenerate = true) val id: Int = 0,
+    val tanggal: String = "", // YYYY-MM-DD (tanggal transaksi / checkout)
+    val marketplace: String = "", // Tokopedia, Shopee, Blibli, Lazada, dll.
+    val namaToko: String = "",
+    val namaBarang: String = "",
+    val kategori: String = "Kebutuhan Pokok", // Kebutuhan Pokok, Skincare, Elektronik, Hobi, Fashion, Perlengkapan Rumah, Lain-lain
+    val hargaBarang: Double = 0.0,
+    val ongkir: Double = 0.0,
+    val biayaLayanan: Double = 0.0,
+    val potongan: Double = 0.0, // voucher, diskon, koin cashback
+    val total: Double = 0.0, // hargaBarang + ongkir + biayaLayanan - potongan
+    val metodePembayaran: String = "Transfer Bank", // Transfer Bank, E-Wallet, Kartu Kredit, COD
+    val catatan: String = "",
+    val tanggalDibuat: Long = System.currentTimeMillis()
+)
+
 @Entity(tableName = "arisan_kelompok")
 data class ArisanKelompok(
     @PrimaryKey(autoGenerate = true) val id: Int = 0,

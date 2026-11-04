@@ -238,6 +238,30 @@ interface BelanjaPasarDao {
 }
 
 @Dao
+interface BelanjaOnlineDao {
+    @Query("SELECT * FROM belanja_online ORDER BY tanggal DESC, id DESC")
+    fun getAllBelanjaOnline(): Flow<List<BelanjaOnlineItem>>
+
+    @Query("SELECT * FROM belanja_online WHERE id = :id LIMIT 1")
+    suspend fun getById(id: Int): BelanjaOnlineItem?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertBelanjaOnline(item: BelanjaOnlineItem): Long
+
+    @Update
+    suspend fun updateBelanjaOnline(item: BelanjaOnlineItem)
+
+    @Delete
+    suspend fun deleteBelanjaOnline(item: BelanjaOnlineItem)
+
+    @Query("DELETE FROM belanja_online WHERE id = :id")
+    suspend fun deleteById(id: Int)
+
+    @Query("DELETE FROM belanja_online")
+    suspend fun deleteAll()
+}
+
+@Dao
 interface ArisanDao {
     // Kelompok
     @Query("SELECT * FROM arisan_kelompok ORDER BY id DESC")

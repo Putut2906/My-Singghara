@@ -45,6 +45,8 @@ import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.ShoppingCart
+import androidx.compose.material.icons.filled.ShoppingBag
+import androidx.compose.material.icons.outlined.ShoppingBag
 import androidx.compose.material.icons.filled.AccountBalanceWallet
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Person
@@ -2074,6 +2076,34 @@ fun MainAppContent(viewModel: MainViewModel, desktopMode: Boolean = false) {
                                     )
                                 )
 
+                                // Sub-item 5: Belanja Online
+                                val isBelanjaOnlineSelected = viewModel.currentRoute == "belanja_online"
+                                NavigationDrawerItem(
+                                    icon = {
+                                        Icon(
+                                            imageVector = if (isBelanjaOnlineSelected) Icons.Default.ShoppingBag else Icons.Outlined.ShoppingBag,
+                                            contentDescription = "Belanja Online",
+                                            tint = Color(0xFF7C3AED)
+                                        )
+                                    },
+                                    label = { Text(text = "Belanja Online", fontWeight = FontWeight.Medium, fontSize = 13.sp) },
+                                    selected = isBelanjaOnlineSelected,
+                                    onClick = {
+                                        viewModel.currentRoute = "belanja_online"
+                                        scope.launch { drawerState.close() }
+                                    },
+                                    shape = RoundedCornerShape(8.dp),
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 2.dp),
+                                    colors = NavigationDrawerItemDefaults.colors(
+                                        selectedContainerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.8f),
+                                        selectedTextColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                                        selectedIconColor = MaterialTheme.colorScheme.primary,
+                                        unselectedContainerColor = Color.Transparent,
+                                        unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                                    )
+                                )
+
                             }
                         }
                     }
@@ -3537,7 +3567,7 @@ fun MainAppContent(viewModel: MainViewModel, desktopMode: Boolean = false) {
                 }
             },
             bottomBar = {
-                val hideBottomBarRoutes = listOf("jurnal_umum", "buku_besar", "neraca_saldo", "jurnal_penyesuaian", "neraca_saldo_disesuaikan", "laba_rugi", "jurnal_penutup", "neraca_saldo_setelah_tutup", "pemutar_musik", "pemutar_video", "pembukuan_usaha", "semua_transaksi_belanja", "semua_catatan_tabungan", "preview_catatan", "immersive_file_viewer", "quran", "handy_talky", "telegram_ai")
+                val hideBottomBarRoutes = listOf("jurnal_umum", "buku_besar", "neraca_saldo", "jurnal_penyesuaian", "neraca_saldo_disesuaikan", "laba_rugi", "jurnal_penutup", "neraca_saldo_setelah_tutup", "pemutar_musik", "pemutar_video", "pembukuan_usaha", "semua_transaksi_belanja", "semua_catatan_tabungan", "preview_catatan", "immersive_file_viewer", "quran", "handy_talky", "telegram_ai", "belanja_online")
                 val isEditingNote = viewModel.currentRoute == "catatan" && viewModel.selectedNote != null
                 if (!desktopMode && viewModel.isBottomBarVisible && !hideBottomBarRoutes.contains(viewModel.currentRoute) && !isEditingNote) {
                     BottomNavBar(viewModel = viewModel)
@@ -3575,6 +3605,11 @@ fun MainAppContent(viewModel: MainViewModel, desktopMode: Boolean = false) {
                     when (route) {
                         "home" -> HomeScreen(viewModel = viewModel)
                         "rekap_belanja_pasar" -> RekapBelanjaPasarScreen(
+                            viewModel = viewModel,
+                            onBack = { viewModel.currentRoute = "home" },
+                            onOpenDrawer = { scope.launch { drawerState.open() } }
+                        )
+                        "belanja_online" -> BelanjaOnlineScreen(
                             viewModel = viewModel,
                             onBack = { viewModel.currentRoute = "home" },
                             onOpenDrawer = { scope.launch { drawerState.open() } }

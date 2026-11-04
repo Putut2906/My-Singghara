@@ -26,6 +26,7 @@ class LocalRepository(private val db: AppDatabase) {
     val presensiDao = db.presensiDao()
     val gajiDao = db.gajiDao()
     val belanjaPasarDao = db.belanjaPasarDao()
+    val belanjaOnlineDao = db.belanjaOnlineDao()
     val fcmNotificationDao = db.fcmNotificationDao()
     val arisanDao = db.arisanDao()
 
@@ -43,6 +44,7 @@ class LocalRepository(private val db: AppDatabase) {
     val allPresensi: Flow<List<RiwayatPresensi>> = presensiDao.getAllPresensi()
     val allGaji: Flow<List<GajiItem>> = gajiDao.getAllGaji()
     val allBelanjaPasarItems: Flow<List<BelanjaPasarItem>> = belanjaPasarDao.getAllBelanjaPasar()
+    val allBelanjaOnlineItems: Flow<List<BelanjaOnlineItem>> = belanjaOnlineDao.getAllBelanjaOnline()
     val allFcmNotifications: Flow<List<FcmNotification>> = fcmNotificationDao.getAllNotifications()
     val unreadFcmCount: Flow<Int> = fcmNotificationDao.getUnreadCount()
     val allArisanKelompok: Flow<List<ArisanKelompok>> = arisanDao.getAllKelompok()
@@ -132,6 +134,31 @@ class LocalRepository(private val db: AppDatabase) {
 
     suspend fun getBelanjaPasarById(id: Int): BelanjaPasarItem? = withContext(Dispatchers.IO) {
         belanjaPasarDao.getById(id)
+    }
+
+    // Belanja Online operations
+    suspend fun insertBelanjaOnline(item: BelanjaOnlineItem): Long = withContext(Dispatchers.IO) {
+        belanjaOnlineDao.insertBelanjaOnline(item)
+    }
+
+    suspend fun updateBelanjaOnline(item: BelanjaOnlineItem) = withContext(Dispatchers.IO) {
+        belanjaOnlineDao.updateBelanjaOnline(item)
+    }
+
+    suspend fun deleteBelanjaOnline(item: BelanjaOnlineItem) = withContext(Dispatchers.IO) {
+        belanjaOnlineDao.deleteBelanjaOnline(item)
+    }
+
+    suspend fun deleteBelanjaOnlineById(id: Int) = withContext(Dispatchers.IO) {
+        belanjaOnlineDao.deleteById(id)
+    }
+
+    suspend fun getBelanjaOnlineById(id: Int): BelanjaOnlineItem? = withContext(Dispatchers.IO) {
+        belanjaOnlineDao.getById(id)
+    }
+
+    suspend fun deleteAllBelanjaOnline() = withContext(Dispatchers.IO) {
+        belanjaOnlineDao.deleteAll()
     }
 
     // Gaji operations
@@ -281,6 +308,7 @@ class LocalRepository(private val db: AppDatabase) {
         val presensiList: List<RiwayatPresensi>? = null,
         val gajiList: List<GajiItem>? = null,
         val belanjaPasarList: List<BelanjaPasarItem>? = null,
+        val belanjaOnlineList: List<BelanjaOnlineItem>? = null,
         val arisanKelompokList: List<ArisanKelompok>? = null,
         val arisanPesertaList: List<ArisanPeserta>? = null,
         val arisanIuranList: List<ArisanIuran>? = null,
@@ -486,6 +514,7 @@ class LocalRepository(private val db: AppDatabase) {
         presensiList = allPresensi.first(),
         gajiList = allGaji.first(),
         belanjaPasarList = allBelanjaPasarItems.first(),
+        belanjaOnlineList = allBelanjaOnlineItems.first(),
         mySinggharaPrefs = getSharedPrefsMap(context, PREFS_MAIN),
         pembukuanUsahaPrefs = getSharedPrefsMap(context, PREFS_PEMBUKUAN),
         absensiPrefs = getSharedPrefsMap(context, PREFS_ABSENSI),
@@ -570,6 +599,10 @@ class LocalRepository(private val db: AppDatabase) {
             presensiDao.deleteAll()
             gajiDao.deleteAll()
             belanjaPasarDao.deleteAll()
+            // Field baru dibuat opsional agar cadangan versi lama tidak menghapus tabel ini.
+            if (backupObj.belanjaOnlineList != null) {
+                belanjaOnlineDao.deleteAll()
+            }
             // Field baru dibuat opsional agar berkas cadangan versi lama (tanpa field ini)
             // tidak menghapus data Arisan/Notifikasi yang sudah ada di perangkat.
             if (backupObj.arisanKelompokList != null) {
@@ -596,6 +629,7 @@ class LocalRepository(private val db: AppDatabase) {
             backupObj.presensiList?.forEach { presensiDao.insertPresensi(it) }
             backupObj.gajiList?.forEach { gajiDao.insertGaji(it) }
             backupObj.belanjaPasarList?.forEach { belanjaPasarDao.insertBelanjaPasar(it) }
+            backupObj.belanjaOnlineList?.forEach { belanjaOnlineDao.insertBelanjaOnline(it) }
             backupObj.arisanKelompokList?.forEach { arisanDao.insertKelompok(it) }
             backupObj.arisanPesertaList?.forEach { arisanDao.insertPeserta(it) }
             backupObj.arisanIuranList?.forEach { arisanDao.insertIuran(it) }
