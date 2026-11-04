@@ -10665,11 +10665,6 @@ class LocalHttpServer(
                     <span class="nav-text">Dashboard</span>
                 </div>
 
-                <div class="nav-link-item" onclick="switchTab('pemutar_video', this)" data-title="Pemutar Video">
-                    <i class="bi bi-camera-reels fs-5" style="color: var(--primary-color);"></i>
-                    <span class="nav-text">Pemutar Video</span>
-                </div>
-
                 <hr class="my-2 border-secondary opacity-25 sidebar-divider">
 
                 <!-- MENU MY APLIKASI -->
