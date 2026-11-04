@@ -794,8 +794,10 @@ object MusikWebScript {
                 '.music-now-playing-inner{max-width:480px;height:100%;margin:0 auto;display:flex;flex-direction:column;justify-content:space-between;padding:10px 14px 14px;overflow:hidden;}' +
                 '.np-center{flex:1 1 auto;min-height:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:clamp(8px,2.2vh,20px);}' +
                 '.np-bottom{flex:0 0 auto;}' +
-                '.np-art-card{width:min(320px,78vw,40vh);aspect-ratio:1/1;flex:0 1 auto;min-height:0;}' +
-                '.np-heading-row{display:flex;align-items:center;justify-content:center;gap:8px;flex:0 0 auto;}' +
+                '.np-art-card{width:min(380px,90vw,48vh);aspect-ratio:1/1;flex:0 1 auto;min-height:0;}' +
+                '.np-card-minimize{position:absolute;left:0;right:0;bottom:0;padding:10px 14px 12px;text-align:center;font-size:12px;font-weight:800;letter-spacing:1.2px;text-transform:uppercase;color:#fff;background:linear-gradient(to top,rgba(0,0,0,.65),rgba(0,0,0,0));cursor:pointer;user-select:none;z-index:6;}' +
+                '.np-card-minimize:active{filter:brightness(.85);}' +
+                '#musicLyricsScrollContainer{-webkit-mask-image:linear-gradient(to bottom,transparent 0,#000 18%,#000 82%,transparent 100%);mask-image:linear-gradient(to bottom,transparent 0,#000 18%,#000 82%,transparent 100%);scroll-behavior:smooth;}' +
                 '@media (max-width:900px){.music-dock-volume{display:none;}.music-dock-lyric{display:none;}.music-dock-optional{display:none;}}' +
                 '@media (max-width:768px){' +
                 '.music-global-dock{left:0 !important;padding:0 8px 8px;}' +
@@ -1506,20 +1508,29 @@ object MusikWebScript {
                         z-index: 100;
                     }
                     .lrc-line-item {
-                        padding: 8px 16px;
+                        padding: 10px 16px;
                         text-align: center;
-                        font-size: 13px;
+                        font-size: 14px;
                         color: var(--text-sub);
-                        transition: all 0.25s ease;
                         cursor: pointer;
                         border-radius: 8px;
+                        opacity: .45;
+                        transform: scale(.85);
+                        transform-origin: center;
+                        line-height: 1.5;
+                        transition: transform .45s cubic-bezier(.34,1.56,.64,1), font-size .35s ease, opacity .35s ease, color .35s ease, letter-spacing .35s ease;
                     }
                     .lrc-line-item.active-lrc-line {
-                        font-size: 16px;
+                        font-size: 18px;
                         font-weight: 800;
                         color: var(--brand-green) !important;
-                        transform: scale(1.1);
+                        opacity: 1;
+                        transform: scale(1.15);
                         background: var(--badge-bg);
+                        letter-spacing: .3px;
+                    }
+                    .lrc-line-item.active-lrc-line .lrc-word {
+                        transition: color .12s linear;
                     }
                     .music-marquee {
                         white-space: nowrap;
@@ -1962,19 +1973,11 @@ object MusikWebScript {
             return `
                 <div class="music-now-playing-inner">
                     <div class="np-center">
-                        <!-- BAGIAN TENGAH: SAMPUL ALBUM (CARD 1:1) / MODE LIRIK -->
+                        <!-- SAMPUL/LIRIK + overlay "Kini Memutar" (minimize) di dalam card -->
                         <div class="card card-custom p-0 mx-auto shadow-lg np-art-card"
                              id="musicCentralArtCard"
                              style="border-radius: 24px; position: relative; overflow: hidden; background: var(--surface-subtle); border: 1px solid var(--border-color);">
                             ${dol}{getCentralArtCardInnerHtml(currentTrack)}
-                        </div>
-
-                        <!-- CHEVRON PERKECIL + LABEL "KINI MEMUTAR" (di atas judul lagu) -->
-                        <div class="np-heading-row">
-                            <button class="btn btn-link text-body p-0" onclick="collapseMusicPlayerDeck()" title="Perkecil">
-                                <i class="bi bi-chevron-down fs-4"></i>
-                            </button>
-                            <span class="fw-bold" style="font-size: 13px; letter-spacing: 0.5px;">Kini Memutar</span>
                         </div>
 
                         <!-- TRACK METADATA (TITLE & ARTIST) -->
@@ -2120,7 +2123,7 @@ object MusikWebScript {
                                 </div>
                             </div>
 
-                            <div class="flex-grow-1 overflow-auto px-2 py-3" id="musicLyricsScrollContainer" style="min-height:0;">
+                            <div class="flex-grow-1 overflow-auto px-3" id="musicLyricsScrollContainer" style="min-height:0;padding-top:24%;padding-bottom:22%;">
                                 ${dol}{parsedLines.length === 0 ? `
                                     <div class="text-center text-secondary py-4" onclick="openLyricsEditMode()" style="cursor: pointer;">
                                         <i class="bi bi-file-earmark-music fs-2 d-block mb-2 opacity-50"></i>
@@ -2136,6 +2139,7 @@ object MusikWebScript {
                                 `).join('')}
                             </div>
                         </div>
+                        <div class="np-card-minimize" onclick="collapseMusicPlayerDeck()" title="Perkecil">Kini Memutar</div>
                     `;
                 }
             } else {
@@ -2169,6 +2173,7 @@ object MusikWebScript {
                             <i class="bi bi-camera-fill text-white fs-6"></i>
                         </button>
                     </div>
+                    <div class="np-card-minimize" onclick="collapseMusicPlayerDeck()" title="Perkecil">Kini Memutar</div>
                 `;
             }
         }
