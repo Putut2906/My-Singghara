@@ -1962,19 +1962,19 @@ object MusikWebScript {
             return `
                 <div class="music-now-playing-inner">
                     <div class="np-center">
+                        <!-- BAGIAN TENGAH: SAMPUL ALBUM (CARD 1:1) / MODE LIRIK -->
+                        <div class="card card-custom p-0 mx-auto shadow-lg np-art-card"
+                             id="musicCentralArtCard"
+                             style="border-radius: 24px; position: relative; overflow: hidden; background: var(--surface-subtle); border: 1px solid var(--border-color);">
+                            ${dol}{getCentralArtCardInnerHtml(currentTrack)}
+                        </div>
+
                         <!-- CHEVRON PERKECIL + LABEL "KINI MEMUTAR" (di atas judul lagu) -->
                         <div class="np-heading-row">
                             <button class="btn btn-link text-body p-0" onclick="collapseMusicPlayerDeck()" title="Perkecil">
                                 <i class="bi bi-chevron-down fs-4"></i>
                             </button>
                             <span class="fw-bold" style="font-size: 13px; letter-spacing: 0.5px;">Kini Memutar</span>
-                        </div>
-
-                        <!-- BAGIAN TENGAH: SAMPUL ALBUM (CARD 1:1) / MODE LIRIK -->
-                        <div class="card card-custom p-0 mx-auto shadow-lg np-art-card"
-                             id="musicCentralArtCard"
-                             style="border-radius: 24px; position: relative; overflow: hidden; background: var(--surface-subtle); border: 1px solid var(--border-color);">
-                            ${dol}{getCentralArtCardInnerHtml(currentTrack)}
                         </div>
 
                         <!-- TRACK METADATA (TITLE & ARTIST) -->
