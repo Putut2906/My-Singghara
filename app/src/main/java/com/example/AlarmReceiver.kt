@@ -20,6 +20,9 @@ class AlarmReceiver : BroadcastReceiver() {
             // Device rebooted, system clock changed, timezone changed, or app updated: reschedule all notifications
             Log.d("AlarmReceiver", "Rescheduling alarms on system trigger: $action")
             NotificationScheduler.scheduleAlarms(context)
+            // Re-register the periodic background check for new versions so the schedule
+            // survives a reboot and points at the freshly-installed package after an update.
+            com.example.update.UpdateCheckScheduler.ensurePeriodic(context)
             return
         }
 

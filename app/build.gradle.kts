@@ -119,6 +119,8 @@ dependencies {
     implementation("com.google.mlkit:barcode-scanning:17.3.0")
     implementation("com.google.mlkit:text-recognition:16.0.1")
     implementation("com.google.android.gms:play-services-auth:21.3.0")
+    // Worker periodik cek pembaruan versi GitHub tanpa perlu membuka aplikasi.
+    implementation("androidx.work:work-runtime-ktx:2.9.1")
     implementation(platform("com.google.firebase:firebase-bom:35.1.0"))
     implementation("com.google.firebase:firebase-auth")
     implementation("com.google.firebase:firebase-firestore")

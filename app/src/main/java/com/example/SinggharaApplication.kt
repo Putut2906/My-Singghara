@@ -11,6 +11,7 @@ class SinggharaApplication : Application() {
         super.onCreate()
         installCrashLogger()
         initFirebase()
+        com.example.update.UpdateCheckScheduler.ensurePeriodic(this)
     }
 
     private fun installCrashLogger() {
