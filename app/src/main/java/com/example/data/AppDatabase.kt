@@ -55,7 +55,7 @@ abstract class AppDatabase : RoomDatabase() {
         private var INSTANCE: AppDatabase? = null
 
         // v15 -> v16: kolom foto pada belanja_online
-        private val MIGRATION_15_16 = object : androidx.room.Migration(15, 16) {
+        private val MIGRATION_15_16 = object : androidx.room.migration.Migration(15, 16) {
             override fun migrate(db: SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE belanja_online ADD COLUMN foto TEXT NOT NULL DEFAULT ''")
             }
