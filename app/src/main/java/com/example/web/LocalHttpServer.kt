@@ -4914,9 +4914,16 @@ class LocalHttpServer(
         }
 
         descriptor.use { pfd ->
-            val statOffset = if (pfd.statOffset > 0L) pfd.statOffset else 0L
+            // ParcelFileDescriptor hanya exposes getStatSize(); posisi awal wilayah fd
+            // dibaca lewat fstat: provider yang membungkus sebagian berkas menyerahkan
+            // fd yang sudah di-seek ke awal konten, sehingga st_off adalah offset itu.
+            val statOffset = try {
+                android.system.Os.fstat(pfd.fileDescriptor).st_off.coerceAtLeast(0L)
+            } catch (_: Exception) {
+                0L
+            }
             val total = when {
-                pfd.statSize > 0L -> pfd.statSize
+                pfd.statSize > 0L -> (pfd.statSize - statOffset).coerceAtLeast(0L)
                 else -> withContext(Dispatchers.IO) { PhoneMediaScanner.sizeOf(context, type, id) }.coerceAtLeast(0L)
             }
             if (total <= 0L) {
@@ -5032,7 +5039,7 @@ class LocalHttpServer(
                 }
                 pfd.use {
                     payload.put("fdOpened", true)
-                    payload.put("statOffset", it.statOffset)
+                    payload.put("statOffset", try { android.system.Os.fstat(it.fileDescriptor).st_off } catch (_: Exception) { -1L })
                     payload.put("statSize", it.statSize)
                     try {
                         // Jangan tutup FileInputStream-nya: fd yang sama ditutup oleh pfd.use,
