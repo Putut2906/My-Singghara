@@ -1,6 +1,9 @@
 package com.example.ui.screens
 
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -15,10 +18,15 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.AddAPhoto
 import androidx.compose.material.icons.filled.CalendarMonth
+import androidx.compose.material.icons.filled.CameraAlt
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Event
+import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.ShoppingBag
@@ -33,6 +41,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
@@ -44,6 +53,10 @@ import androidx.compose.ui.window.DialogProperties
 import com.example.data.BelanjaOnlineItem
 import com.example.ui.MainViewModel
 import com.example.ui.components.CustomDatePickerDialog
+import com.google.accompanist.permissions.ExperimentalPermissionsApi
+import com.google.accompanist.permissions.isGranted
+import com.google.accompanist.permissions.rememberPermissionState
+import com.google.accompanist.permissions.shouldShowRationale
 import java.text.NumberFormat
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -430,6 +443,21 @@ private fun BelanjaOnlineRow(
                     )
                 }
             }
+            if (item.foto.isNotBlank()) {
+                Spacer(modifier = Modifier.height(8.dp))
+                Box(
+                    modifier = Modifier
+                        .size(96.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
+                ) {
+                    ProductPhotoThumbnail(
+                        photoData = item.foto,
+                        contentDescription = "Foto ${item.namaBarang}",
+                        modifier = Modifier.fillMaxSize()
+                    )
+                }
+            }
             Spacer(modifier = Modifier.height(8.dp))
             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
             Spacer(modifier = Modifier.height(8.dp))
@@ -487,12 +515,14 @@ private fun BelanjaOnlineRow(
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalPermissionsApi::class)
 @Composable
 fun AddEditBelanjaOnlineDialog(
     item: BelanjaOnlineItem?,
     onDismiss: () -> Unit,
     onSave: (BelanjaOnlineItem) -> Unit
 ) {
+    val context = LocalContext.current
     val idrFormat = remember {
         NumberFormat.getCurrencyInstance(Locale("id", "ID")).apply { maximumFractionDigits = 0 }
     }
@@ -510,15 +540,51 @@ fun AddEditBelanjaOnlineDialog(
     var potonganStr by remember { mutableStateOf(doubleFieldInitial(item?.potongan)) }
     var metodePembayaran by remember { mutableStateOf(item?.metodePembayaran ?: "Transfer Bank") }
     var catatan by remember { mutableStateOf(item?.catatan ?: "") }
+    var foto by remember { mutableStateOf(item?.foto ?: "") }
 
     var showMarketplaceMenu by remember { mutableStateOf(false) }
-    var showKategoriMenu by remember { mutableStateOf(false) }
-    var showMetodeMenu by remember { mutableStateOf(false) }
     var showDatePicker by remember { mutableStateOf(false) }
+    var showCameraPermissionDialog by remember { mutableStateOf(false) }
 
     val marketplaceOptions = listOf("Tokopedia", "Shopee", "Blibli", "Lazada", "Bukalapak", "Zalora", "Amazon", "Etsy", "Instagram Shop", "TikTok Shop", "Lainnya")
     val kategoriOptions = listOf("Kebutuhan Pokok", "Skincare", "Elektronik", "Hobi", "Fashion", "Perlengkapan Rumah", "Lain-lain")
-    val metodeOptions = listOf("Transfer Bank", "E-Wallet", "Kartu Kredit", "COD")
+    val metodeOptions = listOf(
+        "Transfer Bank",
+        "QRIS",
+        "E-Wallet (GoPay/OVO/Dana/ShopeePay)",
+        "Kartu Debit",
+        "Kartu Kredit",
+        "Paylater / Cicilan",
+        "COD",
+        "Tunai",
+        "Lainnya"
+    )
+
+    val cameraLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.TakePicturePreview()
+    ) { bitmap ->
+        if (bitmap != null) {
+            val b64 = compressBelanjaFotoToBase64(bitmap)
+            if (b64.isNotEmpty()) foto = b64
+        }
+    }
+    val galleryLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri ->
+        if (uri != null) {
+            val b64 = belanjaUriToCompressedBase64(context, uri)
+            if (b64.isNotEmpty()) foto = b64
+        }
+    }
+    val cameraPermission = rememberPermissionState(android.Manifest.permission.CAMERA)
+    var pendingCameraAfterGrant by remember { mutableStateOf(false) }
+    var cameraRequestCount by remember { mutableStateOf(0) }
+    LaunchedEffect(cameraPermission.status.isGranted) {
+        if (cameraPermission.status.isGranted && pendingCameraAfterGrant) {
+            pendingCameraAfterGrant = false
+            cameraLauncher.launch(null)
+        }
+    }
 
     val parsedHarga = hargaBarangStr.toDoubleSgp()
     val parsedOngkir = ongkirStr.toDoubleSgp()
@@ -640,31 +706,105 @@ fun AddEditBelanjaOnlineDialog(
                     Spacer(modifier = Modifier.height(10.dp))
 
                     // Kategori
-                    Box {
-                        OutlinedTextField(
-                            value = kategori,
-                            onValueChange = {},
-                            readOnly = true,
-                            label = { Text("Kategori Belanja") },
+                    ChoiceDropdownField(
+                        label = "Kategori Belanja",
+                        value = kategori,
+                        options = kategoriOptions,
+                        onOptionSelected = { kategori = it }
+                    )
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    // Foto barang (kamera / galeri)
+                    Text(
+                        "Foto Barang",
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = AccentPurple
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Surface(
                             modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable { showKategoriMenu = true },
-                            trailingIcon = {
-                                Icon(Icons.Default.KeyboardArrowDown, contentDescription = null)
-                            }
-                        )
-                        DropdownMenu(
-                            expanded = showKategoriMenu,
-                            onDismissRequest = { showKategoriMenu = false }
+                                .size(72.dp)
+                                .clip(RoundedCornerShape(12.dp)),
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f))
                         ) {
-                            kategoriOptions.forEach { opt ->
-                                DropdownMenuItem(
-                                    text = { Text(opt, fontSize = 13.sp) },
-                                    onClick = {
-                                        kategori = opt
-                                        showKategoriMenu = false
+                            if (foto.isNotBlank()) {
+                                Box(modifier = Modifier.fillMaxSize()) {
+                                    ProductPhotoThumbnail(
+                                        photoData = foto,
+                                        contentDescription = "Foto Barang",
+                                        modifier = Modifier.fillMaxSize()
+                                    )
+                                    IconButton(
+                                        onClick = { foto = "" },
+                                        modifier = Modifier
+                                            .align(Alignment.TopEnd)
+                                            .size(22.dp)
+                                            .background(Color.Black.copy(alpha = 0.6f), RoundedCornerShape(bottomStart = 8.dp))
+                                    ) {
+                                        Icon(
+                                            Icons.Default.Close,
+                                            contentDescription = "Hapus Foto",
+                                            tint = Color.White,
+                                            modifier = Modifier.size(14.dp)
+                                        )
                                     }
-                                )
+                                }
+                            } else {
+                                Box(
+                                    modifier = Modifier.fillMaxSize(),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        Icons.Default.AddAPhoto,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                                        modifier = Modifier.size(28.dp)
+                                    )
+                                }
+                            }
+                        }
+                        Column(
+                            modifier = Modifier.weight(1f),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            FilledTonalButton(
+                                onClick = {
+                                    when {
+                                        cameraPermission.status.isGranted -> cameraLauncher.launch(null)
+                                        cameraRequestCount > 0 && !cameraPermission.status.shouldShowRationale ->
+                                            showCameraPermissionDialog = true
+                                        else -> {
+                                            cameraRequestCount++
+                                            pendingCameraAfterGrant = true
+                                            cameraPermission.launchPermissionRequest()
+                                        }
+                                    }
+                                },
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(8.dp),
+                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
+                            ) {
+                                Icon(Icons.Default.CameraAlt, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Ambil Foto (Kamera)", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            }
+                            OutlinedButton(
+                                onClick = { galleryLauncher.launch("image/*") },
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(8.dp),
+                                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
+                            ) {
+                                Icon(Icons.Default.Image, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Spacer(modifier = Modifier.width(6.dp))
+                                Text("Pilih dari Galeri", fontSize = 12.sp)
                             }
                         }
                     }
@@ -752,34 +892,12 @@ fun AddEditBelanjaOnlineDialog(
                     Spacer(modifier = Modifier.height(10.dp))
 
                     // Metode pembayaran
-                    Box {
-                        OutlinedTextField(
-                            value = metodePembayaran,
-                            onValueChange = {},
-                            readOnly = true,
-                            label = { Text("Metode Pembayaran") },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable { showMetodeMenu = true },
-                            trailingIcon = {
-                                Icon(Icons.Default.KeyboardArrowDown, contentDescription = null)
-                            }
-                        )
-                        DropdownMenu(
-                            expanded = showMetodeMenu,
-                            onDismissRequest = { showMetodeMenu = false }
-                        ) {
-                            metodeOptions.forEach { opt ->
-                                DropdownMenuItem(
-                                    text = { Text(opt, fontSize = 13.sp) },
-                                    onClick = {
-                                        metodePembayaran = opt
-                                        showMetodeMenu = false
-                                    }
-                                )
-                            }
-                        }
-                    }
+                    ChoiceDropdownField(
+                        label = "Metode Pembayaran",
+                        value = metodePembayaran,
+                        options = metodeOptions,
+                        onOptionSelected = { metodePembayaran = it }
+                    )
 
                     Spacer(modifier = Modifier.height(10.dp))
 
@@ -819,6 +937,7 @@ fun AddEditBelanjaOnlineDialog(
                                     total = calculatedTotal,
                                     metodePembayaran = metodePembayaran,
                                     catatan = catatan.trim(),
+                                    foto = foto,
                                     tanggalDibuat = System.currentTimeMillis()
                                 )
                                 val saved = base.copy(
@@ -833,7 +952,8 @@ fun AddEditBelanjaOnlineDialog(
                                     potongan = parsedPotongan,
                                     total = calculatedTotal,
                                     metodePembayaran = metodePembayaran,
-                                    catatan = catatan.trim()
+                                    catatan = catatan.trim(),
+                                    foto = foto
                                 )
                                 onSave(saved)
                             },
@@ -859,6 +979,143 @@ fun AddEditBelanjaOnlineDialog(
                 showDatePicker = false
             }
         )
+    }
+
+    if (showCameraPermissionDialog) {
+        AlertDialog(
+            onDismissRequest = { showCameraPermissionDialog = false },
+            title = { Text("Izin Kamera Dibutuhkan") },
+            text = {
+                Text("Izin kamera pernah ditolak. Buka pengaturan aplikasi lalu aktifkan izin Kamera untuk mengambil foto langsung, atau gunakan tombol \"Pilih dari Galeri\".")
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    showCameraPermissionDialog = false
+                    try {
+                        val intent = android.content.Intent(
+                            android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                            android.net.Uri.parse("package:${context.packageName}")
+                        )
+                        context.startActivity(intent)
+                    } catch (_: Exception) {
+                    }
+                }) { Text("Buka Pengaturan") }
+            },
+            dismissButton = {
+                TextButton(onClick = { showCameraPermissionDialog = false }) { Text("Nanti") }
+            }
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ChoiceDropdownField(
+    label: String,
+    value: String,
+    options: List<String>,
+    modifier: Modifier = Modifier,
+    onOptionSelected: (String) -> Unit
+) {
+    var expanded by remember { mutableStateOf(false) }
+    Box(modifier = modifier.fillMaxWidth()) {
+        OutlinedCard(
+            onClick = { expanded = true },
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(12.dp),
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 14.dp, vertical = 14.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = value.ifBlank { "-- Pilih $label --" },
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Medium,
+                    color = if (value.isBlank())
+                        MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                    else
+                        MaterialTheme.colorScheme.onSurface
+                )
+                Icon(
+                    Icons.Default.KeyboardArrowDown,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+        DropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false }
+        ) {
+            options.forEach { opt ->
+                DropdownMenuItem(
+                    text = {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            if (opt == value) {
+                                Icon(
+                                    Icons.Default.Check,
+                                    contentDescription = null,
+                                    tint = AccentPurple,
+                                    modifier = Modifier.size(14.dp)
+                                )
+                                Spacer(modifier = Modifier.width(6.dp))
+                            }
+                            Text(opt, fontSize = 13.sp)
+                        }
+                    },
+                    onClick = {
+                        onOptionSelected(opt)
+                        expanded = false
+                    }
+                )
+            }
+        }
+    }
+}
+
+private fun compressBelanjaFotoToBase64(bitmap: android.graphics.Bitmap, maxSize: Int = 400): String {
+    return try {
+        val width = bitmap.width
+        val height = bitmap.height
+        val scale = if (width > maxSize || height > maxSize) {
+            val maxDim = Math.max(width, height).toFloat()
+            maxSize / maxDim
+        } else 1.0f
+        val targetW = (width * scale).toInt().coerceAtLeast(1)
+        val targetH = (height * scale).toInt().coerceAtLeast(1)
+        val scaledBmp = android.graphics.Bitmap.createScaledBitmap(bitmap, targetW, targetH, true)
+        val outputStream = java.io.ByteArrayOutputStream()
+        scaledBmp.compress(android.graphics.Bitmap.CompressFormat.JPEG, 80, outputStream)
+        val bytes = outputStream.toByteArray()
+        "data:image/jpeg;base64," + android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP)
+    } catch (_: Exception) {
+        ""
+    }
+}
+
+private fun belanjaUriToCompressedBase64(
+    context: android.content.Context,
+    uri: android.net.Uri,
+    maxSize: Int = 400
+): String {
+    return try {
+        val bitmap = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
+            val source = android.graphics.ImageDecoder.createSource(context.contentResolver, uri)
+            android.graphics.ImageDecoder.decodeBitmap(source) { decoder, _, _ ->
+                decoder.isMutableRequired = true
+            }
+        } else {
+            @Suppress("DEPRECATION")
+            android.provider.MediaStore.Images.Media.getBitmap(context.contentResolver, uri)
+        }
+        if (bitmap != null) compressBelanjaFotoToBase64(bitmap, maxSize) else ""
+    } catch (_: Exception) {
+        ""
     }
 }
 

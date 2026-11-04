@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
+import androidx.sqlite.db.SupportSQLiteDatabase
 
 @Database(
     entities = [
@@ -28,7 +29,7 @@ import androidx.room.RoomDatabase
         ArisanKasTransaksi::class,
         ArisanPemenangRiwayat::class
     ],
-    version = 15,
+    version = 16,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -53,6 +54,13 @@ abstract class AppDatabase : RoomDatabase() {
         @Volatile
         private var INSTANCE: AppDatabase? = null
 
+        // v15 -> v16: kolom foto pada belanja_online
+        private val MIGRATION_15_16 = object : androidx.room.Migration(15, 16) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE belanja_online ADD COLUMN foto TEXT NOT NULL DEFAULT ''")
+            }
+        }
+
         fun getDatabase(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -60,6 +68,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "my_singghara_database"
                 )
+                .addMigrations(MIGRATION_15_16)
                 .fallbackToDestructiveMigration()
                 .build()
                 INSTANCE = instance

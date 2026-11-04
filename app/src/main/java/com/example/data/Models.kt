@@ -1,5 +1,6 @@
 package com.example.data
 
+import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.PrimaryKey
 
@@ -172,8 +173,9 @@ data class BelanjaOnlineItem(
     val biayaLayanan: Double = 0.0,
     val potongan: Double = 0.0, // voucher, diskon, koin cashback
     val total: Double = 0.0, // hargaBarang + ongkir + biayaLayanan - potongan
-    val metodePembayaran: String = "Transfer Bank", // Transfer Bank, E-Wallet, Kartu Kredit, COD
+    val metodePembayaran: String = "Transfer Bank", // Transfer Bank, QRIS, E-Wallet, Kartu Debit, Kartu Kredit, Paylater/Cicilan, COD, Tunai, Lainnya
     val catatan: String = "",
+    @ColumnInfo(defaultValue = "") val foto: String = "", // base64 jpeg atau URI foto barang
     val tanggalDibuat: Long = System.currentTimeMillis()
 )
 
