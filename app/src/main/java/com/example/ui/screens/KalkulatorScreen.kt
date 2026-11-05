@@ -1,34 +1,73 @@
 package com.example.ui.screens
 
+import android.content.Context
+import android.media.AudioManager
+import android.view.HapticFeedbackConstants
+import android.view.View
 import androidx.activity.compose.BackHandler
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.LocalIndication
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Calculate
 import androidx.compose.material.icons.filled.Functions
+import androidx.compose.material.icons.filled.VolumeOff
+import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.ui.MainViewModel
 import kotlin.math.abs
 import kotlin.math.floor
+import kotlin.math.sqrt
 
 private val AccentBlue = Color(0xFF0EA5E9)
 
 private enum class CalcMode { BIASA, ILMIAH }
+
+private enum class AngleUnit { DEG, RAD, GRAD }
+
+private fun AngleUnit.next(): AngleUnit = when (this) {
+    AngleUnit.DEG -> AngleUnit.RAD
+    AngleUnit.RAD -> AngleUnit.GRAD
+    AngleUnit.GRAD -> AngleUnit.DEG
+}
+
+// label = teks pada tombol, token = teks yang masuk ke ekspresi.
+// altLabel/altToken dipakai ketika lapisan SHIFT aktif.
+private data class SciKey(
+    val label: String,
+    val token: String,
+    val altLabel: String? = null,
+    val altToken: String = token
+)
+
+private data class KeyCap(val label: String, val token: String)
+
+private val TransformOriginRight = androidx.compose.ui.unit.TransformOrigin(1f, 0.5f)
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -40,17 +79,61 @@ fun KalkulatorScreen(
     BackHandler(onBack = onBack)
 
     var expression by remember { mutableStateOf("") }
+    var prevFormula by remember { mutableStateOf("") }
     var lastResult by remember { mutableStateOf("") }
     var lastRaw by remember { mutableStateOf<String?>(null) }
     var error by remember { mutableStateOf(false) }
+    var errorTick by remember { mutableStateOf(0) }
     var mode by remember { mutableStateOf(CalcMode.BIASA) }
-    var useDegrees by remember { mutableStateOf(true) }
+    var unit by remember { mutableStateOf(AngleUnit.DEG) }
+    var shiftOn by remember { mutableStateOf(false) }
 
-    val sciKeyRows = remember {
+    var ansVal by remember { mutableStateOf(0.0) }
+    var memVal by remember { mutableStateOf<Double?>(null) }
+    var varA by remember { mutableStateOf(0.0) }
+    var stats by remember { mutableStateOf(listOf<Double>()) }
+    var hint by remember { mutableStateOf("") }
+    // Setelah aksi yang memakai nilai (M+, M-, STO, D+, tombol statistik),
+    // angka berikutnya harus memulai entri baru, bukan menempel.
+    var freshEntry by remember { mutableStateOf(false) }
+
+    val sciKeys = remember {
         listOf(
-            listOf("sin(", "cos(", "tan(", "√(", "^"),
-            listOf("asin(", "acos(", "atan(", "ln(", "log("),
-            listOf("(", ")", "π", "e", "!")
+            listOf(
+                SciKey("SHIFT", "SHIFT"),
+                SciKey("x²", "²", "2ˣ", "2^("),
+                SciKey("x³", "³", "3ˣ", "3^("),
+                SciKey("xʸ", "^(", "logb(", "logb("),
+                SciKey("√", "√(", "|x|", "abs(")
+            ),
+            listOf(
+                SciKey("sin", "sin(", "sin⁻¹", "asin("),
+                SciKey("cos", "cos(", "cos⁻¹", "acos("),
+                SciKey("tan", "tan(", "tan⁻¹", "atan("),
+                SciKey("log", "log(", "10ˣ", "10^("),
+                SciKey("ln", "ln(", "eˣ", "e^(")
+            ),
+            listOf(
+                SciKey("sinh", "sinh(", "asinh", "asinh("),
+                SciKey("cosh", "cosh(", "acosh", "acosh("),
+                SciKey("tanh", "tanh(", "atanh", "atanh("),
+                SciKey("ⁿ√", "root("),
+                SciKey("∛", "∛(")
+            ),
+            listOf(
+                SciKey("(", "("),
+                SciKey(")", ")"),
+                SciKey("π", "π"),
+                SciKey("e", "e"),
+                SciKey("EXP", "×10^(")
+            ),
+            listOf(
+                SciKey("1/x", "⁻¹"),
+                SciKey("x!", "!"),
+                SciKey(",", ","),
+                SciKey("mod", "mod("),
+                SciKey("ANS", "Ans")
+            )
         )
     }
 
@@ -65,55 +148,157 @@ fun KalkulatorScreen(
         }
     }
 
-    fun handleKey(token: String) {
+    fun evalNow(): Double? {
+        val src = carrySource(expression)
+        if (src.isBlank()) return null
+        return runCatching { evaluateExpression(src, unit, ansVal, memVal ?: 0.0, varA) }
+            .getOrNull()?.takeIf { it.isFinite() }
+    }
+
+    val live = remember(expression, unit, lastRaw, ansVal, memVal, varA) { evalNow() }
+    val liveText = if (live != null) formatCalcResult(live) else ""
+    val liveFraction = if (live != null) fractionHint(live) ?: "" else ""
+
+    // 0 = tombol biasa, 1 = gagal, 2 = hasil
+    fun handleKey(token: String): Int {
         when (token) {
-            "C" -> { expression = ""; lastResult = ""; lastRaw = null; error = false }
+            "C" -> {
+                expression = ""
+                prevFormula = ""
+                lastResult = ""
+                lastRaw = null
+                error = false
+                hint = ""
+                freshEntry = false
+            }
             "BS" -> {
                 lastRaw = null
+                hint = ""
+                freshEntry = false
                 if (error) {
                     expression = ""
                     error = false
                 } else {
-                    val multiToken = listOf("asin(", "acos(", "atan(", "sin(", "cos(", "tan(", "log(", "ln(", "√(")
-                        .firstOrNull { expression.endsWith(it) }
-                    expression = if (multiToken != null) expression.dropLast(multiToken.length)
-                    else expression.dropLast(1)
+                    expression = dropOneToken(expression)
                 }
             }
             "EQ" -> {
                 val expr = prepareExpression(carrySource(expression))
                 val result = if (expr.isBlank()) null
-                else runCatching { evaluateExpression(expr, useDegrees) }.getOrNull()
+                else runCatching { evaluateExpression(expr, unit, ansVal, memVal ?: 0.0, varA) }.getOrNull()
                 if (result != null && result.isFinite()) {
                     val formatted = formatCalcResult(result)
+                    if (expression.isNotBlank()) prevFormula = "$expression ="
+                    ansVal = result
                     expression = formatted
                     lastResult = formatted
                     lastRaw = result.toString()
                     error = false
-                } else if (expr.isNotBlank()) {
-                    error = true
+                    hint = ""
+                    shiftOn = false
+                    freshEntry = false
+                    return 2
                 }
+                if (expr.isNotBlank()) {
+                    error = true
+                    errorTick++
+                }
+                return 1
             }
+            "MC" -> {
+                memVal = null
+                hint = "Memori kosong"
+            }
+            "M+" -> {
+                val v = evalNow() ?: return 1
+                val total = (memVal ?: 0.0) + v
+                memVal = total
+                hint = "M = ${formatCalcResult(total)}"
+                freshEntry = true
+            }
+            "M-" -> {
+                val v = evalNow() ?: return 1
+                val total = (memVal ?: 0.0) - v
+                memVal = total
+                hint = "M = ${formatCalcResult(total)}"
+                freshEntry = true
+            }
+            "STO" -> {
+                val v = evalNow() ?: return 1
+                varA = v
+                hint = "Simpan A = ${formatCalcResult(v)}"
+                freshEntry = true
+            }
+            "D+" -> {
+                val v = evalNow() ?: return 1
+                stats = stats + v
+                hint = "Data n = ${stats.size}"
+                freshEntry = true
+            }
+            "CL" -> {
+                stats = emptyList()
+                hint = "Data dihapus"
+            }
+            "SHIFT" -> shiftOn = !shiftOn
             else -> {
                 if (error) {
                     expression = ""
                     error = false
                 }
+                hint = ""
                 // ketikan baru setelah hasil: mulai dari nol, bukan menempel
                 if (lastRaw != null && expression == lastResult && startsOperand(token)) {
                     expression = ""
                     lastResult = ""
                     lastRaw = null
                 }
-                expression += token
+                if (freshEntry && startsOperand(token)) {
+                    expression = ""
+                    lastResult = ""
+                    lastRaw = null
+                }
+                freshEntry = false
+                if (token in statKeys) {
+                    val v = statValue(token, stats) ?: return 1
+                    expression += formatCalcResult(v)
+                    freshEntry = true
+                } else {
+                    val tail = if (expression.isEmpty()) null else expression[expression.length - 1]
+                    // "Ans" lalu fungsi tidak boleh menyatu jadi kata baru
+                    if (tail != null && isAsciiLetter(tail) && isAsciiLetter(token.firstOrNull() ?: ' ')) {
+                        expression += "×"
+                    }
+                    expression += token
+                }
             }
         }
+        if (token != "SHIFT") shiftOn = false
+        return 0
     }
 
-    val liveResult = remember(expression, useDegrees, lastRaw) {
-        val src = carrySource(expression)
-        if (src.isBlank()) ""
-        else runCatching { formatCalcResult(evaluateExpression(src, useDegrees)) }.getOrDefault("")
+    val view = LocalView.current
+    val context = LocalContext.current
+    val prefs = remember { context.getSharedPreferences("calc_prefs", Context.MODE_PRIVATE) }
+    var soundOn by remember { mutableStateOf(prefs.getBoolean("key_sound", true)) }
+    LaunchedEffect(soundOn) { prefs.edit().putBoolean("key_sound", soundOn).apply() }
+
+    fun feedback(code: Int) {
+        if (soundOn) {
+            val effect = when (code) {
+                1 -> AudioManager.FX_KEYPRESS_INVALID
+                2 -> AudioManager.FX_KEYPRESS_RETURN
+                else -> AudioManager.FX_KEY_CLICK
+            }
+            view.playSoundEffect(effect)
+        }
+        view.performHapticFeedback(
+            if (code == 1) HapticFeedbackConstants.LONG_PRESS else HapticFeedbackConstants.VIRTUAL_KEY,
+            HapticFeedbackConstants.FLAG_IGNORE_GLOBAL_SETTING
+        )
+    }
+
+    fun press(token: String) {
+        feedback(handleKey(token))
     }
 
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
@@ -129,22 +314,24 @@ fun KalkulatorScreen(
             }
         }
 
+        val scientific = mode == CalcMode.ILMIAH
+
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(horizontal = 14.dp)
-                .padding(top = 10.dp, bottom = 12.dp)
+                .padding(horizontal = 12.dp)
+                .padding(top = 8.dp, bottom = 10.dp)
         ) {
             // Header
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(bottom = 8.dp),
+                    .padding(bottom = 6.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Box(
                     modifier = Modifier
-                        .size(42.dp)
+                        .size(38.dp)
                         .clip(CircleShape)
                         .background(AccentBlue.copy(alpha = 0.15f)),
                     contentAlignment = Alignment.Center
@@ -153,84 +340,156 @@ fun KalkulatorScreen(
                         imageVector = Icons.Default.Calculate,
                         contentDescription = null,
                         tint = AccentBlue,
-                        modifier = Modifier.size(24.dp)
+                        modifier = Modifier.size(22.dp)
                     )
                 }
-                Spacer(modifier = Modifier.width(12.dp))
+                Spacer(modifier = Modifier.width(10.dp))
                 Text(
                     "Kalkulator",
                     fontWeight = FontWeight.Bold,
                     fontSize = 18.sp,
                     color = MaterialTheme.colorScheme.onSurface
                 )
+                Spacer(modifier = Modifier.weight(1f))
+                if (stats.isNotEmpty()) {
+                    Text(
+                        "n=${stats.size}",
+                        fontSize = 11.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.width(6.dp))
+                }
+                MiniToolButton(
+                    onClick = { soundOn = !soundOn },
+                    active = soundOn,
+                    contentDescription = "Efek suara dan getar"
+                ) { fg ->
+                    Icon(
+                        imageVector = if (soundOn) Icons.Default.VolumeUp else Icons.Default.VolumeOff,
+                        contentDescription = null,
+                        tint = fg,
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
             }
 
-            if (isLandscape && mode == CalcMode.ILMIAH) {
-                // Lanskap ilmiah: panel fungsi di kiri, keypad di kanan
+            if (isLandscape && scientific) {
+                // Lanskap ilmiah: panel fungsi di kiri, papan angka di kanan
                 Row(modifier = Modifier.fillMaxSize()) {
                     Column(
                         modifier = Modifier
                             .weight(1f)
-                            .fillMaxHeight()
-                            .verticalScroll(rememberScrollState()),
-                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                            .fillMaxHeight(),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
-                        SciKeyPanel(sciKeyRows) { handleKey(it) }
+                        MemStrip(
+                            modifier = Modifier
+                                .weight(0.6f)
+                                .fillMaxWidth(),
+                            memActive = memVal != null,
+                            onKey = { press(it) }
+                        )
+                        SciKeyPanel(
+                            modifier = Modifier
+                                .weight(3.4f)
+                                .fillMaxWidth(),
+                            keys = sciKeys,
+                            shiftOn = shiftOn,
+                            onKey = { press(it) }
+                        )
+                        StatsStrip(
+                            modifier = Modifier
+                                .weight(0.6f)
+                                .fillMaxWidth(),
+                            hasData = stats.isNotEmpty(),
+                            onKey = { press(it) }
+                        )
                     }
                     Column(
                         modifier = Modifier
-                            .weight(1.5f)
+                            .weight(1.4f)
                             .fillMaxHeight()
                             .padding(start = 8.dp)
                     ) {
                         DisplayCard(
                             expression = expression,
-                            liveResult = liveResult,
-                            error = error,
+                            prevFormula = prevFormula,
+                            liveResult = liveText,
+                            fraction = liveFraction,
+                            hint = hint,
                             lastResult = lastResult,
+                            error = error,
+                            errorTick = errorTick,
                             scientific = true,
-                            useDegrees = useDegrees,
+                            unit = unit,
+                            memActive = memVal != null,
+                            varActive = varA != 0.0,
+                            shiftOn = shiftOn,
                             onToggleMode = { mode = CalcMode.BIASA },
-                            onToggleUnit = { useDegrees = !useDegrees }
+                            onCycleUnit = { unit = unit.next() }
                         )
                         MainKeypad(
                             modifier = Modifier
                                 .weight(1f)
-                                .padding(top = 8.dp),
-                            onKey = { handleKey(it) }
+                                .padding(top = 6.dp),
+                            onKey = { press(it) }
                         )
                     }
                 }
             } else {
-                Column(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .verticalScroll(rememberScrollState())
-                ) {
-                    DisplayCard(
-                        expression = expression,
-                        liveResult = liveResult,
-                        error = error,
-                        lastResult = lastResult,
-                        scientific = mode == CalcMode.ILMIAH,
-                        useDegrees = useDegrees,
-                        onToggleMode = {
-                            mode = if (mode == CalcMode.BIASA) CalcMode.ILMIAH else CalcMode.BIASA
-                        },
-                        onToggleUnit = { useDegrees = !useDegrees }
-                    )
-                    if (mode == CalcMode.ILMIAH) {
-                        Spacer(modifier = Modifier.height(8.dp))
-                        SciKeyPanel(sciKeyRows) { handleKey(it) }
-                    }
-                    Spacer(modifier = Modifier.height(8.dp))
-                    MainKeypad(
+                DisplayCard(
+                    expression = expression,
+                    prevFormula = prevFormula,
+                    liveResult = liveText,
+                    fraction = liveFraction,
+                    hint = hint,
+                    lastResult = lastResult,
+                    error = error,
+                    errorTick = errorTick,
+                    scientific = scientific,
+                    unit = unit,
+                    memActive = memVal != null,
+                    varActive = varA != 0.0,
+                    shiftOn = shiftOn,
+                    onToggleMode = {
+                        mode = if (mode == CalcMode.BIASA) CalcMode.ILMIAH else CalcMode.BIASA
+                    },
+                    onCycleUnit = { unit = unit.next() }
+                )
+                if (scientific) {
+                    Spacer(modifier = Modifier.height(6.dp))
+                    MemStrip(
                         modifier = Modifier
-                            .fillMaxWidth()
-                            .height(340.dp),
-                        onKey = { handleKey(it) }
+                            .weight(0.58f)
+                            .fillMaxWidth(),
+                        memActive = memVal != null,
+                        onKey = { press(it) }
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                    SciKeyPanel(
+                        modifier = Modifier
+                            .weight(3.9f)
+                            .fillMaxWidth(),
+                        keys = sciKeys,
+                        shiftOn = shiftOn,
+                        onKey = { press(it) }
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+                    StatsStrip(
+                        modifier = Modifier
+                            .weight(0.58f)
+                            .fillMaxWidth(),
+                        hasData = stats.isNotEmpty(),
+                        onKey = { press(it) }
                     )
                 }
+                Spacer(modifier = Modifier.height(6.dp))
+                MainKeypad(
+                    modifier = Modifier
+                        .weight(if (scientific) 5f else 7.2f)
+                        .fillMaxWidth(),
+                    onKey = { press(it) }
+                )
             }
         }
     }
@@ -239,25 +498,63 @@ fun KalkulatorScreen(
 @Composable
 private fun DisplayCard(
     expression: String,
+    prevFormula: String,
     liveResult: String,
+    fraction: String,
+    hint: String,
     lastResult: String,
     error: Boolean,
+    errorTick: Int,
     scientific: Boolean,
-    useDegrees: Boolean,
+    unit: AngleUnit,
+    memActive: Boolean,
+    varActive: Boolean,
+    shiftOn: Boolean,
     onToggleMode: () -> Unit,
-    onToggleUnit: () -> Unit
+    onCycleUnit: () -> Unit
 ) {
+    // Geser kiri-kanan singkat saat pernyataan salah
+    val shake = remember { Animatable(0f) }
+    LaunchedEffect(errorTick) {
+        if (errorTick > 0) {
+            shake.snapTo(0f)
+            shake.animateTo(-9f, tween(45))
+            shake.animateTo(9f, tween(70))
+            shake.animateTo(-5f, tween(70))
+            shake.animateTo(0f, tween(60))
+        }
+    }
+    // Hasil muncul dengan efek pop kecil
+    val pop = remember { Animatable(1f) }
+    LaunchedEffect(lastResult) {
+        if (lastResult.isNotEmpty()) {
+            pop.snapTo(0.9f)
+            pop.animateTo(1f, spring(dampingRatio = 0.42f, stiffness = 520f))
+        }
+    }
+
     Surface(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(18.dp),
         color = AccentBlue.copy(alpha = 0.08f)
     ) {
-        Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
-            // Alat kecil di dalam papan: mode ilmiah + DEG/RAD
+        Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp)) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 verticalAlignment = Alignment.CenterVertically
             ) {
+                if (shiftOn) {
+                    ChipText("SHIFT")
+                    Spacer(modifier = Modifier.width(5.dp))
+                }
+                if (memActive) {
+                    ChipText("M")
+                    Spacer(modifier = Modifier.width(5.dp))
+                }
+                if (varActive) {
+                    ChipText("A")
+                    Spacer(modifier = Modifier.width(5.dp))
+                }
                 Spacer(modifier = Modifier.weight(1f))
                 MiniToolButton(
                     onClick = onToggleMode,
@@ -274,33 +571,74 @@ private fun DisplayCard(
                 if (scientific) {
                     Spacer(modifier = Modifier.width(6.dp))
                     MiniToolButton(
-                        onClick = onToggleUnit,
-                        active = false,
-                        contentDescription = "Derajat atau radian"
+                        onClick = onCycleUnit,
+                        active = unit != AngleUnit.RAD,
+                        contentDescription = "Derajat, radian, atau gradian"
                     ) { fg ->
-                        Text(
-                            if (useDegrees) "DEG" else "RAD",
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = fg
-                        )
+                        Text(unit.name, fontSize = 10.sp, fontWeight = FontWeight.Bold, color = fg)
                     }
                 }
             }
+
+            // Baris 1: rumus yang sudah dihitung
+            if (prevFormula.isNotEmpty()) {
+                val prevScroll = rememberScrollState()
+                LaunchedEffect(prevFormula) { prevScroll.scrollTo(prevScroll.maxValue) }
+                Text(
+                    text = prevFormula,
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .horizontalScroll(prevScroll)
+                )
+            }
+
+            // Baris 2: ekspresi yang sedang diketik
             val scrollState = rememberScrollState()
             LaunchedEffect(expression) { scrollState.scrollTo(scrollState.maxValue) }
             Text(
                 text = expression.ifBlank { lastResult.ifBlank { "0" } },
-                fontSize = if (expression.length > 18) 22.sp else 30.sp,
+                fontSize = when {
+                    expression.length > 26 -> 18.sp
+                    expression.length > 18 -> 23.sp
+                    else -> 29.sp
+                },
                 fontWeight = FontWeight.Bold,
                 color = if (error) MaterialTheme.colorScheme.error
                 else MaterialTheme.colorScheme.onSurface,
                 maxLines = 1,
                 modifier = Modifier
+                    .offset { IntOffset(shake.value.toInt(), 0) }
                     .fillMaxWidth()
                     .horizontalScroll(scrollState)
             )
-            Spacer(modifier = Modifier.height(2.dp))
+
+            // Baris 3: keterangan memori/statistik dan bentuk pecahan
+            if (hint.isNotEmpty()) {
+                Text(
+                    text = hint,
+                    fontSize = 11.sp,
+                    color = AccentBlue,
+                    maxLines = 1,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+            if (fraction.isNotEmpty()) {
+                Text(
+                    text = "= $fraction",
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    modifier = Modifier.fillMaxWidth(),
+                    textAlign = TextAlign.End
+                )
+            }
+
+            // Baris terakhir: hasil
+            val outScroll = rememberScrollState()
+            LaunchedEffect(liveResult) { outScroll.scrollTo(outScroll.maxValue) }
             Text(
                 text = when {
                     error -> "Pernyataan salah"
@@ -308,14 +646,31 @@ private fun DisplayCard(
                     liveResult.isNotBlank() && liveResult != expression -> "= $liveResult"
                     else -> " "
                 },
-                fontSize = 14.sp,
+                fontSize = 16.sp,
+                fontWeight = FontWeight.SemiBold,
                 color = if (error) MaterialTheme.colorScheme.error
                 else MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.End,
                 maxLines = 1,
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier
+                    .scale(pop.value, TransformOriginRight)
+                    .fillMaxWidth()
+                    .horizontalScroll(outScroll)
             )
         }
+    }
+}
+
+@Composable
+private fun ChipText(text: String) {
+    val fg = MaterialTheme.colorScheme.onSurfaceVariant
+    Box(
+        modifier = Modifier
+            .clip(RoundedCornerShape(6.dp))
+            .background(fg.copy(alpha = 0.12f))
+            .padding(horizontal = 5.dp, vertical = 1.dp)
+    ) {
+        Text(text, fontSize = 9.sp, fontWeight = FontWeight.Bold, color = fg)
     }
 }
 
@@ -341,26 +696,102 @@ private fun MiniToolButton(
 }
 
 @Composable
-private fun SciKeyPanel(rows: List<List<String>>, onKey: (String) -> Unit) {
-    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        rows.forEach { row ->
+private fun SciKeyPanel(
+    modifier: Modifier = Modifier,
+    keys: List<List<SciKey>>,
+    shiftOn: Boolean,
+    onKey: (String) -> Unit
+) {
+    val neutralBg = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.32f)
+    Column(
+        modifier = modifier,
+        verticalArrangement = Arrangement.spacedBy(5.dp)
+    ) {
+        keys.forEach { row ->
             Row(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .height(42.dp),
-                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    .weight(1f)
+                    .fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(5.dp)
             ) {
                 row.forEach { key ->
+                    val label = if (shiftOn) key.altLabel ?: key.label else key.label
+                    val token = if (shiftOn) key.altToken else key.token
+                    val isShift = key.token == "SHIFT"
                     CalcKey(
-                        label = key,
+                        label = label,
                         modifier = Modifier.weight(1f),
-                        bg = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
-                        fg = AccentBlue,
-                        fontSize = 13,
-                        onClick = { onKey(key) }
+                        bg = when {
+                            isShift && shiftOn -> AccentBlue
+                            isShift -> AccentBlue.copy(alpha = 0.18f)
+                            else -> neutralBg
+                        },
+                        fg = if (isShift && shiftOn) Color.White else AccentBlue,
+                        fontSize = if (label.length > 4) 11 else 13,
+                        onClick = { onKey(token) }
                     )
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun MemStrip(
+    modifier: Modifier = Modifier,
+    memActive: Boolean,
+    onKey: (String) -> Unit
+) {
+    val keys = remember {
+        listOf(
+            KeyCap("MC", "MC"), KeyCap("MR", "M"), KeyCap("M+", "M+"),
+            KeyCap("M−", "M-"), KeyCap("STO", "STO"), KeyCap("RCL", "A")
+        )
+    }
+    Row(
+        modifier = modifier,
+        horizontalArrangement = Arrangement.spacedBy(5.dp)
+    ) {
+        keys.forEach { cap ->
+            CalcKey(
+                label = cap.label,
+                modifier = Modifier.weight(1f),
+                bg = if (cap.token == "M" && memActive) AccentBlue.copy(alpha = 0.2f)
+                else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.28f),
+                fg = AccentBlue,
+                fontSize = 12,
+                onClick = { onKey(cap.token) }
+            )
+        }
+    }
+}
+
+@Composable
+private fun StatsStrip(
+    modifier: Modifier = Modifier,
+    hasData: Boolean,
+    onKey: (String) -> Unit
+) {
+    val keys = remember {
+        listOf(
+            KeyCap("D+", "D+"), KeyCap("n", "n"), KeyCap("Σx", "sum"),
+            KeyCap("Σx²", "sumsq"), KeyCap("x̄", "mean"), KeyCap("σx", "sigp"),
+            KeyCap("sx", "sigs"), KeyCap("CL", "CL")
+        )
+    }
+    Row(
+        modifier = modifier,
+        horizontalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        keys.forEach { cap ->
+            CalcKey(
+                label = cap.label,
+                modifier = Modifier.weight(1f),
+                bg = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.28f),
+                fg = if (hasData) AccentBlue else MaterialTheme.colorScheme.onSurfaceVariant,
+                fontSize = 11,
+                onClick = { onKey(cap.token) }
+            )
         }
     }
 }
@@ -404,7 +835,7 @@ private fun MainKeypad(modifier: Modifier = Modifier, onKey: (String) -> Unit) {
         KeypadRow(modifier = Modifier.weight(1f)) {
             CalcKey("0", modifier = Modifier.weight(2f), bg = numBg, fg = numFg, onClick = { onKey("0") })
             CalcKey(".", modifier = Modifier.weight(1f), bg = numBg, fg = numFg, onClick = { onKey(".") })
-            CalcKey("=", modifier = Modifier.weight(1f), bg = AccentBlue, fg = Color.White, onClick = { onKey("EQ") })
+            CalcKey("=", modifier = Modifier.weight(1f), bg = AccentBlue, fg = Color.White, fontSize = 30, onClick = { onKey("EQ") })
         }
     }
 }
@@ -428,24 +859,42 @@ private fun CalcKey(
     modifier: Modifier = Modifier,
     bg: Color = MaterialTheme.colorScheme.surfaceVariant,
     fg: Color = MaterialTheme.colorScheme.onSurface,
-    fontSize: Int = 20
+    fontSize: Int = 26
 ) {
+    val interaction = remember { MutableInteractionSource() }
+    val pressed by interaction.collectIsPressedAsState()
+    val scale by animateFloatAsState(
+        targetValue = if (pressed) 0.93f else 1f,
+        animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = 900f),
+        label = "keyScale"
+    )
+    val tint = MaterialTheme.colorScheme.onSurface
     Box(
         modifier = modifier
             .fillMaxHeight()
-            .clip(RoundedCornerShape(14.dp))
+            .scale(scale)
+            .clip(RoundedCornerShape(16.dp))
             .background(bg)
-            .clickable { onClick() },
+            .background(if (pressed) tint.copy(alpha = 0.12f) else Color.Transparent)
+            .clickable(
+                interactionSource = interaction,
+                indication = LocalIndication.current,
+                onClick = { onClick() }
+            ),
         contentAlignment = Alignment.Center
     ) {
         Text(
             label,
             fontSize = fontSize.sp,
             fontWeight = FontWeight.SemiBold,
-            color = fg
+            color = fg,
+            maxLines = 1,
+            textAlign = TextAlign.Center
         )
     }
 }
+
+// --- mesin hitung -------------------------------------------------------
 
 private fun formatCalcResult(v: Double): String {
     // Pembulatan 11 angka penting: menghilangkan noise seperti 0.49999999999999994
@@ -464,20 +913,90 @@ private fun formatCalcResult(v: Double): String {
     }
 }
 
+// Bentuk pecahan untuk desimal yang memang rasional sederhana,
+// mis. 1÷3 -> 1/3. Penyebut dijaga <= 999 supaya tidak menyesatkan.
+private fun fractionHint(v: Double): String? {
+    if (!v.isFinite()) return null
+    val x = abs(v)
+    if (x > 1e6) return null
+    val fracPart = x - floor(x)
+    if (fracPart < 1e-9 || 1.0 - fracPart < 1e-9) return null
+    var bestDen = 0
+    var bestErr = Double.MAX_VALUE
+    var d = 2
+    while (d <= 999) {
+        val n = Math.round(x * d)
+        val err = abs(x * d - n) / d
+        if (err < bestErr) {
+            bestErr = err
+            bestDen = d
+        }
+        d++
+    }
+    if (bestErr > 1e-9 || bestDen < 2) return null
+    val num = Math.round(x * bestDen)
+    if (num % bestDen == 0L) return null
+    val whole = num / bestDen
+    val rest = num % bestDen
+    val sign = if (v < 0) "-" else ""
+    return if (whole > 0 && rest > 0) "$sign$whole $rest/$bestDen" else "$sign$num/$bestDen"
+}
+
+private val statKeys = setOf("n", "sum", "sumsq", "mean", "sigp", "sigs")
+
+private fun statValue(kind: String, data: List<Double>): Double? = when (kind) {
+    "n" -> data.size.toDouble()
+    "sum" -> data.sum()
+    "sumsq" -> data.sumOf { it * it }
+    "mean" -> if (data.isEmpty()) null else data.average()
+    "sigp" -> {
+        if (data.isEmpty()) null
+        else {
+            val m = data.average()
+            sqrt(data.sumOf { (it - m) * (it - m) } / data.size)
+        }
+    }
+    "sigs" -> {
+        if (data.size < 2) null
+        else {
+            val m = data.average()
+            sqrt(data.sumOf { (it - m) * (it - m) } / (data.size - 1))
+        }
+    }
+    else -> null
+}
+
 private val binaryOps = setOf('+', '−', '×', '÷', '^')
 
 private fun isBinaryOp(c: Char?): Boolean = c != null && c in binaryOps
 
-// π dan √ bukan bagian dari nama fungsi, jadi cukup huruf ASCII.
+// π dan akar bukan bagian dari nama fungsi, jadi cukup huruf ASCII.
 private fun isAsciiLetter(c: Char): Boolean = c in 'a'..'z' || c in 'A'..'Z'
 
+// Kata yang bernilai sendiri: tidak boleh ditambahi kurung oleh normalizer.
+private val constantWords = setOf("e", "M", "A", "Ans")
+
 // Tombol yang membuka ekspresi baru (angka, kurung buka, fungsi, konstanta).
-private fun startsOperand(token: String): Boolean =
-    token.endsWith("(") || token == "." || token == "π" || token == "e" ||
-        (token.firstOrNull()?.isDigit() == true)
+private fun startsOperand(token: String): Boolean {
+    val first = token.firstOrNull() ?: return false
+    return first.isDigit() || first == '(' || first == '.' ||
+        first == 'π' || first == '√' || first == '∛' || isAsciiLetter(first)
+}
+
+// Hapus satu ketukan terakhir, termasuk nama fungsi yang panjang.
+private val multiCharTokens = listOf(
+    "×10^(", "asinh(", "acosh(", "atanh(", "asin(", "acos(", "atan(",
+    "sinh(", "cosh(", "tanh(", "root(", "logb(", "sin(", "cos(", "tan(",
+    "log(", "abs(", "mod(", "ln(", "√(", "∛(", "10^(", "e^(", "Ans", "⁻¹"
+)
+
+private fun dropOneToken(expr: String): String {
+    val hit = multiCharTokens.firstOrNull { expr.endsWith(it) }
+    return if (hit != null) expr.dropLast(hit.length) else expr.dropLast(1)
+}
 
 // Menerima variasi tanda yang mungkin muncul: x/X/* sebagai kali, : atau /
-// sebagai bagi, minus unicode, koma desimal, dan kurung lebar penuh.
+// sebagai bagi, minus unicode, dan kurung lebar penuh.
 private fun normalizeExpression(raw: String): String {
     val mapped = StringBuilder(raw.length)
     for (ch in raw) {
@@ -487,7 +1006,6 @@ private fun normalizeExpression(raw: String): String {
                 '/', ':', '∕', '／' -> '÷'
                 '–', '—', '－' -> '−'
                 '＋' -> '+'
-                ',' -> '.'
                 '（' -> '('
                 '）' -> ')'
                 else -> ch
@@ -508,7 +1026,7 @@ private fun normalizeExpression(raw: String): String {
             val word = s.substring(start, i)
             out.append(word)
             prev = word[word.length - 1]
-            if (word != "e") {
+            if (word !in constantWords) {
                 var j = i
                 while (j < s.length && s[j] == ' ') j++
                 if (j >= s.length || s[j] != '(') {
@@ -551,7 +1069,9 @@ private fun prepareExpression(raw: String): String {
     while (s.isNotEmpty()) {
         val trimmed = s.trimEnd()
         val last = trimmed.lastOrNull()
-        if (last == '(' || last == '.' || isBinaryOp(last) || last == '√') {
+        if (last == '(' || last == '.' || last == ',' || last == '√' ||
+            last == '∛' || isBinaryOp(last)
+        ) {
             s = trimmed.dropLast(1)
             continue
         }
@@ -578,15 +1098,46 @@ private fun factorial(v: Double): Double {
     return r
 }
 
-private fun evaluateExpression(raw: String, degrees: Boolean): Double {
+private fun sqrtOf(v: Double): Double {
+    if (v < 0.0) throw IllegalArgumentException("akar bilangan negatif")
+    return Math.sqrt(v)
+}
+
+private fun cubeRoot(v: Double): Double =
+    if (v < 0) -Math.pow(-v, 1.0 / 3.0) else Math.pow(v, 1.0 / 3.0)
+
+private fun nthRoot(v: Double, n: Double): Double {
+    if (n == 0.0) throw IllegalArgumentException("indeks akar tidak boleh 0")
+    if (v < 0.0) {
+        val whole = floor(n)
+        val oddInt = whole == n && whole.toInt() % 2 != 0
+        if (!oddInt) throw IllegalArgumentException("akar bilangan negatif")
+        return -Math.pow(-v, 1.0 / n)
+    }
+    return Math.pow(v, 1.0 / n)
+}
+
+private fun evaluateExpression(
+    raw: String,
+    unit: AngleUnit,
+    ans: Double,
+    mem: Double,
+    varA: Double
+): Double {
     val prepared = prepareExpression(raw)
     if (prepared.isBlank()) throw IllegalArgumentException("kosong")
-    val v = ExpressionParser(prepared, degrees).parseAll()
+    val v = ExpressionParser(prepared, unit, ans, mem, varA).parseAll()
     if (!v.isFinite()) throw ArithmeticException("hasil tak hingga")
     return v
 }
 
-private class ExpressionParser(private val s: String, private val degrees: Boolean) {
+private class ExpressionParser(
+    private val s: String,
+    private val unit: AngleUnit,
+    private val ans: Double,
+    private val mem: Double,
+    private val varA: Double
+) {
     private var pos = 0
 
     fun parseAll(): Double {
@@ -642,7 +1193,8 @@ private class ExpressionParser(private val s: String, private val degrees: Boole
         skipSpace()
         if (pos >= s.length) return false
         val c = s[pos]
-        return c.isDigit() || c == '.' || c == '(' || c == 'π' || c == '√' || c.isLetter()
+        return c.isDigit() || c == '.' || c == '(' || c == 'π' || c == '√' ||
+            c == '∛' || c.isLetter()
     }
 
     private fun parseUnary(): Double {
@@ -661,9 +1213,16 @@ private class ExpressionParser(private val s: String, private val degrees: Boole
     private fun parsePostfix(): Double {
         var v = parsePrimary()
         while (true) {
-            when (peek()) {
-                '%' -> { pos++; v /= 100.0 }
-                '!' -> { pos++; v = factorial(v) }
+            when {
+                peek() == '%' -> { pos++; v /= 100.0 }
+                peek() == '!' -> { pos++; v = factorial(v) }
+                peek() == '²' -> { pos++; v = v * v }
+                peek() == '³' -> { pos++; v = v * v * v }
+                peek() == '⁻' && pos + 1 < s.length && s[pos + 1] == '¹' -> {
+                    pos += 2
+                    if (v == 0.0) throw ArithmeticException("1/0 tidak terdefinisi")
+                    v = 1.0 / v
+                }
                 else -> return v
             }
         }
@@ -679,44 +1238,117 @@ private class ExpressionParser(private val s: String, private val degrees: Boole
             if (!take(')')) throw IllegalArgumentException("kurung belum ditutup")
             return v
         }
-        if (c == '√') { pos++; return Math.sqrt(parsePostfix()) }
+        if (c == '√') { pos++; return sqrtOf(parsePostfix()) }
+        if (c == '∛') { pos++; return cubeRoot(parsePostfix()) }
         if (c == 'π') { pos++; return Math.PI }
         if (c.isLetter()) {
             val start = pos
             while (pos < s.length && s[pos].isLetter()) pos++
             val word = s.substring(start, pos)
-            val arg = readFunctionArg(word)
-            return applyFunction(word, arg)
+            val args = readFunctionArgs(word)
+            return applyFunction(word, args)
         }
         if (c.isDigit() || c == '.') return readNumber()
         throw IllegalArgumentException("karakter tak dikenal: $c")
     }
 
-    private fun readFunctionArg(word: String): Double {
-        if (word == "e") return Math.E
+    private fun readFunctionArgs(word: String): List<Double> {
+        if (word in constantWords) return emptyList()
         if (!take('(')) throw IllegalArgumentException("$word butuh ( )")
-        val v = parseExpr()
+        val args = mutableListOf(parseExpr())
+        while (take(',')) args.add(parseExpr())
         if (!take(')')) throw IllegalArgumentException("kurung $word belum ditutup")
-        return v
+        return args
     }
 
-    private fun applyFunction(word: String, arg: Double): Double {
-        val a = if (degrees) Math.toRadians(arg) else arg
-        val r = when (word) {
-            "sin" -> Math.sin(a)
-            "cos" -> Math.cos(a)
-            "tan" -> Math.tan(a)
-            "asin" -> Math.asin(arg)
-            "acos" -> Math.acos(arg)
-            "atan" -> Math.atan(arg)
-            "ln" -> if (arg <= 0.0) throw IllegalArgumentException("ln butuh bilangan > 0") else Math.log(arg)
-            "log" -> if (arg <= 0.0) throw IllegalArgumentException("log butuh bilangan > 0") else Math.log10(arg)
-            "e" -> Math.E
-            else -> throw IllegalArgumentException("fungsi tak dikenal: $word")
-        }
+    private fun one(args: List<Double>, word: String): Double {
+        if (args.size != 1) throw IllegalArgumentException("$word butuh 1 angka")
+        return args[0]
+    }
+
+    private fun two(args: List<Double>, word: String): Pair<Double, Double> {
+        if (args.size != 2) throw IllegalArgumentException("$word butuh 2 angka (pisahkan koma)")
+        return Pair(args[0], args[1])
+    }
+
+    private fun toRad(a: Double): Double = when (unit) {
+        AngleUnit.DEG -> Math.toRadians(a)
+        AngleUnit.GRAD -> a * (Math.PI / 200.0)
+        AngleUnit.RAD -> a
+    }
+
+    private fun fromRad(r: Double): Double = when (unit) {
+        AngleUnit.DEG -> Math.toDegrees(r)
+        AngleUnit.GRAD -> r * (200.0 / Math.PI)
+        AngleUnit.RAD -> r
+    }
+
+    private fun applyFunction(word: String, args: List<Double>): Double {
         return when (word) {
-            "asin", "acos", "atan" -> if (degrees) Math.toDegrees(r) else r
-            else -> r
+            "e" -> Math.E
+            "Ans" -> ans
+            "M" -> mem
+            "A" -> varA
+            "sin" -> Math.sin(toRad(one(args, word)))
+            "cos" -> Math.cos(toRad(one(args, word)))
+            "tan" -> Math.tan(toRad(one(args, word)))
+            "asin" -> {
+                val a = one(args, word)
+                if (a < -1.0 || a > 1.0) throw IllegalArgumentException("sin⁻¹ rentang -1..1")
+                fromRad(Math.asin(a))
+            }
+            "acos" -> {
+                val a = one(args, word)
+                if (a < -1.0 || a > 1.0) throw IllegalArgumentException("cos⁻¹ rentang -1..1")
+                fromRad(Math.acos(a))
+            }
+            "atan" -> fromRad(Math.atan(one(args, word)))
+            "sinh" -> Math.sinh(one(args, word))
+            "cosh" -> Math.cosh(one(args, word))
+            "tanh" -> Math.tanh(one(args, word))
+            "asinh" -> {
+                val a = one(args, word)
+                Math.log(a + sqrt(a * a + 1.0))
+            }
+            "acosh" -> {
+                val a = one(args, word)
+                if (a < 1.0) throw IllegalArgumentException("cosh⁻¹ butuh angka >= 1")
+                Math.log(a + sqrt(a * a - 1.0))
+            }
+            "atanh" -> {
+                val a = one(args, word)
+                if (a <= -1.0 || a >= 1.0) throw IllegalArgumentException("tanh⁻¹ rentang -1..1")
+                0.5 * Math.log((1.0 + a) / (1.0 - a))
+            }
+            "ln" -> {
+                val a = one(args, word)
+                if (a <= 0.0) throw IllegalArgumentException("ln butuh bilangan > 0")
+                Math.log(a)
+            }
+            "log" -> {
+                val a = one(args, word)
+                if (a <= 0.0) throw IllegalArgumentException("log butuh bilangan > 0")
+                Math.log10(a)
+            }
+            "logb" -> {
+                val pair = two(args, word)
+                val base = pair.first
+                val value = pair.second
+                if (base <= 0.0 || base == 1.0) throw IllegalArgumentException("basis log salah")
+                if (value <= 0.0) throw IllegalArgumentException("log butuh bilangan > 0")
+                Math.log(value) / Math.log(base)
+            }
+            "abs" -> abs(one(args, word))
+            "mod" -> {
+                val pair = two(args, word)
+                if (pair.second == 0.0) throw ArithmeticException("mod 0 tidak terdefinisi")
+                pair.first % pair.second
+            }
+            "root" -> {
+                val pair = two(args, word)
+                nthRoot(pair.first, pair.second)
+            }
+            else -> throw IllegalArgumentException("fungsi tak dikenal: $word")
         }
     }
 
