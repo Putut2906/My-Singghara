@@ -40,6 +40,8 @@ fun KalkulatorScreen(
     BackHandler(onBack = onBack)
 
     var expression by remember { mutableStateOf("") }
+    var lastResult by remember { mutableStateOf("") }
+    var lastRaw by remember { mutableStateOf<String?>(null) }
     var error by remember { mutableStateOf(false) }
     var mode by remember { mutableStateOf(CalcMode.BIASA) }
     var useDegrees by remember { mutableStateOf(true) }
@@ -52,34 +54,66 @@ fun KalkulatorScreen(
         )
     }
 
+    // Nilai persis hasil terakhir, dipakai saat pengguna melanjutkan perhitungan
+    // supaya tidak muncul galat pembulatan (1/3 lalu x3 tetap 1).
+    fun carrySource(expr: String): String {
+        val raw = lastRaw
+        return if (raw != null && lastResult.isNotEmpty() && expr.startsWith(lastResult)) {
+            raw + expr.removePrefix(lastResult)
+        } else {
+            expr
+        }
+    }
+
     fun handleKey(token: String) {
         when (token) {
-            "C" -> { expression = ""; error = false }
+            "C" -> { expression = ""; lastResult = ""; lastRaw = null; error = false }
             "BS" -> {
-                val multiToken = listOf("asin(", "acos(", "atan(", "sin(", "cos(", "tan(", "log(", "ln(", "√(")
-                    .firstOrNull { expression.endsWith(it) }
-                expression = if (multiToken != null) expression.dropLast(multiToken.length)
-                else expression.dropLast(1)
-                error = false
+                lastRaw = null
+                if (error) {
+                    expression = ""
+                    error = false
+                } else {
+                    val multiToken = listOf("asin(", "acos(", "atan(", "sin(", "cos(", "tan(", "log(", "ln(", "√(")
+                        .firstOrNull { expression.endsWith(it) }
+                    expression = if (multiToken != null) expression.dropLast(multiToken.length)
+                    else expression.dropLast(1)
+                }
             }
             "EQ" -> {
-                runCatching { evaluateExpression(expression, useDegrees) }
-                    .onSuccess {
-                        expression = formatCalcResult(it)
-                        error = false
-                    }
-                    .onFailure { error = true }
+                val expr = prepareExpression(carrySource(expression))
+                val result = if (expr.isBlank()) null
+                else runCatching { evaluateExpression(expr, useDegrees) }.getOrNull()
+                if (result != null && result.isFinite()) {
+                    val formatted = formatCalcResult(result)
+                    expression = formatted
+                    lastResult = formatted
+                    lastRaw = result.toString()
+                    error = false
+                } else if (expr.isNotBlank()) {
+                    error = true
+                }
             }
             else -> {
+                if (error) {
+                    expression = ""
+                    error = false
+                }
+                // ketikan baru setelah hasil: mulai dari nol, bukan menempel
+                if (lastRaw != null && expression == lastResult && startsOperand(token)) {
+                    expression = ""
+                    lastResult = ""
+                    lastRaw = null
+                }
                 expression += token
-                error = false
             }
         }
     }
 
-    val liveResult = remember(expression, useDegrees) {
-        if (expression.isBlank()) ""
-        else runCatching { formatCalcResult(evaluateExpression(expression, useDegrees)) }.getOrDefault("")
+    val liveResult = remember(expression, useDegrees, lastRaw) {
+        val src = carrySource(expression)
+        if (src.isBlank()) ""
+        else runCatching { formatCalcResult(evaluateExpression(src, useDegrees)) }.getOrDefault("")
     }
 
     BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
@@ -213,7 +247,8 @@ fun KalkulatorScreen(
                         DisplayCard(
                             expression = expression,
                             liveResult = liveResult,
-                            error = error
+                            error = error,
+                            lastResult = lastResult
                         )
                         MainKeypad(
                             modifier = Modifier
@@ -232,7 +267,8 @@ fun KalkulatorScreen(
                     DisplayCard(
                         expression = expression,
                         liveResult = liveResult,
-                        error = error
+                        error = error,
+                        lastResult = lastResult
                     )
                     if (mode == CalcMode.ILMIAH) {
                         Spacer(modifier = Modifier.height(8.dp))
@@ -252,7 +288,7 @@ fun KalkulatorScreen(
 }
 
 @Composable
-private fun DisplayCard(expression: String, liveResult: String, error: Boolean) {
+private fun DisplayCard(expression: String, liveResult: String, lastResult: String, error: Boolean) {
     Surface(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(18.dp),
@@ -262,7 +298,7 @@ private fun DisplayCard(expression: String, liveResult: String, error: Boolean) 
             val scrollState = rememberScrollState()
             LaunchedEffect(expression) { scrollState.scrollTo(scrollState.maxValue) }
             Text(
-                text = expression.ifBlank { "0" },
+                text = expression.ifBlank { lastResult.ifBlank { "0" } },
                 fontSize = if (expression.length > 18) 22.sp else 30.sp,
                 fontWeight = FontWeight.Bold,
                 color = if (error) MaterialTheme.colorScheme.error
@@ -276,6 +312,7 @@ private fun DisplayCard(expression: String, liveResult: String, error: Boolean) 
             Text(
                 text = when {
                     error -> "Pernyataan salah"
+                    expression.isBlank() -> " "
                     liveResult.isNotBlank() && liveResult != expression -> "= $liveResult"
                     else -> " "
                 },
@@ -398,7 +435,127 @@ private fun CalcKey(
 }
 
 private fun formatCalcResult(v: Double): String {
-    return if (v == floor(v) && abs(v) < 1e15) v.toLong().toString() else v.toString()
+    // Pembulatan 11 angka penting: menghilangkan noise seperti 0.49999999999999994
+    val rounded = if (v == 0.0 || !v.isFinite() || abs(v) >= 1e15) {
+        v
+    } else {
+        val magnitude = Math.log10(abs(v))
+        val decimals = (11.0 - magnitude).coerceIn(0.0, 15.0).toInt()
+        val factor = Math.pow(10.0, decimals.toDouble())
+        Math.round(v * factor) / factor
+    }
+    return if (rounded == floor(rounded) && abs(rounded) < 1e15) {
+        rounded.toLong().toString()
+    } else {
+        rounded.toString()
+    }
+}
+
+private val binaryOps = setOf('+', '−', '×', '÷', '^')
+
+private fun isBinaryOp(c: Char?): Boolean = c != null && c in binaryOps
+
+// π dan √ bukan bagian dari nama fungsi, jadi cukup huruf ASCII.
+private fun isAsciiLetter(c: Char): Boolean = c in 'a'..'z' || c in 'A'..'Z'
+
+// Tombol yang membuka ekspresi baru (angka, kurung buka, fungsi, konstanta).
+private fun startsOperand(token: String): Boolean =
+    token.endsWith("(") || token == "." || token == "π" || token == "e" ||
+        (token.firstOrNull()?.isDigit() == true)
+
+// Menerima variasi tanda yang mungkin muncul: x/X/* sebagai kali, : atau /
+// sebagai bagi, minus unicode, koma desimal, dan kurung lebar penuh.
+private fun normalizeExpression(raw: String): String {
+    val mapped = StringBuilder(raw.length)
+    for (ch in raw) {
+        mapped.append(
+            when (ch) {
+                'x', 'X', '*', '∗', '·', '⋅', '＊' -> '×'
+                '/', ':', '∕', '／' -> '÷'
+                '–', '—', '－' -> '−'
+                '＋' -> '+'
+                ',' -> '.'
+                '（' -> '('
+                '）' -> ')'
+                else -> ch
+            }
+        )
+    }
+    val s = mapped.toString()
+
+    val out = StringBuilder(s.length + 4)
+    var prev: Char? = null
+
+    var i = 0
+    while (i < s.length) {
+        val c = s[i]
+        if (isAsciiLetter(c)) {
+            val start = i
+            while (i < s.length && isAsciiLetter(s[i])) i++
+            val word = s.substring(start, i)
+            out.append(word)
+            prev = word[word.length - 1]
+            if (word != "e") {
+                var j = i
+                while (j < s.length && s[j] == ' ') j++
+                if (j >= s.length || s[j] != '(') {
+                    out.append('(')
+                    prev = '('
+                }
+            }
+            continue
+        }
+        // tanda titik ganda dalam satu angka ("6..6") cukup satu saja
+        if (c == '.' && prev == '.') {
+            i++
+            continue
+        }
+        // dua operator berurutan: pakai yang terakhir ("6××6" -> "6×6")
+        if (isBinaryOp(c) && isBinaryOp(prev) &&
+            !((prev == '+' || prev == '−') && (c == '+' || c == '−'))
+        ) {
+            out.setLength(out.length - 1)
+            prev = c
+            out.append(c)
+            i++
+            continue
+        }
+        out.append(c)
+        prev = c
+        i++
+    }
+
+    var result = out.toString().replace("()", "")
+    while (result.isNotEmpty() && (result[0] == '×' || result[0] == '÷' || result[0] == '^')) {
+        result = result.drop(1)
+    }
+    return result
+}
+
+// Lengkapi ekspresi yang belum selesai: buang tanda menggantung, tutup kurung.
+private fun prepareExpression(raw: String): String {
+    if (raw.isBlank()) return ""
+    var s = normalizeExpression(raw)
+    while (s.isNotEmpty()) {
+        val trimmed = s.trimEnd()
+        val last = trimmed.lastOrNull()
+        if (last == '(' || last == '.' || isBinaryOp(last) || last == '√') {
+            s = trimmed.dropLast(1)
+            continue
+        }
+        s = trimmed
+        break
+    }
+    var open = s.count { it == '(' }
+    var close = s.count { it == ')' }
+    while (close > open && s.endsWith(")")) {
+        s = s.dropLast(1)
+        close--
+    }
+    open = s.count { it == '(' }
+    close = s.count { it == ')' }
+    if (open > close) s += ")".repeat(open - close)
+    return s.trim()
 }
 
 private fun factorial(v: Double): Double {
@@ -410,8 +567,9 @@ private fun factorial(v: Double): Double {
 }
 
 private fun evaluateExpression(raw: String, degrees: Boolean): Double {
-    if (raw.isBlank()) throw IllegalArgumentException("kosong")
-    val v = ExpressionParser(raw, degrees).parseAll()
+    val prepared = prepareExpression(raw)
+    if (prepared.isBlank()) throw IllegalArgumentException("kosong")
+    val v = ExpressionParser(prepared, degrees).parseAll()
     if (!v.isFinite()) throw ArithmeticException("hasil tak hingga")
     return v
 }
@@ -514,7 +672,7 @@ private class ExpressionParser(private val s: String, private val degrees: Boole
         if (c.isLetter()) {
             val start = pos
             while (pos < s.length && s[pos].isLetter()) pos++
-            val word = s.substring(start)
+            val word = s.substring(start, pos)
             val arg = readFunctionArg(word)
             return applyFunction(word, arg)
         }
@@ -553,7 +711,7 @@ private class ExpressionParser(private val s: String, private val degrees: Boole
     private fun readNumber(): Double {
         val start = pos
         while (pos < s.length && (s[pos].isDigit() || s[pos] == '.')) pos++
-        val token = s.substring(start)
+        val token = s.substring(start, pos)
         if (token.count { it == '.' } > 1) throw IllegalArgumentException("dua titik desimal")
         return token.toDoubleOrNull() ?: throw IllegalArgumentException("angka tak valid: $token")
     }
