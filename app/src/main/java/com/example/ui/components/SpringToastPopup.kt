@@ -178,7 +178,7 @@ fun SpringToastPopup(
                     // setelahnya: kalau tidak, area kosong selebar layar ikut
                     // menyerap sentuhan yang seharusnya jatuh ke pop-up di belakangnya.
                     .onSizeChanged {
-                        toastDialogOf(dialogView)?.let { configureToastWindow(it) }
+                        toastDialogOf(toastView)?.let { configureToastWindow(it) }
                     },
                 contentAlignment = Alignment.TopCenter
             ) {
