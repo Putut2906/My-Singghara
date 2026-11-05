@@ -514,9 +514,8 @@ private fun normalizeExpression(raw: String): String {
         if (isBinaryOp(c) && isBinaryOp(prev) &&
             !((prev == '+' || prev == '−') && (c == '+' || c == '−'))
         ) {
-            out.setLength(out.length - 1)
+            out.setCharAt(out.length - 1, c)
             prev = c
-            out.append(c)
             i++
             continue
         }
