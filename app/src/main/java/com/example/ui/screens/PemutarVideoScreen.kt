@@ -837,6 +837,7 @@ private fun PrivateFolderDialog(
                         onClick = {
                             if (pinInput.length < 4) {
                                 pinError = "PIN minimal 4 angka."
+                                onToast(if (pinInput.isEmpty()) (if (hasPin) "Mohon isi PIN!" else "Mohon isi PIN Baru!") else "PIN minimal 4 angka!")
                             } else if (hasPin) {
                                 if (PrivateVideoStore.verifyPin(context, pinInput)) {
                                     unlocked = true

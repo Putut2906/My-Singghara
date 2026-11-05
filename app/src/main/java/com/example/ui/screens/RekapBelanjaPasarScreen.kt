@@ -1399,7 +1399,10 @@ fun AddEditBelanjaPasarDialog(
         confirmButton = {
             Button(
                 onClick = {
-                    if (nama.isBlank()) return@Button
+                    if (nama.isBlank()) {
+                        MainViewModel.instance?.showToastPopup("Mohon isi Nama Barang / Komoditas!")
+                        return@Button
+                    }
                     val parsedQty = jumlahStr.replace(",", ".").toDoubleOrNull() ?: 1.0
                     val finalSatuan = if (isCustomSatuanMode) customSatuan.ifBlank { "pcs" } else satuan
                     val parsedEst = perkiraanHargaStr.toDoubleOrNull() ?: 0.0
@@ -1421,7 +1424,6 @@ fun AddEditBelanjaPasarDialog(
 
                     onSave(result)
                 },
-                enabled = nama.isNotBlank(),
                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF10B981)),
                 modifier = Modifier.testTag("btn_save_belanja_pasar")
             ) {

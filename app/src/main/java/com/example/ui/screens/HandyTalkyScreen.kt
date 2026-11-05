@@ -536,8 +536,10 @@ fun HandyTalkyScreen(
                     onClick = {
                         if (tempCallsign.isNotBlank()) {
                             HandyTalkyManager.setCallsign(tempCallsign)
+                            showCallsignDialog = false
+                        } else {
+                            com.example.ui.MainViewModel.instance?.showToastPopup("Mohon isi Callsign Radio!")
                         }
-                        showCallsignDialog = false
                     }
                 ) {
                     Text("Simpan")

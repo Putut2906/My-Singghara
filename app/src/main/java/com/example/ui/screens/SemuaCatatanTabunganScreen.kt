@@ -596,6 +596,8 @@ fun SemuaCatatanTabunganScreen(viewModel: MainViewModel) {
                                     }
                                     showTrxFormPopup = false
                                     editingTrx = null
+                                } else {
+                                    viewModel.showToastPopup("Mohon lengkapi semua isian dengan valid!")
                                 }
                             }) {
                                 Text("Simpan Transaksi")

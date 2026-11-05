@@ -2313,6 +2313,10 @@ fun ProfilScreen(
                 confirmButton = {
                     Button(
                         onClick = {
+                            if (tempUrl.isBlank()) {
+                                viewModel.showToastPopup("Mohon isi Web App URL!")
+                                return@Button
+                            }
                             sharedPrefs.edit().putString("apps_script_url", tempUrl).apply()
                             appsScriptUrl = tempUrl
                             showUrlDialog = false
@@ -2760,6 +2764,7 @@ function doPost(e) {
                                             onClick = {
                                                 if (profileOtpCodeInput.length != 6) {
                                                     profilePasswordError = "Kode OTP harus 6 digit angka."
+                                                    viewModel.showToastPopup("Mohon isi Kode OTP 6-Digit dari Admin!")
                                                     return@Button
                                                 }
                                                 profileOtpLoading = true
@@ -2775,7 +2780,7 @@ function doPost(e) {
                                                     }
                                                 }
                                             },
-                                            enabled = !profileOtpLoading && profileOtpCodeInput.length == 6,
+                                            enabled = !profileOtpLoading,
                                             shape = RoundedCornerShape(8.dp),
                                             colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF059669)),
                                             modifier = Modifier.fillMaxWidth().height(38.dp)
@@ -2853,10 +2858,12 @@ function doPost(e) {
                             onClick = {
                                 if (profilePasswordInput.length < 6) {
                                     profilePasswordError = "Kata sandi minimal harus 6 karakter."
+                                    viewModel.showToastPopup("Mohon isi Kata Sandi Baru minimal 6 karakter!")
                                     return@Button
                                 }
                                 if (profilePasswordInput != profilePasswordConfirm) {
                                     profilePasswordError = "Konfirmasi kata sandi tidak cocok."
+                                    viewModel.showToastPopup("Konfirmasi Kata Sandi tidak cocok!")
                                     return@Button
                                 }
 

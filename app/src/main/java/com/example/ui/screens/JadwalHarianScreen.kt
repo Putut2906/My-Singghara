@@ -1001,12 +1001,12 @@ fun AddJadwalDialog(
                     Button(
                         onClick = {
                             if (activityName.trim().isEmpty()) {
+                                MainViewModel.instance?.showToastPopup("Mohon isi Aktivitas / Kegiatan!")
                                 return@Button
                             }
                             val formattedRange = "$startTime - $endTime"
                             onConfirm(formattedRange, activityName, selectedCategory)
                         },
-                        enabled = activityName.trim().isNotEmpty(),
                         modifier = Modifier.weight(1f),
                         shape = RoundedCornerShape(12.dp)
                     ) {

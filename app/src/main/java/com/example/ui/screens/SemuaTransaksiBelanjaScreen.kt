@@ -466,6 +466,8 @@ fun SemuaTransaksiBelanjaScreen(viewModel: MainViewModel) {
                                     )
                                     viewModel.saveShoppingItem(shoppingObj)
                                     showFormDialog = false
+                                } else {
+                                    viewModel.showToastPopup("Mohon lengkapi semua isian dengan valid!")
                                 }
                             }) {
                                 Text("Simpan")

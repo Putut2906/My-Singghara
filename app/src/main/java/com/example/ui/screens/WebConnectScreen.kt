@@ -417,6 +417,8 @@ fun WebConnectScreen(
                             viewModel.approveWebSession(inputPin)
                             showPinDialog = false
                             viewModel.showToastPopup("Verifikasi PIN Sukses! Akses PC Diizinkan.")
+                        } else {
+                            viewModel.showToastPopup("Mohon isi Kode PIN PC!")
                         }
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00A884))

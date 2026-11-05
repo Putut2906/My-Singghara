@@ -1776,9 +1776,12 @@ fun AdminPhoneNumberInputField(
             confirmButton = {
                 Button(
                     onClick = {
-                        val finalNum = inputVal.trim().ifEmpty { "088806643415" }
-                        onPhoneNumberChange(finalNum)
-                        showEditDialog = false
+                        if (inputVal.isBlank()) {
+                            com.example.ui.MainViewModel.instance?.showToastPopup("Mohon isi Nomor Admin (WhatsApp)!")
+                        } else {
+                            onPhoneNumberChange(inputVal.trim())
+                            showEditDialog = false
+                        }
                     },
                     shape = RoundedCornerShape(8.dp)
                 ) {

@@ -42,6 +42,7 @@ import android.graphics.drawable.ColorDrawable
 import android.view.Gravity
 import android.view.View
 import android.view.WindowManager
+import kotlinx.coroutines.awaitCancellation
 
 enum class ToastType {
     AUTO, SUCCESS, ERROR, WARNING, INFO
@@ -160,8 +161,38 @@ fun SpringToastPopup(
             // milik window dialog toast, bukan view activity induk.
             val toastView = LocalView.current
 
-            SideEffect {
+            // Posisi & flag window hanya bisa dipasang setelah view-nya benar-benar
+            // menempel ke window manager. Sebelum itu rootView masih null, dan
+            // callback onSizeChanged tidak menyala lagi selama ukuran content tidak
+            // berubah -> toast tertinggal pada posisi default Dialog, yaitu tengah
+            // layar. Karena itu dikonfigurasi ulang pada tiap recomposition.
+            fun applyToastWindow() {
                 toastDialogOf(toastView)?.let { configureToastWindow(it) }
+            }
+
+            SideEffect {
+                applyToastWindow()
+            }
+
+            LaunchedEffect(toastView) {
+                if (toastView.isAttachedToWindow) {
+                    applyToastWindow()
+                } else {
+                    val listener = object : View.OnAttachStateChangeListener {
+                        override fun onViewAttachedToWindow(v: View) {
+                            v.removeOnAttachStateChangeListener(this)
+                            applyToastWindow()
+                        }
+
+                        override fun onViewDetachedFromWindow(v: View) = Unit
+                    }
+                    toastView.addOnAttachStateChangeListener(listener)
+                    try {
+                        awaitCancellation()
+                    } finally {
+                        toastView.removeOnAttachStateChangeListener(listener)
+                    }
+                }
             }
 
             var isVisible by remember { mutableStateOf(false) }
@@ -178,7 +209,7 @@ fun SpringToastPopup(
                     // setelahnya: kalau tidak, area kosong selebar layar ikut
                     // menyerap sentuhan yang seharusnya jatuh ke pop-up di belakangnya.
                     .onSizeChanged {
-                        toastDialogOf(toastView)?.let { configureToastWindow(it) }
+                        applyToastWindow()
                     },
                 contentAlignment = Alignment.TopCenter
             ) {

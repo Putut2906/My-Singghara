@@ -2740,6 +2740,8 @@ fun HomeScreen(viewModel: MainViewModel) {
                                             monthAgendaTitle = ""
                                             monthAgendaDesc = ""
                                             showMonthAddAgendaForm = false
+                                        } else {
+                                            viewModel.showToastPopup("Mohon isi Nama kegiatan!")
                                         }
                                     },
                                     shape = RoundedCornerShape(10.dp)

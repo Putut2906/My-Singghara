@@ -923,7 +923,14 @@ fun AddEditBelanjaOnlineDialog(
                         ) { Text("Batal") }
                         Button(
                             onClick = {
-                                if (namaBarang.isBlank() || marketplace.isBlank()) return@Button
+                                if (namaBarang.isBlank()) {
+                                    MainViewModel.instance?.showToastPopup("Mohon isi Nama Barang!")
+                                    return@Button
+                                }
+                                if (marketplace.isBlank()) {
+                                    MainViewModel.instance?.showToastPopup("Mohon isi Marketplace!")
+                                    return@Button
+                                }
                                 val base = item ?: BelanjaOnlineItem(
                                     tanggal = tanggal,
                                     marketplace = marketplace.trim(),
@@ -957,7 +964,6 @@ fun AddEditBelanjaOnlineDialog(
                                 )
                                 onSave(saved)
                             },
-                            enabled = namaBarang.isNotBlank() && marketplace.isNotBlank(),
                             modifier = Modifier.weight(1f),
                             shape = RoundedCornerShape(12.dp),
                             colors = ButtonDefaults.buttonColors(containerColor = AccentPurple)

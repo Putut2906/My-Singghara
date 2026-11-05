@@ -575,6 +575,7 @@ fun FirebaseAuthDialog(
                             onClick = {
                                 if (email.isBlank() || password.isBlank()) {
                                     errorMessage = "Silakan masukkan email dan kata sandi Anda."
+                                    viewModel.showToastPopup("Mohon lengkapi semua isian dengan valid!")
                                     return@Button
                                 }
                                 isLoading = true
@@ -781,14 +782,17 @@ fun FirebaseAuthDialog(
                             onClick = {
                                 if (email.isBlank() || password.isBlank()) {
                                     errorMessage = "Email dan kata sandi wajib diisi."
+                                    viewModel.showToastPopup("Mohon lengkapi semua isian dengan valid!")
                                     return@Button
                                 }
                                 if (password.length < 6) {
                                     errorMessage = "Kata sandi minimal 6 karakter."
+                                    viewModel.showToastPopup("Mohon isi Kata Sandi minimal 6 karakter!")
                                     return@Button
                                 }
                                 if (password != confirmPassword) {
                                     errorMessage = "Konfirmasi kata sandi tidak cocok."
+                                    viewModel.showToastPopup("Konfirmasi Kata Sandi tidak cocok!")
                                     return@Button
                                 }
 
@@ -964,6 +968,7 @@ fun FirebaseAuthDialog(
                             onClick = {
                                 if (email.isBlank()) {
                                     errorMessage = "Silakan masukkan alamat email akun Anda."
+                                    viewModel.showToastPopup("Mohon isi Alamat Email Akun!")
                                     return@Button
                                 }
                                 isLoading = true
@@ -1050,6 +1055,7 @@ fun FirebaseAuthDialog(
                             onClick = {
                                 if (otpCode.length != 6) {
                                     errorMessage = "Kode OTP harus terdiri dari 6 digit angka."
+                                    viewModel.showToastPopup("Mohon isi Kode OTP 6-Digit!")
                                     return@Button
                                 }
 
@@ -1180,10 +1186,12 @@ fun FirebaseAuthDialog(
                             onClick = {
                                 if (newPassword.length < 6) {
                                     errorMessage = "Kata sandi baru minimal 6 karakter."
+                                    viewModel.showToastPopup("Mohon isi Kata Sandi Baru minimal 6 karakter!")
                                     return@Button
                                 }
                                 if (newPassword != confirmPassword) {
                                     errorMessage = "Konfirmasi kata sandi tidak cocok."
+                                    viewModel.showToastPopup("Konfirmasi Kata Sandi Baru tidak cocok!")
                                     return@Button
                                 }
 
@@ -1410,6 +1418,7 @@ fun FirebaseAuthDialog(
                         onClick = {
                             if (linkPasswordInput.isBlank()) {
                                 linkErrorMessage = "Silakan masukkan kata sandi akun Anda."
+                                viewModel.showToastPopup("Mohon isi Kata Sandi Akun!")
                                 return@Button
                             }
                             linkIsLoading = true
@@ -1746,10 +1755,12 @@ fun FirebaseAuthDialog(
                         onClick = {
                             if (googleAccountPasswordInput.length < 6) {
                                 googleAccountPasswordError = "Kata sandi minimal harus 6 karakter."
+                                viewModel.showToastPopup("Mohon isi Kata Sandi Baru minimal 6 karakter!")
                                 return@Button
                             }
                             if (googleAccountPasswordInput != googleAccountPasswordConfirm) {
                                 googleAccountPasswordError = "Konfirmasi kata sandi tidak cocok."
+                                viewModel.showToastPopup("Konfirmasi Kata Sandi tidak cocok!")
                                 return@Button
                             }
 

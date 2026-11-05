@@ -1837,7 +1837,10 @@ fun ManualAbsensiDialog(
         confirmButton = {
             Button(
                 onClick = {
-                    if (manualNama.isBlank()) return@Button
+                    if (manualNama.isBlank()) {
+                        MainViewModel.instance?.showToastPopup("Mohon isi Nama Anggota!")
+                        return@Button
+                    }
 
                     val masukMinutes = parseTimeToMinutes(inputWaktuMasuk)
                     val batasMasukMinutes = parseTimeToMinutes(inputBatasMasuk)
@@ -1918,7 +1921,6 @@ fun ManualAbsensiDialog(
 
                     onValidateAndSave(presensi, hasViolation, violationData)
                 },
-                enabled = manualNama.isNotBlank(),
                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0F766E))
             ) {
                 Text("Simpan Data")
@@ -1992,6 +1994,11 @@ fun RecordWaktuPulangDialog(
         confirmButton = {
             Button(
                 onClick = {
+                    if (inputWaktuPulang.isBlank() || inputBatasPulang.isBlank()) {
+                        MainViewModel.instance?.showToastPopup("Mohon lengkapi semua isian dengan valid!")
+                        return@Button
+                    }
+
                     val pulangMinutes = parseTimeToMinutes(inputWaktuPulang)
                     val batasPulangMinutes = parseTimeToMinutes(inputBatasPulang)
                     val isPulangAwal = pulangMinutes < batasPulangMinutes
@@ -2106,6 +2113,8 @@ fun PengaturanBatasWaktuDialog(
                 onClick = {
                     if (masukVal.isNotBlank() && pulangVal.isNotBlank()) {
                         onSave(masukVal.trim(), pulangVal.trim())
+                    } else {
+                        MainViewModel.instance?.showToastPopup("Mohon lengkapi semua isian dengan valid!")
                     }
                 },
                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0F766E))
@@ -2425,7 +2434,10 @@ fun AttendanceQrScannerDialog(
             Button(
                 onClick = {
                     val code = qrInputText.trim()
-                    if (code.isBlank() && selectedMemberForQuickScan == null) return@Button
+                    if (code.isBlank() && selectedMemberForQuickScan == null) {
+                        MainViewModel.instance?.showToastPopup("Mohon isi NIM/NIP atau pilih anggota!")
+                        return@Button
+                    }
 
                     val member = selectedMemberForQuickScan ?: allAnggota.find {
                         it.nomorInduk.equals(code, ignoreCase = true) ||

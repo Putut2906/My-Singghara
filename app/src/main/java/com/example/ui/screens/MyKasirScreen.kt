@@ -4272,8 +4272,11 @@ fun MyKasirScreen(viewModel: MainViewModel) {
                 confirmButton = {
                     Button(
                         colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E7D32)),
-                        enabled = cartItems.isNotEmpty(),
                         onClick = {
+                            if (cartItems.isEmpty()) {
+                                viewModel.showToastPopup("Keranjang masih kosong! Tambahkan item terlebih dahulu!")
+                                return@Button
+                            }
                             if (uangTunaiInput.isNotBlank() && uangTunai < grandTotal) {
                                 viewModel.showToastPopup("Pembayaran ditangguhkan: Uang tunai kurang dari total belanja!")
                                 return@Button
@@ -5428,6 +5431,14 @@ fun MyKasirScreen(viewModel: MainViewModel) {
                     ) {
                         Button(
                             onClick = {
+                                val isQtyBelanjaInvalid = stockOutList.any { belanjaItem ->
+                                    val qtyInput = quantitiesBelanja[belanjaItem.id] ?: "10"
+                                    (qtyInput.toIntOrNull() ?: 0) <= 0
+                                }
+                                if (isQtyBelanjaInvalid) {
+                                    viewModel.showToastPopup("Mohon isi Jumlah belanja dengan angka yang valid!")
+                                    return@Button
+                                }
                                 val textContent = formatShoppingListToText(namaUsaha, stockOutList, quantitiesBelanja)
                                 val fileName = "Daftar_Belanja_${namaUsaha.replace(" ", "_").lowercase()}_${System.currentTimeMillis()}.txt"
                                 val success = saveTextToDownloads(context, fileName, textContent)

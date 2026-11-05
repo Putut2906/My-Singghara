@@ -900,7 +900,12 @@ fun DialogInputTransaksiBaru(
             Button(
                 onClick = {
                     val nominalVal = nominalInput.replace(",", "").replace(".", "").toDoubleOrNull() ?: 0.0
-                    if (keteranganInput.isBlank() || nominalVal <= 0.0) {
+                    if (keteranganInput.isBlank()) {
+                        com.example.ui.MainViewModel.instance?.showToastPopup("Mohon isi Keterangan!")
+                        return@Button
+                    }
+                    if (nominalVal <= 0.0) {
+                        com.example.ui.MainViewModel.instance?.showToastPopup("Mohon isi Nominal dengan angka yang valid!")
                         return@Button
                     }
                     val entry = JournalEntry(
@@ -912,7 +917,6 @@ fun DialogInputTransaksiBaru(
                     )
                     onSave(entry)
                 },
-                enabled = keteranganInput.isNotBlank() && nominalInput.isNotBlank(),
                 shape = RoundedCornerShape(10.dp)
             ) {
                 Text("Simpan", fontWeight = FontWeight.Bold)

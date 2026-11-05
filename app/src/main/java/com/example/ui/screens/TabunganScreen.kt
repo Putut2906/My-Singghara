@@ -1147,6 +1147,8 @@ fun TabunganScreen(viewModel: MainViewModel) {
                                 feedbackBannerMessage = "Target \"$inputTargetNama\" berhasil disimpan!"
                                 feedbackBannerIcon = Icons.Default.CheckCircle
                                 feedbackBannerColor = Color(0xFF10B981)
+                            } else {
+                                viewModel.showToastPopup("Mohon lengkapi semua isian dengan valid!")
                             }
                         }) {
                             Text("Simpan Target")
@@ -1342,6 +1344,8 @@ fun TabunganScreen(viewModel: MainViewModel) {
                                 feedbackBannerMessage = "Transaksi tabungan berhasil disimpan!"
                                 feedbackBannerIcon = Icons.Default.CheckCircle
                                 feedbackBannerColor = Color(0xFF10B981)
+                            } else {
+                                viewModel.showToastPopup("Mohon lengkapi semua isian dengan valid!")
                             }
                         }) {
                             Text("Simpan Transaksi")
@@ -2467,9 +2471,11 @@ fun SharedReceiptProcessDialog(
                                 val jenisLabel = if (jenis == "masuk") "Pemasukan" else "Pengeluaran"
                                 onSaveSuccess("$jenisLabel Rp %,.0f berhasil dicatat ke Tabungan!".format(nominalValue))
                                 onDismiss()
+                            } else {
+                                viewModel.showToastPopup("Mohon isi Nominal dengan angka yang valid!")
                             }
                         },
-                        enabled = nominalValue > 0 && !isAnalyzing,
+                        enabled = !isAnalyzing,
                         shape = RoundedCornerShape(12.dp),
                         modifier = Modifier.weight(1f).testTag("save_shared_receipt_button")
                     ) {

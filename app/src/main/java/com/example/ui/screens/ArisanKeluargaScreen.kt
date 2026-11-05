@@ -3052,6 +3052,7 @@ private fun AddEditMemberDialog(
     onDismiss: () -> Unit,
     onSave: (nama: String, hubungan: String, wa: String, slot: Int, catatan: String) -> Unit
 ) {
+    val context = LocalContext.current
     var nama by remember { mutableStateOf(member?.nama ?: "") }
     var hubungan by remember { mutableStateOf(member?.hubunganKeluarga ?: "Saudara Kandung") }
     var wa by remember { mutableStateOf(member?.nomorWa ?: "") }
@@ -3144,9 +3145,10 @@ private fun AddEditMemberDialog(
                     if (nama.isNotBlank()) {
                         val slot = slotStr.toIntOrNull() ?: 1
                         onSave(nama, hubungan, wa, slot, catatan)
+                    } else {
+                        Toast.makeText(context, "Mohon isi Nama Anggota!", Toast.LENGTH_SHORT).show()
                     }
-                },
-                enabled = nama.isNotBlank()
+                }
             ) {
                 Text("Simpan")
             }
@@ -3167,6 +3169,7 @@ private fun AddKasEntryDialog(
     onDismiss: () -> Unit,
     onSave: (tanggal: String, jenis: String, kategori: String, deskripsi: String, nominal: Double) -> Unit
 ) {
+    val context = LocalContext.current
     val today = SimpleDateFormat("dd MMMM yyyy", Locale("id", "ID")).format(Date())
     var tanggal by remember { mutableStateOf(today) }
     var jenis by remember { mutableStateOf("Keluar") }
@@ -3259,11 +3262,14 @@ private fun AddKasEntryDialog(
             Button(
                 onClick = {
                     val nom = nominalStr.toDoubleOrNull() ?: 0.0
-                    if (nom > 0 && deskripsi.isNotBlank()) {
+                    if (nom <= 0.0) {
+                        Toast.makeText(context, "Mohon isi Nominal dengan angka yang valid!", Toast.LENGTH_SHORT).show()
+                    } else if (deskripsi.isBlank()) {
+                        Toast.makeText(context, "Mohon isi Keterangan / Rincian Pengeluaran!", Toast.LENGTH_SHORT).show()
+                    } else {
                         onSave(tanggal, jenis, kategori, deskripsi, nom)
                     }
-                },
-                enabled = deskripsi.isNotBlank() && (nominalStr.toDoubleOrNull() ?: 0.0) > 0
+                }
             ) {
                 Text("Simpan")
             }

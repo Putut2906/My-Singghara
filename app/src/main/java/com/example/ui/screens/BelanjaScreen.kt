@@ -813,6 +813,8 @@ fun BelanjaScreen(viewModel: MainViewModel) {
                                     feedbackBannerMessage = "Item \"$inputNama\" berhasil disimpan!"
                                     feedbackBannerIcon = Icons.Default.CheckCircle
                                     feedbackBannerColor = Color(0xFF10B981)
+                                } else {
+                                    viewModel.showToastPopup("Mohon lengkapi semua isian dengan valid!")
                                 }
                             },
                             shape = RoundedCornerShape(8.dp)

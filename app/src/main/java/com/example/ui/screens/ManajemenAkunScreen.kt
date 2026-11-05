@@ -2567,6 +2567,7 @@ fun WriteMessageDialog(
     var singleContent by remember { mutableStateOf("") }
     var singleCategory by remember { mutableStateOf("PENGUMUMAN") }
     var singlePriority by remember { mutableStateOf("NORMAL") }
+    val context = LocalContext.current
 
     val categories = listOf("PENGUMUMAN", "INFORMASI", "PEMBARUAN", "PERINGATAN")
     val priorities = listOf("NORMAL", "TINGGI", "MENDESAK")
@@ -2681,9 +2682,10 @@ fun WriteMessageDialog(
                         val targetUid = targetUser?.uid ?: "SEMUA"
                         val targetName = targetUser?.displayName ?: "Semua Pengguna"
                         onSubmitSingle(singleTitle.trim(), singleContent.trim(), singleCategory, singlePriority, targetUid, targetName)
+                    } else {
+                        Toast.makeText(context, "Mohon lengkapi semua isian dengan valid!", Toast.LENGTH_SHORT).show()
                     }
-                },
-                enabled = singleTitle.isNotBlank() && singleContent.isNotBlank()
+                }
             ) {
                 Text("Kirim ke Cloud")
             }

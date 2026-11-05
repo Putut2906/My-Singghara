@@ -1959,8 +1959,11 @@ fun ShareApkCustomNameDialog(
 
                     OutlinedButton(
                         onClick = {
-                            val finalName = fileNameInput.trim().ifBlank { "MySingghara-v$versionName" }
-                            onSaveAndShare(finalName, false)
+                            if (fileNameInput.isBlank()) {
+                                MainViewModel.instance?.showToastPopup("Mohon isi Nama File (.apk)!")
+                            } else {
+                                onSaveAndShare(fileNameInput.trim(), false)
+                            }
                         },
                         shape = RoundedCornerShape(10.dp),
                         modifier = Modifier.weight(1f)
@@ -1970,8 +1973,11 @@ fun ShareApkCustomNameDialog(
 
                     Button(
                         onClick = {
-                            val finalName = fileNameInput.trim().ifBlank { "MySingghara-v$versionName" }
-                            onSaveAndShare(finalName, true)
+                            if (fileNameInput.isBlank()) {
+                                MainViewModel.instance?.showToastPopup("Mohon isi Nama File (.apk)!")
+                            } else {
+                                onSaveAndShare(fileNameInput.trim(), true)
+                            }
                         },
                         shape = RoundedCornerShape(10.dp),
                         modifier = Modifier.weight(1.2f),
@@ -2130,8 +2136,13 @@ fun DriveScriptConfigDialog(
                     }
 
                     Button(
-                        onClick = { onSave(url.trim()) },
-                        enabled = url.isNotBlank(),
+                        onClick = {
+                            if (url.isBlank()) {
+                                MainViewModel.instance?.showToastPopup("Mohon isi URL Web App Google Apps Script!")
+                            } else {
+                                onSave(url.trim())
+                            }
+                        },
                         shape = RoundedCornerShape(10.dp),
                         modifier = Modifier.weight(1.2f),
                         colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0F766E))
