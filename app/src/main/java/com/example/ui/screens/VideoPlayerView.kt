@@ -1101,7 +1101,14 @@ private fun EqualizerDialog(player: ExoPlayer, onDismiss: () -> Unit) {
     var effectError by remember { mutableStateOf<String?>(null) }
 
     DisposableEffect(player) {
-        val sessionId = player.audioSessionId
+        // getAudioSessionId() melempar IllegalStateException begitu player dilepas.
+        // Panggilannya sempat berada di luar try, sehingga membuka dialog ini
+        // sesudah video terakhir ditutup membuat aplikasi langsung mati.
+        val sessionId = try {
+            player.audioSessionId
+        } catch (_: Exception) {
+            0
+        }
         if (sessionId > 0) {
             try {
                 val eq = Equalizer(0, sessionId)

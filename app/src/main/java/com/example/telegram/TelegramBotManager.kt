@@ -34,7 +34,7 @@ object TelegramBotManager {
         .build()
 
     private var pollingJob: Job? = null
-    private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+    private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob() + com.example.util.AppCrashGuard.handler)
 
     private val _isRunning = MutableStateFlow(false)
     val isRunning: StateFlow<Boolean> = _isRunning.asStateFlow()

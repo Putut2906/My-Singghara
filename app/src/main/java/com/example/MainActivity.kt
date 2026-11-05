@@ -194,7 +194,7 @@ class MainActivity : FragmentActivity() {
         val mediaGranted = permissions.entries.any { it.value && it.key.startsWith("android.permission.READ_MEDIA_") }
 
         if (readGranted || writeGranted || mediaGranted) {
-            com.example.util.SinggharaFolderManager.ensureFoldersExist(this)
+            com.example.util.SinggharaFolderManager.ensureFoldersExistAsync(this)
             viewModel.showToastPopup("Akses file diizinkan.")
         } else {
             viewModel.showToastPopup("Izin penyimpanan ditolak.")
@@ -229,7 +229,7 @@ class MainActivity : FragmentActivity() {
         checkAndRequestStoragePermissions()
 
         // Otomatis buat folder My Singghara (Back Up, Data/font, Data/mp3) di penyimpanan internal
-        com.example.util.SinggharaFolderManager.ensureFoldersExist(this)
+        com.example.util.SinggharaFolderManager.ensureFoldersExistAsync(this)
 
         // Request POST_NOTIFICATIONS permission for Android 13+ to ensure user gets sholat and agenda reminders
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -473,10 +473,10 @@ class MainActivity : FragmentActivity() {
                     timestamp = System.currentTimeMillis(),
                     isRead = false
                 )
-                kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.IO).launch {
+                com.example.util.AppCrashGuard.io().launch {
                     val id = viewModel.repository.insertFcmNotification(notif)
                     val itemWithId = notif.copy(id = id)
-                    kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Main).launch {
+                    com.example.util.AppCrashGuard.main().launch {
                         viewModel.showInAppMessage(itemWithId)
                     }
                 }
@@ -549,7 +549,7 @@ class MainActivity : FragmentActivity() {
     override fun onResume() {
         super.onResume()
         isAppInForeground = true
-        com.example.util.SinggharaFolderManager.ensureFoldersExist(this)
+        com.example.util.SinggharaFolderManager.ensureFoldersExistAsync(this)
         viewModel.checkAccountAccessStatus()
         // Kunci aplikasi jika sistem OS / keyguard dalam keadaan terkunci
         val keyguardManager = getSystemService(Context.KEYGUARD_SERVICE) as? KeyguardManager

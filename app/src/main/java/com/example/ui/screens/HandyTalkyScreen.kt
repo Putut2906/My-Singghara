@@ -109,8 +109,6 @@ fun HandyTalkyScreen(
     val squelchTailEnabled by HandyTalkyManager.squelchTailEnabled.collectAsState()
     val handsfreeMode by HandyTalkyManager.handsfreeMode.collectAsState()
     val roipGatewayMode by HandyTalkyManager.roipGatewayMode.collectAsState()
-    val txAudioLevel by HandyTalkyManager.txAudioLevel.collectAsState()
-    val rxAudioLevel by HandyTalkyManager.rxAudioLevel.collectAsState()
     val discoveredDevices by HandyTalkyManager.discoveredDevices.collectAsState()
     val logs by HandyTalkyManager.logs.collectAsState()
     val localIp by HandyTalkyManager.localIpAddress.collectAsState()
@@ -230,8 +228,6 @@ fun HandyTalkyScreen(
                     isReceiving = isReceiving,
                     rxCallsign = rxCallsign,
                     callsign = callsign,
-                    txAudioLevel = txAudioLevel,
-                    rxAudioLevel = rxAudioLevel,
                     volume = volume,
                     micGain = micGain,
                     speakerGain = speakerGain,
@@ -1119,8 +1115,6 @@ fun TacticalTransceiverConsole(
     isReceiving: Boolean,
     rxCallsign: String,
     callsign: String,
-    txAudioLevel: Float,
-    rxAudioLevel: Float,
     volume: Float,
     micGain: Float,
     speakerGain: Float,
@@ -1423,12 +1417,10 @@ fun TacticalTransceiverConsole(
                     Spacer(modifier = Modifier.height(8.dp))
 
                     // DUAL S-METER / VU AUDIO LEVEL BARS
-                    val currentAudioLevel = if (isTransmitting) txAudioLevel else if (isReceiving) rxAudioLevel else 0f
-                    VuMeterDisplay(
+                    AudioLevelVuMeter(
                         isDark = isDark,
-                        level = currentAudioLevel,
-                        isTx = isTransmitting,
-                        isRx = isReceiving
+                        isTransmitting = isTransmitting,
+                        isReceiving = isReceiving
                     )
 
                     Spacer(modifier = Modifier.height(6.dp))
@@ -1456,6 +1448,28 @@ fun TacticalTransceiverConsole(
             }
         }
     }
+}
+
+// Level audio mengalir puluhan kali per detik selama transmisi/penerimaan.
+// Dulu flow-nya dikoleksi di root HandyTalkyScreen sehingga SELURUH layar
+// (daftar kanal, radar, log) ikut dikomposisi ulang hanya untuk menggerakkan
+// jarum VU. Dengan collection di dalam composable sekecil ini, hanya meterannya
+// yang diperbarui.
+@Composable
+private fun AudioLevelVuMeter(
+    isDark: Boolean,
+    isTransmitting: Boolean,
+    isReceiving: Boolean,
+) {
+    val txAudioLevel by HandyTalkyManager.txAudioLevel.collectAsState()
+    val rxAudioLevel by HandyTalkyManager.rxAudioLevel.collectAsState()
+    val currentAudioLevel = if (isTransmitting) txAudioLevel else if (isReceiving) rxAudioLevel else 0f
+    VuMeterDisplay(
+        isDark = isDark,
+        level = currentAudioLevel,
+        isTx = isTransmitting,
+        isRx = isReceiving
+    )
 }
 
 /**

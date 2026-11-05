@@ -63,7 +63,7 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
 
         // Save to Room database
         val db = AppDatabase.getDatabase(applicationContext)
-        CoroutineScope(Dispatchers.IO).launch {
+        com.example.util.AppCrashGuard.io().launch {
             var savedItem = notificationItem
             try {
                 val insertedId = db.fcmNotificationDao().insertNotification(notificationItem)
@@ -78,7 +78,7 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
 
             if (isForeground && viewModelInstance != null) {
                 // Aplikasi sedang terbuka: Tampilkan pop-up In-App Messaging langsung di layar
-                CoroutineScope(Dispatchers.Main).launch {
+                com.example.util.AppCrashGuard.main().launch {
                     viewModelInstance.showInAppMessage(savedItem)
                 }
             } else {

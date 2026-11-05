@@ -784,22 +784,25 @@ fun CatatanScreen(viewModel: MainViewModel) {
 
             // MAIN CONTENT AREA: LIST / GRID VIEW OR EDITOR
             if (activeNote == null) {
-                val filteredNotes = notes.filter { note ->
-                    val matchesSearch = note.title.contains(searchQuery, ignoreCase = true) ||
-                            note.content.contains(searchQuery, ignoreCase = true) ||
-                            note.category.contains(searchQuery, ignoreCase = true)
+                // Memo: tanpa ini setiap keystroke memindai judul+isi+kategori SEMUA catatan.
+                val filteredNotes = remember(notes, searchQuery, selectedCategoryFilter) {
+                    notes.filter { note ->
+                        val matchesSearch = note.title.contains(searchQuery, ignoreCase = true) ||
+                                note.content.contains(searchQuery, ignoreCase = true) ||
+                                note.category.contains(searchQuery, ignoreCase = true)
 
-                    val matchesCategory = when (selectedCategoryFilter) {
-                        "Semua" -> true
-                        "📌 Disematkan" -> note.isPinned
-                        "📝 Umum" -> note.category == "Umum" || note.category.isEmpty()
-                        "💡 Ide" -> note.category == "Ide"
-                        "💼 Pekerjaan" -> note.category == "Pekerjaan"
-                        "☑️ Checklist" -> note.category == "Checklist"
-                        "💻 Kode" -> note.category == "Kode" || note.title.endsWith(".py") || note.title.endsWith(".js") || note.title.endsWith(".html") || note.title.endsWith(".json")
-                        else -> note.category == selectedCategoryFilter
+                        val matchesCategory = when (selectedCategoryFilter) {
+                            "Semua" -> true
+                            "📌 Disematkan" -> note.isPinned
+                            "📝 Umum" -> note.category == "Umum" || note.category.isEmpty()
+                            "💡 Ide" -> note.category == "Ide"
+                            "💼 Pekerjaan" -> note.category == "Pekerjaan"
+                            "☑️ Checklist" -> note.category == "Checklist"
+                            "💻 Kode" -> note.category == "Kode" || note.title.endsWith(".py") || note.title.endsWith(".js") || note.title.endsWith(".html") || note.title.endsWith(".json")
+                            else -> note.category == selectedCategoryFilter
+                        }
+                        matchesSearch && matchesCategory
                     }
-                    matchesSearch && matchesCategory
                 }
 
                 if (filteredNotes.isEmpty()) {
@@ -1378,7 +1381,10 @@ fun CatatanScreen(viewModel: MainViewModel) {
                                 }
                             }
 
-                            val wordsCount = if (editContent.trim().isEmpty()) 0 else editContent.trim().split("\\s+".toRegex()).size
+                            val wordsCount = remember(editContent) {
+                                val trimmed = editContent.trim()
+                                if (trimmed.isEmpty()) 0 else trimmed.split(whitespaceRegex).size
+                            }
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 Text(
                                     text = "$wordsCount kata",
@@ -2200,6 +2206,11 @@ fun NoteCardList(
 }
 
 // IMMERSIVE PDF & BOOK VIEWERS
+// Batas rasterisasi: memori bitmap ARGB_8888 1080px cepat habis pada PDF panjang.
+private const val MAX_PDF_PAGES = 60
+
+private val whitespaceRegex = Regex("\\s+")
+
 @Composable
 fun PdfViewer(uriString: String, fileName: String, scale: Float, modifier: Modifier = Modifier) {
     val context = LocalContext.current
@@ -2207,29 +2218,55 @@ fun PdfViewer(uriString: String, fileName: String, scale: Float, modifier: Modif
     var errorMsg by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(uriString) {
+        // PdfRenderer + render() adalah kerja CPU/disk berat: di dispatcher utama ia
+        // membekukan frame, dan meraster seluruh halaman sekaligus memicu OutOfMemoryError
+        // yang lolos dari catch (Exception) sehingga aplikasi berhenti paksa.
         try {
-            val uri = android.net.Uri.parse(uriString)
-            val parcelFileDescriptor = context.contentResolver.openFileDescriptor(uri, "r")
-            if (parcelFileDescriptor != null) {
-                val renderer = PdfRenderer(parcelFileDescriptor)
-                val pageCount = renderer.pageCount
-                val list = mutableListOf<Bitmap>()
-                for (i in 0 until pageCount) {
-                    val page = renderer.openPage(i)
-                    val width = 1080
-                    val height = (width * page.height) / page.width
-                    val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
-                    page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
-                    list.add(bitmap)
-                    page.close()
-                }
-                renderer.close()
-                parcelFileDescriptor.close()
-                bitmaps = list
+            val rendered = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                val uri = android.net.Uri.parse(uriString)
+                val parcelFileDescriptor = context.contentResolver.openFileDescriptor(uri, "r")
+                if (parcelFileDescriptor != null) {
+                    try {
+                        val renderer = PdfRenderer(parcelFileDescriptor)
+                        try {
+                            val pageCount = renderer.pageCount
+                            val list = mutableListOf<Bitmap>()
+                            for (i in 0 until pageCount) {
+                                if (i >= MAX_PDF_PAGES) break
+                                val page = renderer.openPage(i)
+                                try {
+                                    val pageWidth = page.width
+                                    val pageHeight = page.height
+                                    // Halaman cacat (dimensi 0) membuat division by zero dan
+                                    // Bitmap.createBitmap(w, 0) yang keduanya melempar exception.
+                                    if (pageWidth > 0 && pageHeight > 0) {
+                                        val width = 1080
+                                        val height = ((width.toLong() * pageHeight) / pageWidth)
+                                            .coerceIn(1L, 8192L).toInt()
+                                        val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+                                        page.render(bitmap, null, null, PdfRenderer.Page.RENDER_MODE_FOR_DISPLAY)
+                                        list.add(bitmap)
+                                    }
+                                } finally {
+                                    page.close()
+                                }
+                            }
+                            list
+                        } finally {
+                            renderer.close()
+                        }
+                    } finally {
+                        parcelFileDescriptor.close()
+                    }
+                } else emptyList()
             }
-        } catch (e: Exception) {
+            bitmaps = rendered
+            if (rendered.isEmpty()) errorMsg = "PDF tidak memiliki halaman yang dapat ditampilkan"
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Throwable) {
             e.printStackTrace()
-            errorMsg = e.localizedMessage
+            errorMsg = e.localizedMessage ?: "PDF gagal ditampilkan"
         }
     }
 

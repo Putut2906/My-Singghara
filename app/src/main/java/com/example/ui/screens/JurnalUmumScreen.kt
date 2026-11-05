@@ -81,8 +81,8 @@ fun JurnalUmumScreen(
     }
 
     // Hitung total debet & kredit
-    val totalDebit = journalEntries.sumOf { it.nominal }
-    val totalKredit = journalEntries.sumOf { it.nominal }
+    val totalDebit = remember(journalEntries) { journalEntries.sumOf { it.nominal } }
+    val totalKredit = remember(journalEntries) { journalEntries.sumOf { it.nominal } }
     val isBalanced = totalDebit == totalKredit && journalEntries.isNotEmpty()
 
     // Dialog Input Transaksi Baru (Pop-up)

@@ -30,7 +30,7 @@ class AlarmReceiver : BroadcastReceiver() {
             NotificationScheduler.ACTION_DAILY_AGENDA_CHECK -> {
                 // Fired at 00:00 midnight (Pergantian Hari)
                 val pendingResult = goAsync()
-                CoroutineScope(Dispatchers.IO).launch {
+                com.example.util.AppCrashGuard.io().launch {
                     try {
                         NotificationScheduler.checkAndShowDailyAgenda(context)
                         NotificationScheduler.checkAndShowDailyHolidayAndObservance(context, timeSlot = "00:00")
@@ -49,7 +49,7 @@ class AlarmReceiver : BroadcastReceiver() {
             NotificationScheduler.ACTION_MORNING_HOLIDAY_CHECK -> {
                 // Fired at 06:00 morning
                 val pendingResult = goAsync()
-                CoroutineScope(Dispatchers.IO).launch {
+                com.example.util.AppCrashGuard.io().launch {
                     try {
                         NotificationScheduler.checkAndShowDailyHolidayAndObservance(context, timeSlot = "06:00")
                     } catch (e: Exception) {

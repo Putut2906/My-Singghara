@@ -219,6 +219,31 @@ object SinggharaFolderManager {
     }
 
     /**
+     * Varian non-blocking untuk jalur UI.ensureFoldersExist melakukan probe penyimpanan
+     * eksternal plus menyalin aset font/MP3 (ratusan ms). Dipanggil dari onCreate/onResume
+     * di dispatcher utama, itu cukup untuk membuat frame pertama dan scroll tersendat.
+     * Setelah sukses, pemanggilan berikutnya langsung diabaikan.
+     */
+    @Volatile
+    private var foldersReady = false
+
+    fun ensureFoldersExistAsync(context: Context) {
+        if (foldersReady) return
+        val appContext = context.applicationContext
+        kotlinx.coroutines.CoroutineScope(
+            kotlinx.coroutines.Dispatchers.IO +
+                kotlinx.coroutines.Job() +
+                com.example.util.AppCrashGuard.handler
+        ).launch {
+            try {
+                foldersReady = ensureFoldersExist(appContext)
+            } catch (e: Exception) {
+                Log.e(TAG, "ensureFoldersExistAsync gagal: ${e.message}")
+            }
+        }
+    }
+
+    /**
      * Memastikan seluruh struktur direktori My Singghara dibuat otomatis saat aplikasi dibuka.
      * Secara offline menyalin file MP3 azan bawaan dari paket aplikasi (assets/mp3) ke My Singghara/Data/mp3.
      */

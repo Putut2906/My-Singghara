@@ -313,16 +313,18 @@ fun MyKasirScreen(viewModel: MainViewModel) {
     var pendingDeleteIndex by remember { mutableStateOf<Int?>(null) }
 
     // Formatting rupiah helper (direct IDR)
+    // NumberFormat.getCurrencyInstance() relatif mahal dan dulu dibuat ulang pada
+    // SETIAP pemanggilan, yaitu sekali per baris keranjang dan per sel tabel.
+    val rupiahFormat = remember { NumberFormat.getCurrencyInstance(Locale("in", "ID")) }
     val toRupiah = { amount: Double ->
         try {
-            val formatter = NumberFormat.getCurrencyInstance(Locale("in", "ID"))
-            formatter.format(amount).replace("Rp", "Rp ").replace(",00", "")
+            rupiahFormat.format(amount).replace("Rp", "Rp ").replace(",00", "")
         } catch (e: Exception) {
             "Rp " + String.format(Locale.US, "%,.0f", amount)
         }
     }
 
-    val totalCashierSales = listCashier.sumOf { it.totalHarga }
+    val totalCashierSales = remember(listCashier) { listCashier.sumOf { it.totalHarga } }
 
     var subRoute by remember { mutableStateOf("main") }
     var activeTab by remember { mutableStateOf(0) }
@@ -722,11 +724,13 @@ fun MyKasirScreen(viewModel: MainViewModel) {
                                             }
                                         }
 
-                                        val filteredStockList = listStock.filter {
-                                            (selectedCategoryStock == "Semua" || it.kategori == selectedCategoryStock) &&
-                                            (it.nama.contains(searchQueryStock, ignoreCase = true) ||
-                                             it.kategori.contains(searchQueryStock, ignoreCase = true) ||
-                                             it.barcode.contains(searchQueryStock, ignoreCase = true))
+                                        val filteredStockList = remember(listStock, searchQueryStock, selectedCategoryStock) {
+                                            listStock.filter {
+                                                (selectedCategoryStock == "Semua" || it.kategori == selectedCategoryStock) &&
+                                                (it.nama.contains(searchQueryStock, ignoreCase = true) ||
+                                                 it.kategori.contains(searchQueryStock, ignoreCase = true) ||
+                                                 it.barcode.contains(searchQueryStock, ignoreCase = true))
+                                            }
                                         }
 
                                         LaunchedEffect(selectedCategoryStock, searchQueryStock) {
@@ -1607,10 +1611,12 @@ fun MyKasirScreen(viewModel: MainViewModel) {
                         }
 
                         // 3. Filtered Stock List Items
-                        val filteredStockList = listStock.filter {
-                            it.nama.contains(searchQueryStock, ignoreCase = true) ||
-                            it.kategori.contains(searchQueryStock, ignoreCase = true) ||
-                            it.barcode.contains(searchQueryStock, ignoreCase = true)
+                        val filteredStockList = remember(listStock, searchQueryStock) {
+                            listStock.filter {
+                                it.nama.contains(searchQueryStock, ignoreCase = true) ||
+                                it.kategori.contains(searchQueryStock, ignoreCase = true) ||
+                                it.barcode.contains(searchQueryStock, ignoreCase = true)
+                            }
                         }
 
                         if (filteredStockList.isEmpty()) {
@@ -1735,8 +1741,7 @@ fun MyKasirScreen(viewModel: MainViewModel) {
                                         }
 
                                         // Table Body
-                                        listStock.forEach { item ->
-                                            val realIndex = listStock.indexOfFirst { it.id == item.id }
+                                        listStock.forEachIndexed { realIndex, item ->
                                             Row(
                                                 modifier = Modifier.height(IntrinsicSize.Min),
                                                 verticalAlignment = Alignment.CenterVertically
@@ -1998,8 +2003,7 @@ fun MyKasirScreen(viewModel: MainViewModel) {
                                         }
 
                                         // Table Body
-                                        listCashier.forEach { item ->
-                                            val realIndex = listCashier.indexOfFirst { it.id == item.id }
+                                        listCashier.forEachIndexed { realIndex, item ->
                                             Row(
                                                 modifier = Modifier.height(IntrinsicSize.Min),
                                                 verticalAlignment = Alignment.CenterVertically
@@ -4143,7 +4147,9 @@ fun MyKasirScreen(viewModel: MainViewModel) {
                                             ) {
                                                 Text(toRupiah(item.totalHarga), fontSize = 12.sp, fontWeight = FontWeight.Bold)
                                                 IconButton(
-                                                    onClick = { cartItems.removeAt(i) },
+                                                    // Indeks hasil forEachIndexed bisa basi bila baris lain
+                                                    // dihapus lebih dulu (ketukan cepat), jadi hapus by item.
+                                                    onClick = { cartItems.remove(item) },
                                                     modifier = Modifier.size(32.dp)
                                                 ) {
                                                     Icon(
@@ -4668,7 +4674,7 @@ fun MyKasirScreen(viewModel: MainViewModel) {
                                 }
                             }
                         } else {
-                            cartItems.forEachIndexed { idx, item ->
+                            cartItems.forEachIndexed { _, item ->
                                 Surface(
                                     color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
                                     shape = RoundedCornerShape(8.dp),
@@ -4689,10 +4695,14 @@ fun MyKasirScreen(viewModel: MainViewModel) {
                                         Row(verticalAlignment = Alignment.CenterVertically) {
                                             IconButton(
                                                 onClick = {
+                                                    // idx dari forEachIndexed bisa sudah tidak valid saat tombol
+                                                    // ditekan setelah baris keranjang berubah -> IndexOutOfBounds.
+                                                    val pos = cartItems.indexOf(item)
+                                                    if (pos < 0) return@IconButton
                                                     if (item.qty > 1) {
-                                                        cartItems[idx] = item.copy(qty = item.qty - 1)
+                                                        cartItems[pos] = item.copy(qty = item.qty - 1)
                                                     } else {
-                                                        cartItems.removeAt(idx)
+                                                        cartItems.removeAt(pos)
                                                     }
                                                 },
                                                 modifier = Modifier.size(28.dp)
@@ -4704,10 +4714,12 @@ fun MyKasirScreen(viewModel: MainViewModel) {
 
                                             IconButton(
                                                 onClick = {
+                                                    val pos = cartItems.indexOf(item)
+                                                    if (pos < 0) return@IconButton
                                                     val stockItem = listStock.find { it.nama == item.namaBarang }
                                                     val maxStok = stockItem?.stok ?: 999
                                                     if (item.qty < maxStok) {
-                                                        cartItems[idx] = item.copy(qty = item.qty + 1)
+                                                        cartItems[pos] = item.copy(qty = item.qty + 1)
                                                     } else {
                                                         viewModel.showToastPopup("Mencapai batas stok (${maxStok})")
                                                     }
@@ -4718,7 +4730,7 @@ fun MyKasirScreen(viewModel: MainViewModel) {
                                             }
 
                                             IconButton(
-                                                onClick = { cartItems.removeAt(idx) },
+                                                onClick = { cartItems.remove(item) },
                                                 modifier = Modifier.size(28.dp)
                                             ) {
                                                 Icon(Icons.Default.Delete, contentDescription = "Hapus", tint = Color.Red, modifier = Modifier.size(16.dp))
@@ -5842,7 +5854,12 @@ private fun PrintRevenueReportOptionDialog(
                 Spacer(modifier = Modifier.height(4.dp))
 
                 options.forEach { (type, title, icon) ->
-                    val filtered = filterCashierTransactionsByPeriod(listCashier, type)
+                    // Untuk opsi "tahunan" fungsi ini membuat 365 objek Calendar +
+                    // 365 format tanggal lalu memindai seluruh transaksi; tanpa memo
+                    // kerja itu diulang pada setiap recomposisi dialog.
+                    val filtered = remember(listCashier, type) {
+                        filterCashierTransactionsByPeriod(listCashier, type)
+                    }
                     val txCount = filtered.size
                     val totalRev = filtered.sumOf { tx ->
                         val tax = if (tx.taxEnabled) (tx.totalHarga * tx.taxRate) else 0.0

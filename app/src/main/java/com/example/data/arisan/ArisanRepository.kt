@@ -16,7 +16,7 @@ import kotlin.random.Random
 class ArisanRepository(private val context: Context) {
 
     private val prefs = context.getSharedPreferences("arisan_keluarga_prefs", Context.MODE_PRIVATE)
-    private val scope = CoroutineScope(Dispatchers.IO)
+    private val scope = CoroutineScope(Dispatchers.IO + kotlinx.coroutines.Job() + com.example.util.AppCrashGuard.handler)
 
     private val moshi = Moshi.Builder()
         .addLast(KotlinJsonAdapterFactory())

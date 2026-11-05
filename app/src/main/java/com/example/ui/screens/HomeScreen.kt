@@ -257,11 +257,78 @@ private fun DexDoubleFontScale(content: @Composable () -> Unit) {
     }
 }
 
+/**
+ * Jam digital berkedip. Dibuat composable sendiri supaya state yang berubah tiap detik
+ * hanya merecompose subtree ini, bukan seluruh HomeScreen.
+ */
 @Composable
-fun HomeScreen(viewModel: MainViewModel) {
+private fun ClockDigits(
+    viewModel: MainViewModel,
+    clockFontFamily: FontFamily,
+    clockFontSize: androidx.compose.ui.unit.TextUnit
+) {
     val currentTime by viewModel.currentTime.collectAsState()
+    val timeParts = currentTime.split(":")
+    if (timeParts.size >= 2) {
+        val hours = timeParts[0]
+        val minutes = timeParts[1]
+        val seconds = if (timeParts.size >= 3) timeParts[2].toIntOrNull() ?: 0 else 0
+        val isColonVisible = seconds % 2 == 0
+
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                text = hours,
+                fontFamily = clockFontFamily,
+                fontSize = clockFontSize,
+                color = MaterialTheme.colorScheme.primary,
+                letterSpacing = 1.sp
+            )
+            Text(
+                text = ":",
+                fontFamily = clockFontFamily,
+                fontSize = clockFontSize,
+                color = if (isColonVisible) MaterialTheme.colorScheme.primary else Color.Transparent,
+                letterSpacing = 1.sp
+            )
+            Text(
+                text = minutes,
+                fontFamily = clockFontFamily,
+                fontSize = clockFontSize,
+                color = MaterialTheme.colorScheme.primary,
+                letterSpacing = 1.sp
+            )
+        }
+    } else {
+        Text(
+            text = currentTime,
+            fontFamily = clockFontFamily,
+            fontSize = clockFontSize,
+            fontWeight = FontWeight.ExtraBold,
+            color = MaterialTheme.colorScheme.primary,
+            letterSpacing = (-1).sp
+        )
+    }
+}
+
+/** "Senin, 5 November 2026" — ikut dipisah dari root agar tick harian tidak melebar. */
+@Composable
+private fun WeekdayDateLabel(viewModel: MainViewModel) {
     val currentDate by viewModel.currentDate.collectAsState()
     val currentDay by viewModel.currentDay.collectAsState()
+    Text(
+        text = "$currentDay, $currentDate",
+        fontSize = 16.sp,
+        fontWeight = FontWeight.SemiBold,
+        color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.8f),
+        textAlign = TextAlign.Center
+    )
+}
+
+@Composable
+fun HomeScreen(viewModel: MainViewModel) {
+    // Jam diperbarui tiap detik oleh MainViewModel.startClock(). Membacanya di sini
+    // membuat SELURUH isi HomeScreen recompose satu kali per detik, yang terasa sebagai
+    // scroll tersendat. Tiap tampilan jam kini mengambil statenya sendiri di composable daun.
     val apiHolidays by viewModel.apiHolidays.collectAsState()
     val agendaItems by viewModel.agendaItems.collectAsState()
     val liveHijri by viewModel.apiHijriDate.collectAsState()
@@ -716,7 +783,6 @@ fun HomeScreen(viewModel: MainViewModel) {
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     // Real-time digital clock display (clickable to change font, long click to resize)
-                                        val timeParts = currentTime.split(":")
                     val clockFontSize = viewModel.clockFontSizeSp.sp
 
                     Box(
@@ -754,45 +820,7 @@ fun HomeScreen(viewModel: MainViewModel) {
                                     .testTag("digital_clock_display"),
                                 contentAlignment = Alignment.Center
                             ) {
-                                if (timeParts.size >= 2) {
-                                    val hours = timeParts[0]
-                                    val minutes = timeParts[1]
-                                    val seconds = if (timeParts.size >= 3) timeParts[2].toIntOrNull() ?: 0 else 0
-                                    val isColonVisible = seconds % 2 == 0
-                                    
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Text(
-                                            text = hours,
-                                            fontFamily = clockFontFamily,
-                                            fontSize = clockFontSize,
-                                            color = MaterialTheme.colorScheme.primary,
-                                            letterSpacing = 1.sp
-                                        )
-                                        Text(
-                                            text = ":",
-                                            fontFamily = clockFontFamily,
-                                            fontSize = clockFontSize,
-                                            color = if (isColonVisible) MaterialTheme.colorScheme.primary else Color.Transparent,
-                                            letterSpacing = 1.sp
-                                        )
-                                        Text(
-                                            text = minutes,
-                                            fontFamily = clockFontFamily,
-                                            fontSize = clockFontSize,
-                                            color = MaterialTheme.colorScheme.primary,
-                                            letterSpacing = 1.sp
-                                        )
-                                    }
-                                } else {
-                                    Text(
-                                        text = currentTime,
-                                        fontFamily = clockFontFamily,
-                                        fontSize = clockFontSize,
-                                        fontWeight = FontWeight.ExtraBold,
-                                        color = MaterialTheme.colorScheme.primary,
-                                        letterSpacing = (-1).sp
-                                    )
-                                }
+                                ClockDigits(viewModel, clockFontFamily, clockFontSize)
 
                                 if (isClockResizing) {
                                     // Top Dot (Atas)
@@ -1288,13 +1316,7 @@ fun HomeScreen(viewModel: MainViewModel) {
 
                     Spacer(modifier = Modifier.height(8.dp))
 
-                    Text(
-                        text = "$currentDay, $currentDate",
-                        fontSize = 16.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.8f),
-                        textAlign = TextAlign.Center
-                    )
+                    WeekdayDateLabel(viewModel)
 
                     Spacer(modifier = Modifier.height(4.dp))
 
@@ -1755,7 +1777,10 @@ fun HomeScreen(viewModel: MainViewModel) {
         // SECTION 4: JADWAL SHOLAT
         item {
             val schedule = viewModel.kemenagPrayerSchedule ?: viewModel.prayerSchedule
-            val parsedCurrentTime = currentTime.split(":")
+            // State jam dibaca di scope item ini saja, bukan di root HomeScreen,
+            // sehingga tick 1 detik hanya memperbarui kartu jadwal sholat.
+            val prayerClockTime by viewModel.currentTime.collectAsState()
+            val parsedCurrentTime = prayerClockTime.split(":")
             val currentMinutes = if (parsedCurrentTime.size >= 2) {
                 val h = parsedCurrentTime[0].toIntOrNull() ?: 0
                 val m = parsedCurrentTime[1].toIntOrNull() ?: 0
@@ -2513,19 +2538,25 @@ fun HomeScreen(viewModel: MainViewModel) {
         val currentMonthNumber = viewCalendar.get(Calendar.MONTH) + 1
         val totalDaysInCurrentMonth = viewCalendar.getActualMaximum(Calendar.DAY_OF_MONTH)
 
-        val activeMonthAgendas = agendaItems.filter {
-            val dateParts = it.tanggal.split("-")
-            if (dateParts.size == 3) {
-                dateParts[0].toInt() == calendarYear && dateParts[1].toInt() == currentMonthNumber
-            } else false
+        // toIntOrNull: tanggal bisa ditulis lewat API LAN (Web Connect) dengan format
+        // tidak valid; toInt() pada nilai non-angka langsung menjatuhkan aplikasi.
+        val activeMonthAgendas = remember(agendaItems, calendarYear, currentMonthNumber) {
+            agendaItems.filter {
+                val dateParts = it.tanggal.split("-")
+                if (dateParts.size == 3) {
+                    dateParts[0].toIntOrNull() == calendarYear && dateParts[1].toIntOrNull() == currentMonthNumber
+                } else false
+            }
         }
 
-        val activeMonthHolidays = apiHolidays.filter { (key, _) ->
-            val dateParts = key.split("-")
-            if (dateParts.size == 3) {
-                dateParts[0].toInt() == calendarYear && dateParts[1].toInt() == currentMonthNumber
-            } else false
-        }.toList()
+        val activeMonthHolidays = remember(apiHolidays, calendarYear, currentMonthNumber) {
+            apiHolidays.filter { (key, _) ->
+                val dateParts = key.split("-")
+                if (dateParts.size == 3) {
+                    dateParts[0].toIntOrNull() == calendarYear && dateParts[1].toIntOrNull() == currentMonthNumber
+                } else false
+            }.toList()
+        }
 
         val activeMonthObservances = (1..totalDaysInCurrentMonth).mapNotNull { d ->
             val obs = HolidayClient.getObservanceForDate(currentMonthNumber, d)

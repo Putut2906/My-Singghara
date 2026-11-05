@@ -63,7 +63,7 @@ object HandyTalkyManager {
     private const val TYPE_PTT_END: Byte = 0x03
     private const val TYPE_BEACON: Byte = 0x04
 
-    private val scope = CoroutineScope(Dispatchers.IO + Job())
+    private val scope = CoroutineScope(Dispatchers.IO + Job() + com.example.util.AppCrashGuard.handler)
 
     private var socket: DatagramSocket? = null
     private var multicastLock: WifiManager.MulticastLock? = null
@@ -217,10 +217,20 @@ object HandyTalkyManager {
 
     private fun acquireMulticastLock(context: Context) {
         try {
+            // init() bisa dipanggil ulang (mis. setelah destroy sebagian): lock lama
+            // bertipe reference-counted sehingga tidak pernah dilepas dan membuat
+            // Wi-Fi power save mati permanen. Lepas dulu sebelum membuat yang baru.
+            try {
+                multicastLock?.let { old ->
+                    if (old.isHeld) old.release()
+                }
+            } catch (_: Exception) {
+            }
             val wifi = context.applicationContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager
             multicastLock = wifi?.createMulticastLock("HTMulticastLock")
             multicastLock?.setReferenceCounted(true)
-            multicastLock?.acquire()
+            // Batai waktu: lock tanpa timeout bertahan sampai proses mati.
+            multicastLock?.acquire(30 * 60 * 1000L)
         } catch (e: Exception) {
             Log.e(TAG, "Gagal acquire multicast lock", e)
         }

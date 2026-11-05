@@ -11,7 +11,13 @@ class SinggharaApplication : Application() {
         super.onCreate()
         installCrashLogger()
         initFirebase()
-        com.example.update.UpdateCheckScheduler.ensurePeriodic(this)
+        // WorkManager.getInstance() melempar IllegalStateException bila initializer-nya
+        // absen/gagal; tanpa penjagaan ini setiap peluncuran aplikasi mati sebelum UI muncul.
+        try {
+            com.example.update.UpdateCheckScheduler.ensurePeriodic(this)
+        } catch (e: Exception) {
+            Log.e("SinggharaApplication", "Penjadwal cek versi dilewati: ${e.message}")
+        }
     }
 
     private fun installCrashLogger() {

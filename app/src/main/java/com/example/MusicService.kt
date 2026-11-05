@@ -77,8 +77,17 @@ class MusicService : Service() {
 
     private var mediaPlayer: android.media.MediaPlayer? = null
     private var mediaSession: MediaSession? = null
-    private val serviceScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
+
+    // AppCrashGuard: tanpa handler, satu exception yang lolos dari launch di scope ini
+    // langsung diteruskan ke uncaught handler utama dan seluruh aplikasi berhenti.
+    private val serviceScope = CoroutineScope(
+        Dispatchers.Main + SupervisorJob() + com.example.util.AppCrashGuard.handler
+    )
     private var progressJob: Job? = null
+
+    // Jumlah kegagalan putar beruntun; dipakai untuk menghentikan lompat otomatis
+    // ketika seluruh daftar lagu tidak bisa dibaca.
+    private var playFailureStreak = 0
 
     // Cache sampul agar RemoteViews tidak mendekode bitmap setiap kali notifikasi dibangun.
     private var notificationArtUri: String? = null
@@ -273,6 +282,13 @@ class MusicService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        // START_STICKY membuat sistem menyalakan ulang service dengan intent null.
+        // Tanpa trek yang dimuat, service hanya menempel notifikasi kosong dan
+        // startForeground() di titik itu bisa dilempar ForegroundServiceStartNotAllowedException.
+        if (intent == null) {
+            stopSelf()
+            return START_NOT_STICKY
+        }
         // startForegroundService() requires startForeground() within a few seconds
         // even when playback has not started yet, otherwise the system kills us.
         startForegroundNotification()
@@ -318,15 +334,21 @@ class MusicService : Service() {
             Notification.Builder(this)
         }
 
-        startForeground(
-            1001,
-            builder.setContentTitle("My Singghara")
-                .setContentText("Menyiapkan pemutar musik...")
-                .setSmallIcon(R.drawable.ic_stat_singghara)
-                .setContentIntent(contentIntent)
-                .setOngoing(true)
-                .build()
-        )
+        try {
+            startForeground(
+                1001,
+                builder.setContentTitle("My Singghara")
+                    .setContentText("Menyiapkan pemutar musik...")
+                    .setSmallIcon(R.drawable.ic_stat_singghara)
+                    .setContentIntent(contentIntent)
+                    .setOngoing(true)
+                    .build()
+            )
+        } catch (e: Exception) {
+            // Android 12+ menolak startForeground saat aplikasi di latar belakang
+            // (ForegroundServiceStartNotAllowedException). Tidak boleh menjatuhkan app.
+            android.util.Log.w("MusicService", "startForeground ditolak: ${e.message}")
+        }
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -358,14 +380,19 @@ class MusicService : Service() {
             progressJob?.cancel()
 
             mediaPlayer?.release()
-            mediaPlayer = android.media.MediaPlayer().apply {
-                setAudioAttributes(
+            // Instance lama sudah di-release; bila tetap tertinggal di field, setiap
+            // panggilan currentPosition berikutnya melempar IllegalStateException.
+            mediaPlayer = null
+
+            val player = android.media.MediaPlayer()
+            try {
+                player.setAudioAttributes(
                     android.media.AudioAttributes.Builder()
                         .setContentType(android.media.AudioAttributes.CONTENT_TYPE_MUSIC)
                         .setUsage(android.media.AudioAttributes.USAGE_MEDIA)
                         .build()
                 )
-                setOnErrorListener { _, _, _ ->
+                player.setOnErrorListener { _, _, _ ->
                     isMusicPlaying = false
                     MainViewModel.instance?.isMusicPlaying = false
                     if (musicPlaylist.size > 1) {
@@ -373,21 +400,30 @@ class MusicService : Service() {
                     }
                     true
                 }
-                setDataSource(applicationContext, Uri.parse(track.uriStr))
-                prepare()
+                player.setDataSource(applicationContext, Uri.parse(track.uriStr))
+                player.prepare()
                 requestAudioFocus()
-                start()
+                player.start()
 
-                musicTotalDuration = duration
-                MainViewModel.instance?.musicTotalDuration = duration
+                musicTotalDuration = player.duration
+                MainViewModel.instance?.musicTotalDuration = player.duration
                 musicPlaybackPosition = 0
                 MainViewModel.instance?.musicPlaybackPosition = 0
-                isMusicPlaying = true
-                MainViewModel.instance?.isMusicPlaying = true
 
-                setOnCompletionListener {
+                player.setOnCompletionListener {
                     handleTrackCompletion()
                 }
+                // Field baru diisi setelah player pasti siap.
+                mediaPlayer = player
+                isMusicPlaying = true
+                MainViewModel.instance?.isMusicPlaying = true
+                playFailureStreak = 0
+            } catch (e: Exception) {
+                try {
+                    player.release()
+                } catch (_: Exception) {
+                }
+                throw e
             }
             startProgressTracker()
             MainViewModel.instance?.recordPlayExternal(track)
@@ -395,8 +431,16 @@ class MusicService : Service() {
         } catch (e: Exception) {
             isMusicPlaying = false
             MainViewModel.instance?.isMusicPlaying = false
-            if (musicPlaylist.size > 1) {
+            android.util.Log.e("MusicService", "playTrack gagal: ${e.message}")
+            // Lompat otomatis ke trek berikutnya tanpa batas berbahaya bila folder musik
+            // sudah dipindah/hilang: setiap trek melempar exception dan playNext()
+            // memanggil ulang playTrack() secara rekursif sampai StackOverflowError.
+            playFailureStreak++
+            if (musicPlaylist.size > 1 && playFailureStreak < 5) {
                 playNext()
+            } else {
+                playFailureStreak = 0
+                updateMusicNotification()
             }
         }
     }
@@ -563,7 +607,11 @@ class MusicService : Service() {
         MainViewModel.instance?.isMusicPlaying = false
         musicPlaybackPosition = 0
         MainViewModel.instance?.musicPlaybackPosition = 0
-        mediaPlayer?.pause()
+        try {
+            mediaPlayer?.pause()
+        } catch (e: Exception) {
+            // MediaPlayer yang sudah di-release melempar IllegalStateException.
+        }
         progressJob?.cancel()
         updateMusicNotification()
     }
@@ -576,14 +624,17 @@ class MusicService : Service() {
                 mediaPlayer?.let { player ->
                     try {
                         if (player.isPlaying) {
-                            musicPlaybackPosition = player.currentPosition
-                            MainViewModel.instance?.musicPlaybackPosition = player.currentPosition
-                            updateMediaSessionState()
-                            // Bilah kemajuan di kartu notifikasi cukup diperbarui
-                            // sekali per detik agar hemat baterai.
+                            // SETIAP tulis ke musicPlaybackPosition membuat SELURUH
+                            // layar PemutarMusikScreen (ribuan baris) dikomposisi ulang.
+                            // Dulu ini terjadi tiap 100ms, lalu 250ms; sekarang cukup
+                            // sekali per detik, seirama dengan refresh notifikasi.
                             val now = SystemClock.elapsedRealtime()
                             if (now - lastNotificationTick >= 1000L) {
                                 lastNotificationTick = now
+                                val position = player.currentPosition
+                                musicPlaybackPosition = position
+                                MainViewModel.instance?.musicPlaybackPosition = position
+                                updateMediaSessionState()
                                 refreshNotificationProgress()
                             }
                         }
@@ -591,7 +642,7 @@ class MusicService : Service() {
                         // ignore
                     }
                 }
-                delay(100)
+                delay(500)
             }
         }
     }
@@ -647,6 +698,22 @@ class MusicService : Service() {
         }
     }
 
+    /**
+     * currentPosition/duration melempar IllegalStateException pada MediaPlayer yang
+     * sudah di-release; notifikasi tidak boleh menjatuhkan service.
+     */
+    private fun safeCurrentPosition(): Int = try {
+        mediaPlayer?.currentPosition ?: musicPlaybackPosition
+    } catch (e: Exception) {
+        musicPlaybackPosition
+    }
+
+    private fun safeDuration(): Int = try {
+        mediaPlayer?.duration ?: musicTotalDuration
+    } catch (e: Exception) {
+        musicTotalDuration
+    }
+
     private fun updateMediaSessionState() {
         val session = mediaSession ?: return
         val stateBuilder = PlaybackState.Builder()
@@ -658,7 +725,7 @@ class MusicService : Service() {
                 PlaybackState.ACTION_SEEK_TO
             )
         val state = if (isMusicPlaying) PlaybackState.STATE_PLAYING else PlaybackState.STATE_PAUSED
-        stateBuilder.setState(state, mediaPlayer?.currentPosition?.toLong() ?: 0L, 1.0f)
+        stateBuilder.setState(state, safeCurrentPosition().coerceAtLeast(0).toLong(), 1.0f)
         session.setPlaybackState(stateBuilder.build())
     }
 
@@ -716,16 +783,9 @@ class MusicService : Service() {
 
         val albumArt = getNotificationArt(track)
 
-        val duration = if (mediaPlayer != null) {
-            try {
-                mediaPlayer!!.duration.toLong()
-            } catch (e: Exception) {
-                track.durationMs
-            }
-        } else {
-            track.durationMs
-        }
-        val position = (mediaPlayer?.currentPosition ?: musicPlaybackPosition).coerceAtLeast(0).toLong()
+        val rawDuration = safeDuration().toLong()
+        val duration = if (rawDuration > 0L) rawDuration else track.durationMs
+        val position = safeCurrentPosition().coerceAtLeast(0).toLong()
         val progress = if (duration > 0L) {
             ((position * 1000L) / duration).toInt().coerceIn(0, 1000)
         } else {
@@ -825,7 +885,13 @@ class MusicService : Service() {
 
         val notification = builder.build()
         currentMusicNotification = notification
-        startForeground(1001, notification)
+        try {
+            startForeground(1001, notification)
+        } catch (e: Exception) {
+            // Service yang sempat stopForeground lalu dipanggil ulang dari latar
+            // belakang melempar ForegroundServiceStartNotAllowedException di sini.
+            android.util.Log.w("MusicService", "updateMusicNotification startForeground gagal: ${e.message}")
+        }
     }
 
     /** Perbarui hanya waktu dan bilah kemajuan, tanpa membangun ulang bitmap sampul. */
@@ -893,9 +959,20 @@ class MusicService : Service() {
         super.onDestroy()
         isServiceRunning = false
         instance = null
-        mediaPlayer?.release()
-        mediaPlayer = null
+        // Fokus audio harus dilepas lebih dulu: pendengarnya memanggil pauseMusic()
+        // lalu updateMusicNotification()/startForeground() pada service yang sudah mati.
+        try {
+            abandonAudioFocus()
+        } catch (e: Exception) {
+        }
         progressJob?.cancel()
+        mediaPlayer?.let { player ->
+            try {
+                player.release()
+            } catch (e: Exception) {
+            }
+        }
+        mediaPlayer = null
         serviceScope.cancel()
         try {
             mediaSession?.apply {

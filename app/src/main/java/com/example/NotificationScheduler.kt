@@ -398,7 +398,7 @@ object NotificationScheduler {
         scheduleMorningHolidayCheck(context)
         schedulePrayerAlarmsForToday(context)
         // Pastikan pengecekan agenda kegiatan harian tetap berjalan jika ada agenda hari ini
-        CoroutineScope(Dispatchers.IO).launch {
+        com.example.util.AppCrashGuard.io().launch {
             try {
                 checkAndShowDailyAgenda(context)
             } catch (e: Exception) {

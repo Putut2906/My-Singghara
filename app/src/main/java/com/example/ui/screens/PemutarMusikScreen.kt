@@ -177,18 +177,10 @@ fun PemutarMusikScreen(viewModel: MainViewModel, onOpenDrawer: () -> Unit) {
         }
     }
 
-    // Infinite disk rotation animation for Vinyl
-    val infiniteTransition = rememberInfiniteTransition(label = "DiskRotation")
-    val rotationAngle by infiniteTransition.animateFloat(
-        initialValue = 0f,
-        targetValue = 360f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(8000, easing = LinearEasing),
-            repeatMode = RepeatMode.Restart
-        ),
-        label = "rotation"
-    )
-    val activeRotation = if (viewModel.isMusicPlaying) rotationAngle else 0f
+    // Animasi rotasi disk lama masih dideklarasikan di sini tetapi hasilnya tidak
+    // pernah dipakai siapa pun. rememberInfiniteTransition di root screen tetap
+    // berjalan 60 fps dan memaksa SELURUH layar dikomposisi ulang terus-menerus,
+    // jadi dibuang. Kalau nanti butuh, letakkan di composable vinyl sendiri.
 
     val activeTrack = if (viewModel.currentTrackIndex in viewModel.musicPlaylist.indices) {
         viewModel.musicPlaylist[viewModel.currentTrackIndex]
@@ -1550,9 +1542,19 @@ fun PemutarMusikScreen(viewModel: MainViewModel, onOpenDrawer: () -> Unit) {
                                     .padding(horizontal = 4.dp),
                                 horizontalAlignment = Alignment.CenterHorizontally
                             ) {
+                                // seekTo() memanggil MediaPlayer.seekTo() lewat binder dan
+                                // menulis state posisi. Dulu itu terjadi untuk SETIAP piksel
+                                // geseran, jadi menggeser bar membuat layar patah-patah dan
+                                // pemutar tersendat. Sekarang hanya sekali saat jari lepas.
+                                var isSeeking by remember { mutableStateOf(false) }
+                                var seekDraft by remember { mutableStateOf(0f) }
                                 Slider(
-                                    value = viewModel.musicPlaybackPosition.toFloat(),
-                                    onValueChange = { viewModel.seekTo(it.toInt()) },
+                                    value = if (isSeeking) seekDraft else viewModel.musicPlaybackPosition.toFloat(),
+                                    onValueChange = { isSeeking = true; seekDraft = it },
+                                    onValueChangeFinished = {
+                                        viewModel.seekTo(seekDraft.toInt())
+                                        isSeeking = false
+                                    },
                                     valueRange = 0f..viewModel.musicTotalDuration.toFloat().coerceAtLeast(1f),
                                     colors = SliderDefaults.colors(
                                         thumbColor = MaterialTheme.colorScheme.primary,
@@ -2559,8 +2561,25 @@ fun TrackAlbumArt(title: String, modifier: Modifier = Modifier) {
     }
 }
 
-private val embeddedArtCache = android.util.LruCache<String, Bitmap>(100)
+// Cache ini dulu dihitung per-entry (100 bitmap). Seratus sampul album berukuran
+// penuh bisa menghabiskan ratusan MB dan berujung OOM saat pengguna menelusuri
+// daftar lagu, jadi sekarang ditimbang per byte dan sampulnya diturunkan
+// resolusinya saat decode.
+private const val MAX_ART_CACHE_BYTES = 18 * 1024 * 1024
+private const val MAX_ART_EDGE_PX = 512
+
+private val embeddedArtCache = object : android.util.LruCache<String, Bitmap>(MAX_ART_CACHE_BYTES) {
+    override fun sizeOf(key: String, value: Bitmap): Int = value.byteCount
+}
 private val nullEmbeddedArtUris = java.util.Collections.synchronizedSet(mutableSetOf<String>())
+
+private fun artSampleSize(width: Int, height: Int): Int {
+    if (width <= 0 || height <= 0) return 1
+    val longestEdge = maxOf(width, height)
+    var sample = 1
+    while (longestEdge / (sample * 2) >= MAX_ART_EDGE_PX) sample *= 2
+    return sample
+}
 
 fun getEmbeddedPicture(context: android.content.Context, uriStr: String): Bitmap? {
     if (nullEmbeddedArtUris.contains(uriStr)) return null
@@ -2573,7 +2592,12 @@ fun getEmbeddedPicture(context: android.content.Context, uriStr: String): Bitmap
         retriever.setDataSource(context, uri)
         val art = retriever.embeddedPicture
         if (art != null) {
-            val bitmap = BitmapFactory.decodeByteArray(art, 0, art.size)
+            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            BitmapFactory.decodeByteArray(art, 0, art.size, bounds)
+            val decodeOptions = BitmapFactory.Options().apply {
+                inSampleSize = artSampleSize(bounds.outWidth, bounds.outHeight)
+            }
+            val bitmap = BitmapFactory.decodeByteArray(art, 0, art.size, decodeOptions)
             if (bitmap != null) {
                 embeddedArtCache.put(uriStr, bitmap)
                 return bitmap

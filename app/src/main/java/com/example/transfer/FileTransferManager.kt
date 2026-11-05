@@ -48,7 +48,7 @@ data class TransferActivityLog(
 
 class FileTransferManager private constructor(private val context: Context) {
 
-    private val scope = CoroutineScope(Dispatchers.IO)
+    private val scope = CoroutineScope(Dispatchers.IO + kotlinx.coroutines.Job() + com.example.util.AppCrashGuard.handler)
 
     val receivedDir: File by lazy {
         val dir = context.getExternalFilesDir("Transfer_PC") ?: File(context.filesDir, "Transfer_PC")

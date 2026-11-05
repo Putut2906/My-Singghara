@@ -55,7 +55,7 @@ class LocalHttpServer(
 ) {
     private var serverSocket: ServerSocket? = null
     private var isRunning = false
-    private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+    private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob() + com.example.util.AppCrashGuard.handler)
 
     // Hasil ekstraksi lirik tertanam per URI (string kosong = sudah dicari, tidak ada).
     private val webLyricsCache = android.util.LruCache<String, String>(40)

@@ -88,12 +88,14 @@ fun SemuaTransaksiBelanjaScreen(viewModel: MainViewModel) {
         inputTanggal = dateFormater.format(Date())
     }
 
-    val filteredItems = items.filter { item ->
-        val matchesSearch = item.nama.contains(searchQuery, ignoreCase = true)
-        val matchesCategory = selectedFilterCategory == "Semua" || item.jenis == selectedFilterCategory
-        val matchesDateStart = filterDateStart.isEmpty() || item.tanggal >= filterDateStart
-        val matchesDateEnd = filterDateEnd.isEmpty() || item.tanggal <= filterDateEnd
-        matchesSearch && matchesCategory && matchesDateStart && matchesDateEnd
+    val filteredItems = remember(items, searchQuery, selectedFilterCategory, filterDateStart, filterDateEnd) {
+        items.filter { item ->
+            val matchesSearch = item.nama.contains(searchQuery, ignoreCase = true)
+            val matchesCategory = selectedFilterCategory == "Semua" || item.jenis == selectedFilterCategory
+            val matchesDateStart = filterDateStart.isEmpty() || item.tanggal >= filterDateStart
+            val matchesDateEnd = filterDateEnd.isEmpty() || item.tanggal <= filterDateEnd
+            matchesSearch && matchesCategory && matchesDateStart && matchesDateEnd
+        }
     }
 
     BackHandler {
@@ -281,7 +283,11 @@ fun SemuaTransaksiBelanjaScreen(viewModel: MainViewModel) {
                         onDelete = { item ->
                             itemToDelete = item
                         },
-                        limit = Int.MAX_VALUE // Show all
+                        // Dulu Int.MAX_VALUE: semua barang dikomposisi sekaligus di
+                        // Column non-lazy sehingga halaman penuh bisa membeku saat
+                        // riwayat panjang. 40 per halaman, semua tetap terjangkau
+                        // lewat tombol Sebelumnya/Selanjutnya.
+                        limit = 40
                     )
                 }
             }

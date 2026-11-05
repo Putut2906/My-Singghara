@@ -1416,13 +1416,21 @@ fun MindMapCanvasView(
     fun saveToHistory() {
         val mergedTree = mergeCoordsIntoTree(rootNode, nodeCoords.toMap())
         undoStack.add(MindMapHistoryState(mergedTree, nodeCoords.toMap()))
+        trimHistory(undoStack)
         redoStack.clear()
+    }
+
+    // Setiap entri riwayat adalah salinan penuh pohon + peta koordinat. Tanpa batas,
+    // sesi panjang (drag juga menyimpan riwayat) menghabiskan heap -> OutOfMemoryError.
+    fun trimHistory(stack: MutableList<MindMapHistoryState>) {
+        while (stack.size > 60) stack.removeAt(0)
     }
 
     fun performUndo() {
         if (undoStack.isNotEmpty()) {
             val currentState = mergeCoordsIntoTree(rootNode, nodeCoords.toMap())
             redoStack.add(MindMapHistoryState(currentState, nodeCoords.toMap()))
+            trimHistory(redoStack)
             val previousState = undoStack.removeAt(undoStack.lastIndex)
             nodeCoords.clear()
             nodeCoords.putAll(previousState.nodeCoords)
@@ -1801,12 +1809,15 @@ fun MindMapCanvasView(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .graphicsLayer(
-                    scaleX = scale,
-                    scaleY = scale,
-                    translationX = offset.x,
+                // Versi lambda dibaca pada fase gambar, bukan fase komposisi. Versi argumen
+                // eksplisit memaksa SELURUH subtree (connector Canvas + semua node, masing-masing
+                // dengan textMeasurer) dikomposisi ulang setiap frame pan/pinch.
+                .graphicsLayer {
+                    scaleX = scale
+                    scaleY = scale
+                    translationX = offset.x
                     translationY = offset.y
-                )
+                }
         ) {
             // Connector lines
             Canvas(modifier = Modifier.fillMaxSize()) {

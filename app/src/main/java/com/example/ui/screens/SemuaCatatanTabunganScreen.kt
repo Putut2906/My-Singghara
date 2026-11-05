@@ -89,22 +89,26 @@ fun SemuaCatatanTabunganScreen(viewModel: MainViewModel) {
     }
 
     // Filtered transaction list
-    val filteredTransactions = transactionsFlow.filter { trx ->
-        val matchesSearch = trx.deskripsi.contains(searchQuery, ignoreCase = true) ||
-                trx.kategori.contains(searchQuery, ignoreCase = true)
-        val matchesType = when (selectedTypeFilter) {
-            "Masuk" -> trx.jenis == "masuk"
-            "Keluar" -> trx.jenis == "keluar"
-            else -> true
+    val filteredTransactions = remember(
+        transactionsFlow, searchQuery, selectedTypeFilter, selectedCategoryFilter, selectedDateFilter
+    ) {
+        transactionsFlow.filter { trx ->
+            val matchesSearch = trx.deskripsi.contains(searchQuery, ignoreCase = true) ||
+                    trx.kategori.contains(searchQuery, ignoreCase = true)
+            val matchesType = when (selectedTypeFilter) {
+                "Masuk" -> trx.jenis == "masuk"
+                "Keluar" -> trx.jenis == "keluar"
+                else -> true
+            }
+            val matchesCategory = (selectedCategoryFilter == "Semua") || trx.kategori.equals(selectedCategoryFilter, ignoreCase = true)
+            val matchesDate = selectedDateFilter.isEmpty() || trx.tanggal.startsWith(selectedDateFilter)
+            matchesSearch && matchesType && matchesCategory && matchesDate
         }
-        val matchesCategory = (selectedCategoryFilter == "Semua") || trx.kategori.equals(selectedCategoryFilter, ignoreCase = true)
-        val matchesDate = selectedDateFilter.isEmpty() || trx.tanggal.startsWith(selectedDateFilter)
-        matchesSearch && matchesType && matchesCategory && matchesDate
     }
 
     val targetName = targetFlow?.nama ?: "Tabungan Utama"
     val targetAmount = targetFlow?.jumlah ?: 0.0
-    val targetSaved = transactionsFlow.filter { it.jenis == "masuk" }.sumOf { it.nominal }
+    val targetSaved = remember(transactionsFlow) { transactionsFlow.filter { it.jenis == "masuk" }.sumOf { it.nominal } }
     val targetWithdrawn = transactionsFlow.filter { it.jenis == "keluar" }.sumOf { it.nominal }
     val currentSaved = (targetSaved - targetWithdrawn).coerceAtLeast(0.0)
     val progressPercent = if (targetAmount > 0) ((currentSaved / targetAmount) * 100).coerceIn(0.0, 100.0).toInt() else 0
@@ -370,7 +374,12 @@ fun SemuaCatatanTabunganScreen(viewModel: MainViewModel) {
                             onDelete = { trx ->
                                 trxToDelete = trx
                             },
-                            limit = Int.MAX_VALUE // Show all
+                            // Dulu Int.MAX_VALUE: seluruh baris dibuat sekaligus di
+                            // dalam Column non-lazy. Pada riwayat ribuan transaksi,
+                            // pengukuran tiap baris memakan waktu lama dan layar membeku.
+                            // 40 baris per halaman tetap membuat semua data terjangkau
+                            // lewat tombol Sebelumnya/Selanjutnya yang sudah ada.
+                            limit = 40
                         )
                     }
                 }

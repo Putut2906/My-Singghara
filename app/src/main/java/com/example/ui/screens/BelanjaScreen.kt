@@ -140,24 +140,30 @@ fun BelanjaScreen(viewModel: MainViewModel) {
         inputTanggal = dateFormater.format(Date())
     }
 
-    // Filtered list
-    val filteredItems = items.filter { item ->
-        val matchesSearch = item.nama.contains(searchQuery, ignoreCase = true)
-        val matchesCategory = selectedFilterCategory == "Semua" || item.jenis == selectedFilterCategory
-        val matchesDateStart = filterDateStart.isEmpty() || item.tanggal >= filterDateStart
-        val matchesDateEnd = filterDateEnd.isEmpty() || item.tanggal <= filterDateEnd
-        matchesSearch && matchesCategory && matchesDateStart && matchesDateEnd
+    // Filtered list + ringkasan dihitung ulang pada SETIAP recomposisi sebelumnya
+    // (setiap ketikan di kolom cari atau setiap baris berubah). Dengan memo ini,
+    // satu layar berisi ratusan transaksi tidak lagi membuat scroll/input tersendat.
+    val filteredItems = remember(items, searchQuery, selectedFilterCategory, filterDateStart, filterDateEnd) {
+        items.filter { item ->
+            val matchesSearch = item.nama.contains(searchQuery, ignoreCase = true)
+            val matchesCategory = selectedFilterCategory == "Semua" || item.jenis == selectedFilterCategory
+            val matchesDateStart = filterDateStart.isEmpty() || item.tanggal >= filterDateStart
+            val matchesDateEnd = filterDateEnd.isEmpty() || item.tanggal <= filterDateEnd
+            matchesSearch && matchesCategory && matchesDateStart && matchesDateEnd
+        }
     }
 
     // Calculations for summary cards
-    val totalBelanja = filteredItems.sumOf { it.total }
-    val totalQty = filteredItems.sumOf { it.qty }
-    val totalPajakSum = filteredItems.sumOf {
-        it.hargaSatuan * it.qty * (it.pajak / 100.0)
+    val totalBelanja = remember(filteredItems) { filteredItems.sumOf { it.total } }
+    val totalQty = remember(filteredItems) { filteredItems.sumOf { it.qty } }
+    val totalPajakSum = remember(filteredItems) {
+        filteredItems.sumOf {
+            it.hargaSatuan * it.qty * (it.pajak / 100.0)
+        }
     }
 
     // Find major category count
-    val categoryCounts = filteredItems.groupingBy { it.jenis }.eachCount()
+    val categoryCounts = remember(filteredItems) { filteredItems.groupingBy { it.jenis }.eachCount() }
     val maxCategory = categoryCounts.maxByOrNull { it.value }?.key ?: "—"
 
     Box(modifier = Modifier.fillMaxSize()) {
@@ -1038,7 +1044,7 @@ fun ShoppingTable(
     onPageClick: (() -> Unit)? = null
 ) {
     var currentPage by remember(items) { mutableStateOf(0) }
-    val itemsPerPage = 4
+    val itemsPerPage = limit.coerceAtLeast(1)
     val isPaginated = limit != Int.MAX_VALUE
     val totalPages = if (isPaginated) (items.size + itemsPerPage - 1) / itemsPerPage else 1
     val paginatedItems = if (isPaginated) items.drop(currentPage * itemsPerPage).take(itemsPerPage) else items

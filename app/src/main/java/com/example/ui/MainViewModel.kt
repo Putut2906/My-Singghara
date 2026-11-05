@@ -2643,12 +2643,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     init {
         instance = this
-        try {
-            com.example.util.SinggharaFolderManager.ensureFoldersExist(application)
+        com.example.util.SinggharaFolderManager.ensureFoldersExistAsync(application)
+        // FirebaseAuth.getInstance() melempar IllegalStateException kalau default
+        // FirebaseApp tidak sempat terinisialisasi. init{} berjalan sebelum frame
+        // pertama, jadi exception di sini = aplikasi langsung tertutup.
+        val initUser = try {
+            authManager.currentUser ?: com.google.firebase.auth.FirebaseAuth.getInstance().currentUser
         } catch (e: Exception) {
-            e.printStackTrace()
+            null
         }
-        val initUser = authManager.currentUser ?: com.google.firebase.auth.FirebaseAuth.getInstance().currentUser
         if (initUser != null) {
             currentFirebaseUser = initUser
             syncUserProfileFromFirebase(initUser)

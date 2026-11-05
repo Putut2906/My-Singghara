@@ -37,7 +37,21 @@ class TelegramBotService : Service() {
             return START_NOT_STICKY
         }
 
-        startInForeground()
+        // START_STICKY membuat sistem menghidupkan ulang service dengan intent null.
+        // Tanpa perintah nyata, startForeground() di latar belakang dapat dilempar
+        // ForegroundServiceStartNotAllowedException sehingga aplikasi berhenti paksa.
+        if (intent == null) {
+            stopSelf()
+            return START_NOT_STICKY
+        }
+
+        try {
+            startInForeground()
+        } catch (e: Exception) {
+            android.util.Log.w("TelegramBotService", "startForeground gagal: ${e.message}")
+            stopSelf()
+            return START_NOT_STICKY
+        }
         TelegramBotManager.startPolling(applicationContext)
 
         return START_STICKY
@@ -67,7 +81,9 @@ class TelegramBotService : Service() {
             .setContentText("Siap menjawab pertanyaan hari libur, agenda, tabungan & database.")
             .setSmallIcon(R.drawable.ic_stat_singghara)
             .setContentIntent(pendingIntent)
-            .addAction(0, "Hentikan", stopIntent)
+            // Icon 0 bukan resource drawable: SystemUI beberapa OEM melempar
+            // Resources$NotFoundException saat meminflasi aksi notifikasi.
+            .addAction(R.drawable.ic_notif_close, "Hentikan", stopIntent)
             .setOngoing(true)
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .build()

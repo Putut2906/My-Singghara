@@ -340,20 +340,24 @@ fun PembukuanScreen(viewModel: MainViewModel) {
     var pendingDeleteIndex by remember { mutableStateOf<Int?>(null) }
 
     // Formatting rupiah helper (direct IDR)
+    // Formatter dibuat sekali per komposisi, bukan per pemanggilan: toRupiah dipanggil
+    // untuk setiap sel tabel dan setiap baris daftar.
+    val rupiahFormat = remember { NumberFormat.getCurrencyInstance(Locale("in", "ID")) }
     val toRupiah = { amount: Double ->
         try {
-            val formatter = NumberFormat.getCurrencyInstance(Locale("in", "ID"))
-            formatter.format(amount).replace("Rp", "Rp ").replace(",00", "")
+            rupiahFormat.format(amount).replace("Rp", "Rp ").replace(",00", "")
         } catch (e: Exception) {
             "Rp " + String.format(Locale.US, "%,.0f", amount)
         }
     }
 
     // Calculations logic
-    val totalCashierSales = listCashier.sumOf { it.totalHarga }
-    val totalPendapatanKotorPerBulan = listPendapatan.sumOf { it.totalPendapatanPerBulan } + totalCashierSales
-    val totalExpenseKebutuhan = listKebutuhan.sumOf { it.totalHarga }
-    val totalExpenseOperasional = listOperasional.sumOf { it.totalPengeluaran }
+    val totalCashierSales = remember(listCashier) { listCashier.sumOf { it.totalHarga } }
+    val totalPendapatanKotorPerBulan = remember(listPendapatan, totalCashierSales) {
+        listPendapatan.sumOf { it.totalPendapatanPerBulan } + totalCashierSales
+    }
+    val totalExpenseKebutuhan = remember(listKebutuhan) { listKebutuhan.sumOf { it.totalHarga } }
+    val totalExpenseOperasional = remember(listOperasional) { listOperasional.sumOf { it.totalPengeluaran } }
     val totalPengeluaran = totalExpenseKebutuhan + totalExpenseOperasional
     val labaBersihPerBulan = totalPendapatanKotorPerBulan - totalPengeluaran
 
