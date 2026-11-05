@@ -47,6 +47,8 @@ import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.ShoppingCart
 import androidx.compose.material.icons.filled.ShoppingBag
 import androidx.compose.material.icons.outlined.ShoppingBag
+import androidx.compose.material.icons.filled.Calculate
+import androidx.compose.material.icons.outlined.Calculate
 import androidx.compose.material.icons.filled.AccountBalanceWallet
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Person
@@ -2104,6 +2106,34 @@ fun MainAppContent(viewModel: MainViewModel, desktopMode: Boolean = false) {
                                     )
                                 )
 
+                                // Sub-item 6: Kalkulator
+                                val isKalkulatorSelected = viewModel.currentRoute == "kalkulator"
+                                NavigationDrawerItem(
+                                    icon = {
+                                        Icon(
+                                            imageVector = if (isKalkulatorSelected) Icons.Default.Calculate else Icons.Outlined.Calculate,
+                                            contentDescription = "Kalkulator",
+                                            tint = Color(0xFF0EA5E9)
+                                        )
+                                    },
+                                    label = { Text(text = "Kalkulator", fontWeight = FontWeight.Medium, fontSize = 13.sp) },
+                                    selected = isKalkulatorSelected,
+                                    onClick = {
+                                        viewModel.currentRoute = "kalkulator"
+                                        scope.launch { drawerState.close() }
+                                    },
+                                    shape = RoundedCornerShape(8.dp),
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 2.dp),
+                                    colors = NavigationDrawerItemDefaults.colors(
+                                        selectedContainerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.8f),
+                                        selectedTextColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                                        selectedIconColor = MaterialTheme.colorScheme.primary,
+                                        unselectedContainerColor = Color.Transparent,
+                                        unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                                    )
+                                )
+
                             }
                         }
                     }
@@ -3567,7 +3597,7 @@ fun MainAppContent(viewModel: MainViewModel, desktopMode: Boolean = false) {
                 }
             },
             bottomBar = {
-                val hideBottomBarRoutes = listOf("jurnal_umum", "buku_besar", "neraca_saldo", "jurnal_penyesuaian", "neraca_saldo_disesuaikan", "laba_rugi", "jurnal_penutup", "neraca_saldo_setelah_tutup", "pemutar_musik", "pemutar_video", "pembukuan_usaha", "semua_transaksi_belanja", "semua_catatan_tabungan", "preview_catatan", "immersive_file_viewer", "quran", "handy_talky", "telegram_ai", "belanja_online")
+                val hideBottomBarRoutes = listOf("jurnal_umum", "buku_besar", "neraca_saldo", "jurnal_penyesuaian", "neraca_saldo_disesuaikan", "laba_rugi", "jurnal_penutup", "neraca_saldo_setelah_tutup", "pemutar_musik", "pemutar_video", "pembukuan_usaha", "semua_transaksi_belanja", "semua_catatan_tabungan", "preview_catatan", "immersive_file_viewer", "quran", "handy_talky", "telegram_ai", "belanja_online", "kalkulator")
                 val isEditingNote = viewModel.currentRoute == "catatan" && viewModel.selectedNote != null
                 if (!desktopMode && viewModel.isBottomBarVisible && !hideBottomBarRoutes.contains(viewModel.currentRoute) && !isEditingNote) {
                     BottomNavBar(viewModel = viewModel)
@@ -3610,6 +3640,11 @@ fun MainAppContent(viewModel: MainViewModel, desktopMode: Boolean = false) {
                             onOpenDrawer = { scope.launch { drawerState.open() } }
                         )
                         "belanja_online" -> BelanjaOnlineScreen(
+                            viewModel = viewModel,
+                            onBack = { viewModel.currentRoute = "home" },
+                            onOpenDrawer = { scope.launch { drawerState.open() } }
+                        )
+                        "kalkulator" -> KalkulatorScreen(
                             viewModel = viewModel,
                             onBack = { viewModel.currentRoute = "home" },
                             onOpenDrawer = { scope.launch { drawerState.open() } }
