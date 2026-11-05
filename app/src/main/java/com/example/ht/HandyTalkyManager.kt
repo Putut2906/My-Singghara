@@ -229,8 +229,9 @@ object HandyTalkyManager {
             val wifi = context.applicationContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager
             multicastLock = wifi?.createMulticastLock("HTMulticastLock")
             multicastLock?.setReferenceCounted(true)
-            // Batai waktu: lock tanpa timeout bertahan sampai proses mati.
-            multicastLock?.acquire(30 * 60 * 1000L)
+            // MulticastLock tidak punya overload acquire(timeout) pada minSdk 24, jadi
+            // lock wajib dilepas lewat releaseMulticastLock() saat HT ditutup.
+            multicastLock?.acquire()
         } catch (e: Exception) {
             Log.e(TAG, "Gagal acquire multicast lock", e)
         }

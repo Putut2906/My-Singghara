@@ -6,6 +6,7 @@ import android.os.Build
 import android.os.Environment
 import android.provider.OpenableColumns
 import android.util.Log
+import kotlinx.coroutines.launch
 import java.io.File
 import java.io.FileOutputStream
 import java.util.Locale
@@ -219,7 +220,7 @@ object SinggharaFolderManager {
     }
 
     /**
-     * Varian non-blocking untuk jalur UI.ensureFoldersExist melakukan probe penyimpanan
+     * Varian non-blocking untuk jalur UI. ensureFoldersExist melakukan probe penyimpanan
      * eksternal plus menyalin aset font/MP3 (ratusan ms). Dipanggil dari onCreate/onResume
      * di dispatcher utama, itu cukup untuk membuat frame pertama dan scroll tersendat.
      * Setelah sukses, pemanggilan berikutnya langsung diabaikan.
@@ -230,11 +231,7 @@ object SinggharaFolderManager {
     fun ensureFoldersExistAsync(context: Context) {
         if (foldersReady) return
         val appContext = context.applicationContext
-        kotlinx.coroutines.CoroutineScope(
-            kotlinx.coroutines.Dispatchers.IO +
-                kotlinx.coroutines.Job() +
-                com.example.util.AppCrashGuard.handler
-        ).launch {
+        AppCrashGuard.io().launch {
             try {
                 foldersReady = ensureFoldersExist(appContext)
             } catch (e: Exception) {

@@ -1413,17 +1413,19 @@ fun MindMapCanvasView(
         onTreeChanged(mergedTree)
     }
 
+    // Setiap entri riwayat adalah salinan penuh pohon + peta koordinat. Tanpa batas,
+    // sesi panjang (drag juga menyimpan riwayat) menghabiskan heap -> OutOfMemoryError.
+    // Harus dideklarasikan lebih dulu: fungsi lokal Kotlin tidak terlihat sebelum
+    // titik deklarasi di dalam blok yang sama.
+    fun trimHistory(stack: MutableList<MindMapHistoryState>) {
+        while (stack.size > 60) stack.removeAt(0)
+    }
+
     fun saveToHistory() {
         val mergedTree = mergeCoordsIntoTree(rootNode, nodeCoords.toMap())
         undoStack.add(MindMapHistoryState(mergedTree, nodeCoords.toMap()))
         trimHistory(undoStack)
         redoStack.clear()
-    }
-
-    // Setiap entri riwayat adalah salinan penuh pohon + peta koordinat. Tanpa batas,
-    // sesi panjang (drag juga menyimpan riwayat) menghabiskan heap -> OutOfMemoryError.
-    fun trimHistory(stack: MutableList<MindMapHistoryState>) {
-        while (stack.size > 60) stack.removeAt(0)
     }
 
     fun performUndo() {
@@ -1442,6 +1444,7 @@ fun MindMapCanvasView(
         if (redoStack.isNotEmpty()) {
             val currentState = mergeCoordsIntoTree(rootNode, nodeCoords.toMap())
             undoStack.add(MindMapHistoryState(currentState, nodeCoords.toMap()))
+            trimHistory(undoStack)
             val nextState = redoStack.removeAt(redoStack.lastIndex)
             nodeCoords.clear()
             nodeCoords.putAll(nextState.nodeCoords)

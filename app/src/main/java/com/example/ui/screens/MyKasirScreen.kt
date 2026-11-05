@@ -1611,12 +1611,12 @@ fun MyKasirScreen(viewModel: MainViewModel) {
                         }
 
                         // 3. Filtered Stock List Items
-                        val filteredStockList = remember(listStock, searchQueryStock) {
-                            listStock.filter {
-                                it.nama.contains(searchQueryStock, ignoreCase = true) ||
-                                it.kategori.contains(searchQueryStock, ignoreCase = true) ||
-                                it.barcode.contains(searchQueryStock, ignoreCase = true)
-                            }
+                        // remember() tidak boleh dipakai di sini: blok ini adalah
+                        // LazyListScope, bukan scope composable.
+                        val filteredStockList = listStock.filter {
+                            it.nama.contains(searchQueryStock, ignoreCase = true) ||
+                            it.kategori.contains(searchQueryStock, ignoreCase = true) ||
+                            it.barcode.contains(searchQueryStock, ignoreCase = true)
                         }
 
                         if (filteredStockList.isEmpty()) {

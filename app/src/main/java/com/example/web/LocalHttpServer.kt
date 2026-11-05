@@ -825,8 +825,12 @@ class LocalHttpServer(
         val reqToken = jsonBody.optString("token", "").ifEmpty { token }
 
         // Find existing device by token or create new device
-        val device: ConnectedDevice = if (reqToken.isNotEmpty() && connectedDevices.containsKey(reqToken)) {
-            connectedDevices[reqToken]!!.apply {
+        // Dibaca sekali saja: containsKey lalu !! bisa kalah oleh thread yang
+        // melepas perangkat di antara keduanya, dan NCE di coroutine server
+        // memutus koneksi yang sedang ditangani.
+        val existingDevice = if (reqToken.isNotEmpty()) connectedDevices[reqToken] else null
+        val device: ConnectedDevice = if (existingDevice != null) {
+            existingDevice.apply {
                 lastActiveAt = System.currentTimeMillis()
                 if (userAgent.isNotEmpty() && (this.userAgent.isEmpty() || this.deviceName == "Perangkat Web PC")) {
                     this.userAgent = userAgent
