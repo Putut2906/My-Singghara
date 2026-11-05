@@ -67,8 +67,6 @@ private data class SciKey(
 
 private data class KeyCap(val label: String, val token: String)
 
-private val TransformOriginRight = androidx.compose.ui.unit.TransformOrigin(1f, 0.5f)
-
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun KalkulatorScreen(
@@ -653,7 +651,7 @@ private fun DisplayCard(
                 textAlign = TextAlign.End,
                 maxLines = 1,
                 modifier = Modifier
-                    .scale(pop.value, TransformOriginRight)
+                    .scale(pop.value)
                     .fillMaxWidth()
                     .horizontalScroll(outScroll)
             )
