@@ -26,13 +26,22 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.window.Popup
-import androidx.compose.ui.window.PopupProperties
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
+import android.content.Context
+import android.content.ContextWrapper
+import android.graphics.Color as AndroidColor
+import android.graphics.drawable.ColorDrawable
+import android.view.Gravity
+import android.view.View
+import android.view.WindowManager
 
 enum class ToastType {
     AUTO, SUCCESS, ERROR, WARNING, INFO
@@ -40,12 +49,19 @@ enum class ToastType {
 
 fun autoDetectToastType(msg: String): ToastType {
     val lower = msg.lowercase()
+    // Pesan validasi input dulu jatuh ke INFO (ikon biru) sehingga tampil seperti
+    // kabar baik, padahal isian ditolak.
+    val isValidation = lower.contains("lengkapi") || lower.contains("isian") ||
+        lower.contains("mohon isi") || lower.contains("wajib diisi") ||
+        lower.contains("dengan valid")
     return when {
         lower.contains("berhasil") || lower.contains("sukses") || lower.contains("disimpan") ||
         lower.contains("diizinkan") || lower.contains("aktif") || lower.contains("dibuat") ||
         lower.contains("disalin") || lower.contains("diperbarui") || lower.contains("dirapikan") ||
         lower.contains("dipusatkan") || lower.contains("dikirim") || lower.contains("terhubung") ||
         lower.contains("selesai") -> ToastType.SUCCESS
+
+        isValidation -> ToastType.ERROR
 
         lower.contains("gagal") || lower.contains("ditolak") || lower.contains("terputus") ||
         lower.contains("terkunci") || lower.contains("salah") || lower.contains("error") ||
@@ -126,145 +142,207 @@ fun SpringToastPopup(
         onDismiss()
     }
 
-    Popup(
-        alignment = Alignment.TopCenter,
-        properties = PopupProperties(
-            focusable = false,
-            dismissOnBackPress = true,
-            dismissOnClickOutside = false
-        )
-    ) {
-        var isVisible by remember { mutableStateOf(false) }
-        LaunchedEffect(Unit) {
-            isVisible = true
-        }
-
-        AnimatedVisibility(
-            visible = isVisible && !message.isNullOrBlank(),
-            enter = slideInVertically(
-                initialOffsetY = { -it * 2 },
-                animationSpec = spring(
-                    dampingRatio = Spring.DampingRatioMediumBouncy,
-                    stiffness = Spring.StiffnessMediumLow
-                )
-            ) + fadeIn(animationSpec = tween(200)),
-            exit = slideOutVertically(
-                targetOffsetY = { -it * 2 },
-                animationSpec = tween(250, easing = FastOutLinearInEasing)
-            ) + fadeOut(animationSpec = tween(200)),
-            modifier = modifier
-                .statusBarsPadding()
-                .padding(top = 12.dp, start = 16.dp, end = 16.dp)
-                .fillMaxWidth(0.92f)
+    // Popup Compose menempel pada window activity, sedangkan seluruh pop-up input
+    // di aplikasi memakai Dialog (window terpisah) yang selalu digambar Android di
+    // atas window activity -> pesan toast tertutup pop-up dan tidak terbaca.
+    // key(message) membuat window baru tiap pesan baru sehingga toast selalu
+    // berada di lapisan paling atas, juga terhadap pop-up yang sudah terbuka.
+    key(message) {
+        Dialog(
+            onDismissRequest = onDismiss,
+            properties = DialogProperties(
+                usePlatformDefaultWidth = false,
+                dismissOnBackPress = false,
+                dismissOnClickOutside = false
+            )
         ) {
-            Surface(
+            // Harus dibaca di dalam content: LocalView di sini adalah ComposeView
+            // milik window dialog toast, bukan view activity induk.
+            val toastView = LocalView.current
+
+            SideEffect {
+                toastDialogOf(toastView)?.let { configureToastWindow(it) }
+            }
+
+            var isVisible by remember { mutableStateOf(false) }
+            LaunchedEffect(Unit) {
+                isVisible = true
+            }
+
+            Box(
                 modifier = Modifier
-                    .shadow(
-                        elevation = if (isDark) 10.dp else 6.dp,
-                        shape = RoundedCornerShape(20.dp),
-                        spotColor = config.primaryColor.copy(alpha = if (isDark) 0.4f else 0.25f)
-                    )
-                    .clip(RoundedCornerShape(20.dp))
-                    .border(
-                        width = 1.dp,
-                        color = config.primaryColor.copy(alpha = if (isDark) 0.5f else 0.3f),
-                        shape = RoundedCornerShape(20.dp)
-                    )
-                    .clickable(
-                        interactionSource = remember { MutableInteractionSource() },
-                        indication = null,
-                        onClick = onDismiss
-                    ),
-                color = surfaceContainerColor,
-                contentColor = textPrimaryColor
+                    .fillMaxWidth()
+                    .wrapContentHeight(Alignment.Top)
+                    // DialogLayout Compose menetapkan ukuran window full-screen pada
+                    // measure pertama, jadi koreksi ke MATCH_PARENT/WRAP_CONTENT harus
+                    // setelahnya: kalau tidak, area kosong selebar layar ikut
+                    // menyerap sentuhan yang seharusnya jatuh ke pop-up di belakangnya.
+                    .onSizeChanged {
+                        toastDialogOf(dialogView)?.let { configureToastWindow(it) }
+                    },
+                contentAlignment = Alignment.TopCenter
             ) {
-                Column(
-                    modifier = Modifier.fillMaxWidth()
+                AnimatedVisibility(
+                    visible = isVisible && !message.isNullOrBlank(),
+                    enter = slideInVertically(
+                        initialOffsetY = { -it / 3 },
+                        animationSpec = tween(240, easing = FastOutLinearInEasing)
+                    ) + fadeIn(animationSpec = tween(200)),
+                    exit = slideOutVertically(
+                        targetOffsetY = { -it / 3 },
+                        animationSpec = tween(250, easing = FastOutLinearInEasing)
+                    ) + fadeOut(animationSpec = tween(200)),
+                    modifier = modifier
+                        .statusBarsPadding()
+                        .padding(top = 12.dp, start = 16.dp, end = 16.dp)
+                        .fillMaxWidth(0.92f)
                 ) {
-                    Row(
+                    Surface(
                         modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(horizontal = 14.dp, vertical = 10.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        // Compact Icon Badge
-                        Box(
-                            modifier = Modifier
-                                .size(34.dp)
-                                .background(iconInnerBgColor, CircleShape)
-                                .border(1.dp, config.primaryColor.copy(alpha = 0.4f), CircleShape),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                imageVector = config.icon,
-                                contentDescription = config.title,
-                                tint = config.primaryColor,
-                                modifier = Modifier.size(18.dp)
+                            .shadow(
+                                elevation = if (isDark) 10.dp else 6.dp,
+                                shape = RoundedCornerShape(20.dp),
+                                spotColor = config.primaryColor.copy(alpha = if (isDark) 0.4f else 0.25f)
                             )
-                        }
-
-                        Spacer(modifier = Modifier.width(12.dp))
-
-                        // Concise Toast Text
+                            .clip(RoundedCornerShape(20.dp))
+                            .border(
+                                width = 1.dp,
+                                color = config.primaryColor.copy(alpha = if (isDark) 0.5f else 0.3f),
+                                shape = RoundedCornerShape(20.dp)
+                            )
+                            .clickable(
+                                interactionSource = remember { MutableInteractionSource() },
+                                indication = null,
+                                onClick = onDismiss
+                            ),
+                        color = surfaceContainerColor,
+                        contentColor = textPrimaryColor
+                    ) {
                         Column(
-                            modifier = Modifier.weight(1f)
+                            modifier = Modifier.fillMaxWidth()
                         ) {
-                            Text(
-                                text = config.title,
-                                color = config.primaryColor,
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold,
-                                letterSpacing = 0.3.sp
-                            )
-                            Text(
-                                text = message,
-                                color = textPrimaryColor,
-                                fontSize = 13.sp,
-                                fontWeight = FontWeight.Medium,
-                                lineHeight = 17.sp,
-                                maxLines = 2,
-                                overflow = TextOverflow.Ellipsis
-                            )
-                        }
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                // Compact Icon Badge
+                                Box(
+                                    modifier = Modifier
+                                        .size(34.dp)
+                                        .background(iconInnerBgColor, CircleShape)
+                                        .border(1.dp, config.primaryColor.copy(alpha = 0.4f), CircleShape),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = config.icon,
+                                        contentDescription = config.title,
+                                        tint = config.primaryColor,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
 
-                        Spacer(modifier = Modifier.width(6.dp))
+                                Spacer(modifier = Modifier.width(12.dp))
 
-                        // Close button
-                        IconButton(
-                            onClick = onDismiss,
-                            modifier = Modifier
-                                .size(26.dp)
-                                .testTag("toast_popup_dismiss_button")
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Close,
-                                contentDescription = "Tutup",
-                                tint = closeIconColor,
-                                modifier = Modifier.size(14.dp)
-                            )
-                        }
-                    }
+                                // Concise Toast Text
+                                Column(
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Text(
+                                        text = config.title,
+                                        color = config.primaryColor,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        letterSpacing = 0.3.sp
+                                    )
+                                    Text(
+                                        text = message,
+                                        color = textPrimaryColor,
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.Medium,
+                                        lineHeight = 17.sp,
+                                        maxLines = 3,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
 
-                    // Smooth Auto-close Countdown Indicator
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(2.5.dp)
-                            .background(trackBackgroundColor)
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth(progress.value)
-                                .fillMaxHeight()
-                                .background(
-                                    color = config.primaryColor,
-                                    shape = RoundedCornerShape(1.dp)
+                                Spacer(modifier = Modifier.width(6.dp))
+
+                                // Close button
+                                IconButton(
+                                    onClick = onDismiss,
+                                    modifier = Modifier
+                                        .size(26.dp)
+                                        .testTag("toast_popup_dismiss_button")
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Close,
+                                        contentDescription = "Tutup",
+                                        tint = closeIconColor,
+                                        modifier = Modifier.size(14.dp)
+                                    )
+                                }
+                            }
+
+                            // Smooth Auto-close Countdown Indicator
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(2.5.dp)
+                                    .background(trackBackgroundColor)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth(progress.value)
+                                        .fillMaxHeight()
+                                        .background(
+                                            color = config.primaryColor,
+                                            shape = RoundedCornerShape(1.dp)
+                                        )
                                 )
-                        )
+                            }
+                        }
                     }
                 }
             }
         }
     }
+}
+
+// Toast bisa dipanggil dari dalam pop-up Dialog lain, jadi Dialog yang ditemukan
+// harus benar-benar window tempat view ini berada (rootView == decorView-nya);
+// kalau tidak, flag NOT_FOCUSABLE malah menempel ke pop-up input induknya dan
+// keyboardnya hilang.
+private fun toastDialogOf(view: View?): android.app.Dialog? {
+    val root = view?.rootView ?: return null
+    var context: Context? = root.context
+    var hops = 0
+    while (context is ContextWrapper && hops < 12) {
+        if (context is android.app.Dialog && context.window?.decorView === root) {
+            return context
+        }
+        context = context.baseContext
+        hops++
+    }
+    return null
+}
+
+private fun configureToastWindow(dialog: android.app.Dialog) {
+    val window = dialog.window ?: return
+    // NOT_FOCUSABLE: pop-up input di belakangnya tetap memegang fokus + keyboard.
+    // NOT_TOUCH_MODAL: sentuhan di luar kartu toast diteruskan ke window di bawahnya.
+    window.addFlags(
+        WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+            WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
+    )
+    // Tanpa ini seluruh layar redup setiap kali toast muncul.
+    window.clearFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND)
+    window.setBackgroundDrawable(ColorDrawable(AndroidColor.TRANSPARENT))
+    window.setGravity(Gravity.TOP or Gravity.CENTER_HORIZONTAL)
+    window.setLayout(
+        WindowManager.LayoutParams.MATCH_PARENT,
+        WindowManager.LayoutParams.WRAP_CONTENT
+    )
 }
 
