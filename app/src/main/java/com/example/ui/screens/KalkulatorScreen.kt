@@ -327,31 +327,31 @@ private fun MainKeypad(modifier: Modifier = Modifier, onKey: (String) -> Unit) {
         modifier = modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        KeypadRow {
+        KeypadRow(modifier = Modifier.weight(1f)) {
             CalcKey("C", modifier = Modifier.weight(1f), bg = clearBg, fg = MaterialTheme.colorScheme.error, onClick = { onKey("C") })
             CalcKey("⌫", modifier = Modifier.weight(1f), bg = numBg, fg = numFg, onClick = { onKey("BS") })
             CalcKey("%", modifier = Modifier.weight(1f), bg = opBg, fg = opFg, onClick = { onKey("%") })
             CalcKey("÷", modifier = Modifier.weight(1f), bg = opBg, fg = opFg, onClick = { onKey("÷") })
         }
-        KeypadRow {
+        KeypadRow(modifier = Modifier.weight(1f)) {
             CalcKey("7", modifier = Modifier.weight(1f), bg = numBg, fg = numFg, onClick = { onKey("7") })
             CalcKey("8", modifier = Modifier.weight(1f), bg = numBg, fg = numFg, onClick = { onKey("8") })
             CalcKey("9", modifier = Modifier.weight(1f), bg = numBg, fg = numFg, onClick = { onKey("9") })
             CalcKey("×", modifier = Modifier.weight(1f), bg = opBg, fg = opFg, onClick = { onKey("×") })
         }
-        KeypadRow {
+        KeypadRow(modifier = Modifier.weight(1f)) {
             CalcKey("4", modifier = Modifier.weight(1f), bg = numBg, fg = numFg, onClick = { onKey("4") })
             CalcKey("5", modifier = Modifier.weight(1f), bg = numBg, fg = numFg, onClick = { onKey("5") })
             CalcKey("6", modifier = Modifier.weight(1f), bg = numBg, fg = numFg, onClick = { onKey("6") })
             CalcKey("−", modifier = Modifier.weight(1f), bg = opBg, fg = opFg, onClick = { onKey("−") })
         }
-        KeypadRow {
+        KeypadRow(modifier = Modifier.weight(1f)) {
             CalcKey("1", modifier = Modifier.weight(1f), bg = numBg, fg = numFg, onClick = { onKey("1") })
             CalcKey("2", modifier = Modifier.weight(1f), bg = numBg, fg = numFg, onClick = { onKey("2") })
             CalcKey("3", modifier = Modifier.weight(1f), bg = numBg, fg = numFg, onClick = { onKey("3") })
             CalcKey("+", modifier = Modifier.weight(1f), bg = opBg, fg = opFg, onClick = { onKey("+") })
         }
-        KeypadRow {
+        KeypadRow(modifier = Modifier.weight(1f)) {
             CalcKey("0", modifier = Modifier.weight(2f), bg = numBg, fg = numFg, onClick = { onKey("0") })
             CalcKey(".", modifier = Modifier.weight(1f), bg = numBg, fg = numFg, onClick = { onKey(".") })
             CalcKey("=", modifier = Modifier.weight(1f), bg = AccentBlue, fg = Color.White, onClick = { onKey("EQ") })
@@ -360,11 +360,12 @@ private fun MainKeypad(modifier: Modifier = Modifier, onKey: (String) -> Unit) {
 }
 
 @Composable
-private fun KeypadRow(content: @Composable RowScope.() -> Unit) {
+private fun KeypadRow(
+    modifier: Modifier = Modifier,
+    content: @Composable RowScope.() -> Unit
+) {
     Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .weight(1f),
+        modifier = modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.spacedBy(8.dp),
         content = content
     )
