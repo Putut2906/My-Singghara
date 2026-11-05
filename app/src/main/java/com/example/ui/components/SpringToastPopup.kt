@@ -35,6 +35,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import androidx.compose.ui.window.DialogWindowProvider
 import android.content.Context
 import android.content.ContextWrapper
 import android.graphics.Color as AndroidColor
@@ -50,28 +51,46 @@ enum class ToastType {
 
 fun autoDetectToastType(msg: String): ToastType {
     val lower = msg.lowercase()
-    // Pesan validasi input dulu jatuh ke INFO (ikon biru) sehingga tampil seperti
-    // kabar baik, padahal isian ditolak.
+    // Kata penolakan dan validasi harus dicek lebih dulu dari daftar sukses:
+    // "tidak berhasil disimpan" memuat "disimpan", "mohon lengkapi agar data
+    // tersimpan" memuat "tersimpan", dan "mode tidak aktif" memuat "aktif" ->
+    // ketiganya sempat tampil hijau sebagai kabar keberhasilan.
+    val isRejected = lower.contains("gagal") || lower.contains("tidak berhasil") ||
+        lower.contains("tidak bisa") || lower.contains("tidak dapat") ||
+        lower.contains("ditolak") || lower.contains("error") || lower.contains("salah") ||
+        lower.contains("tidak ada") || lower.contains("tidak valid") ||
+        lower.contains("tidak ditemukan") || lower.contains("tidak boleh")
+    // Campuran sukses + gagal (misal backup/restore sebagian) bukan kabar baik
+    // maupun kegagalan total.
+    val isPartial = (lower.contains("berhasil") || lower.contains("sukses") ||
+        lower.contains("selesai")) && lower.contains("gagal")
     val isValidation = lower.contains("lengkapi") || lower.contains("isian") ||
         lower.contains("mohon isi") || lower.contains("wajib diisi") ||
-        lower.contains("dengan valid")
+        lower.contains("dengan valid") || lower.contains("kosong") ||
+        lower.contains("belum diisi")
+    val isTurnedOff = lower.contains("tidak aktif") || lower.contains("nonaktif") ||
+        lower.contains("belum aktif") || lower.contains("belum diaktifkan")
+    // "aktif" harus kata utuh: substring-nya juga ada di "dinonaktifkan",
+    // "diaktifkan", dan "mengaktifkan" yang artinya justru bukan keberhasilan.
+    val isActiveOn = Regex("[^a-z]+").split(lower).contains("aktif")
     return when {
-        lower.contains("berhasil") || lower.contains("sukses") || lower.contains("disimpan") ||
-        lower.contains("diizinkan") || lower.contains("aktif") || lower.contains("dibuat") ||
-        lower.contains("disalin") || lower.contains("diperbarui") || lower.contains("dirapikan") ||
+        isPartial -> ToastType.WARNING
+
+        isRejected || isValidation -> ToastType.ERROR
+
+        isTurnedOff -> ToastType.WARNING
+
+        lower.contains("berhasil") || lower.contains("sukses") || lower.contains("tersimpan") ||
+        lower.contains("disimpan") || lower.contains("diizinkan") || isActiveOn ||
+        lower.contains("dibuat") || lower.contains("disalin") ||
+        lower.contains("diperbarui") || lower.contains("dirapikan") ||
         lower.contains("dipusatkan") || lower.contains("dikirim") || lower.contains("terhubung") ||
         lower.contains("selesai") -> ToastType.SUCCESS
 
-        isValidation -> ToastType.ERROR
-
-        lower.contains("gagal") || lower.contains("ditolak") || lower.contains("terputus") ||
-        lower.contains("terkunci") || lower.contains("salah") || lower.contains("error") ||
-        lower.contains("tidak ada") || lower.contains("tidak valid") || lower.contains("tidak ditemukan") ||
-        lower.contains("kosong") -> ToastType.ERROR
-
-        lower.contains("hapus") || lower.contains("dihapus") || lower.contains("batal") ||
-        lower.contains("peringatan") || lower.contains("reset") || lower.contains("dimatikan") ||
-        lower.contains("terlepas") -> ToastType.WARNING
+        lower.contains("terkunci") || lower.contains("terputus") || lower.contains("hapus") ||
+        lower.contains("dihapus") || lower.contains("batal") || lower.contains("peringatan") ||
+        lower.contains("reset") || lower.contains("dimatikan") || lower.contains("terlepas") ->
+            ToastType.WARNING
 
         else -> ToastType.INFO
     }
@@ -154,20 +173,41 @@ fun SpringToastPopup(
             properties = DialogProperties(
                 usePlatformDefaultWidth = false,
                 dismissOnBackPress = false,
-                dismissOnClickOutside = false
+                dismissOnClickOutside = false,
+                // Window toast dibentangkan sampai ke tepi atas layar; jarak ke bawah
+                // status bar murni dihitung content lewat statusBarsPadding(), sehingga
+                // tidak dihitung dua kali (decor platform + padding Compose).
+                decorFitsSystemWindows = false
             )
         ) {
-            // Harus dibaca di dalam content: LocalView di sini adalah ComposeView
-            // milik window dialog toast, bukan view activity induk.
+            // Harus dibaca di dalam content: LocalView di sini adalah view tempat
+            // content dialog ini dikomposisi (DialogLayout), bukan view activity induk.
             val toastView = LocalView.current
 
-            // Posisi & flag window hanya bisa dipasang setelah view-nya benar-benar
-            // menempel ke window manager. Sebelum itu rootView masih null, dan
-            // callback onSizeChanged tidak menyala lagi selama ukuran content tidak
-            // berubah -> toast tertinggal pada posisi default Dialog, yaitu tengah
-            // layar. Karena itu dikonfigurasi ulang pada tiap recomposition.
+            // usePlatformDefaultWidth = false membuat Compose mengunci ukuran window
+            // dialog sebesar content yang terukur pada SETIAP layout pass
+            // (DialogLayout.internalOnLayout -> window.setLayout(measuredW, measuredH)).
+            // Jadi ukuran window tidak bisa dipakai untuk menggeser toast; yang tersisa
+            // hanyalah gravity-nya, dan tema Dialog masih memakai CENTER sehingga pita
+            // setinggi kartu toast itu berada di tengah layar.
             fun applyToastWindow() {
-                toastDialogOf(toastView)?.let { configureToastWindow(it) }
+                // DialogWindowProvider dipegang langsung oleh view content dialog,
+                // sehingga window-nya tersedia tanpa menunggu view menempel ke window
+                // manager (rootView masih null sebelum attach -> cara lama gagal).
+                val window = (toastView as? DialogWindowProvider)?.window
+                    ?: (toastView.parent as? DialogWindowProvider)?.window
+                    ?: toastDialogOf(toastView)?.window
+                    ?: return
+                // NOT_FOCUSABLE: pop-up input di belakangnya tetap memegang fokus + keyboard.
+                // NOT_TOUCH_MODAL: sentuhan di luar kartu toast diteruskan ke window di bawahnya.
+                window.addFlags(
+                    WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                        WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
+                )
+                // Tanpa ini seluruh layar redup setiap kali toast muncul.
+                window.clearFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND)
+                window.setBackgroundDrawable(ColorDrawable(AndroidColor.TRANSPARENT))
+                window.setGravity(Gravity.TOP or Gravity.CENTER_HORIZONTAL, 0, 0)
             }
 
             SideEffect {
@@ -204,10 +244,9 @@ fun SpringToastPopup(
                 modifier = Modifier
                     .fillMaxWidth()
                     .wrapContentHeight(Alignment.Top)
-                    // DialogLayout Compose menetapkan ukuran window full-screen pada
-                    // measure pertama, jadi koreksi ke MATCH_PARENT/WRAP_CONTENT harus
-                    // setelahnya: kalau tidak, area kosong selebar layar ikut
-                    // menyerap sentuhan yang seharusnya jatuh ke pop-up di belakangnya.
+                    // Window dialog di-lock sebesar content pada tiap layout pass,
+                    // jadi gravity dikonfirmasi ulang setiap kali ukuran berubah; kalau
+                    // tidak, toast kembali ke tengah layar setelah measure pertama.
                     .onSizeChanged {
                         applyToastWindow()
                     },
@@ -341,10 +380,10 @@ fun SpringToastPopup(
     }
 }
 
-// Toast bisa dipanggil dari dalam pop-up Dialog lain, jadi Dialog yang ditemukan
-// harus benar-benar window tempat view ini berada (rootView == decorView-nya);
-// kalau tidak, flag NOT_FOCUSABLE malah menempel ke pop-up input induknya dan
-// keyboardnya hilang.
+// Cadangan bila view content dialog ternyata bukan pemegang DialogWindowProvider.
+// Dialog yang ditemukan harus benar-benar window tempat view ini berada
+// (rootView == decorView-nya); kalau tidak, flag NOT_FOCUSABLE malah menempel ke
+// pop-up input induknya dan keyboardnya hilang.
 private fun toastDialogOf(view: View?): android.app.Dialog? {
     val root = view?.rootView ?: return null
     var context: Context? = root.context
@@ -357,23 +396,5 @@ private fun toastDialogOf(view: View?): android.app.Dialog? {
         hops++
     }
     return null
-}
-
-private fun configureToastWindow(dialog: android.app.Dialog) {
-    val window = dialog.window ?: return
-    // NOT_FOCUSABLE: pop-up input di belakangnya tetap memegang fokus + keyboard.
-    // NOT_TOUCH_MODAL: sentuhan di luar kartu toast diteruskan ke window di bawahnya.
-    window.addFlags(
-        WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-            WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
-    )
-    // Tanpa ini seluruh layar redup setiap kali toast muncul.
-    window.clearFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND)
-    window.setBackgroundDrawable(ColorDrawable(AndroidColor.TRANSPARENT))
-    window.setGravity(Gravity.TOP or Gravity.CENTER_HORIZONTAL)
-    window.setLayout(
-        WindowManager.LayoutParams.MATCH_PARENT,
-        WindowManager.LayoutParams.WRAP_CONTENT
-    )
 }
 
