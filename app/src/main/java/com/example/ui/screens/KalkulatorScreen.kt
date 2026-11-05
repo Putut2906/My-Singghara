@@ -157,73 +157,12 @@ fun KalkulatorScreen(
                     )
                 }
                 Spacer(modifier = Modifier.width(12.dp))
-                Column {
-                    Text(
-                        "Kalkulator",
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 18.sp,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-                    Text(
-                        if (mode == CalcMode.ILMIAH) "Mode Ilmiah (Scientific)" else "Mode Biasa",
-                        fontSize = 12.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-                Spacer(modifier = Modifier.weight(1f))
-                // Ikon khusus untuk mengaktifkan mode ilmiah
-                IconButton(onClick = {
-                    mode = if (mode == CalcMode.BIASA) CalcMode.ILMIAH else CalcMode.BIASA
-                }) {
-                    Icon(
-                        Icons.Default.Functions,
-                        contentDescription = "Ganti mode kalkulator",
-                        tint = if (mode == CalcMode.ILMIAH) AccentBlue
-                        else MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            }
-
-            // Chip pilihan mode + DEG/RAD
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(bottom = 8.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                CalcMode.values().forEach { m ->
-                    FilterChip(
-                        selected = mode == m,
-                        onClick = { mode = m },
-                        label = {
-                            Text(
-                                if (m == CalcMode.BIASA) "Biasa" else "Ilmiah",
-                                fontSize = 12.sp
-                            )
-                        },
-                        shape = RoundedCornerShape(50),
-                        colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = AccentBlue,
-                            selectedLabelColor = Color.White
-                        )
-                    )
-                }
-                Spacer(modifier = Modifier.weight(1f))
-                if (mode == CalcMode.ILMIAH) {
-                    OutlinedButton(
-                        onClick = { useDegrees = !useDegrees },
-                        shape = RoundedCornerShape(50),
-                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
-                        colors = ButtonDefaults.outlinedButtonColors(contentColor = AccentBlue)
-                    ) {
-                        Text(
-                            if (useDegrees) "DEG" else "RAD",
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Bold
-                        )
-                    }
-                }
+                Text(
+                    "Kalkulator",
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 18.sp,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
             }
 
             if (isLandscape && mode == CalcMode.ILMIAH) {
@@ -248,7 +187,11 @@ fun KalkulatorScreen(
                             expression = expression,
                             liveResult = liveResult,
                             error = error,
-                            lastResult = lastResult
+                            lastResult = lastResult,
+                            scientific = true,
+                            useDegrees = useDegrees,
+                            onToggleMode = { mode = CalcMode.BIASA },
+                            onToggleUnit = { useDegrees = !useDegrees }
                         )
                         MainKeypad(
                             modifier = Modifier
@@ -268,7 +211,13 @@ fun KalkulatorScreen(
                         expression = expression,
                         liveResult = liveResult,
                         error = error,
-                        lastResult = lastResult
+                        lastResult = lastResult,
+                        scientific = mode == CalcMode.ILMIAH,
+                        useDegrees = useDegrees,
+                        onToggleMode = {
+                            mode = if (mode == CalcMode.BIASA) CalcMode.ILMIAH else CalcMode.BIASA
+                        },
+                        onToggleUnit = { useDegrees = !useDegrees }
                     )
                     if (mode == CalcMode.ILMIAH) {
                         Spacer(modifier = Modifier.height(8.dp))
@@ -288,13 +237,56 @@ fun KalkulatorScreen(
 }
 
 @Composable
-private fun DisplayCard(expression: String, liveResult: String, lastResult: String, error: Boolean) {
+private fun DisplayCard(
+    expression: String,
+    liveResult: String,
+    lastResult: String,
+    error: Boolean,
+    scientific: Boolean,
+    useDegrees: Boolean,
+    onToggleMode: () -> Unit,
+    onToggleUnit: () -> Unit
+) {
     Surface(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(18.dp),
         color = AccentBlue.copy(alpha = 0.08f)
     ) {
-        Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp)) {
+        Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
+            // Alat kecil di dalam papan: mode ilmiah + DEG/RAD
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Spacer(modifier = Modifier.weight(1f))
+                MiniToolButton(
+                    onClick = onToggleMode,
+                    active = scientific,
+                    contentDescription = "Mode ilmiah"
+                ) { fg ->
+                    Icon(
+                        Icons.Default.Functions,
+                        contentDescription = null,
+                        tint = fg,
+                        modifier = Modifier.size(15.dp)
+                    )
+                }
+                if (scientific) {
+                    Spacer(modifier = Modifier.width(6.dp))
+                    MiniToolButton(
+                        onClick = onToggleUnit,
+                        active = false,
+                        contentDescription = "Derajat atau radian"
+                    ) { fg ->
+                        Text(
+                            if (useDegrees) "DEG" else "RAD",
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = fg
+                        )
+                    }
+                }
+            }
             val scrollState = rememberScrollState()
             LaunchedEffect(expression) { scrollState.scrollTo(scrollState.maxValue) }
             Text(
@@ -324,6 +316,27 @@ private fun DisplayCard(expression: String, liveResult: String, lastResult: Stri
                 modifier = Modifier.fillMaxWidth()
             )
         }
+    }
+}
+
+@Composable
+private fun MiniToolButton(
+    onClick: () -> Unit,
+    active: Boolean,
+    contentDescription: String,
+    content: @Composable (Color) -> Unit
+) {
+    val fg = if (active) AccentBlue else MaterialTheme.colorScheme.onSurfaceVariant
+    Box(
+        modifier = Modifier
+            .height(24.dp)
+            .clip(RoundedCornerShape(8.dp))
+            .background(if (active) AccentBlue.copy(alpha = 0.16f) else Color.Transparent)
+            .clickable(onClickLabel = contentDescription) { onClick() }
+            .padding(horizontal = 7.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        content(fg)
     }
 }
 
