@@ -214,7 +214,7 @@ fun SpringToastPopup(
                 // Tanpa ini seluruh layar redup setiap kali toast muncul.
                 window.clearFlags(WindowManager.LayoutParams.FLAG_DIM_BEHIND)
                 window.setBackgroundDrawable(ColorDrawable(AndroidColor.TRANSPARENT))
-                window.setGravity(Gravity.TOP or Gravity.CENTER_HORIZONTAL, 0, 0)
+                window.setGravity(Gravity.TOP or Gravity.CENTER_HORIZONTAL)
             }
 
             SideEffect {
