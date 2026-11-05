@@ -100,8 +100,10 @@ class WebAuthPromptActivity : ComponentActivity() {
                                 vm?.showToastPopup("Akses Web PC Berhasil Diizinkan!")
                                 finish()
                             } else {
+                                // Host global ada di window MainActivity yang sedang tidak
+                                // tampil; menuliskannya di sini membuat pesan baru muncul
+                                // entah kapan saat pengguna kembali ke aplikasi.
                                 localToastMessage = "Gagal memverifikasi akses"
-                                vm?.showToastPopup("Gagal memverifikasi akses")
                             }
                         },
                         onReject = {
@@ -115,7 +117,6 @@ class WebAuthPromptActivity : ComponentActivity() {
                         },
                         onShowToast = { msg ->
                             localToastMessage = msg
-                            MainViewModel.instance?.showToastPopup(msg)
                         }
                     )
 

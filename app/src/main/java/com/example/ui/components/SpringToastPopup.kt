@@ -55,24 +55,31 @@ fun autoDetectToastType(msg: String): ToastType {
     // "tidak berhasil disimpan" memuat "disimpan", "mohon lengkapi agar data
     // tersimpan" memuat "tersimpan", dan "mode tidak aktif" memuat "aktif" ->
     // ketiganya sempat tampil hijau sebagai kabar keberhasilan.
+    // "salah satu" = "one of", bukan "wrong": "Pilih salah satu balok" jangan merah.
+    val isWrong = lower.contains("salah") && !lower.contains("salah satu")
     val isRejected = lower.contains("gagal") || lower.contains("tidak berhasil") ||
         lower.contains("tidak bisa") || lower.contains("tidak dapat") ||
-        lower.contains("ditolak") || lower.contains("error") || lower.contains("salah") ||
+        lower.contains("ditolak") || lower.contains("error") || isWrong ||
         lower.contains("tidak ada") || lower.contains("tidak valid") ||
-        lower.contains("tidak ditemukan") || lower.contains("tidak boleh")
+        lower.contains("tidak ditemukan") || lower.contains("tidak boleh") ||
+        lower.contains("tidak cocok") || lower.contains("tidak terdaftar")
     // Campuran sukses + gagal (misal backup/restore sebagian) bukan kabar baik
     // maupun kegagalan total.
     val isPartial = (lower.contains("berhasil") || lower.contains("sukses") ||
         lower.contains("selesai")) && lower.contains("gagal")
+    val words = Regex("[^a-z]+").split(lower)
+    // "kosong" harus kata utuh: "riwayat telah dikosongkan" adalah keberhasilan,
+    // sedangkan "daftar belanja kosong" adalah penolakan.
+    val isEmptyField = words.contains("kosong")
     val isValidation = lower.contains("lengkapi") || lower.contains("isian") ||
         lower.contains("mohon isi") || lower.contains("wajib diisi") ||
-        lower.contains("dengan valid") || lower.contains("kosong") ||
+        lower.contains("dengan valid") || isEmptyField ||
         lower.contains("belum diisi")
     val isTurnedOff = lower.contains("tidak aktif") || lower.contains("nonaktif") ||
         lower.contains("belum aktif") || lower.contains("belum diaktifkan")
     // "aktif" harus kata utuh: substring-nya juga ada di "dinonaktifkan",
     // "diaktifkan", dan "mengaktifkan" yang artinya justru bukan keberhasilan.
-    val isActiveOn = Regex("[^a-z]+").split(lower).contains("aktif")
+    val isActiveOn = words.contains("aktif")
     return when {
         isPartial -> ToastType.WARNING
 
@@ -82,15 +89,15 @@ fun autoDetectToastType(msg: String): ToastType {
 
         lower.contains("berhasil") || lower.contains("sukses") || lower.contains("tersimpan") ||
         lower.contains("disimpan") || lower.contains("diizinkan") || isActiveOn ||
-        lower.contains("dibuat") || lower.contains("disalin") ||
+        lower.contains("dibuat") || lower.contains("disalin") || lower.contains("dikosongkan") ||
         lower.contains("diperbarui") || lower.contains("dirapikan") ||
         lower.contains("dipusatkan") || lower.contains("dikirim") || lower.contains("terhubung") ||
         lower.contains("selesai") -> ToastType.SUCCESS
 
         lower.contains("terkunci") || lower.contains("terputus") || lower.contains("hapus") ||
         lower.contains("dihapus") || lower.contains("batal") || lower.contains("peringatan") ||
-        lower.contains("reset") || lower.contains("dimatikan") || lower.contains("terlepas") ->
-            ToastType.WARNING
+        lower.contains("reset") || lower.contains("dimatikan") || lower.contains("terlepas") ||
+        lower.contains("sudah terdaftar") -> ToastType.WARNING
 
         else -> ToastType.INFO
     }

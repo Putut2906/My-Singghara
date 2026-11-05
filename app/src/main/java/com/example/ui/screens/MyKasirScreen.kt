@@ -3047,6 +3047,11 @@ fun MyKasirScreen(viewModel: MainViewModel) {
                                             showEditStockDialog = false
                                             selectedEditStockItem = null
                                             viewModel.showToastPopup("Barang berhasil diperbarui!")
+                                        } else {
+                                            // Barang dihapus dari stok oleh layar/PC lain saat
+                                            // dialog ini masih terbuka: tanpa pesan ini tombol
+                                            // Simpan terlihat tidak merespons sama sekali.
+                                            viewModel.showToastPopup("Barang tidak ditemukan di daftar stok.")
                                         }
                                     } else {
                                         viewModel.showToastPopup("Mohon lengkapi semua isian dengan valid!")

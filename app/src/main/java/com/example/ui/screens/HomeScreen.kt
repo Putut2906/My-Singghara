@@ -2733,7 +2733,6 @@ fun HomeScreen(viewModel: MainViewModel) {
                                                     tipe = monthAgendaType
                                                 )
                                             )
-                                            popupToastMessage = "Kegiatan \"$savedTitle\" berhasil disimpan!"
                                             feedbackBannerMessage = "Kegiatan \"$savedTitle\" berhasil disimpan!"
                                             feedbackBannerIcon = Icons.Default.CheckCircle
                                             feedbackBannerColor = Color(0xFF10B981)
@@ -3269,7 +3268,6 @@ fun HomeScreen(viewModel: MainViewModel) {
                         val deletedTitle = agenda.judul
                         viewModel.deleteAgendaItem(agenda)
                         agendaToDelete = null
-                        popupToastMessage = "Agenda \"$deletedTitle\" berhasil dihapus."
                         feedbackBannerMessage = "Agenda \"$deletedTitle\" berhasil dihapus."
                         feedbackBannerIcon = Icons.Default.Delete
                         feedbackBannerColor = errColor
