@@ -48,15 +48,24 @@ namespace MySinggharaPc
         private Button connectButton;
         private Button reloadButton;
 
-        // Strip judul tanpa tombol apa pun: close, maximize/restore dan minimize memang
-        // tidak ada. Mode jendela/layar penuh diatur lewat Alt+F, tutup lewat Alt+F4.
+        // Strip judul: judul, petunjuk mode, dan tempat menyeret jendela.
         private Panel topStrip;
         private Label stripTitle;
         private Label modeHint;
 
-        // Pesan singkat yang muncul setelah berganti mode, karena tidak ada tombol lagi.
+        // Pesan singkat yang muncul setelah berganti mode.
         private Label modeToast;
         private System.Windows.Forms.Timer modeToastTimer;
+
+        // Caption buttons: minimize, layar penuh/pulih, dan close selalu tampil di
+        // pojok kanan atas, baik saat berjendela maupun saat layar penuh.
+        private Panel chromePanel;
+        private Button chromeMinButton;
+        private Button chromeMaxButton;
+        private Button chromeCloseButton;
+        private Font chromeGlyphFont;
+        private bool chromeUsesMdl;
+        private ToolTip chromeTips;
 
         private string appDataDir;
         private string configPath;
@@ -74,6 +83,17 @@ namespace MySinggharaPc
         private Rectangle dragStartBounds;
 
         private const int STRIP_HEIGHT = 38;
+
+        // Geometri caption buttons: tiga tombol rata tepi kanan, setinggi strip judul.
+        private const int CHROME_BUTTON_W = 46;
+        private const int CHROME_H = STRIP_HEIGHT;
+        private const int CHROME_W = CHROME_BUTTON_W * 3;
+        // Glif Segoe MDL2 Assets (minimize, maximize, restore, close).
+        private const string GLYPH_MINIMIZE = "\uE921";
+        private const string GLYPH_MAXIMIZE = "\uE922";
+        private const string GLYPH_RESTORE = "\uE923";
+        private const string GLYPH_CLOSE = "\uE8BB";
+
         private const int HOTKEY_ALT_F = 0x5F01;
         private const uint MOD_ALT = 0x0001;
         private const uint VK_F = 0x46;
@@ -140,6 +160,10 @@ namespace MySinggharaPc
                 modeToast.Visible = false;
             };
 
+            chromePanel = BuildChromePanel();
+            Controls.Add(chromePanel);
+            chromePanel.BringToFront();
+
             connectPanel.BringToFront();
 
             Resize += delegate { Relayout(); };
@@ -163,7 +187,7 @@ namespace MySinggharaPc
         }
 
         // ------------------------------------------------------------------
-        // Strip judul: minimize + tombol layar penuh, tanpa close/maximize
+        // Strip judul: judul, petunjuk mode, dan tempat menyeret jendela.
         // ------------------------------------------------------------------
 
         private Panel BuildTopStrip()
@@ -214,6 +238,95 @@ namespace MySinggharaPc
             modeToastTimer.Start();
         }
 
+        // ------------------------------------------------------------------
+        // Caption buttons: minimize, layar penuh/pulih, dan close.
+        // ------------------------------------------------------------------
+
+        private Panel BuildChromePanel()
+        {
+            chromeUsesMdl = UsesMdl2Font();
+            chromeGlyphFont = new Font(chromeUsesMdl ? "Segoe MDL2 Assets" : "Segoe UI", 11f);
+            chromeTips = new ToolTip();
+
+            chromeMinButton = BuildChromeButton(ChromeGlyph(GLYPH_MINIMIZE, "-"), "Minimize");
+            chromeMinButton.Click += delegate { WindowState = FormWindowState.Minimized; };
+
+            chromeMaxButton = BuildChromeButton(ChromeGlyph(GLYPH_MAXIMIZE, "[]"), "Layar penuh");
+            chromeMaxButton.Click += delegate { ToggleAppFullScreen(); };
+
+            chromeCloseButton = BuildChromeButton(ChromeGlyph(GLYPH_CLOSE, "x"), "Tutup");
+            chromeCloseButton.Click += delegate { Close(); };
+
+            Panel panel = new Panel();
+            panel.BackColor = Color.FromArgb(30, 41, 59);
+            panel.Controls.Add(chromeMinButton);
+            panel.Controls.Add(chromeMaxButton);
+            panel.Controls.Add(chromeCloseButton);
+            return panel;
+        }
+
+        private Button BuildChromeButton(string glyph, string tip)
+        {
+            Button button = new Button();
+            button.Text = glyph;
+            button.Font = chromeGlyphFont;
+            button.ForeColor = Color.FromArgb(226, 232, 240);
+            button.BackColor = Color.FromArgb(30, 41, 59);
+            button.FlatStyle = FlatStyle.Flat;
+            button.FlatAppearance.BorderSize = 0;
+            button.FlatAppearance.MouseOverBackColor = Color.FromArgb(51, 65, 85);
+            button.FlatAppearance.MouseDownBackColor = Color.FromArgb(71, 85, 105);
+            button.TabStop = false;
+            button.Size = new Size(CHROME_BUTTON_W, CHROME_H);
+            chromeTips.SetToolTip(button, tip);
+            return button;
+        }
+
+        // Windows 10 punya Segoe MDL2 Assets; kalau tidak ada, GDI+ mengembalikan
+        // font pengganti dan glif wilayah pribadi akan tampil sebagai kotak kosong.
+        private static bool UsesMdl2Font()
+        {
+            try
+            {
+                Font probe = new Font("Segoe MDL2 Assets", 11f);
+                bool ok = string.Equals(probe.Name, "Segoe MDL2 Assets", StringComparison.OrdinalIgnoreCase);
+                probe.Dispose();
+                return ok;
+            }
+            catch { return false; }
+        }
+
+        private string ChromeGlyph(string mdl, string plain)
+        {
+            return chromeUsesMdl ? mdl : plain;
+        }
+
+        private void UpdateChromeGlyphs()
+        {
+            if (chromeMaxButton == null) return;
+            bool full = appFullScreen;
+            chromeMaxButton.Text = ChromeGlyph(full ? GLYPH_RESTORE : GLYPH_MAXIMIZE,
+                full ? "><" : "[]");
+            chromeMaxButton.AccessibleName = full ? "Pulih ke jendela" : "Layar penuh";
+            chromeTips.SetToolTip(chromeMaxButton, full ? "Pulih ke jendela" : "Layar penuh");
+        }
+
+        private void LayoutChrome()
+        {
+            if (chromePanel == null) return;
+            chromeMinButton.Location = new Point(0, 0);
+            chromeMaxButton.Location = new Point(CHROME_BUTTON_W, 0);
+            chromeCloseButton.Location = new Point(CHROME_BUTTON_W * 2, 0);
+        }
+
+        // Tombol tetap dipakai saat layar penuh; hanya mengalah ketika halaman
+        // web meminta layar penuh sendiri (misalnya pemutaran video).
+        private void UpdateChromeVisibility()
+        {
+            if (chromePanel == null) return;
+            chromePanel.Visible = !videoFullScreen;
+        }
+
         private void OnStripMouseDown(object sender, MouseEventArgs e)
         {
             if (e.Button != MouseButtons.Left || InFullScreen) return;
@@ -246,14 +359,24 @@ namespace MySinggharaPc
             int height = ClientSize.Height;
             int contentTop = topStrip.Visible ? STRIP_HEIGHT : 0;
 
+            int captionLeft = Math.Max(0, width - CHROME_W);
             topStrip.SetBounds(0, 0, width, STRIP_HEIGHT);
-            modeHint.SetBounds(width - 200, 0, 186, STRIP_HEIGHT);
-            stripTitle.SetBounds(14, 0, Math.Max(60, width - 214), STRIP_HEIGHT);
+            modeHint.SetBounds(Math.Max(0, captionLeft - 210), 0, 196, STRIP_HEIGHT);
+            stripTitle.SetBounds(14, 0, Math.Max(60, captionLeft - 224), STRIP_HEIGHT);
 
             if (modeToast != null)
             {
                 int toastWidth = Math.Min(520, Math.Max(240, width - 40));
                 modeToast.SetBounds((width - toastWidth) / 2, contentTop + 18, toastWidth, 38);
+            }
+
+            if (chromePanel != null)
+            {
+                chromePanel.SetBounds(captionLeft, 0, CHROME_W, CHROME_H);
+                LayoutChrome();
+                UpdateChromeVisibility();
+                UpdateChromeGlyphs();
+                chromePanel.BringToFront();
             }
 
             int contentHeight = Math.Max(1, height - contentTop);
@@ -355,7 +478,7 @@ namespace MySinggharaPc
             grid.Controls.Add(hint, 0, 3);
 
             Label shortcutHint = new Label();
-            shortcutHint.Text = "Alt+F layar penuh/jendela  ·  F5 muat ulang  ·  Ctrl+L ganti alamat  ·  Alt+F4 tutup";
+            shortcutHint.Text = "Alt+F layar penuh/jendela  ·  F5 muat ulang  ·  Ctrl+L ganti alamat  ·  tombol minimize/layar penuh/close di kanan atas";
             shortcutHint.ForeColor = Color.FromArgb(100, 116, 139);
             shortcutHint.Font = new Font("Segoe UI", 8.5f);
             shortcutHint.TextAlign = ContentAlignment.TopCenter;
@@ -592,12 +715,21 @@ namespace MySinggharaPc
             if (urlBox != null && string.IsNullOrEmpty(urlBox.Text)) urlBox.Text = currentUrl;
             connectPanel.Visible = true;
             connectPanel.BringToFront();
+            RaiseChrome();
         }
 
         private void HidePanel()
         {
             connectPanel.Visible = false;
             webView.BringToFront();
+            RaiseChrome();
+        }
+
+        // Panel koneksi dan WebView menutupi seluruh klien, jadi tombol jendela
+        // perlu selalu didahulukan setiap salah satunya dinaikkan.
+        private void RaiseChrome()
+        {
+            if (chromePanel != null) chromePanel.BringToFront();
         }
 
         // ------------------------------------------------------------------
@@ -620,7 +752,7 @@ namespace MySinggharaPc
         private string DescribeMode()
         {
             return appFullScreen
-                ? "Layar penuh  ·  Alt+F kembali ke jendela  ·  Alt+F4 tutup"
+                ? "Layar penuh  ·  Alt+F kembali ke jendela"
                 : "Mode jendela  ·  Alt+F layar penuh  ·  seret strip atas untuk memindahkan";
         }
 
