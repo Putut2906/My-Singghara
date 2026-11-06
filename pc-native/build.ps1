@@ -17,11 +17,13 @@ $stage     = Join-Path $build 'payload'
 $repo      = Split-Path -Parent $root
 $assetsDir = Join-Path $repo 'app\src\main\assets\web\pc'
 $icon      = Join-Path $repo 'app\src\main\assets\web\favicon.ico'
+$manifest  = Join-Path $root 'app.manifest'
 $csc       = Join-Path $env:WINDIR 'Microsoft.NET\Framework64\v4.0.30319\csc.exe'
 $sdkUrl    = 'https://api.nuget.org/v3-flatcontainer/microsoft.web.webview2/1.0.2903.40/microsoft.web.webview2.1.0.2903.40.nupkg'
 
 if (-not (Test-Path $csc)) { throw "csc.exe tidak ditemukan di $csc" }
 if (-not (Test-Path $icon)) { throw "Ikon aplikasi tidak ditemukan di $icon" }
+if (-not (Test-Path $manifest)) { throw "Manifest DPI tidak ditemukan di $manifest" }
 
 New-Item -ItemType Directory -Force -Path $build | Out-Null
 New-Item -ItemType Directory -Force -Path $stage | Out-Null
@@ -62,7 +64,7 @@ Write-Host 'Menyusun MySinggharaPc.exe...'
 $appExe = Join-Path $build 'MySinggharaPc.exe'
 $appArgs = @(
     '/nologo', '/target:winexe', '/platform:x64', '/optimize+', '/codepage:65001',
-    "/out:$appExe", "/win32icon:$icon",
+    "/out:$appExe", "/win32icon:$icon", "/win32manifest:$manifest",
     "/r:$coreDll", "/r:$winFormsDll"
 ) + $fwRefs + @("/resource:$icon,app.ico", (Join-Path $root 'MySinggharaPc.cs'))
 & $csc $appArgs

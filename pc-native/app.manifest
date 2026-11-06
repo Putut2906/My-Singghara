@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<assembly xmlns="urn:schemas-microsoft-com:asm.v1" manifestVersion="1.0">
+  <assemblyIdentity version="1.0.0.0" name="MySinggharaPc.app" type="win32" />
+
+  <!-- Without this the process is DPI-unaware: Windows stretches the window,
+       and Screen.Bounds reports virtualised sizes, so "fullscreen" only covers
+       part of the real pixel grid on scaled displays. -->
+  <application xmlns="urn:schemas-microsoft-com:asm.v3">
+    <windowsSettings>
+      <dpiAware xmlns="http://schemas.microsoft.com/SMI/2005/WindowsSettings">true/pm</dpiAware>
+      <dpiAwareness xmlns="http://schemas.microsoft.com/SMI/2016/WindowsSettings">PerMonitorV2, PerMonitor, system</dpiAwareness>
+    </windowsSettings>
+  </application>
+
+  <dependency>
+    <dependentAssembly>
+      <assemblyIdentity type="win32" name="Microsoft.Windows.Common-Controls" version="6.0.0.0"
+                        processorArchitecture="*" publicKeyToken="6595b64144ccf1df" language="*" />
+    </dependentAssembly>
+  </dependency>
+
+  <compatibility xmlns="urn:schemas-microsoft-com:compatibility.v1">
+    <application>
+      <supportedOS Id="{8e0f8a12-bfb1-8278-48d0-780b1c7eebc9}" />
+    </application>
+  </compatibility>
+</assembly>

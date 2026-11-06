@@ -118,13 +118,26 @@ namespace MySinggharaPc
         [DllImport("user32.dll")]
         private static extern bool SetWindowPos(IntPtr hWnd, IntPtr after, int x, int y,
             int width, int height, uint flags);
-        private const uint SWP_NOZORDER = 0x0004;
         private const uint SWP_FRAMECHANGED = 0x0020;
         private const uint SWP_NOACTIVATE = 0x0010;
+        private static readonly IntPtr HWND_TOPMOST = new IntPtr(-1);
+        private static readonly IntPtr HWND_NOTOPMOST = new IntPtr(-2);
 
-        // Tanpa bingkai jendela, Windows tidak punya batas untuk menyeret ukuran.
-        // WS_THICKFRAME mengaktifkan proses resize yang hasilnya dilaporkan WM_NCHITTEST.
+        // Gaya bingkai resize (WS_THICKFRAME) membuat DWM menyisakan "border tak
+        // terlihat" selebar ~6 piksel di kiri, kanan, dan bawah. Area itu tidak
+        // ikut digambar, jadi wallpaper dan taskbar kelihatan walau GetWindowRect
+        // sudah selebar monitor penuh. Karena itu gaya ini dilepas saat layar penuh.
+        [DllImport("user32.dll")]
+        private static extern int GetWindowLong(IntPtr hWnd, int nIndex);
+
+        [DllImport("user32.dll")]
+        private static extern int SetWindowLong(IntPtr hWnd, int nIndex, int dwNewLong);
+
+        private const int GWL_STYLE = -16;
         private const int WS_THICKFRAME = 0x00040000;
+        private const int WM_DISPLAYCHANGE = 0x001E;
+        private bool resizeFrameStyleOn;
+
         private const int WM_NCHITTEST = 0x0084;
         private const int HTLEFT = 10;
         private const int HTRIGHT = 11;
@@ -141,6 +154,124 @@ namespace MySinggharaPc
 
         [DllImport("user32.dll")]
         private static extern bool UnregisterHotKey(IntPtr hWnd, int id);
+
+        // Scrollbar tetap memakan tempat (11 piksel) supaya tata letak halaman tidak
+        // berpindah, tetapi track/thumb-nya bening sampai kursor masuk ke area
+        // scrollbar itu sendiri. Kelas qoderScrollbarOn dipasang pada elemen yang
+        // punya scrollbar; untuk scrollbar dokumen dipasang pada body dan html karena
+        // Chromium mengambil gaya scrollbar viewport dari elemen body, bukan html.
+        private const string HOVER_SCROLLBAR_SCRIPT =
+@"(function () {
+    var ON = 'qoderScrollbarOn';
+    var HIDE_MS = 700;
+    var PAD = 14;
+    var active = null;
+    var hideTimer = 0;
+    var cssDone = false;
+    var CSS = '' +
+        '*::-webkit-scrollbar{width:11px;height:11px;}' +
+        '*::-webkit-scrollbar-track{background:transparent;}' +
+        '*::-webkit-scrollbar-thumb{background:transparent;border:3px solid transparent;border-radius:7px;background-clip:padding-box;}' +
+        '*::-webkit-scrollbar-corner{background:transparent;}' +
+        '*.' + ON + '::-webkit-scrollbar-thumb{background-color:rgba(56,189,248,0.60);}' +
+        '*.' + ON + '::-webkit-scrollbar-track{background-color:rgba(148,163,184,0.14);}';
+    function addCss() {
+        if (cssDone) return;
+        var root = document.documentElement;
+        if (!root) return;
+        if (document.getElementById('qoderScrollbarStyle')) { cssDone = true; return; }
+        var el = document.createElement('style');
+        el.id = 'qoderScrollbarStyle';
+        el.textContent = CSS;
+        (document.head || root).appendChild(el);
+        cssDone = true;
+    }
+    function px(v) { var n = parseFloat(v); return isNaN(n) ? 0 : n; }
+    function rootZone(x, y) {
+        var de = document.documentElement;
+        if (!de) return false;
+        var cw = de.clientWidth, ch = de.clientHeight;
+        if (de.scrollHeight - ch > 2 && x >= cw - PAD && y < ch) return true;
+        if (de.scrollWidth - cw > 2 && y >= ch - PAD && x < cw) return true;
+        return false;
+    }
+    function elementZone(e, x, y) {
+        var r = e.getBoundingClientRect();
+        if (r.width <= 0 || r.height <= 0) return false;
+        if (x < r.left || x > r.right || y < r.top || y > r.bottom) return false;
+        var cs = window.getComputedStyle ? window.getComputedStyle(e) : null;
+        var bl = cs ? px(cs.borderLeftWidth) : 0, br = cs ? px(cs.borderRightWidth) : 0;
+        var bt = cs ? px(cs.borderTopWidth) : 0, bb = cs ? px(cs.borderBottomWidth) : 0;
+        var sbw = e.offsetWidth - e.clientWidth - bl - br;
+        var sbh = e.offsetHeight - e.clientHeight - bt - bb;
+        var right = r.left + bl + e.clientWidth;
+        var bottom = r.top + bt + e.clientHeight;
+        if (sbw > 0 && e.scrollHeight - e.clientHeight > 2 && x >= right - PAD && y < bottom) return true;
+        if (sbh > 0 && e.scrollWidth - e.clientWidth > 2 && y >= bottom - PAD && x < right) return true;
+        return false;
+    }
+    function targetsFor(hit) {
+        if (hit === 'root') {
+            var list = [];
+            if (document.body) list.push(document.body);
+            if (document.documentElement) list.push(document.documentElement);
+            return list;
+        }
+        return [hit];
+    }
+    function mark(hit) {
+        if (active && active.hit === hit) return;
+        clear();
+        active = { hit: hit, list: targetsFor(hit) };
+        for (var i = 0; i < active.list.length; i++) {
+            try { active.list[i].classList.add(ON); } catch (err) {}
+        }
+    }
+    function clear() {
+        if (hideTimer) { clearTimeout(hideTimer); hideTimer = 0; }
+        if (!active) return;
+        for (var i = 0; i < active.list.length; i++) {
+            try { active.list[i].classList.remove(ON); } catch (err) {}
+        }
+        active = null;
+    }
+    function pick(node, x, y) {
+        var e = node, guard = 0, de = document.documentElement;
+        while (e && e.nodeType === 1 && guard++ < 60) {
+            if (e !== de && elementZone(e, x, y)) return e;
+            e = e.parentElement;
+        }
+        return rootZone(x, y) ? 'root' : null;
+    }
+    function onMove(ev) {
+        addCss();
+        var node = ev.target;
+        if (ev.composedPath) { var p = ev.composedPath(); if (p && p.length) node = p[0]; }
+        var hit = pick(node, ev.clientX, ev.clientY);
+        // Tanpa timer: saat kursor diam di atas strip scrollbar, pointermove tidak
+        // dikirim lagi, jadi thumb harus bertahan sampai kursor benar-benar pindah.
+        if (hit) mark(hit); else clear();
+    }
+    function onScroll(ev) {
+        addCss();
+        var e = ev.target === document ? 'root' : ev.target;
+        if (!e || (e !== 'root' && e.nodeType !== 1)) return;
+        if (e !== 'root' && e.scrollHeight - e.clientHeight <= 2 &&
+            e.scrollWidth - e.clientWidth <= 2) return;
+        var fresh = !active || active.hit !== e;
+        mark(e);
+        if (fresh) hideTimer = setTimeout(clear, HIDE_MS);
+    }
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', function () { addCss(); }, false);
+    }
+    document.addEventListener('pointermove', onMove, true);
+    document.addEventListener('pointerleave', clear, true);
+    document.addEventListener('mouseleave', clear, true);
+    window.addEventListener('scroll', onScroll, true);
+    window.addEventListener('blur', clear, false);
+    window.addEventListener('resize', clear, false);
+})();";
 
         public MainForm(string[] args)
         {
@@ -160,9 +291,15 @@ namespace MySinggharaPc
             MinimizeBox = true;
             ShowInTaskbar = true;
             MinimumSize = new Size(760, 480);
+            // Semua tata letak dihitung manual dari ClientSize, jadi tidak boleh
+            // ada penskalaan otomatis ketika proses berjalan DPI-aware.
+            AutoScaleMode = AutoScaleMode.None;
             try { Icon = LoadOwnIcon(); } catch { }
 
             appFullScreen = ReadFullScreenPreference();
+            // Saat jendela dibuka langsung dalam layar penuh, gaya bingkai resize
+            // tidak boleh sempat dipasang (CreateParams membacanya di sini).
+            resizeFrameStyleOn = !appFullScreen;
             chromeHidden = ReadChromeHiddenPreference();
             windowedBounds = ReadWindowBounds();
             StartPosition = FormStartPosition.Manual;
@@ -759,6 +896,10 @@ namespace MySinggharaPc
             core.Settings.IsStatusBarEnabled = false;
             core.Settings.AreBrowserAcceleratorKeysEnabled = false;
 
+            // Scrollbar hanya muncul ketika kursor berada di area scrollbar.
+            try { core.AddScriptToExecuteOnDocumentCreatedAsync(HOVER_SCROLLBAR_SCRIPT); }
+            catch { }
+
             core.DocumentTitleChanged += delegate
             {
                 string title = core.DocumentTitle;
@@ -858,22 +999,37 @@ namespace MySinggharaPc
                 if (InFullScreen)
                 {
                     WindowState = FormWindowState.Normal;
+                    // Border tak terlihat dari WS_THICKFRAME harus dilepas lebih dulu,
+                    // kalau tidak tepi kiri/kanan/bawah tetap menampilkan desktop.
+                    SetResizeFrameStyle(false);
                     Rectangle screen = Screen.FromControl(this).Bounds;
-                    Bounds = screen;
-                    // Tugas (taskbar) hanya mau mundur kalau shell diberitahu bahwa batas
-                    // jendela berubah; tanpa SWP_FRAMECHANGED jendela tetap kalah oleh taskbar.
+                    // MinimumSize bisa menahan Bounds supaya tidak selebar monitor.
+                    Size minimum = MinimumSize;
+                    MinimumSize = Size.Empty;
                     try
                     {
-                        SetWindowPos(Handle, IntPtr.Zero, screen.Left, screen.Top,
-                            screen.Width, screen.Height, SWP_NOZORDER | SWP_FRAMECHANGED | SWP_NOACTIVATE);
+                        Bounds = screen;
+                        // Taskbar hanya mau mundur kalau shell diberitahu bahwa batas
+                        // jendela berubah; TOPMOST membuat layar penuh tidak kalahkan.
+                        SetWindowPos(Handle, HWND_TOPMOST, screen.Left, screen.Top,
+                            screen.Width, screen.Height, SWP_FRAMECHANGED | SWP_NOACTIVATE);
                     }
                     catch { }
+                    finally { MinimumSize = minimum; }
                 }
                 else
                 {
                     WindowState = FormWindowState.Normal;
+                    SetResizeFrameStyle(true);
                     windowedBounds = ClampToScreen(windowedBounds);
                     Bounds = windowedBounds;
+                    try
+                    {
+                        SetWindowPos(Handle, HWND_NOTOPMOST, windowedBounds.Left,
+                            windowedBounds.Top, windowedBounds.Width, windowedBounds.Height,
+                            SWP_FRAMECHANGED | SWP_NOACTIVATE);
+                    }
+                    catch { }
                 }
             }
             finally
@@ -885,6 +1041,22 @@ namespace MySinggharaPc
             modeHint.Text = appFullScreen ? "Alt+F jendela" : "Alt+F layar penuh";
             UpdateChromeVisibility();
             Relayout();
+        }
+
+        // Pasang/copot gaya bingkai resize. Perubahan gaya baru terlihat setelah
+        // frame diberitahu (SWP_FRAMECHANGED), dan itu dilakukan oleh ApplyWindowMode.
+        private void SetResizeFrameStyle(bool enabled)
+        {
+            if (enabled == resizeFrameStyleOn) return;
+            if (!IsHandleCreated) { resizeFrameStyleOn = enabled; return; }
+            try
+            {
+                int style = GetWindowLong(Handle, GWL_STYLE);
+                int next = enabled ? (style | WS_THICKFRAME) : (style & ~WS_THICKFRAME);
+                if (next != style) SetWindowLong(Handle, GWL_STYLE, next);
+                resizeFrameStyleOn = enabled;
+            }
+            catch { }
         }
 
         private void RecordWindowedBounds()
@@ -905,14 +1077,15 @@ namespace MySinggharaPc
             return new Rectangle(x, y, width, height);
         }
 
-        // FormBorderStyle.None menghilangkan bingkai, tetapi WS_THICKFRAME needed
-        // supaya Windows mau menjalankan proses resize hasil dari WM_NCHITTEST di bawah.
+        // Tanpa bingkai jendela Windows tidak tahu batas resize, jadi gaya
+        // WS_THICKFRAME dipasang saat berjendela supaya WM_NCHITTEST di bawah
+        // dijalankan. Saat layar penuh gaya itu justru meninggalkan celah.
         protected override CreateParams CreateParams
         {
             get
             {
                 CreateParams cp = base.CreateParams;
-                cp.Style |= WS_THICKFRAME;
+                if (resizeFrameStyleOn) cp.Style |= WS_THICKFRAME;
                 return cp;
             }
         }
@@ -946,6 +1119,17 @@ namespace MySinggharaPc
                     }
                 }
                 catch { }
+            }
+            if (m.Msg == WM_DISPLAYCHANGE)
+            {
+                // Resolusi atau monitor berubah: layar penuh harus mengikuti
+                // batas monitor yang baru, kalau tidak celah muncul lagi.
+                if (InFullScreen)
+                {
+                    base.WndProc(ref m);
+                    try { BeginInvoke(new Action(delegate { ApplyWindowMode(); })); } catch { }
+                    return;
+                }
             }
             if (m.Msg == WM_NCHITTEST && !InFullScreen && WindowState == FormWindowState.Normal)
             {
