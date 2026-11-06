@@ -12,7 +12,6 @@ import android.net.Uri
 import java.util.Calendar
 import android.os.Build
 import android.os.Bundle
-import android.os.Environment
 import android.provider.Settings
 import android.widget.Toast
 import androidx.activity.ComponentActivity
@@ -201,6 +200,16 @@ class MainActivity : FragmentActivity() {
         }
     }
 
+    /** Hasil permintaan POST_NOTIFICATIONS; tanpa launcher ini dialog sistem tidak pernah punya efek ke UI. */
+    private val notificationsPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        viewModel.showToastPopup(
+            if (isGranted) "Izin notifikasi aktif. Pengingat sholat dan agenda akan tampil."
+            else "Izin notifikasi ditolak. Pengingat tidak akan muncul di bar notifikasi."
+        )
+    }
+
     private val screenOffReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             if (intent?.action == Intent.ACTION_SCREEN_OFF) {
@@ -225,18 +234,12 @@ class MainActivity : FragmentActivity() {
             e.printStackTrace()
         }
 
-        // Memicu check & request permissions secara langsung saat pertamakali dibuka
-        checkAndRequestStoragePermissions()
-
         // Otomatis buat folder My Singghara (Back Up, Data/font, Data/mp3) di penyimpanan internal
         com.example.util.SinggharaFolderManager.ensureFoldersExistAsync(this)
 
-        // Request POST_NOTIFICATIONS permission for Android 13+ to ensure user gets sholat and agenda reminders
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
-                requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 101)
-            }
-        }
+        // Izin sistem baru diminta setelah wizard setup pertama selesai, supaya installer baru
+        // tidak langsung terlempar ke pop up izin sebelum melihat halaman sambutan.
+        requestPostSetupPermissions()
 
         // Initialize notification channels and schedule daily / sholat alarms
         NotificationScheduler.scheduleAlarms(this)
@@ -609,29 +612,11 @@ class MainActivity : FragmentActivity() {
 
     private fun checkAndRequestStoragePermissions() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            // Android 11+ (API 30+) menggunakan MANAGE_EXTERNAL_STORAGE untuk akses file langsung di folder publik
-            if (!Environment.isExternalStorageManager()) {
-                // Tanpa akses semua file, MediaStore hanya bisa dibaca lewat izin media perjenis (Android 13+).
-                // Dialog izin diminta lebih dulu; layar pengaturan dibuka pada kesempatan berikutnya.
-                val missingMediaPermissions = missingMediaPermissionNames()
-                if (missingMediaPermissions.isNotEmpty()) {
-                    requestPermissionLauncher.launch(missingMediaPermissions.toTypedArray())
-                    return
-                }
-                try {
-                    val intent = Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION).apply {
-                        data = Uri.parse("package:${packageName}")
-                    }
-                    startActivity(intent)
-                    viewModel.showToastPopup("Harap izinkan akses semua file agar fitur Ekspor/Impor berfungsi.")
-                } catch (e: Exception) {
-                    try {
-                        val intent = Intent(Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION)
-                        startActivity(intent)
-                    } catch (ex: Exception) {
-                        viewModel.showToastPopup("Gagal membuka pengaturan izin file.")
-                    }
-                }
+            // Android 11+ ke atas: MediaStore hanya bisa dibaca lewat izin media perjenis. Akses semua file
+            // (MANAGE_EXTERNAL_STORAGE) bersifat opsional dan diminta lewat tombol, bukan otomatis.
+            val missingMediaPermissions = missingMediaPermissionNames()
+            if (missingMediaPermissions.isNotEmpty()) {
+                requestPermissionLauncher.launch(missingMediaPermissions.toTypedArray())
             }
         } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             // Android 10 (API 29) mendukung scoped storage, namun kita tetap meminta izin baca/tulis
@@ -661,6 +646,22 @@ class MainActivity : FragmentActivity() {
                 requestPermissionLauncher.launch(permissionsList.toTypedArray())
             }
         }
+    }
+
+    /**
+     * Izin runtime untuk fitur backup/pemindai media. Sengaja tidak dijalankan sebelum wizard
+     * setup pertama selesai supaya installer baru tidak langsung disambut pop up sistem.
+     */
+    private fun requestPostSetupPermissions() {
+        if (!viewModel.isFirstInstallSetupCompleted) return
+        requestNotificationsPermissionIfNeeded()
+        checkAndRequestStoragePermissions()
+    }
+
+    private fun requestNotificationsPermissionIfNeeded() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) return
+        notificationsPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
     }
 
     /** Izin media yang belum diberikan; kosong pada Android 12 ke bawah karena memakai READ_EXTERNAL_STORAGE. */
