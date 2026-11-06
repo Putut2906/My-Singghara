@@ -3098,6 +3098,45 @@ class LocalHttpServer(
         return logsArray
     }
 
+    // Satu koneksi dibiarkan terbuka per halaman PC (text/event-stream). Setiap ada
+    // perubahan transfer, HP menulis peristiwa ke koneksi itu sehingga PC langsung
+    // menyegarkan daftar. Koneksi ditutup tiap 2 menit dan EventSource menyambung
+    // ulang sendiri, jadi thread tidak menahan socket selamanya.
+    private suspend fun serveTransferEvents(output: java.io.OutputStream) {
+        val headers = "HTTP/1.1 200 OK\r\n" +
+                "Content-Type: text/event-stream; charset=utf-8\r\n" +
+                "Cache-Control: no-store\r\n" +
+                "Access-Control-Allow-Origin: *\r\n" +
+                "Connection: close\r\n\r\n"
+        try {
+            output.write(headers.toByteArray(Charsets.UTF_8))
+            output.flush()
+        } catch (e: Exception) {
+            return
+        }
+
+        if (!com.example.web.WebEventHub.subscribe("transfer", output)) {
+            try {
+                output.write("retry: 6000\n\n".toByteArray(Charsets.UTF_8))
+                output.flush()
+            } catch (e: Exception) {
+            }
+            return
+        }
+
+        try {
+            if (!com.example.web.WebEventHub.writeRaw(output, "event: ready\ndata: ok\n\n")) return
+            val startedAt = System.currentTimeMillis()
+            while (System.currentTimeMillis() - startedAt < 120_000) {
+                kotlinx.coroutines.delay(10_000)
+                if (!com.example.web.WebEventHub.writeRaw(output, ": ping\n\n")) break
+            }
+        } catch (e: Exception) {
+        } finally {
+            com.example.web.WebEventHub.release(output)
+        }
+    }
+
     private suspend fun handleTransferFileRoute(path: String, method: String, queryParams: Map<String, String>, body: String, output: OutputStream) {
         val transferManager = com.example.transfer.FileTransferManager.getInstance(context)
         val action = queryParams["action"] ?: path.removePrefix("/api/transfer_file").removePrefix("/")
@@ -3116,6 +3155,10 @@ class LocalHttpServer(
                         put("logs", transferLogsArray(transferManager))
                     }
                     sendJsonResponse(output, state.toString())
+                    return
+                }
+                "events" -> {
+                    serveTransferEvents(output)
                     return
                 }
                 "files", "list_shared" -> {

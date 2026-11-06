@@ -17,6 +17,7 @@ object TransferFileWebScript {
         window.transferUploadStatus = '';
         window.transferPendingFiles = [];
         window.transferAutoSyncTimer = null;
+        window.transferEventSource = null;
         window.transferLastSignature = '';
 
         async function loadTransferFile() {
@@ -52,14 +53,28 @@ object TransferFileWebScript {
             return key(shared) + '#' + key(received) + '#' + key(logs);
         }
 
-        // Berkas yang dikirim dari HP harus langsung terlihat di PC tanpa tekan F5,
-        // jadi halaman ini menyegarkan dirinya sendiri dan hanya merender ulang bila isinya berubah.
+        // Berkas yang dikirim dari HP harus langsung terlihat di PC tanpa tekan F5.
+        // Halaman berlangganan jalur peristiwa server (SSE); polling tetap berjalan
+        // sebagai cadangan bila koneksi peristiwa terputus atau dibatasi browser.
         function startTransferAutoSync() {
-            if (window.transferAutoSyncTimer) clearInterval(window.transferAutoSyncTimer);
+            stopTransferAutoSync();
+            startTransferLiveFeed();
             window.transferAutoSyncTimer = setInterval(() => {
                 if (currentTab === 'transfer_file') refreshTransferSilently();
                 else stopTransferAutoSync();
-            }, 2500);
+            }, 5000);
+        }
+
+        function startTransferLiveFeed() {
+            if (!window.EventSource) return;
+            try {
+                const source = new EventSource('/api/transfer_file?action=events');
+                window.transferEventSource = source;
+                source.addEventListener('change', () => { refreshTransferSilently(); });
+                source.addEventListener('ready', () => { refreshTransferSilently(); });
+            } catch (err) {
+                window.transferEventSource = null;
+            }
         }
 
         function stopTransferAutoSync() {
@@ -67,10 +82,21 @@ object TransferFileWebScript {
                 clearInterval(window.transferAutoSyncTimer);
                 window.transferAutoSyncTimer = null;
             }
+            if (window.transferEventSource) {
+                try { window.transferEventSource.close(); } catch (err) {}
+                window.transferEventSource = null;
+            }
         }
 
+        // PC yang sedang di-minimize tidak mendapat timer; saat kembali dibuka,
+        // daftar langsung ditarik ulang supaya tidak perlu F5.
+        document.addEventListener('visibilitychange', () => {
+            if (!document.hidden && currentTab === 'transfer_file') refreshTransferSilently();
+        });
+
         async function refreshTransferSilently() {
-            if (window.transferUploading) return;
+            if (window.transferUploading || window.transferSyncBusy) return;
+            window.transferSyncBusy = true;
             try {
                 const res = await fetch('/api/transfer_file?action=state', { cache: 'no-store' });
                 if (!res.ok) return;
@@ -101,6 +127,8 @@ object TransferFileWebScript {
                 }
             } catch (err) {
                 console.warn('Sinkron otomatis transfer gagal:', err);
+            } finally {
+                window.transferSyncBusy = false;
             }
         }
 
@@ -181,7 +209,7 @@ object TransferFileWebScript {
                                 </div>
                                 <div class="d-flex align-items-center gap-2">
                                     <span class="small d-none d-md-inline-flex align-items-center gap-1 text-white text-opacity-75">
-                                        <i class="bi bi-broadcast-pin"></i> Sinkron otomatis aktif
+                                        <i class="bi bi-broadcast-pin"></i> Sinkron langsung aktif
                                     </span>
                                     <button class="btn btn-sm fw-semibold shadow-sm d-flex align-items-center gap-1 transfer-btn-refresh" onclick="fetchTransferData(); startTransferAutoSync();">
                                         <i class="bi bi-arrow-clockwise"></i> Segarkan

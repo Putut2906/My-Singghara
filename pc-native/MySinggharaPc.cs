@@ -48,13 +48,15 @@ namespace MySinggharaPc
         private Button connectButton;
         private Button reloadButton;
 
-        // Strip judul bawaan aplikasi: hanya berisi tombol minimize dan layar penuh.
-        // Tombol close dan maximize/restore memang tidak ada (Alt+F untuk beralih mode).
+        // Strip judul tanpa tombol apa pun: close, maximize/restore dan minimize memang
+        // tidak ada. Mode jendela/layar penuh diatur lewat Alt+F, tutup lewat Alt+F4.
         private Panel topStrip;
         private Label stripTitle;
         private Label modeHint;
-        private Button minButton;
-        private Button fsButton;
+
+        // Pesan singkat yang muncul setelah berganti mode, karena tidak ada tombol lagi.
+        private Label modeToast;
+        private System.Windows.Forms.Timer modeToastTimer;
 
         private string appDataDir;
         private string configPath;
@@ -77,6 +79,20 @@ namespace MySinggharaPc
         private const uint VK_F = 0x46;
         private const int WM_HOTKEY = 0x0312;
         private const int WM_ACTIVATEAPP = 0x001C;
+
+        // Tanpa bingkai jendela, Windows tidak punya batas untuk menyeret ukuran.
+        // WS_THICKFRAME mengaktifkan proses resize yang hasilnya dilaporkan WM_NCHITTEST.
+        private const int WS_THICKFRAME = 0x00040000;
+        private const int WM_NCHITTEST = 0x0084;
+        private const int HTLEFT = 10;
+        private const int HTRIGHT = 11;
+        private const int HTTOP = 12;
+        private const int HTTOPLEFT = 13;
+        private const int HTTOPRIGHT = 14;
+        private const int HTBOTTOM = 15;
+        private const int HTBOTTOMLEFT = 16;
+        private const int HTBOTTOMRIGHT = 17;
+        private const int GRIP_WIDTH = 9;
 
         [DllImport("user32.dll")]
         private static extern bool RegisterHotKey(IntPtr hWnd, int id, uint fsModifiers, uint vk);
@@ -113,6 +129,17 @@ namespace MySinggharaPc
 
             topStrip = BuildTopStrip();
             Controls.Add(topStrip);
+
+            modeToast = BuildModeToast();
+            Controls.Add(modeToast);
+            modeToastTimer = new System.Windows.Forms.Timer();
+            modeToastTimer.Interval = 2200;
+            modeToastTimer.Tick += delegate
+            {
+                modeToastTimer.Stop();
+                modeToast.Visible = false;
+            };
+
             connectPanel.BringToFront();
 
             Resize += delegate { Relayout(); };
@@ -125,6 +152,7 @@ namespace MySinggharaPc
             Shown += delegate
             {
                 ApplyWindowMode();
+                ShowModeToast(DescribeMode());
                 StartWebView();
             };
             FormClosing += delegate
@@ -155,37 +183,35 @@ namespace MySinggharaPc
             stripTitle.BackColor = Color.Transparent;
             strip.Controls.Add(stripTitle);
 
-            minButton = MakeStripButton("–", "Perkecil jendela");
-            minButton.Click += delegate { WindowState = FormWindowState.Minimized; };
-            strip.Controls.Add(minButton);
-
-            fsButton = MakeStripButton("⤢", "Layar penuh / jendela (Alt+F)");
-            fsButton.Click += delegate { ToggleAppFullScreen(); };
-            strip.Controls.Add(fsButton);
-
             modeHint = new Label();
-            modeHint.Text = "Alt+F";
+            modeHint.Text = "Alt+F layar penuh";
             modeHint.ForeColor = Color.FromArgb(100, 116, 139);
             modeHint.Font = new Font("Segoe UI", 8.5f);
-            modeHint.TextAlign = ContentAlignment.MiddleCenter;
+            modeHint.TextAlign = ContentAlignment.MiddleRight;
             strip.Controls.Add(modeHint);
 
             return strip;
         }
 
-        private Button MakeStripButton(string glyph, string tip)
+        private Label BuildModeToast()
         {
-            Button button = new Button();
-            button.Text = glyph;
-            button.Font = new Font("Segoe UI Symbol", 12f);
-            button.ForeColor = Color.FromArgb(203, 213, 225);
-            button.BackColor = Color.FromArgb(15, 23, 42);
-            button.FlatStyle = FlatStyle.Flat;
-            button.FlatAppearance.BorderSize = 0;
-            button.TabStop = false;
-            ToolTip tips = new ToolTip();
-            tips.SetToolTip(button, tip);
-            return button;
+            Label toast = new Label();
+            toast.Font = new Font("Segoe UI", 9.5f, FontStyle.Bold);
+            toast.ForeColor = Color.FromArgb(226, 232, 240);
+            toast.BackColor = Color.FromArgb(15, 23, 42);
+            toast.TextAlign = ContentAlignment.MiddleCenter;
+            toast.Visible = false;
+            return toast;
+        }
+
+        private void ShowModeToast(string message)
+        {
+            modeToast.Text = message;
+            Relayout();
+            modeToast.Visible = true;
+            modeToast.BringToFront();
+            modeToastTimer.Stop();
+            modeToastTimer.Start();
         }
 
         private void OnStripMouseDown(object sender, MouseEventArgs e)
@@ -221,10 +247,14 @@ namespace MySinggharaPc
             int contentTop = topStrip.Visible ? STRIP_HEIGHT : 0;
 
             topStrip.SetBounds(0, 0, width, STRIP_HEIGHT);
-            minButton.SetBounds(width - STRIP_HEIGHT, 0, STRIP_HEIGHT, STRIP_HEIGHT);
-            fsButton.SetBounds(width - STRIP_HEIGHT * 2, 0, STRIP_HEIGHT, STRIP_HEIGHT);
-            modeHint.SetBounds(width - STRIP_HEIGHT * 2 - 104, 0, 104, STRIP_HEIGHT);
-            stripTitle.SetBounds(14, 0, Math.Max(60, width - STRIP_HEIGHT * 2 - 124), STRIP_HEIGHT);
+            modeHint.SetBounds(width - 200, 0, 186, STRIP_HEIGHT);
+            stripTitle.SetBounds(14, 0, Math.Max(60, width - 214), STRIP_HEIGHT);
+
+            if (modeToast != null)
+            {
+                int toastWidth = Math.Min(520, Math.Max(240, width - 40));
+                modeToast.SetBounds((width - toastWidth) / 2, contentTop + 18, toastWidth, 38);
+            }
 
             int contentHeight = Math.Max(1, height - contentTop);
             webView.SetBounds(0, contentTop, width, contentHeight);
@@ -584,6 +614,14 @@ namespace MySinggharaPc
             appFullScreen = !appFullScreen;
             ApplyWindowMode();
             SaveWindowSettings();
+            ShowModeToast(DescribeMode());
+        }
+
+        private string DescribeMode()
+        {
+            return appFullScreen
+                ? "Layar penuh  ·  Alt+F kembali ke jendela  ·  Alt+F4 tutup"
+                : "Mode jendela  ·  Alt+F layar penuh  ·  seret strip atas untuk memindahkan";
         }
 
         private void ApplyWindowMode()
@@ -599,9 +637,9 @@ namespace MySinggharaPc
                 windowedBounds = ClampToScreen(windowedBounds);
                 Bounds = windowedBounds;
             }
-            topStrip.Visible = !videoFullScreen;
-            fsButton.Text = appFullScreen ? "⤡" : "⤢";
-            modeHint.Text = appFullScreen ? "Alt+F jendela" : "Alt+F layar";
+            // Strip hanya diperlukan saat berjendela; layar penuh memakai seluruh piksel.
+            topStrip.Visible = !InFullScreen;
+            modeHint.Text = appFullScreen ? "Alt+F jendela" : "Alt+F layar penuh";
             Relayout();
         }
 
@@ -614,6 +652,18 @@ namespace MySinggharaPc
             int x = Math.Max(working.Left, Math.Min(requested.X, working.Right - width));
             int y = Math.Max(working.Top, Math.Min(requested.Y, working.Bottom - height));
             return new Rectangle(x, y, width, height);
+        }
+
+        // FormBorderStyle.None menghilangkan bingkai, tetapi WS_THICKFRAME needed
+        // supaya Windows mau menjalankan proses resize hasil dari WM_NCHITTEST di bawah.
+        protected override CreateParams CreateParams
+        {
+            get
+            {
+                CreateParams cp = base.CreateParams;
+                cp.Style |= WS_THICKFRAME;
+                return cp;
+            }
         }
 
         protected override void WndProc(ref Message m)
@@ -633,7 +683,39 @@ namespace MySinggharaPc
                 }
                 catch { }
             }
+            if (m.Msg == WM_NCHITTEST && !InFullScreen && WindowState == FormWindowState.Normal)
+            {
+                int grip = ResizeGripRegion(m.LParam);
+                if (grip != 0)
+                {
+                    m.Result = (IntPtr)grip;
+                    return;
+                }
+            }
             base.WndProc(ref m);
+        }
+
+        // Jendela ini tidak punya bingkai, jadi Windows tidak tahu di mana batas resize.
+        // Sembilan piksel terakhir dilaporkan sebagai tepi; titik lain dibiarkan
+        // ditangani default supaya strip judul tetap bisa diseret.
+        private int ResizeGripRegion(IntPtr lParam)
+        {
+            int x = (short)((int)lParam & 0xFFFF);
+            int y = (short)(((int)lParam >> 16) & 0xFFFF);
+            Rectangle edge = RectangleToScreen(ClientRectangle);
+            bool left = x <= edge.Left + GRIP_WIDTH;
+            bool right = x >= edge.Right - GRIP_WIDTH;
+            bool top = y <= edge.Top + GRIP_WIDTH;
+            bool bottom = y >= edge.Bottom - GRIP_WIDTH;
+            if (left && top) return HTTOPLEFT;
+            if (right && top) return HTTOPRIGHT;
+            if (left && bottom) return HTBOTTOMLEFT;
+            if (right && bottom) return HTBOTTOMRIGHT;
+            if (left) return HTLEFT;
+            if (right) return HTRIGHT;
+            if (top) return HTTOP;
+            if (bottom) return HTBOTTOM;
+            return 0;
         }
 
         private void OnFormKeyDown(object sender, KeyEventArgs e)

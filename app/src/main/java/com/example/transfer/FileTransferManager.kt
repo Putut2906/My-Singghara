@@ -95,6 +95,7 @@ class FileTransferManager private constructor(private val context: Context) {
                     )
                 }
                 _receivedFromPc.value = items
+                notifyPcClients()
             } catch (e: Exception) {
                 e.printStackTrace()
             }
@@ -200,6 +201,7 @@ class FileTransferManager private constructor(private val context: Context) {
                 e.printStackTrace()
             }
             _sharedFromPhone.value = current
+            notifyPcClients()
         }
     }
 
@@ -209,6 +211,7 @@ class FileTransferManager private constructor(private val context: Context) {
             try { item.file?.delete() } catch (e: Exception) { e.printStackTrace() }
         }
         _sharedFromPhone.value = emptyList()
+        notifyPcClients()
     }
 
     suspend fun saveReceivedFromPc(fileName: String, bytes: ByteArray): File = withContext(Dispatchers.IO) {
@@ -243,6 +246,7 @@ class FileTransferManager private constructor(private val context: Context) {
         val deleted = item.file?.delete() ?: false
         if (deleted) {
             _receivedFromPc.value = _receivedFromPc.value.filter { it.id != id }
+            notifyPcClients()
         }
         deleted
     }
@@ -339,10 +343,24 @@ class FileTransferManager private constructor(private val context: Context) {
             isIncoming = isIncoming
         )
         _activityLogs.value = (listOf(log) + _activityLogs.value).take(50)
+        notifyPcClients()
     }
 
     fun clearLogs() {
         _activityLogs.value = emptyList()
+        notifyPcClients()
+    }
+
+    // Beri tahu halaman Web Connect bahwa ada perubahan, jadi PC tidak perlu F5.
+    // Tulisan ke socket browser tidak boleh terjadi di thread UI.
+    private fun notifyPcClients() {
+        scope.launch {
+            try {
+                com.example.web.WebEventHub.publish("transfer", "change", System.currentTimeMillis().toString())
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
     }
 
     companion object {
