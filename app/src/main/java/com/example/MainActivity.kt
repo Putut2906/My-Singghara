@@ -24,6 +24,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AdminPanelSettings
 import androidx.compose.material.icons.filled.Badge
 import androidx.compose.material.icons.filled.Groups
+import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.outlined.Groups
 import androidx.compose.material.icons.filled.VideoLibrary
 import androidx.compose.material.icons.outlined.VideoLibrary
@@ -794,6 +795,8 @@ fun MainAppContent(viewModel: MainViewModel, desktopMode: Boolean = false) {
     var showNotificationsDialog by remember { mutableStateOf(false) }
     var isCompanyExpanded by remember { mutableStateOf(false) }
     var isManajemenExpanded by remember { mutableStateOf(false) }
+    var isPeopleExpanded by remember { mutableStateOf(false) }
+    var isMediaExpanded by remember { mutableStateOf(false) }
     var isKeuanganExpanded by remember { mutableStateOf(false) }
     var isKasirExpanded by remember { mutableStateOf(false) }
     var isKoneksiBerbagiExpanded by remember { mutableStateOf(false) }
@@ -803,6 +806,8 @@ fun MainAppContent(viewModel: MainViewModel, desktopMode: Boolean = false) {
         if (drawerState.targetValue == androidx.compose.material3.DrawerValue.Closed) {
             isCompanyExpanded = false
             isManajemenExpanded = false
+            isPeopleExpanded = false
+            isMediaExpanded = false
             isKeuanganExpanded = false
             isKasirExpanded = false
             isKoneksiBerbagiExpanded = false
@@ -812,6 +817,8 @@ fun MainAppContent(viewModel: MainViewModel, desktopMode: Boolean = false) {
         if (drawerState.isClosed) {
             isCompanyExpanded = false
             isManajemenExpanded = false
+            isPeopleExpanded = false
+            isMediaExpanded = false
             isKeuanganExpanded = false
             isKasirExpanded = false
             isKoneksiBerbagiExpanded = false
@@ -1729,32 +1736,6 @@ fun MainAppContent(viewModel: MainViewModel, desktopMode: Boolean = false) {
                             )
                         }
 
-                        val isVideoPlayerSelected = viewModel.currentRoute == "pemutar_video"
-                        DrawerMenuCard {
-                            PrimaryDrawerEntry(
-                                label = "Pemutar Video",
-                                icon = if (isVideoPlayerSelected) Icons.Default.VideoLibrary else Icons.Outlined.VideoLibrary,
-                                selected = isVideoPlayerSelected,
-                                onClick = {
-                                    viewModel.currentRoute = "pemutar_video"
-                                    scope.launch { drawerState.close() }
-                                }
-                            )
-                        }
-
-                        val isArisanKeluargaSelected = viewModel.currentRoute == "arisan_keluarga"
-                        DrawerMenuCard {
-                            PrimaryDrawerEntry(
-                                label = "Arisan Keluarga",
-                                icon = if (isArisanKeluargaSelected) Icons.Default.Groups else Icons.Outlined.Groups,
-                                selected = isArisanKeluargaSelected,
-                                onClick = {
-                                    viewModel.currentRoute = "arisan_keluarga"
-                                    scope.launch { drawerState.close() }
-                                }
-                            )
-                        }
-
                     // Group: COMPANY (Boxed Group Card)
                     DrawerMenuCard {
                         // Header Clickable to Expand/Collapse
@@ -1765,6 +1746,8 @@ fun MainAppContent(viewModel: MainViewModel, desktopMode: Boolean = false) {
                                     val next = !isCompanyExpanded
                                     if (next) {
                                         isManajemenExpanded = false
+                                        isPeopleExpanded = false
+                                        isMediaExpanded = false
                                         isKeuanganExpanded = false
                                         isKoneksiBerbagiExpanded = false
                                     }
@@ -1903,6 +1886,8 @@ fun MainAppContent(viewModel: MainViewModel, desktopMode: Boolean = false) {
                                     val next = !isManajemenExpanded
                                     if (next) {
                                         isCompanyExpanded = false
+                                        isPeopleExpanded = false
+                                        isMediaExpanded = false
                                         isKeuanganExpanded = false
                                         isKoneksiBerbagiExpanded = false
                                     }
@@ -2050,91 +2035,176 @@ fun MainAppContent(viewModel: MainViewModel, desktopMode: Boolean = false) {
                                     )
                                 )
 
-                                // Sub-item 4: Rekap Belanja Pasar
-                                val isRekapBelanjaSelected = viewModel.currentRoute == "rekap_belanja_pasar"
-                                val belanjaPasarNavList by viewModel.allBelanjaPasar.collectAsState()
-                                NavigationDrawerItem(
-                                    icon = {
-                                        Icon(
-                                            imageVector = if (isRekapBelanjaSelected) Icons.Default.ShoppingCart else Icons.Outlined.ShoppingCart,
-                                            contentDescription = "Rekap Belanja Pasar",
-                                            tint = Color(0xFF10B981)
-                                        )
-                                    },
-                                    label = { Text(text = "Rekap Belanja Pasar", fontWeight = FontWeight.Medium, fontSize = 13.sp) },
-                                    selected = isRekapBelanjaSelected,
-                                    onClick = {
-                                        viewModel.currentRoute = "rekap_belanja_pasar"
-                                        scope.launch { drawerState.close() }
-                                    },
-                                    shape = RoundedCornerShape(8.dp),
-                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 2.dp),
-                                    colors = NavigationDrawerItemDefaults.colors(
-                                        selectedContainerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.8f),
-                                        selectedTextColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                                        selectedIconColor = MaterialTheme.colorScheme.primary,
-                                        unselectedContainerColor = Color.Transparent,
-                                        unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-                                    )
+                            }
+                        }
+                    }
+
+                    // Group: PEOPLE (Boxed Group Card, desain kartu sama seperti LAPORAN KEUANGAN)
+                    DrawerMenuCard {
+                        // Header Clickable to Expand/Collapse
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    val next = !isPeopleExpanded
+                                    if (next) {
+                                        isCompanyExpanded = false
+                                        isManajemenExpanded = false
+                                        isMediaExpanded = false
+                                        isKeuanganExpanded = false
+                                        isKoneksiBerbagiExpanded = false
+                                    }
+                                    isPeopleExpanded = next
+                                }
+                                .padding(horizontal = 14.dp, vertical = 6.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Icon(
+                                    imageVector = if (isPeopleExpanded) Icons.Default.Groups else Icons.Outlined.Groups,
+                                    contentDescription = "People",
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Text(
+                                    text = "PEOPLE",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    letterSpacing = 1.sp
+                                )
+                            }
+                            Icon(
+                                imageVector = if (isPeopleExpanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                                contentDescription = if (isPeopleExpanded) "Sembunyikan" else "Tampilkan",
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+
+                        AnimatedVisibility(
+                            visible = isPeopleExpanded,
+                            enter = expandVertically() + fadeIn(),
+                            exit = shrinkVertically() + fadeOut()
+                        ) {
+                            Column(modifier = Modifier.fillMaxWidth()) {
+                                val peopleEntries = listOf(
+                                    Triple("arisan_keluarga", "Arisan Keluarga", if (viewModel.currentRoute == "arisan_keluarga") Icons.Default.Groups else Icons.Outlined.Groups),
+                                    Triple("rekap_belanja_pasar", "Rekap Belanja Pasar", if (viewModel.currentRoute == "rekap_belanja_pasar") Icons.Default.ShoppingCart else Icons.Outlined.ShoppingCart),
+                                    Triple("belanja_online", "Belanja Online", if (viewModel.currentRoute == "belanja_online") Icons.Default.ShoppingBag else Icons.Outlined.ShoppingBag),
+                                    Triple("kalkulator", "Kalkulator", if (viewModel.currentRoute == "kalkulator") Icons.Default.Calculate else Icons.Outlined.Calculate)
                                 )
 
-                                // Sub-item 5: Belanja Online
-                                val isBelanjaOnlineSelected = viewModel.currentRoute == "belanja_online"
-                                NavigationDrawerItem(
-                                    icon = {
-                                        Icon(
-                                            imageVector = if (isBelanjaOnlineSelected) Icons.Default.ShoppingBag else Icons.Outlined.ShoppingBag,
-                                            contentDescription = "Belanja Online",
-                                            tint = Color(0xFF7C3AED)
+                                peopleEntries.forEach { (route, title, iconVec) ->
+                                    val isSelected = viewModel.currentRoute == route
+                                    NavigationDrawerItem(
+                                        icon = { Icon(imageVector = iconVec, contentDescription = title) },
+                                        label = { Text(text = title, fontWeight = FontWeight.Medium, fontSize = 13.sp) },
+                                        selected = isSelected,
+                                        onClick = {
+                                            viewModel.currentRoute = route
+                                            scope.launch { drawerState.close() }
+                                        },
+                                        shape = RoundedCornerShape(8.dp),
+                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 2.dp),
+                                        colors = NavigationDrawerItemDefaults.colors(
+                                            selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                                            selectedTextColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                                            selectedIconColor = MaterialTheme.colorScheme.primary,
+                                            unselectedContainerColor = Color.Transparent,
+                                            unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
                                         )
-                                    },
-                                    label = { Text(text = "Belanja Online", fontWeight = FontWeight.Medium, fontSize = 13.sp) },
-                                    selected = isBelanjaOnlineSelected,
-                                    onClick = {
-                                        viewModel.currentRoute = "belanja_online"
-                                        scope.launch { drawerState.close() }
-                                    },
-                                    shape = RoundedCornerShape(8.dp),
-                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 2.dp),
-                                    colors = NavigationDrawerItemDefaults.colors(
-                                        selectedContainerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.8f),
-                                        selectedTextColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                                        selectedIconColor = MaterialTheme.colorScheme.primary,
-                                        unselectedContainerColor = Color.Transparent,
-                                        unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
                                     )
+                                }
+                            }
+                        }
+                    }
+
+                    // Group: MEDIA (Boxed Group Card, desain kartu sama seperti LAPORAN KEUANGAN)
+                    DrawerMenuCard {
+                        // Header Clickable to Expand/Collapse
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    val next = !isMediaExpanded
+                                    if (next) {
+                                        isCompanyExpanded = false
+                                        isManajemenExpanded = false
+                                        isPeopleExpanded = false
+                                        isKeuanganExpanded = false
+                                        isKoneksiBerbagiExpanded = false
+                                    }
+                                    isMediaExpanded = next
+                                }
+                                .padding(horizontal = 14.dp, vertical = 6.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Icon(
+                                    imageVector = if (isMediaExpanded) Icons.Default.VideoLibrary else Icons.Outlined.VideoLibrary,
+                                    contentDescription = "Media",
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Text(
+                                    text = "MEDIA",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    letterSpacing = 1.sp
+                                )
+                            }
+                            Icon(
+                                imageVector = if (isMediaExpanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                                contentDescription = if (isMediaExpanded) "Sembunyikan" else "Tampilkan",
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+
+                        AnimatedVisibility(
+                            visible = isMediaExpanded,
+                            enter = expandVertically() + fadeIn(),
+                            exit = shrinkVertically() + fadeOut()
+                        ) {
+                            Column(modifier = Modifier.fillMaxWidth()) {
+                                val mediaEntries = listOf(
+                                    Triple("pemutar_video", "Pemutar Video", if (viewModel.currentRoute == "pemutar_video") Icons.Default.VideoLibrary else Icons.Outlined.VideoLibrary),
+                                    Triple("pemutar_musik", "Pemutar Musik", Icons.Default.MusicNote)
                                 )
 
-                                // Sub-item 6: Kalkulator
-                                val isKalkulatorSelected = viewModel.currentRoute == "kalkulator"
-                                NavigationDrawerItem(
-                                    icon = {
-                                        Icon(
-                                            imageVector = if (isKalkulatorSelected) Icons.Default.Calculate else Icons.Outlined.Calculate,
-                                            contentDescription = "Kalkulator",
-                                            tint = Color(0xFF0EA5E9)
+                                mediaEntries.forEach { (route, title, iconVec) ->
+                                    val isSelected = viewModel.currentRoute == route
+                                    NavigationDrawerItem(
+                                        icon = { Icon(imageVector = iconVec, contentDescription = title) },
+                                        label = { Text(text = title, fontWeight = FontWeight.Medium, fontSize = 13.sp) },
+                                        selected = isSelected,
+                                        onClick = {
+                                            viewModel.currentRoute = route
+                                            scope.launch { drawerState.close() }
+                                        },
+                                        shape = RoundedCornerShape(8.dp),
+                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 2.dp),
+                                        colors = NavigationDrawerItemDefaults.colors(
+                                            selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                                            selectedTextColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                                            selectedIconColor = MaterialTheme.colorScheme.primary,
+                                            unselectedContainerColor = Color.Transparent,
+                                            unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
                                         )
-                                    },
-                                    label = { Text(text = "Kalkulator", fontWeight = FontWeight.Medium, fontSize = 13.sp) },
-                                    selected = isKalkulatorSelected,
-                                    onClick = {
-                                        viewModel.currentRoute = "kalkulator"
-                                        scope.launch { drawerState.close() }
-                                    },
-                                    shape = RoundedCornerShape(8.dp),
-                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 2.dp),
-                                    colors = NavigationDrawerItemDefaults.colors(
-                                        selectedContainerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.8f),
-                                        selectedTextColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                                        selectedIconColor = MaterialTheme.colorScheme.primary,
-                                        unselectedContainerColor = Color.Transparent,
-                                        unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
                                     )
-                                )
-
+                                }
                             }
                         }
                     }
@@ -2150,6 +2220,8 @@ fun MainAppContent(viewModel: MainViewModel, desktopMode: Boolean = false) {
                                     if (next) {
                                         isCompanyExpanded = false
                                         isManajemenExpanded = false
+                                        isPeopleExpanded = false
+                                        isMediaExpanded = false
                                         isKoneksiBerbagiExpanded = false
                                     }
                                     isKeuanganExpanded = next
@@ -2238,6 +2310,8 @@ fun MainAppContent(viewModel: MainViewModel, desktopMode: Boolean = false) {
                                     if (next) {
                                         isCompanyExpanded = false
                                         isManajemenExpanded = false
+                                        isPeopleExpanded = false
+                                        isMediaExpanded = false
                                         isKeuanganExpanded = false
                                     }
                                     isKoneksiBerbagiExpanded = next
