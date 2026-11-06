@@ -93,6 +93,9 @@ object TransferFileWebScript {
         document.addEventListener('visibilitychange', () => {
             if (!document.hidden && currentTab === 'transfer_file') refreshTransferSilently();
         });
+        window.addEventListener('focus', () => {
+            if (currentTab === 'transfer_file') refreshTransferSilently();
+        });
 
         async function refreshTransferSilently() {
             if (window.transferUploading || window.transferSyncBusy) return;
@@ -387,53 +390,67 @@ object TransferFileWebScript {
 
         async function startUploadToPhone() {
             if (window.transferPendingFiles.length === 0 || window.transferUploading) return;
-            window.transferUploading = true;
-            window.transferUploadProgress = 0;
-            renderTransferFileUI();
-
-            const total = window.transferPendingFiles.length;
-            let successCount = 0;
-
-            for (let i = 0; i < total; i++) {
-                const file = window.transferPendingFiles[i];
-                window.transferUploadStatus = 'Mengirim berkas (' + (i + 1) + '/' + total + '): ' + file.name;
-                window.transferUploadProgress = Math.round((i / total) * 100);
+            try {
+                window.transferUploading = true;
+                window.transferUploadProgress = 0;
                 renderTransferFileUI();
 
-                try {
-                    const base64Data = await readFileAsBase64(file);
-                    const res = await fetch('/api/transfer_file?action=upload', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            filename: file.name,
-                            mimeType: file.type || 'application/octet-stream',
-                            base64Data: base64Data
-                        })
-                    });
-                    if (res.ok) {
-                        const json = await res.json();
-                        if (json.status === 'success') {
-                            successCount++;
+                const total = window.transferPendingFiles.length;
+                let successCount = 0;
+
+                for (let i = 0; i < total; i++) {
+                    const file = window.transferPendingFiles[i];
+                    window.transferUploadStatus = 'Mengirim berkas (' + (i + 1) + '/' + total + '): ' + file.name;
+                    window.transferUploadProgress = Math.round((i / total) * 100);
+                    renderTransferFileUI();
+
+                    try {
+                        const base64Data = await readFileAsBase64(file);
+                        const res = await fetch('/api/transfer_file?action=upload', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                filename: file.name,
+                                mimeType: file.type || 'application/octet-stream',
+                                base64Data: base64Data
+                            })
+                        });
+                        if (res.ok) {
+                            const json = await res.json();
+                            if (json.status === 'success') {
+                                successCount++;
+                            }
                         }
+                    } catch (e) {
+                        console.error('Gagal upload berkas:', file.name, e);
                     }
-                } catch (e) {
-                    console.error('Gagal upload berkas:', file.name, e);
                 }
-            }
 
-            window.transferUploadProgress = 100;
-            window.transferUploadStatus = 'Selesai! ' + successCount + ' berkas berhasil dikirim ke HP.';
-            renderTransferFileUI();
+                window.transferUploadProgress = 100;
+                window.transferUploadStatus = 'Selesai! ' + successCount + ' berkas berhasil dikirim ke HP.';
+                renderTransferFileUI();
 
-            setTimeout(async () => {
+                setTimeout(async () => {
+                    window.transferUploading = false;
+                    window.transferPendingFiles = [];
+                    window.transferUploadProgress = 0;
+                    window.transferUploadStatus = '';
+                    await fetchTransferData();
+                    const pesan = successCount > 0
+                        ? 'Sukses mengirim ' + successCount + ' berkas ke HP!'
+                        : 'Tidak ada berkas yang berhasil dikirim ke HP.';
+                    showTransferNotification(pesan, successCount > 0 ? 'success' : 'info');
+                }, 1200);
+            } catch (err) {
+                // Flag harus selalu dilepas: selama transferUploading masih true,
+                // refreshTransferSilently dibekukan, jadi daftar hanya mau muncul
+                // sesudah tekan F5.
+                console.error('Upload berhenti karena galat:', err);
                 window.transferUploading = false;
-                window.transferPendingFiles = [];
-                window.transferUploadProgress = 0;
-                window.transferUploadStatus = '';
-                await fetchTransferData();
-                showTransferNotification('Sukses mengirim ' + successCount + ' berkas ke HP!', 'success');
-            }, 1200);
+                window.transferUploadStatus = 'Pengiriman gagal: ' + (err && err.message ? err.message : 'galat tidak dikenal');
+                renderTransferFileUI();
+                showTransferNotification(window.transferUploadStatus, 'error');
+            }
         }
 
         function readFileAsBase64(file) {

@@ -73,28 +73,57 @@ class FileTransferManager private constructor(private val context: Context) {
 
     init {
         refreshReceivedFiles()
+        refreshSharedFiles()
     }
+
+    // Isi folder dibaca langsung dari disk setiap kali daftar dibutuhkan. Daftar yang
+    // hanya hidup di memori membuat PC harus menekan F5 (atau menunggu HP mengirim ulang)
+    // sebelum berkas lama muncul lagi setelah aplikasi dijalankan kembali.
+    fun receivedItemsNow(): List<LocalTransferItem> = transferItemsFrom(receivedDir, false)
+
+    fun sharedItemsNow(): List<LocalTransferItem> = transferItemsFrom(sharedDir, true)
+
+    private fun transferItemsFrom(dir: File, fromPhone: Boolean): List<LocalTransferItem> {
+        val files = try {
+            dir.listFiles()?.filter { it.isFile }?.sortedByDescending { it.lastModified() } ?: emptyList()
+        } catch (e: Exception) {
+            emptyList()
+        }
+        return files.map { file ->
+            LocalTransferItem(
+                id = (if (fromPhone) "shared_" else "rec_") + file.name.hashCode().toString(),
+                name = if (fromPhone) displayShareName(file.name) else file.name,
+                size = file.length(),
+                formattedSize = formatFileSize(file.length()),
+                mimeType = getMimeType(file.name),
+                isFromPhone = fromPhone,
+                timestamp = file.lastModified(),
+                file = file,
+                extension = file.extension.uppercase(Locale.getDefault())
+            )
+        }
+    }
+
+    // Berkas bersama disimpan sebagai "<milis>_<nama>"; prefiks itu hanya dipakai supaya
+    // nama tidak bentrok saat berkas dengan nama sama dibagikan dua kali.
+    private fun displayShareName(storedName: String): String =
+        storedName.replaceFirst(Regex("^\\d{10,}_"), "")
 
     fun refreshReceivedFiles() {
         scope.launch {
             try {
-                val files = receivedDir.listFiles()?.filter { it.isFile }?.sortedByDescending { it.lastModified() } ?: emptyList()
-                val items = files.map { file ->
-                    val ext = file.extension.uppercase(Locale.getDefault())
-                    val mime = getMimeType(file.name)
-                    LocalTransferItem(
-                        id = "rec_" + file.name.hashCode().toString(),
-                        name = file.name,
-                        size = file.length(),
-                        formattedSize = formatFileSize(file.length()),
-                        mimeType = mime,
-                        isFromPhone = false,
-                        timestamp = file.lastModified(),
-                        file = file,
-                        extension = ext
-                    )
-                }
-                _receivedFromPc.value = items
+                _receivedFromPc.value = receivedItemsNow()
+                notifyPcClients()
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+    }
+
+    fun refreshSharedFiles() {
+        scope.launch {
+            try {
+                _sharedFromPhone.value = sharedItemsNow()
                 notifyPcClients()
             } catch (e: Exception) {
                 e.printStackTrace()
@@ -127,23 +156,19 @@ class FileTransferManager private constructor(private val context: Context) {
     fun getAllFilesForPc(): List<LocalTransferItem> {
         val list = mutableListOf<LocalTransferItem>()
         getSelfApkItem()?.let { list.add(it) }
-        list.addAll(_sharedFromPhone.value)
+        list.addAll(sharedItemsNow())
         return list
     }
 
     suspend fun addFilesFromPhone(uris: List<Uri>): Int = withContext(Dispatchers.IO) {
         var addedCount = 0
-        val newItems = mutableListOf<LocalTransferItem>()
         for (uri in uris) {
             try {
                 var fileName = "berkas_${System.currentTimeMillis()}"
-                var fileSize = 0L
                 context.contentResolver.query(uri, null, null, null, null)?.use { cursor ->
                     val nameIndex = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
-                    val sizeIndex = cursor.getColumnIndex(OpenableColumns.SIZE)
-                    if (cursor.moveToFirst()) {
-                        if (nameIndex != -1) fileName = cursor.getString(nameIndex) ?: fileName
-                        if (sizeIndex != -1) fileSize = cursor.getLong(sizeIndex)
+                    if (cursor.moveToFirst() && nameIndex != -1) {
+                        fileName = cursor.getString(nameIndex) ?: fileName
                     }
                 }
 
@@ -155,34 +180,18 @@ class FileTransferManager private constructor(private val context: Context) {
                     }
                 }
 
-                if (targetFile.exists() && targetFile.length() > 0) {
-                    val finalSize = targetFile.length()
-                    val ext = targetFile.extension.uppercase(Locale.getDefault())
-                    val mime = getMimeType(targetFile.name)
-                    val item = LocalTransferItem(
-                        id = "shared_${System.currentTimeMillis()}_${targetFile.name.hashCode()}",
-                        name = safeFileName,
-                        size = finalSize,
-                        formattedSize = formatFileSize(finalSize),
-                        mimeType = mime,
-                        isFromPhone = true,
-                        timestamp = System.currentTimeMillis(),
-                        file = targetFile,
-                        uri = uri,
-                        extension = ext
-                    )
-                    newItems.add(item)
-                    addedCount++
-                }
+                if (targetFile.exists() && targetFile.length() > 0) addedCount++
             } catch (e: Exception) {
                 e.printStackTrace()
             }
         }
 
-        if (newItems.isNotEmpty()) {
-            _sharedFromPhone.value = newItems + _sharedFromPhone.value
+        if (addedCount > 0) {
+            // Daftar diambil ulang dari disk, lalu logActivity membangunkan jalur SSE
+            // sehingga halaman PC langsung menampilkan berkas baru tanpa F5.
+            _sharedFromPhone.value = sharedItemsNow()
             logActivity(
-                title = "Berbagi ${newItems.size} Berkas dari HP",
+                title = "Berbagi $addedCount Berkas dari HP",
                 desc = "Siap diunduh oleh Web Connect di PC",
                 isIncoming = false
             )
@@ -191,26 +200,25 @@ class FileTransferManager private constructor(private val context: Context) {
     }
 
     fun removeSharedFile(id: String) {
-        val current = _sharedFromPhone.value.toMutableList()
-        val index = current.indexOfFirst { it.id == id }
-        if (index != -1) {
-            val removed = current.removeAt(index)
-            try {
-                removed.file?.delete()
-            } catch (e: Exception) {
-                e.printStackTrace()
-            }
-            _sharedFromPhone.value = current
-            notifyPcClients()
+        val item = sharedItemsNow().firstOrNull { it.id == id } ?: return
+        try {
+            item.file?.delete()
+        } catch (e: Exception) {
+            e.printStackTrace()
         }
+        _sharedFromPhone.value = sharedItemsNow()
+        notifyPcClients()
     }
 
     fun clearSharedFiles() {
-        val current = _sharedFromPhone.value
-        current.forEach { item ->
-            try { item.file?.delete() } catch (e: Exception) { e.printStackTrace() }
+        try {
+            sharedDir.listFiles()?.forEach { file ->
+                try { file.delete() } catch (e: Exception) { e.printStackTrace() }
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
         }
-        _sharedFromPhone.value = emptyList()
+        _sharedFromPhone.value = sharedItemsNow()
         notifyPcClients()
     }
 

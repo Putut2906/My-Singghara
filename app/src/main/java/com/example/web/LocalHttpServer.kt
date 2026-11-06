@@ -3045,8 +3045,8 @@ class LocalHttpServer(
             put("deviceName", android.os.Build.MODEL ?: "Android Device")
             put("ip", getIpAddress(context))
             put("port", port)
-            put("sharedCount", transferManager.sharedFromPhone.value.size)
-            put("receivedCount", transferManager.receivedFromPc.value.size)
+            put("sharedCount", transferManager.sharedItemsNow().size)
+            put("receivedCount", transferManager.receivedItemsNow().size)
             put("hasSelfApk", transferManager.getSelfApkItem() != null)
         }
     }
@@ -3070,7 +3070,7 @@ class LocalHttpServer(
 
     private fun transferReceivedArray(transferManager: com.example.transfer.FileTransferManager): JSONArray {
         val receivedArray = JSONArray()
-        transferManager.receivedFromPc.value.forEach { f ->
+        transferManager.receivedItemsNow().forEach { f ->
             receivedArray.put(JSONObject().apply {
                 put("id", f.id)
                 put("name", f.name)
@@ -3192,7 +3192,7 @@ class LocalHttpServer(
                             fileNameToUse = item.name
                             mimeTypeToUse = item.mimeType
                         } else {
-                            val receivedItem = transferManager.receivedFromPc.value.find { it.id == fileId }
+                            val receivedItem = transferManager.receivedItemsNow().find { it.id == fileId }
                             if (receivedItem != null && receivedItem.file != null && receivedItem.file.exists()) {
                                 fileToStream = receivedItem.file
                                 fileNameToUse = receivedItem.name

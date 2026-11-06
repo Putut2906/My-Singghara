@@ -59,13 +59,19 @@ namespace MySinggharaPc
 
         // Caption buttons: minimize, layar penuh/pulih, dan close selalu tampil di
         // pojok kanan atas, baik saat berjendela maupun saat layar penuh.
+        // Tombol keempat menyembunyikan seluruh caption buttons (Alt+H); saat
+        // tersembunyi, kursor yang menyentuh tepi atas jendela memunculkan kembali.
         private Panel chromePanel;
         private Button chromeMinButton;
         private Button chromeMaxButton;
+        private Button chromeHideButton;
         private Button chromeCloseButton;
         private Font chromeGlyphFont;
         private bool chromeUsesMdl;
         private ToolTip chromeTips;
+        private bool chromeHidden;
+        private bool chromeRevealed;
+        private System.Windows.Forms.Timer revealTimer;
 
         private string appDataDir;
         private string configPath;
@@ -76,6 +82,9 @@ namespace MySinggharaPc
         private bool appFullScreen;
         private bool videoFullScreen;
         private Rectangle windowedBounds;
+        // Bounds yang sedang dipasang oleh kode sendiri tidak boleh dicatat sebagai
+        // ukuran jendela biasa, kalau tidak layar penuh kehilangan bentuk aslinya.
+        private bool applyingBounds;
 
         // Menyeret jendela lewat strip judul
         private bool draggingStrip;
@@ -84,21 +93,34 @@ namespace MySinggharaPc
 
         private const int STRIP_HEIGHT = 38;
 
-        // Geometri caption buttons: tiga tombol rata tepi kanan, setinggi strip judul.
+        // Geometri caption buttons: empat tombol rata tepi kanan, setinggi strip judul.
         private const int CHROME_BUTTON_W = 46;
         private const int CHROME_H = STRIP_HEIGHT;
-        private const int CHROME_W = CHROME_BUTTON_W * 3;
-        // Glif Segoe MDL2 Assets (minimize, maximize, restore, close).
+        private const int CHROME_W = CHROME_BUTTON_W * 4;
+        // Glif Segoe MDL2 Assets (minimize, maximize, restore, close, sembunyi/tampil).
         private const string GLYPH_MINIMIZE = "\uE921";
         private const string GLYPH_MAXIMIZE = "\uE922";
         private const string GLYPH_RESTORE = "\uE923";
         private const string GLYPH_CLOSE = "\uE8BB";
+        private const string GLYPH_HIDE = "\uE70E";
+        private const string GLYPH_SHOW = "\uE70D";
 
         private const int HOTKEY_ALT_F = 0x5F01;
+        private const int HOTKEY_ALT_H = 0x5F02;
         private const uint MOD_ALT = 0x0001;
         private const uint VK_F = 0x46;
+        private const uint VK_H = 0x48;
         private const int WM_HOTKEY = 0x0312;
         private const int WM_ACTIVATEAPP = 0x001C;
+
+        // Layar penuh sejati: jendela harus menutupi satu monitor penuh dan shell
+        // perlu diberitahu lewat SWP_FRAMECHANGED supaya taskbar mundur sendiri.
+        [DllImport("user32.dll")]
+        private static extern bool SetWindowPos(IntPtr hWnd, IntPtr after, int x, int y,
+            int width, int height, uint flags);
+        private const uint SWP_NOZORDER = 0x0004;
+        private const uint SWP_FRAMECHANGED = 0x0020;
+        private const uint SWP_NOACTIVATE = 0x0010;
 
         // Tanpa bingkai jendela, Windows tidak punya batas untuk menyeret ukuran.
         // WS_THICKFRAME mengaktifkan proses resize yang hasilnya dilaporkan WM_NCHITTEST.
@@ -133,10 +155,15 @@ namespace MySinggharaPc
             FormBorderStyle = FormBorderStyle.None;
             ControlBox = false;
             MaximizeBox = false;
-            MinimizeBox = false;
+            // Tombol minimize buatan sendiri butuh gaya WS_MINIMIZEBOX supaya
+            // WindowState = Minimized benar-benar dijalankan oleh Windows.
+            MinimizeBox = true;
+            ShowInTaskbar = true;
+            MinimumSize = new Size(760, 480);
             try { Icon = LoadOwnIcon(); } catch { }
 
             appFullScreen = ReadFullScreenPreference();
+            chromeHidden = ReadChromeHiddenPreference();
             windowedBounds = ReadWindowBounds();
             StartPosition = FormStartPosition.Manual;
             Bounds = appFullScreen ? Screen.FromPoint(Cursor.Position).Bounds : windowedBounds;
@@ -164,9 +191,18 @@ namespace MySinggharaPc
             Controls.Add(chromePanel);
             chromePanel.BringToFront();
 
+            // Timer kecil ini yang menjaga caption buttons tetap tersembunyi sampai
+            // kursor benar-benar menyentuh tepi atas jendela.
+            revealTimer = new System.Windows.Forms.Timer();
+            revealTimer.Interval = 120;
+            revealTimer.Tick += OnRevealTick;
+            revealTimer.Start();
+
             connectPanel.BringToFront();
 
             Resize += delegate { Relayout(); };
+            Move += delegate { RecordWindowedBounds(); };
+            SizeChanged += delegate { RecordWindowedBounds(); };
             Relayout();
 
             KeyPreview = true;
@@ -182,6 +218,8 @@ namespace MySinggharaPc
             FormClosing += delegate
             {
                 try { UnregisterHotKey(Handle, HOTKEY_ALT_F); } catch { }
+                try { UnregisterHotKey(Handle, HOTKEY_ALT_H); } catch { }
+                revealTimer.Stop();
                 SaveWindowSettings();
             };
         }
@@ -254,6 +292,9 @@ namespace MySinggharaPc
             chromeMaxButton = BuildChromeButton(ChromeGlyph(GLYPH_MAXIMIZE, "[]"), "Layar penuh");
             chromeMaxButton.Click += delegate { ToggleAppFullScreen(); };
 
+            chromeHideButton = BuildChromeButton(ChromeGlyph(GLYPH_HIDE, "--"), "Sembunyikan tombol jendela");
+            chromeHideButton.Click += delegate { ToggleChromeHidden(); };
+
             chromeCloseButton = BuildChromeButton(ChromeGlyph(GLYPH_CLOSE, "x"), "Tutup");
             chromeCloseButton.Click += delegate { Close(); };
 
@@ -261,6 +302,7 @@ namespace MySinggharaPc
             panel.BackColor = Color.FromArgb(30, 41, 59);
             panel.Controls.Add(chromeMinButton);
             panel.Controls.Add(chromeMaxButton);
+            panel.Controls.Add(chromeHideButton);
             panel.Controls.Add(chromeCloseButton);
             return panel;
         }
@@ -308,7 +350,15 @@ namespace MySinggharaPc
             chromeMaxButton.Text = ChromeGlyph(full ? GLYPH_RESTORE : GLYPH_MAXIMIZE,
                 full ? "><" : "[]");
             chromeMaxButton.AccessibleName = full ? "Pulih ke jendela" : "Layar penuh";
-            chromeTips.SetToolTip(chromeMaxButton, full ? "Pulih ke jendela" : "Layar penuh");
+            chromeTips.SetToolTip(chromeMaxButton, full ? "Pulih ke jendela (Alt+F)" : "Layar penuh (Alt+F)");
+            if (chromeHideButton != null)
+            {
+                bool hidden = chromeHidden;
+                chromeHideButton.Text = ChromeGlyph(hidden ? GLYPH_SHOW : GLYPH_HIDE, hidden ? "++" : "--");
+                chromeHideButton.AccessibleName = hidden ? "Tampilkan tombol jendela" : "Sembunyikan tombol jendela";
+                chromeTips.SetToolTip(chromeHideButton, hidden
+                    ? "Tampilkan tombol jendela (Alt+H)" : "Sembunyikan tombol jendela (Alt+H)");
+            }
         }
 
         private void LayoutChrome()
@@ -316,15 +366,54 @@ namespace MySinggharaPc
             if (chromePanel == null) return;
             chromeMinButton.Location = new Point(0, 0);
             chromeMaxButton.Location = new Point(CHROME_BUTTON_W, 0);
-            chromeCloseButton.Location = new Point(CHROME_BUTTON_W * 2, 0);
+            chromeHideButton.Location = new Point(CHROME_BUTTON_W * 2, 0);
+            chromeCloseButton.Location = new Point(CHROME_BUTTON_W * 3, 0);
         }
 
         // Tombol tetap dipakai saat layar penuh; hanya mengalah ketika halaman
-        // web meminta layar penuh sendiri (misalnya pemutaran video).
+        // web meminta layar penuh sendiri (misalnya pemutaran video). Saat pengguna
+        // menyembunyikannya, panel hanya muncul kembali bila kursor menyentuh tepi atas.
         private void UpdateChromeVisibility()
         {
             if (chromePanel == null) return;
-            chromePanel.Visible = !videoFullScreen;
+            chromePanel.Visible = !videoFullScreen && (!chromeHidden || chromeRevealed);
+            if (chromePanel.Visible) chromePanel.BringToFront();
+        }
+
+        private void ToggleChromeHidden()
+        {
+            chromeHidden = !chromeHidden;
+            chromeRevealed = false;
+            UpdateChromeVisibility();
+            UpdateChromeGlyphs();
+            Relayout();
+            SaveWindowSettings();
+            ShowModeToast(chromeHidden
+                ? "Tombol jendela disembunyikan  ·  sentuh tepi atas atau Alt+H"
+                : "Tombol jendela ditampilkan");
+        }
+
+        private void OnRevealTick(object sender, EventArgs e)
+        {
+            if (!chromeHidden || videoFullScreen) return;
+            if (WindowState != FormWindowState.Normal) return;
+            Rectangle area = Bounds;
+            Point cursor = Cursor.Position;
+            bool withinWidth = cursor.X >= area.Left && cursor.X < area.Right;
+            if (!chromeRevealed)
+            {
+                if (withinWidth && cursor.Y >= area.Top && cursor.Y <= area.Top + 3)
+                {
+                    chromeRevealed = true;
+                    UpdateChromeVisibility();
+                    chromePanel.BringToFront();
+                }
+            }
+            else if (!withinWidth || cursor.Y > area.Top + CHROME_H + 12)
+            {
+                chromeRevealed = false;
+                UpdateChromeVisibility();
+            }
         }
 
         private void OnStripMouseDown(object sender, MouseEventArgs e)
@@ -359,7 +448,12 @@ namespace MySinggharaPc
             int height = ClientSize.Height;
             int contentTop = topStrip.Visible ? STRIP_HEIGHT : 0;
 
-            int captionLeft = Math.Max(0, width - CHROME_W);
+            // Posisi tombol selalu rata tepi kanan; saat tersembunyi judul boleh
+            // memakai seluruh lebar, tetapi batas panel tombol tidak boleh ikut bergeser,
+            // kalau tidak munculnya kembali terlihat terpotong.
+            int chromeLeft = Math.Max(0, width - CHROME_W);
+            bool chromeShown = !videoFullScreen && (!chromeHidden || chromeRevealed);
+            int captionLeft = chromeShown ? chromeLeft : Math.Max(0, width - 16);
             topStrip.SetBounds(0, 0, width, STRIP_HEIGHT);
             modeHint.SetBounds(Math.Max(0, captionLeft - 210), 0, 196, STRIP_HEIGHT);
             stripTitle.SetBounds(14, 0, Math.Max(60, captionLeft - 224), STRIP_HEIGHT);
@@ -372,7 +466,7 @@ namespace MySinggharaPc
 
             if (chromePanel != null)
             {
-                chromePanel.SetBounds(captionLeft, 0, CHROME_W, CHROME_H);
+                chromePanel.SetBounds(chromeLeft, 0, CHROME_W, CHROME_H);
                 LayoutChrome();
                 UpdateChromeVisibility();
                 UpdateChromeGlyphs();
@@ -478,7 +572,7 @@ namespace MySinggharaPc
             grid.Controls.Add(hint, 0, 3);
 
             Label shortcutHint = new Label();
-            shortcutHint.Text = "Alt+F layar penuh/jendela  ·  F5 muat ulang  ·  Ctrl+L ganti alamat  ·  tombol minimize/layar penuh/close di kanan atas";
+            shortcutHint.Text = "Alt+F layar penuh tanpa taskbar / pulihkan  ·  Alt+H tampil-sembunyi tombol jendela  ·  F5 muat ulang  ·  Ctrl+L ganti alamat  ·  Alt+F4 tutup";
             shortcutHint.ForeColor = Color.FromArgb(100, 116, 139);
             shortcutHint.Font = new Font("Segoe UI", 8.5f);
             shortcutHint.TextAlign = ContentAlignment.TopCenter;
@@ -758,21 +852,46 @@ namespace MySinggharaPc
 
         private void ApplyWindowMode()
         {
-            if (InFullScreen)
+            applyingBounds = true;
+            try
             {
-                WindowState = FormWindowState.Normal;
-                Bounds = Screen.FromControl(this).Bounds;
+                if (InFullScreen)
+                {
+                    WindowState = FormWindowState.Normal;
+                    Rectangle screen = Screen.FromControl(this).Bounds;
+                    Bounds = screen;
+                    // Tugas (taskbar) hanya mau mundur kalau shell diberitahu bahwa batas
+                    // jendela berubah; tanpa SWP_FRAMECHANGED jendela tetap kalah oleh taskbar.
+                    try
+                    {
+                        SetWindowPos(Handle, IntPtr.Zero, screen.Left, screen.Top,
+                            screen.Width, screen.Height, SWP_NOZORDER | SWP_FRAMECHANGED | SWP_NOACTIVATE);
+                    }
+                    catch { }
+                }
+                else
+                {
+                    WindowState = FormWindowState.Normal;
+                    windowedBounds = ClampToScreen(windowedBounds);
+                    Bounds = windowedBounds;
+                }
             }
-            else
+            finally
             {
-                WindowState = FormWindowState.Normal;
-                windowedBounds = ClampToScreen(windowedBounds);
-                Bounds = windowedBounds;
+                applyingBounds = false;
             }
             // Strip hanya diperlukan saat berjendela; layar penuh memakai seluruh piksel.
             topStrip.Visible = !InFullScreen;
             modeHint.Text = appFullScreen ? "Alt+F jendela" : "Alt+F layar penuh";
+            UpdateChromeVisibility();
             Relayout();
+        }
+
+        private void RecordWindowedBounds()
+        {
+            if (applyingBounds || InFullScreen) return;
+            if (WindowState != FormWindowState.Normal) return;
+            windowedBounds = Bounds;
         }
 
         private Rectangle ClampToScreen(Rectangle requested)
@@ -805,13 +924,26 @@ namespace MySinggharaPc
                 ToggleAppFullScreen();
                 return;
             }
+            if (m.Msg == WM_HOTKEY && (int)m.WParam == HOTKEY_ALT_H)
+            {
+                ToggleChromeHidden();
+                return;
+            }
             if (m.Msg == WM_ACTIVATEAPP)
             {
                 // Hotkey hanya dipakai selama jendela ini aktif di foreground.
                 try
                 {
-                    if (m.WParam == IntPtr.Zero) UnregisterHotKey(Handle, HOTKEY_ALT_F);
-                    else RegisterHotKey(Handle, HOTKEY_ALT_F, MOD_ALT, VK_F);
+                    if (m.WParam == IntPtr.Zero)
+                    {
+                        UnregisterHotKey(Handle, HOTKEY_ALT_F);
+                        UnregisterHotKey(Handle, HOTKEY_ALT_H);
+                    }
+                    else
+                    {
+                        RegisterHotKey(Handle, HOTKEY_ALT_F, MOD_ALT, VK_F);
+                        RegisterHotKey(Handle, HOTKEY_ALT_H, MOD_ALT, VK_H);
+                    }
                 }
                 catch { }
             }
@@ -856,6 +988,18 @@ namespace MySinggharaPc
             {
                 e.SuppressKeyPress = true;
                 ToggleAppFullScreen();
+                return;
+            }
+            if (e.Alt && e.KeyCode == Keys.H)
+            {
+                e.SuppressKeyPress = true;
+                ToggleChromeHidden();
+                return;
+            }
+            if (e.Alt && e.KeyCode == Keys.F4)
+            {
+                e.SuppressKeyPress = true;
+                Close();
                 return;
             }
             if (videoFullScreen && e.KeyCode == Keys.Escape)
@@ -999,14 +1143,23 @@ namespace MySinggharaPc
                 working.Top + (working.Height - height) / 2, width, height);
         }
 
+        private bool ReadChromeHiddenPreference()
+        {
+            string raw;
+            if (!ReadConfig().TryGetValue("chromehidden", out raw)) return false;
+            return raw.Trim() == "1";
+        }
+
         private void SaveWindowSettings()
         {
             try
             {
+                RecordWindowedBounds();
                 Directory.CreateDirectory(appDataDir);
                 Dictionary<string, string> map = ReadConfig();
                 map["url"] = currentUrl;
                 map["fullscreen"] = appFullScreen ? "1" : "0";
+                map["chromehidden"] = chromeHidden ? "1" : "0";
                 if (!InFullScreen)
                     map["bounds"] = windowedBounds.X + "," + windowedBounds.Y + "," +
                                     windowedBounds.Width + "," + windowedBounds.Height;
