@@ -5,6 +5,7 @@ using System.Drawing;
 using System.IO;
 using System.Net;
 using System.Reflection;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
 using System.Windows.Forms;
@@ -38,6 +39,7 @@ namespace MySinggharaPc
     public class MainForm : Form
     {
         private const string APP_TITLE = "My Singghara";
+        private static readonly Encoding Utf8NoBom = new UTF8Encoding(false);
 
         private WebView2 webView;
         private Panel connectPanel;
@@ -46,16 +48,41 @@ namespace MySinggharaPc
         private Button connectButton;
         private Button reloadButton;
 
+        // Strip judul bawaan aplikasi: hanya berisi tombol minimize dan layar penuh.
+        // Tombol close dan maximize/restore memang tidak ada (Alt+F untuk beralih mode).
+        private Panel topStrip;
+        private Label stripTitle;
+        private Label modeHint;
+        private Button minButton;
+        private Button fsButton;
+
         private string appDataDir;
         private string configPath;
         private string currentUrl;
         private bool webViewReady;
 
-        // Status layar penuh video: jendela disimpan dulu, lalu di-restore saat keluar
-        private bool isFullScreen;
-        private FormBorderStyle savedBorderStyle;
-        private FormWindowState savedWindowState;
-        private Rectangle savedBounds;
+        // Dua sumber layar penuh: preferensi pengguna (Alt+F) dan video HTML5.
+        private bool appFullScreen;
+        private bool videoFullScreen;
+        private Rectangle windowedBounds;
+
+        // Menyeret jendela lewat strip judul
+        private bool draggingStrip;
+        private Point dragStartCursor;
+        private Rectangle dragStartBounds;
+
+        private const int STRIP_HEIGHT = 38;
+        private const int HOTKEY_ALT_F = 0x5F01;
+        private const uint MOD_ALT = 0x0001;
+        private const uint VK_F = 0x46;
+        private const int WM_HOTKEY = 0x0312;
+        private const int WM_ACTIVATEAPP = 0x001C;
+
+        [DllImport("user32.dll")]
+        private static extern bool RegisterHotKey(IntPtr hWnd, int id, uint fsModifiers, uint vk);
+
+        [DllImport("user32.dll")]
+        private static extern bool UnregisterHotKey(IntPtr hWnd, int id);
 
         public MainForm(string[] args)
         {
@@ -66,25 +93,142 @@ namespace MySinggharaPc
 
             Text = APP_TITLE;
             Name = "MySinggharaPc";
-            StartPosition = FormStartPosition.CenterScreen;
-            MinimumSize = new Size(640, 480);
-            Size = ReadWindowSize();
+            BackColor = Color.FromArgb(8, 15, 30);
+            FormBorderStyle = FormBorderStyle.None;
+            ControlBox = false;
+            MaximizeBox = false;
+            MinimizeBox = false;
             try { Icon = LoadOwnIcon(); } catch { }
+
+            appFullScreen = ReadFullScreenPreference();
+            windowedBounds = ReadWindowBounds();
+            StartPosition = FormStartPosition.Manual;
+            Bounds = appFullScreen ? Screen.FromPoint(Cursor.Position).Bounds : windowedBounds;
 
             connectPanel = BuildConnectPanel();
             Controls.Add(connectPanel);
 
             webView = new WebView2();
-            webView.Dock = DockStyle.Fill;
             Controls.Add(webView);
+
+            topStrip = BuildTopStrip();
+            Controls.Add(topStrip);
             connectPanel.BringToFront();
+
+            Resize += delegate { Relayout(); };
+            Relayout();
 
             KeyPreview = true;
             KeyDown += OnFormKeyDown;
 
             currentUrl = ResolveStartUrl(args);
-            Shown += delegate { StartWebView(); };
-            FormClosing += delegate { SaveWindowSize(); };
+            Shown += delegate
+            {
+                ApplyWindowMode();
+                StartWebView();
+            };
+            FormClosing += delegate
+            {
+                try { UnregisterHotKey(Handle, HOTKEY_ALT_F); } catch { }
+                SaveWindowSettings();
+            };
+        }
+
+        // ------------------------------------------------------------------
+        // Strip judul: minimize + tombol layar penuh, tanpa close/maximize
+        // ------------------------------------------------------------------
+
+        private Panel BuildTopStrip()
+        {
+            Panel strip = new Panel();
+            strip.BackColor = Color.FromArgb(8, 15, 30);
+            strip.MouseDown += OnStripMouseDown;
+            strip.MouseMove += OnStripMouseMove;
+            strip.MouseUp += OnStripMouseUp;
+            strip.DoubleClick += delegate { ToggleAppFullScreen(); };
+
+            stripTitle = new Label();
+            stripTitle.Text = APP_TITLE + "  ·  Web Connect";
+            stripTitle.ForeColor = Color.FromArgb(56, 189, 248);
+            stripTitle.Font = new Font("Segoe UI", 10.5f, FontStyle.Bold);
+            stripTitle.TextAlign = ContentAlignment.MiddleLeft;
+            stripTitle.BackColor = Color.Transparent;
+            strip.Controls.Add(stripTitle);
+
+            minButton = MakeStripButton("–", "Perkecil jendela");
+            minButton.Click += delegate { WindowState = FormWindowState.Minimized; };
+            strip.Controls.Add(minButton);
+
+            fsButton = MakeStripButton("⤢", "Layar penuh / jendela (Alt+F)");
+            fsButton.Click += delegate { ToggleAppFullScreen(); };
+            strip.Controls.Add(fsButton);
+
+            modeHint = new Label();
+            modeHint.Text = "Alt+F";
+            modeHint.ForeColor = Color.FromArgb(100, 116, 139);
+            modeHint.Font = new Font("Segoe UI", 8.5f);
+            modeHint.TextAlign = ContentAlignment.MiddleCenter;
+            strip.Controls.Add(modeHint);
+
+            return strip;
+        }
+
+        private Button MakeStripButton(string glyph, string tip)
+        {
+            Button button = new Button();
+            button.Text = glyph;
+            button.Font = new Font("Segoe UI Symbol", 12f);
+            button.ForeColor = Color.FromArgb(203, 213, 225);
+            button.BackColor = Color.FromArgb(15, 23, 42);
+            button.FlatStyle = FlatStyle.Flat;
+            button.FlatAppearance.BorderSize = 0;
+            button.TabStop = false;
+            ToolTip tips = new ToolTip();
+            tips.SetToolTip(button, tip);
+            return button;
+        }
+
+        private void OnStripMouseDown(object sender, MouseEventArgs e)
+        {
+            if (e.Button != MouseButtons.Left || InFullScreen) return;
+            draggingStrip = true;
+            dragStartCursor = Cursor.Position;
+            dragStartBounds = Bounds;
+        }
+
+        private void OnStripMouseMove(object sender, MouseEventArgs e)
+        {
+            if (!draggingStrip) return;
+            int dx = Cursor.Position.X - dragStartCursor.X;
+            int dy = Cursor.Position.Y - dragStartCursor.Y;
+            windowedBounds = new Rectangle(dragStartBounds.X + dx, dragStartBounds.Y + dy,
+                dragStartBounds.Width, dragStartBounds.Height);
+            Bounds = windowedBounds;
+        }
+
+        private void OnStripMouseUp(object sender, MouseEventArgs e)
+        {
+            if (!draggingStrip) return;
+            draggingStrip = false;
+            SaveWindowSettings();
+        }
+
+        private void Relayout()
+        {
+            if (topStrip == null || webView == null || connectPanel == null) return;
+            int width = ClientSize.Width;
+            int height = ClientSize.Height;
+            int contentTop = topStrip.Visible ? STRIP_HEIGHT : 0;
+
+            topStrip.SetBounds(0, 0, width, STRIP_HEIGHT);
+            minButton.SetBounds(width - STRIP_HEIGHT, 0, STRIP_HEIGHT, STRIP_HEIGHT);
+            fsButton.SetBounds(width - STRIP_HEIGHT * 2, 0, STRIP_HEIGHT, STRIP_HEIGHT);
+            modeHint.SetBounds(width - STRIP_HEIGHT * 2 - 104, 0, 104, STRIP_HEIGHT);
+            stripTitle.SetBounds(14, 0, Math.Max(60, width - STRIP_HEIGHT * 2 - 124), STRIP_HEIGHT);
+
+            int contentHeight = Math.Max(1, height - contentTop);
+            webView.SetBounds(0, contentTop, width, contentHeight);
+            connectPanel.SetBounds(0, contentTop, width, contentHeight);
         }
 
         // ------------------------------------------------------------------
@@ -94,7 +238,6 @@ namespace MySinggharaPc
         private Panel BuildConnectPanel()
         {
             Panel panel = new Panel();
-            panel.Dock = DockStyle.Fill;
             panel.BackColor = Color.FromArgb(15, 23, 42);
             panel.Visible = false;
 
@@ -182,7 +325,7 @@ namespace MySinggharaPc
             grid.Controls.Add(hint, 0, 3);
 
             Label shortcutHint = new Label();
-            shortcutHint.Text = "F5 muat ulang  ·  Ctrl+R muat paksa  ·  Ctrl+L ganti alamat";
+            shortcutHint.Text = "Alt+F layar penuh/jendela  ·  F5 muat ulang  ·  Ctrl+L ganti alamat  ·  Alt+F4 tutup";
             shortcutHint.ForeColor = Color.FromArgb(100, 116, 139);
             shortcutHint.Font = new Font("Segoe UI", 8.5f);
             shortcutHint.TextAlign = ContentAlignment.TopCenter;
@@ -377,8 +520,8 @@ namespace MySinggharaPc
 
             core.ContainsFullScreenElementChanged += delegate
             {
-                if (core.ContainsFullScreenElement) EnterFullScreen();
-                else ExitFullScreen();
+                videoFullScreen = core.ContainsFullScreenElement;
+                ApplyWindowMode();
             };
 
             core.NewWindowRequested += delegate(object sender, CoreWebView2NewWindowRequestedEventArgs e)
@@ -428,35 +571,83 @@ namespace MySinggharaPc
         }
 
         // ------------------------------------------------------------------
-        // Layar penuh (video) & pintasan papan ketik
+        // Mode jendela / layar penuh & pintasan papan ketik
         // ------------------------------------------------------------------
 
-        private void EnterFullScreen()
+        private bool InFullScreen
         {
-            if (isFullScreen) return;
-            savedBorderStyle = FormBorderStyle;
-            savedWindowState = WindowState;
-            savedBounds = Bounds;
-            isFullScreen = true;
-            FormBorderStyle = FormBorderStyle.None;
-            WindowState = FormWindowState.Normal;
-            Bounds = Screen.FromControl(this).Bounds;
+            get { return appFullScreen || videoFullScreen; }
         }
 
-        private void ExitFullScreen()
+        private void ToggleAppFullScreen()
         {
-            if (!isFullScreen) return;
-            isFullScreen = false;
-            FormBorderStyle = savedBorderStyle;
-            WindowState = savedWindowState;
-            Bounds = savedBounds;
+            appFullScreen = !appFullScreen;
+            ApplyWindowMode();
+            SaveWindowSettings();
+        }
+
+        private void ApplyWindowMode()
+        {
+            if (InFullScreen)
+            {
+                WindowState = FormWindowState.Normal;
+                Bounds = Screen.FromControl(this).Bounds;
+            }
+            else
+            {
+                WindowState = FormWindowState.Normal;
+                windowedBounds = ClampToScreen(windowedBounds);
+                Bounds = windowedBounds;
+            }
+            topStrip.Visible = !videoFullScreen;
+            fsButton.Text = appFullScreen ? "⤡" : "⤢";
+            modeHint.Text = appFullScreen ? "Alt+F jendela" : "Alt+F layar";
+            Relayout();
+        }
+
+        private Rectangle ClampToScreen(Rectangle requested)
+        {
+            Rectangle working = Screen.FromPoint(new Point(requested.X + requested.Width / 2,
+                requested.Y + requested.Height / 2)).WorkingArea;
+            int width = Math.Min(requested.Width, working.Width);
+            int height = Math.Min(requested.Height, working.Height);
+            int x = Math.Max(working.Left, Math.Min(requested.X, working.Right - width));
+            int y = Math.Max(working.Top, Math.Min(requested.Y, working.Bottom - height));
+            return new Rectangle(x, y, width, height);
+        }
+
+        protected override void WndProc(ref Message m)
+        {
+            if (m.Msg == WM_HOTKEY && (int)m.WParam == HOTKEY_ALT_F)
+            {
+                ToggleAppFullScreen();
+                return;
+            }
+            if (m.Msg == WM_ACTIVATEAPP)
+            {
+                // Hotkey hanya dipakai selama jendela ini aktif di foreground.
+                try
+                {
+                    if (m.WParam == IntPtr.Zero) UnregisterHotKey(Handle, HOTKEY_ALT_F);
+                    else RegisterHotKey(Handle, HOTKEY_ALT_F, MOD_ALT, VK_F);
+                }
+                catch { }
+            }
+            base.WndProc(ref m);
         }
 
         private void OnFormKeyDown(object sender, KeyEventArgs e)
         {
-            if (e.KeyCode == Keys.Escape && isFullScreen)
+            if (e.Alt && e.KeyCode == Keys.F)
             {
-                try { webView.CoreWebView2.GoBack(); } catch { }
+                e.SuppressKeyPress = true;
+                ToggleAppFullScreen();
+                return;
+            }
+            if (videoFullScreen && e.KeyCode == Keys.Escape)
+            {
+                videoFullScreen = false;
+                ApplyWindowMode();
                 return;
             }
             if (e.KeyCode == Keys.F5)
@@ -553,48 +744,65 @@ namespace MySinggharaPc
                 {
                     sb.AppendLine(pair.Key + "=" + pair.Value);
                 }
-                if (!map.ContainsKey("window")) sb.AppendLine("window=1280x820");
-                File.WriteAllText(configPath, sb.ToString(), Encoding.UTF8);
+                if (!map.ContainsKey("fullscreen")) sb.AppendLine("fullscreen=1");
+                File.WriteAllText(configPath, sb.ToString(), Utf8NoBom);
             }
             catch { }
         }
 
-        private Size ReadWindowSize()
+        private bool ReadFullScreenPreference()
         {
+            Dictionary<string, string> map = ReadConfig();
+            string raw;
+            if (!map.TryGetValue("fullscreen", out raw)) return true;
+            return raw.Trim() != "0";
+        }
+
+        private Rectangle ReadWindowBounds()
+        {
+            Rectangle working = Screen.FromPoint(Cursor.Position).WorkingArea;
+            int width = Math.Min(1280, working.Width - 60);
+            int height = Math.Min(820, working.Height - 60);
             try
             {
-                Dictionary<string, string> map = ReadConfig();
                 string raw;
-                if (map.TryGetValue("window", out raw))
+                if (ReadConfig().TryGetValue("bounds", out raw))
                 {
-                    string[] parts = raw.ToLowerInvariant().Split('x');
-                    if (parts.Length == 2)
+                    string[] parts = raw.Split(',');
+                    if (parts.Length == 4)
                     {
-                        int w = int.Parse(parts[0]);
-                        int h = int.Parse(parts[1]);
-                        if (w >= 640 && h >= 480 && w <= 7000 && h <= 5000) return new Size(w, h);
+                        int x = int.Parse(parts[0].Trim());
+                        int y = int.Parse(parts[1].Trim());
+                        int w = int.Parse(parts[2].Trim());
+                        int h = int.Parse(parts[3].Trim());
+                        if (w >= 640 && h >= 480 && w <= 7680 && h <= 4320)
+                            return new Rectangle(x, y, w, h);
                     }
                 }
             }
             catch { }
-            return new Size(1280, 820);
+            return new Rectangle(working.Left + (working.Width - width) / 2,
+                working.Top + (working.Height - height) / 2, width, height);
         }
 
-        private void SaveWindowSize()
+        private void SaveWindowSettings()
         {
             try
             {
-                if (WindowState != FormWindowState.Normal) return;
+                Directory.CreateDirectory(appDataDir);
                 Dictionary<string, string> map = ReadConfig();
                 map["url"] = currentUrl;
-                map["window"] = Width + "x" + Height;
+                map["fullscreen"] = appFullScreen ? "1" : "0";
+                if (!InFullScreen)
+                    map["bounds"] = windowedBounds.X + "," + windowedBounds.Y + "," +
+                                    windowedBounds.Width + "," + windowedBounds.Height;
                 StringBuilder sb = new StringBuilder();
                 sb.AppendLine("# Konfigurasi aplikasi PC My Singghara");
                 foreach (KeyValuePair<string, string> pair in map)
                 {
                     sb.AppendLine(pair.Key + "=" + pair.Value);
                 }
-                File.WriteAllText(configPath, sb.ToString(), Encoding.UTF8);
+                File.WriteAllText(configPath, sb.ToString(), Utf8NoBom);
             }
             catch { }
         }

@@ -61,7 +61,7 @@ $fwRefs = @(
 Write-Host 'Menyusun MySinggharaPc.exe...'
 $appExe = Join-Path $build 'MySinggharaPc.exe'
 $appArgs = @(
-    '/nologo', '/target:winexe', '/platform:x64', '/optimize+',
+    '/nologo', '/target:winexe', '/platform:x64', '/optimize+', '/codepage:65001',
     "/out:$appExe", "/win32icon:$icon",
     "/r:$coreDll", "/r:$winFormsDll"
 ) + $fwRefs + @("/resource:$icon,app.ico", (Join-Path $root 'MySinggharaPc.cs'))
@@ -83,7 +83,7 @@ Compress-Archive -Path (Join-Path $stage '*') -DestinationPath $payloadZip -Comp
 Write-Host 'Menyusun MySingghara-Pc-Installer.exe...'
 $installerExe = Join-Path $build 'MySingghara-Pc-Installer.exe'
 $installerArgs = @(
-    '/nologo', '/target:winexe', '/platform:anycpu', '/optimize+',
+    '/nologo', '/target:winexe', '/platform:anycpu', '/optimize+', '/codepage:65001',
     "/out:$installerExe", "/win32icon:$icon"
 ) + $fwRefs + @(
     "/resource:$payloadZip,pcinst.payload.zip",

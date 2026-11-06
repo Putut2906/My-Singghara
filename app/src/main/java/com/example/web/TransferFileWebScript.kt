@@ -16,37 +16,99 @@ object TransferFileWebScript {
         window.transferUploadProgress = 0;
         window.transferUploadStatus = '';
         window.transferPendingFiles = [];
+        window.transferAutoSyncTimer = null;
+        window.transferLastSignature = '';
 
         async function loadTransferFile() {
             renderTransferFileUI();
             await fetchTransferData();
+            startTransferAutoSync();
         }
 
         async function fetchTransferData() {
             try {
-                const infoRes = await fetch('/api/transfer_file?action=info');
-                if (infoRes.ok) {
-                    window.transferInfo = await infoRes.json();
-                }
-
-                const sharedRes = await fetch('/api/transfer_file?action=files');
-                if (sharedRes.ok) {
-                    window.transferSharedFiles = await sharedRes.json();
-                }
-
-                const recRes = await fetch('/api/transfer_file?action=received_files');
-                if (recRes.ok) {
-                    window.transferReceivedFiles = await recRes.json();
-                }
-
-                const logsRes = await fetch('/api/transfer_file?action=logs');
-                if (logsRes.ok) {
-                    window.transferLogs = await logsRes.json();
-                }
+                const res = await fetch('/api/transfer_file?action=state', { cache: 'no-store' });
+                if (!res.ok) return;
+                applyTransferData(await res.json());
             } catch (err) {
                 console.warn('Gagal memuat data transfer:', err);
             }
             renderTransferFileUI();
+        }
+
+        function applyTransferData(data) {
+            window.transferInfo = data.info || window.transferInfo;
+            window.transferSharedFiles = data.shared || [];
+            window.transferReceivedFiles = data.received || [];
+            window.transferLogs = data.logs || [];
+            window.transferLastSignature = buildTransferSignature(
+                window.transferSharedFiles, window.transferReceivedFiles, window.transferLogs);
+        }
+
+        function buildTransferSignature(shared, received, logs) {
+            const key = (list) => (list || []).map(item =>
+                String(item.id || '') + ':' + String(item.size || '') + ':' + String(item.timestamp || '')
+            ).join('|');
+            return key(shared) + '#' + key(received) + '#' + key(logs);
+        }
+
+        // Berkas yang dikirim dari HP harus langsung terlihat di PC tanpa tekan F5,
+        // jadi halaman ini menyegarkan dirinya sendiri dan hanya merender ulang bila isinya berubah.
+        function startTransferAutoSync() {
+            if (window.transferAutoSyncTimer) clearInterval(window.transferAutoSyncTimer);
+            window.transferAutoSyncTimer = setInterval(() => {
+                if (currentTab === 'transfer_file') refreshTransferSilently();
+                else stopTransferAutoSync();
+            }, 2500);
+        }
+
+        function stopTransferAutoSync() {
+            if (window.transferAutoSyncTimer) {
+                clearInterval(window.transferAutoSyncTimer);
+                window.transferAutoSyncTimer = null;
+            }
+        }
+
+        async function refreshTransferSilently() {
+            if (window.transferUploading) return;
+            try {
+                const res = await fetch('/api/transfer_file?action=state', { cache: 'no-store' });
+                if (!res.ok) return;
+                const data = await res.json();
+                const shared = data.shared || [];
+                const received = data.received || [];
+                const logs = data.logs || [];
+                const signature = buildTransferSignature(shared, received, logs);
+                if (signature === window.transferLastSignature) return;
+
+                const knownIds = {};
+                (window.transferSharedFiles || []).forEach(item => { knownIds[item.id] = true; });
+                const arrivals = shared.filter(item => !knownIds[item.id] && !item.isSelfApk);
+
+                window.transferInfo = data.info || window.transferInfo;
+                window.transferSharedFiles = shared;
+                window.transferReceivedFiles = received;
+                window.transferLogs = logs;
+                window.transferLastSignature = signature;
+
+                // Tab kirim punya input berkas native: render ulang di tab itu bisa
+                // membatalkan jendela pemilihan berkas yang sedang terbuka.
+                if (window.transferActiveTab === 'send_to_phone') updateTransferCounters();
+                else renderTransferFileUI();
+
+                if (arrivals.length > 0) {
+                    showTransferNotification(arrivals.length + ' berkas baru dari HP siap diunduh', 'success');
+                }
+            } catch (err) {
+                console.warn('Sinkron otomatis transfer gagal:', err);
+            }
+        }
+
+        function updateTransferCounters() {
+            const sharedEl = document.getElementById('transferCountShared');
+            if (sharedEl) sharedEl.textContent = '(' + (window.transferSharedFiles || []).length + ')';
+            const receivedEl = document.getElementById('transferCountReceived');
+            if (receivedEl) receivedEl.textContent = '(' + (window.transferReceivedFiles || []).length + ')';
         }
 
         function setTransferTab(tab) {
@@ -117,8 +179,11 @@ object TransferFileWebScript {
                                         </div>
                                     </div>
                                 </div>
-                                <div class="d-flex gap-2">
-                                    <button class="btn btn-sm fw-semibold shadow-sm d-flex align-items-center gap-1 transfer-btn-refresh" onclick="fetchTransferData()">
+                                <div class="d-flex align-items-center gap-2">
+                                    <span class="small d-none d-md-inline-flex align-items-center gap-1 text-white text-opacity-75">
+                                        <i class="bi bi-broadcast-pin"></i> Sinkron otomatis aktif
+                                    </span>
+                                    <button class="btn btn-sm fw-semibold shadow-sm d-flex align-items-center gap-1 transfer-btn-refresh" onclick="fetchTransferData(); startTransferAutoSync();">
                                         <i class="bi bi-arrow-clockwise"></i> Segarkan
                                     </button>
                                 </div>
@@ -135,11 +200,11 @@ object TransferFileWebScript {
                         </button>
                         <button class="btn btn-sm ${dol}{window.transferActiveTab === 'files_from_phone' ? 'btn-primary shadow-sm' : 'btn-outline-secondary'}" 
                                 onclick="setTransferTab('files_from_phone')">
-                            <i class="bi bi-download me-1"></i> Berkas dari HP (${dol}{sharedCount})
+                            <i class="bi bi-download me-1"></i> Berkas dari HP <span id="transferCountShared">(${dol}{sharedCount})</span>
                         </button>
                         <button class="btn btn-sm ${dol}{window.transferActiveTab === 'received_in_phone' ? 'btn-primary shadow-sm' : 'btn-outline-secondary'}" 
                                 onclick="setTransferTab('received_in_phone')">
-                            <i class="bi bi-folder-check me-1"></i> Berkas Diterima di HP (${dol}{receivedCount})
+                            <i class="bi bi-folder-check me-1"></i> Berkas Diterima di HP <span id="transferCountReceived">(${dol}{receivedCount})</span>
                         </button>
                         <button class="btn btn-sm ${dol}{window.transferActiveTab === 'logs' ? 'btn-primary shadow-sm' : 'btn-outline-secondary'}" 
                                 onclick="setTransferTab('logs')">

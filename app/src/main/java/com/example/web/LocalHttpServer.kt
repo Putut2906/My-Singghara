@@ -3039,6 +3039,65 @@ class LocalHttpServer(
         sendJsonResponse(output, resObj.toString())
     }
 
+    private fun transferInfoJson(transferManager: com.example.transfer.FileTransferManager): JSONObject {
+        return JSONObject().apply {
+            put("status", "ok")
+            put("deviceName", android.os.Build.MODEL ?: "Android Device")
+            put("ip", getIpAddress(context))
+            put("port", port)
+            put("sharedCount", transferManager.sharedFromPhone.value.size)
+            put("receivedCount", transferManager.receivedFromPc.value.size)
+            put("hasSelfApk", transferManager.getSelfApkItem() != null)
+        }
+    }
+
+    private fun transferSharedArray(transferManager: com.example.transfer.FileTransferManager): JSONArray {
+        val filesArray = JSONArray()
+        transferManager.getAllFilesForPc().forEach { f ->
+            filesArray.put(JSONObject().apply {
+                put("id", f.id)
+                put("name", f.name)
+                put("size", f.size)
+                put("formattedSize", f.formattedSize)
+                put("mimeType", f.mimeType)
+                put("isSelfApk", f.isSelfApk)
+                put("extension", f.extension)
+                put("timestamp", f.timestamp)
+            })
+        }
+        return filesArray
+    }
+
+    private fun transferReceivedArray(transferManager: com.example.transfer.FileTransferManager): JSONArray {
+        val receivedArray = JSONArray()
+        transferManager.receivedFromPc.value.forEach { f ->
+            receivedArray.put(JSONObject().apply {
+                put("id", f.id)
+                put("name", f.name)
+                put("size", f.size)
+                put("formattedSize", f.formattedSize)
+                put("mimeType", f.mimeType)
+                put("extension", f.extension)
+                put("timestamp", f.timestamp)
+            })
+        }
+        return receivedArray
+    }
+
+    private fun transferLogsArray(transferManager: com.example.transfer.FileTransferManager): JSONArray {
+        val logsArray = JSONArray()
+        transferManager.activityLogs.value.forEach { l ->
+            logsArray.put(JSONObject().apply {
+                put("id", l.id)
+                put("title", l.title)
+                put("description", l.description)
+                put("timestamp", l.timestamp)
+                put("isIncoming", l.isIncoming)
+            })
+        }
+        return logsArray
+    }
+
     private suspend fun handleTransferFileRoute(path: String, method: String, queryParams: Map<String, String>, body: String, output: OutputStream) {
         val transferManager = com.example.transfer.FileTransferManager.getInstance(context)
         val action = queryParams["action"] ?: path.removePrefix("/api/transfer_file").removePrefix("/")
@@ -3046,66 +3105,29 @@ class LocalHttpServer(
         if (method == "GET") {
             when (action) {
                 "", "info" -> {
-                    val info = JSONObject().apply {
-                        put("status", "ok")
-                        put("deviceName", android.os.Build.MODEL ?: "Android Device")
-                        put("ip", getIpAddress(context))
-                        put("port", port)
-                        put("sharedCount", transferManager.sharedFromPhone.value.size)
-                        put("receivedCount", transferManager.receivedFromPc.value.size)
-                        put("hasSelfApk", transferManager.getSelfApkItem() != null)
+                    sendJsonResponse(output, transferInfoJson(transferManager).toString())
+                    return
+                }
+                "state" -> {
+                    val state = JSONObject().apply {
+                        put("info", transferInfoJson(transferManager))
+                        put("shared", transferSharedArray(transferManager))
+                        put("received", transferReceivedArray(transferManager))
+                        put("logs", transferLogsArray(transferManager))
                     }
-                    sendJsonResponse(output, info.toString())
+                    sendJsonResponse(output, state.toString())
                     return
                 }
                 "files", "list_shared" -> {
-                    val filesArray = JSONArray()
-                    val files = transferManager.getAllFilesForPc()
-                    files.forEach { f ->
-                        filesArray.put(JSONObject().apply {
-                            put("id", f.id)
-                            put("name", f.name)
-                            put("size", f.size)
-                            put("formattedSize", f.formattedSize)
-                            put("mimeType", f.mimeType)
-                            put("isSelfApk", f.isSelfApk)
-                            put("extension", f.extension)
-                            put("timestamp", f.timestamp)
-                        })
-                    }
-                    sendJsonResponse(output, filesArray.toString())
+                    sendJsonResponse(output, transferSharedArray(transferManager).toString())
                     return
                 }
                 "received_files", "list_received" -> {
-                    val receivedArray = JSONArray()
-                    val files = transferManager.receivedFromPc.value
-                    files.forEach { f ->
-                        receivedArray.put(JSONObject().apply {
-                            put("id", f.id)
-                            put("name", f.name)
-                            put("size", f.size)
-                            put("formattedSize", f.formattedSize)
-                            put("mimeType", f.mimeType)
-                            put("extension", f.extension)
-                            put("timestamp", f.timestamp)
-                        })
-                    }
-                    sendJsonResponse(output, receivedArray.toString())
+                    sendJsonResponse(output, transferReceivedArray(transferManager).toString())
                     return
                 }
                 "logs" -> {
-                    val logsArray = JSONArray()
-                    val logs = transferManager.activityLogs.value
-                    logs.forEach { l ->
-                        logsArray.put(JSONObject().apply {
-                            put("id", l.id)
-                            put("title", l.title)
-                            put("description", l.description)
-                            put("timestamp", l.timestamp)
-                            put("isIncoming", l.isIncoming)
-                        })
-                    }
-                    sendJsonResponse(output, logsArray.toString())
+                    sendJsonResponse(output, transferLogsArray(transferManager).toString())
                     return
                 }
                 "download" -> {
