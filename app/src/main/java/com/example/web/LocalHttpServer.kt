@@ -10704,14 +10704,6 @@ class LocalHttpServer(
                             <i class="bi bi-graph-up-arrow fs-5" style="color: #E65100;"></i>
                             <span class="nav-text">Pembukuan</span>
                         </div>
-                        <div class="nav-link-item" onclick="switchTab('musik', this)" data-title="Musik">
-                            <i class="bi bi-music-note-beamed fs-5" style="color: #E91E63;"></i>
-                            <span class="nav-text">Musik</span>
-                        </div>
-                        <div class="nav-link-item" onclick="switchTab('pemutar_video', this)" data-title="Pemutar Video">
-                            <i class="bi bi-camera-reels fs-5" style="color: #0E7490;"></i>
-                            <span class="nav-text">Pemutar Video</span>
-                        </div>
                         <div class="nav-link-item" onclick="switchTab('mindmap', this)" data-title="MindMap AI">
                             <i class="bi bi-diagram-3-fill fs-5" style="color: #0288D1;"></i>
                             <span class="nav-text">MindMap AI</span>
@@ -10719,6 +10711,62 @@ class LocalHttpServer(
                         <div class="nav-link-item" onclick="switchTab('spinner', this)" data-title="Spinner">
                             <i class="bi bi-arrow-repeat fs-5" style="color: #8338EC;"></i>
                             <span class="nav-text">Spinner</span>
+                        </div>
+                    </div>
+                </div>
+
+                <hr class="my-2 border-secondary opacity-25 sidebar-divider">
+
+                <!-- MENU MEDIA -->
+                <div class="sidebar-group">
+                    <div class="sidebar-group-header d-flex align-items-center justify-content-between text-uppercase fw-bold mb-1" onclick="toggleSidebarGroup('grp-media')" title="Media">
+                        <span class="d-flex align-items-center gap-2">
+                            <i class="bi bi-collection-play-fill fs-5 sidebar-group-icon" style="color: #0E7490;"></i>
+                            <span class="nav-text">Media</span>
+                        </span>
+                        <i class="bi bi-chevron-right nav-text group-chevron" id="chevron-grp-media"></i>
+                    </div>
+                    <div class="sidebar-sub-items ps-2" id="grp-media" style="display: none;">
+                        <div class="sidebar-popover-title d-none fw-bold text-uppercase px-2 py-1 mb-2 border-bottom border-secondary border-opacity-25 small" style="color: #0E7490;">
+                            <i class="bi bi-collection-play-fill me-1"></i> Media
+                        </div>
+                        <div class="nav-link-item" onclick="switchTab('pemutar_video', this)" data-title="Pemutar Video">
+                            <i class="bi bi-camera-reels fs-5" style="color: #0E7490;"></i>
+                            <span class="nav-text">Pemutar Video</span>
+                        </div>
+                        <div class="nav-link-item" onclick="switchTab('handy_talky', this)" data-title="Handy Talky (HT)">
+                            <i class="bi bi-broadcast fs-5" style="color: #10B981;"></i>
+                            <span class="nav-text">Handy Talky (HT)</span>
+                        </div>
+                        <div class="nav-link-item" onclick="switchTab('musik', this)" data-title="Musik">
+                            <i class="bi bi-music-note-beamed fs-5" style="color: #E91E63;"></i>
+                            <span class="nav-text">Musik</span>
+                        </div>
+                    </div>
+                </div>
+
+                <hr class="my-2 border-secondary opacity-25 sidebar-divider">
+
+                <!-- MENU PEOPLE -->
+                <div class="sidebar-group">
+                    <div class="sidebar-group-header d-flex align-items-center justify-content-between text-uppercase fw-bold mb-1" onclick="toggleSidebarGroup('grp-people')" title="People">
+                        <span class="d-flex align-items-center gap-2">
+                            <i class="bi bi-people-fill fs-5 sidebar-group-icon" style="color: #F59E0B;"></i>
+                            <span class="nav-text">People</span>
+                        </span>
+                        <i class="bi bi-chevron-right nav-text group-chevron" id="chevron-grp-people"></i>
+                    </div>
+                    <div class="sidebar-sub-items ps-2" id="grp-people" style="display: none;">
+                        <div class="sidebar-popover-title d-none fw-bold text-uppercase px-2 py-1 mb-2 border-bottom border-secondary border-opacity-25 small" style="color: #F59E0B;">
+                            <i class="bi bi-people-fill me-1"></i> People
+                        </div>
+                        <div class="nav-link-item" onclick="switchTab('arisan_keluarga', this)" data-title="Arisan Keluarga">
+                            <i class="bi bi-wallet2 fs-5 text-primary"></i>
+                            <span class="nav-text">Arisan Keluarga</span>
+                        </div>
+                        <div class="nav-link-item" onclick="switchTab('rekap_belanja', this)" data-title="Rekap Belanja Pasar">
+                            <i class="bi bi-basket3-fill fs-5" style="color: #10B981;"></i>
+                            <span class="nav-text">Rekap Belanja Pasar</span>
                         </div>
                     </div>
                 </div>
@@ -10755,18 +10803,6 @@ class LocalHttpServer(
 
                 <hr class="my-2 border-secondary opacity-25 sidebar-divider">
 
-                <!-- MENU ARISAN KELUARGA (Tepat di bawah menu Company) -->
-                <div class="sidebar-group">
-                    <div class="nav-link-item py-2 px-3 rounded-3 d-flex align-items-center" onclick="switchTab('arisan_keluarga', this)" data-title="Arisan Keluarga" style="cursor: pointer;">
-                        <span class="d-flex align-items-center gap-2">
-                            <i class="bi bi-wallet2 fs-5 text-primary"></i>
-                            <span class="nav-text fw-medium">Arisan Keluarga</span>
-                        </span>
-                    </div>
-                </div>
-
-                <hr class="my-2 border-secondary opacity-25 sidebar-divider">
-
                 <!-- MENU MANAJEMEN MANDIRI -->
                 <div class="sidebar-group">
                     <div class="sidebar-group-header d-flex align-items-center justify-content-between text-uppercase fw-bold mb-1" onclick="toggleSidebarGroup('grp-manajemen')" title="Manajemen Mandiri">
@@ -10787,10 +10823,6 @@ class LocalHttpServer(
                         <div class="nav-link-item" onclick="switchTab('shopping', this)" data-title="Daftar Belanja">
                             <i class="bi bi-cart3 fs-5"></i>
                             <span class="nav-text">Daftar Belanja</span>
-                        </div>
-                        <div class="nav-link-item" onclick="switchTab('rekap_belanja', this)" data-title="Rekap Belanja Pasar">
-                            <i class="bi bi-basket3-fill fs-5" style="color: #10B981;"></i>
-                            <span class="nav-text">Rekap Belanja Pasar</span>
                         </div>
                         <div class="nav-link-item" onclick="switchTab('savings', this)" data-title="Catatan Tabungan">
                             <i class="bi bi-wallet2 fs-5"></i>
@@ -10897,10 +10929,6 @@ class LocalHttpServer(
                         <div class="nav-link-item" onclick="switchTab('transfer_file', this)" data-title="Transfer File">
                             <i class="bi bi-arrow-left-right fs-5" style="color: #0284C7;"></i>
                             <span class="nav-text">Transfer File</span>
-                        </div>
-                        <div class="nav-link-item" onclick="switchTab('handy_talky', this)" data-title="Handy Talky (HT)">
-                            <i class="bi bi-broadcast fs-5" style="color: #10B981;"></i>
-                            <span class="nav-text">Handy Talky (HT)</span>
                         </div>
                     </div>
                 </div>
@@ -12151,6 +12179,10 @@ class LocalHttpServer(
 
         function switchTab(tab, element) {
             currentTab = tab;
+            // Deck musik adalah overlay fixed; saat pindah halaman lain ia harus balik ke dock mini tanpa menghentikan audio
+            if (tab !== 'musik' && window.musicIsPlayerExpanded && typeof collapseMusicPlayerDeck === 'function') {
+                collapseMusicPlayerDeck();
+            }
             document.querySelectorAll('.nav-link-item').forEach(el => el.classList.remove('active'));
             if(element) {
                 element.classList.add('active');

@@ -503,7 +503,13 @@ object VideoWebScript {
                     } else if (event.key === 'f' || event.key === 'F') {
                         window.wvpToggleFullscreen();
                     } else if (event.key === 'Escape') {
-                        if (!document.fullscreenElement) window.closeWebVideo();
+                        // Escape saat menu opsi terbuka cukup menutup menu, bukan menutup seluruh pemutar
+                        const openMenu = document.querySelector('#webVideoPlayerShell .dropdown-menu.show');
+                        if (openMenu) {
+                            const dropdown = openMenu.closest('.dropdown');
+                            const toggle = dropdown ? dropdown.querySelector('[data-bs-toggle="dropdown"]') : null;
+                            if (toggle && window.bootstrap && bootstrap.Dropdown) bootstrap.Dropdown.getOrCreateInstance(toggle).hide();
+                        } else if (!document.fullscreenElement) window.closeWebVideo();
                     }
                 };
                 document.addEventListener('keydown', window.webVideoKeyHandler);
@@ -601,6 +607,16 @@ object VideoWebScript {
                 wrap.addEventListener('mousemove', wvpShowControls);
                 wrap.addEventListener('touchstart', wvpShowControls, { passive: true });
             }
+
+            const shell = document.getElementById('webVideoPlayerShell');
+            if (shell) {
+                shell.addEventListener('show.bs.dropdown', function () {
+                    clearTimeout(window.webVideoHideTimer);
+                    shell.classList.remove('wvp-autohide');
+                });
+                shell.addEventListener('hidden.bs.dropdown', wvpScheduleHide);
+            }
+
             wvpShowControls();
         }
 
@@ -710,7 +726,15 @@ object VideoWebScript {
             if (player.paused) return;
             window.webVideoHideTimer = setTimeout(function () {
                 const sh = document.getElementById('webVideoPlayerShell');
-                if (sh) sh.classList.add('wvp-autohide');
+                if (!sh) return;
+                if (sh.querySelector('.dropdown-menu.show')) return;
+                const topBar = sh.querySelector('.wvp-top-bar');
+                const bottomBar = sh.querySelector('.wvp-bottom-bar');
+                if ((topBar && topBar.matches(':hover')) || (bottomBar && bottomBar.matches(':hover'))) {
+                    wvpScheduleHide();
+                    return;
+                }
+                sh.classList.add('wvp-autohide');
             }, 3000);
         }
 
