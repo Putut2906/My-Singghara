@@ -28,6 +28,10 @@ object SinggharaFolderManager {
     const val SUB_FONT = "font"
     const val SUB_MP3 = "mp3"
 
+    // Installer aplikasi PC native ikut dibekukan dalam APK dan disalin ke folder root
+    const val PC_INSTALLER_ASSET = "web/pc/MySingghara-Pc-Installer.exe"
+    const val PC_INSTALLER_FILE_NAME = "MySingghara-Pc-Installer.exe"
+
     @Volatile
     private var appContext: Context? = null
 
@@ -181,6 +185,51 @@ object SinggharaFolderManager {
         return folder
     }
 
+    /**
+     * Menyalin installer aplikasi PC (.exe) dari paket pemasangan ke folder "My Singghara/"
+     * sehingga berkas sudah ada sejak instalasi pertama, tanpa perlu membuka Web Connect.
+     */
+    fun seedPcInstallerFromAssets(context: Context) {
+        try {
+            val payload = try {
+                context.assets.open(PC_INSTALLER_ASSET).use { it.readBytes() }
+            } catch (e: Exception) {
+                Log.w(TAG, "Aset installer PC tidak terbaca: ${e.message}")
+                ByteArray(0)
+            }
+            if (payload.isEmpty()) return
+
+            val targets = mutableListOf<File>()
+            targets.add(getRootFolder(context))
+            val publicRoot = File(Environment.getExternalStorageDirectory(), ROOT_FOLDER_NAME)
+            if (!targets.contains(publicRoot)) targets.add(publicRoot)
+            context.getExternalFilesDir(null)?.let {
+                val f = File(it, ROOT_FOLDER_NAME)
+                if (!targets.contains(f)) targets.add(f)
+            }
+            val internalRoot = File(context.filesDir, ROOT_FOLDER_NAME)
+            if (!targets.contains(internalRoot)) targets.add(internalRoot)
+
+            for (folder in targets) {
+                try {
+                    if (!folder.exists()) folder.mkdirs()
+                    if (!folder.exists() || !folder.canWrite()) continue
+                    val target = File(folder, PC_INSTALLER_FILE_NAME)
+                    // Salinan lama yang ukurannya berbeda berasal dari versi aplikasi sebelumnya
+                    if (target.exists() && target.length() == payload.size.toLong()) continue
+                    FileOutputStream(target).use { output ->
+                        output.write(payload)
+                    }
+                    Log.d(TAG, "Installer PC siap di: ${target.absolutePath} (${target.length()} bytes)")
+                } catch (e: Exception) {
+                    Log.w(TAG, "Lewati penyalinan installer PC ke ${folder.absolutePath}: ${e.message}")
+                }
+            }
+        } catch (e: Exception) {
+            Log.w(TAG, "Gagal menyalin installer PC: ${e.message}")
+        }
+    }
+
     private fun getAllPossibleMp3Folders(): List<File> {
         val list = mutableListOf<File>()
         list.add(getMp3Folder())
@@ -275,6 +324,8 @@ object SinggharaFolderManager {
             removeDisallowedMp3Files()
             writeReadmeFiles(context)
             seedDefaultFontsIfEmpty(context)
+            // Installer aplikasi PC native tersedia otomatis di folder My Singghara/ sejak instal pertama
+            seedPcInstallerFromAssets(context)
             // Salin file MP3 azan dari paket pemasangan aplikasi (assets) ke My Singghara/Data/mp3 (100% offline)
             seedDefaultMp3sFromAssets(context)
             removeDisallowedMp3Files()
@@ -312,6 +363,10 @@ object SinggharaFolderManager {
 
                         3. Sub-folder "Data/font":
                            Tempat file font kustom (.ttf, .otf) jam digital.
+
+                        4. Berkas "MySingghara-Pc-Installer.exe":
+                           Aplikasi PC native My Singghara (Windows 64-bit). Double-click di PC
+                           untuk memasang satu jendela mandiri - tanpa browser, tanpa terminal.
                         ==============================================
                         """.trimIndent(),
                         Charsets.UTF_8

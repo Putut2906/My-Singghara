@@ -279,11 +279,38 @@ fun WebConnectScreen(
                         }
                     }
 
+                    // Pilihan Utama: Aplikasi PC Native (.exe) satu jendela tanpa browser
+                    InstructionStep(
+                        number = "★",
+                        icon = Icons.Default.Laptop,
+                        title = "Pilihan Utama: Aplikasi PC Native (.exe)",
+                        description = "Buka http://$detectedIp:8080/pc-installer.exe di browser PC, lalu double-click MySingghara-Pc-Installer.exe. My Singghara terpasang sebagai aplikasi Windows asli: satu jendela khusus tanpa browser dan tanpa terminal, alamat HP sudah ikut terbaca. Berkas installer yang sama otomatis tersimpan di folder My Singghara/ pada HP ini."
+                    )
+
+                    Button(
+                        onClick = {
+                            val installerUrl = "http://$detectedIp:8080/pc-installer.exe"
+                            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                            val clip = ClipData.newPlainText("Tautan Aplikasi PC Native", installerUrl)
+                            clipboard.setPrimaryClip(clip)
+                            viewModel.showToastPopup("Tautan aplikasi PC native disalin: $installerUrl")
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0EA5E9)),
+                        shape = RoundedCornerShape(6.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Icon(imageVector = Icons.Default.FileDownload, contentDescription = null, modifier = Modifier.size(14.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Salin Tautan Aplikasi PC Native (.exe)", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                    }
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
                     // Pilihan Utama: Installer Windows (.exe) Progressive Web App (PWA)
                     InstructionStep(
                         number = "★",
                         icon = Icons.Default.Laptop,
-                        title = "Pilihan Utama: Installer PWA Windows (.exe)",
+                        title = "Pilihan Alternatif: Installer PWA Windows (.exe)",
                         description = "Buka http://$detectedIp:8080/installer.exe di browser PC untuk mengunduh installer. Cukup double-click file MySingghara_PWA_Setup.exe untuk otomatis memasang My Singghara sebagai Progressive Web App (PWA) di Desktop Windows dengan jendela mandiri dan domain offline!"
                     )
 

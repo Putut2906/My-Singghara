@@ -422,22 +422,6 @@ object VideoWebScript {
             html += '        <div class="wvp-title">' + webVideoEscape(item.name) + ' <span class="wvp-source-tag">[' + (isPhone ? 'HP' : 'PC') + ']</span></div>';
             html += '        <div class="wvp-sub">' + formatWebVideoDuration(item.duration) + ' • ' + formatWebVideoSize(item.size) + ' • ' + webVideoEscape(item.folder || '') + '</div>';
             html += '      </div>';
-            html += '      <div class="dropdown">';
-            html += '        <button class="wvp-icon-btn" data-bs-toggle="dropdown" title="Opsi"><i class="bi bi-three-dots-vertical"></i></button>';
-            html += '        <ul class="dropdown-menu dropdown-menu-end dropdown-menu-dark">';
-            html += '          <li><h6 class="dropdown-header">Kecepatan</h6></li>';
-            [0.5, 0.75, 1, 1.25, 1.5, 2].forEach(function (speed) {
-                html += '          <li><a class="dropdown-item" href="javascript:void(0)" onclick="window.setWebVideoSpeed(' + speed + ')">' + speed + 'x</a></li>';
-            });
-            html += '          <li><hr class="dropdown-divider"></li>';
-            html += '          <li><a class="dropdown-item" href="javascript:void(0)" onclick="window.toggleWebVideoFit()"><i class="bi bi-aspect-ratio me-1"></i> Rasio layar</a></li>';
-            html += '          <li><a class="dropdown-item" href="javascript:void(0)" onclick="window.wvpTogglePiP()"><i class="bi bi-picture-in-picture-alt me-1"></i> Picture-in-Picture</a></li>';
-            html += '          <li><a class="dropdown-item" href="javascript:void(0)" onclick="window.downloadWebVideo(\'' + item.id + '\')"><i class="bi bi-download me-1"></i> Unduh ke PC</a></li>';
-            if (!isPhone) {
-                html += '          <li><a class="dropdown-item text-danger" href="javascript:void(0)" onclick="window.closeWebVideo(); window.deleteWebVideo(\'' + item.id + '\')"><i class="bi bi-trash me-1"></i> Hapus dari pustaka</a></li>';
-            }
-            html += '        </ul>';
-            html += '      </div>';
             html += '    </div>';
 
             html += '    <div class="wvp-bottom-bar">';
@@ -455,6 +439,7 @@ object VideoWebScript {
             html += '        <button class="wvp-icon-btn wvp-play-btn" id="wvpPlayBtn" onclick="window.wvpTogglePlay()" title="Putar / Jeda"><i class="bi bi-play-fill"></i></button>';
             html += '        <button class="wvp-icon-btn wvp-skip-btn" onclick="window.wvpSkip(10)" title="+10 detik"><i class="bi bi-skip-forward-fill"></i><span class="wvp-badge">10</span></button>';
             html += '        <div class="wvp-spacer"></div>';
+            html += '        <button class="wvp-icon-btn" id="wvpFitBtn" onclick="window.toggleWebVideoFit()" title="Rasio layar"><i class="bi bi-aspect-ratio"></i></button>';
             html += '        <button class="wvp-icon-btn" id="wvpMuteBtn" onclick="window.wvpToggleMute()" title="Bisukan"><i class="bi bi-volume-up-fill"></i></button>';
             html += '        <input type="range" class="wvp-vol" id="wvpVol" min="0" max="1" step="0.01" value="1" oninput="window.wvpSetVolume(this.value)">';
             html += '        <button class="wvp-speed-btn" id="wvpSpeedBtn" onclick="window.wvpCycleSpeed()" title="Kecepatan">1x</button>';
@@ -503,13 +488,7 @@ object VideoWebScript {
                     } else if (event.key === 'f' || event.key === 'F') {
                         window.wvpToggleFullscreen();
                     } else if (event.key === 'Escape') {
-                        // Escape saat menu opsi terbuka cukup menutup menu, bukan menutup seluruh pemutar
-                        const openMenu = document.querySelector('#webVideoPlayerShell .dropdown-menu.show');
-                        if (openMenu) {
-                            const dropdown = openMenu.closest('.dropdown');
-                            const toggle = dropdown ? dropdown.querySelector('[data-bs-toggle="dropdown"]') : null;
-                            if (toggle && window.bootstrap && bootstrap.Dropdown) bootstrap.Dropdown.getOrCreateInstance(toggle).hide();
-                        } else if (!document.fullscreenElement) window.closeWebVideo();
+                        if (!document.fullscreenElement) window.closeWebVideo();
                     }
                 };
                 document.addEventListener('keydown', window.webVideoKeyHandler);
@@ -606,15 +585,6 @@ object VideoWebScript {
                 });
                 wrap.addEventListener('mousemove', wvpShowControls);
                 wrap.addEventListener('touchstart', wvpShowControls, { passive: true });
-            }
-
-            const shell = document.getElementById('webVideoPlayerShell');
-            if (shell) {
-                shell.addEventListener('show.bs.dropdown', function () {
-                    clearTimeout(window.webVideoHideTimer);
-                    shell.classList.remove('wvp-autohide');
-                });
-                shell.addEventListener('hidden.bs.dropdown', wvpScheduleHide);
             }
 
             wvpShowControls();
@@ -727,7 +697,6 @@ object VideoWebScript {
             window.webVideoHideTimer = setTimeout(function () {
                 const sh = document.getElementById('webVideoPlayerShell');
                 if (!sh) return;
-                if (sh.querySelector('.dropdown-menu.show')) return;
                 const topBar = sh.querySelector('.wvp-top-bar');
                 const bottomBar = sh.querySelector('.wvp-bottom-bar');
                 if ((topBar && topBar.matches(':hover')) || (bottomBar && bottomBar.matches(':hover'))) {
@@ -795,18 +764,6 @@ object VideoWebScript {
             }
         }
 
-        function wvpTogglePiP() {
-            const player = document.getElementById('webVideoPlayer');
-            if (!player) return;
-            if (document.pictureInPictureElement) {
-                document.exitPictureInPicture().catch(function () {});
-            } else if (player.requestPictureInPicture) {
-                player.requestPictureInPicture().catch(function () { showWebVideoToast('PiP tidak didukung.'); });
-            } else {
-                showWebVideoToast('PiP tidak didukung di browser ini.');
-            }
-        }
-
         function setWebVideoSpeed(speed) {
             const player = document.getElementById('webVideoPlayer');
             if (!player) return;
@@ -834,19 +791,6 @@ object VideoWebScript {
             const shell = document.getElementById('webVideoPlayerShell');
             if (shell) shell.remove();
             window.renderVideoLibrary();
-        }
-
-        function downloadWebVideo(id) {
-            const item = window.webVideoList.find(function (v) { return v.id === id; });
-            if (!item) return;
-            const url = getWebVideoPlayUrl(item);
-            const link = document.createElement('a');
-            link.href = url;
-            link.download = item.name || 'video.mp4';
-            document.body.appendChild(link);
-            link.click();
-            document.body.removeChild(link);
-            showWebVideoToast('Mengunduh ' + item.name);
         }
 
         async function deleteWebVideo(id) {

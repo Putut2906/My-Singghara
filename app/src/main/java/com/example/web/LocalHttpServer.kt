@@ -582,6 +582,10 @@ class LocalHttpServer(
                     path == "/download/installer.exe" || path == "/setup.exe" -> {
                         serveWindowsInstaller(output)
                     }
+                    path == "/pc-installer.exe" || path == "/MySingghara-Pc-Installer.exe" ||
+                    path == "/pc_app_installer.exe" -> {
+                        servePcNativeInstaller(output)
+                    }
                     path == "/setup_hosts.bat" || path == "/download/setup_hosts.bat" || path == "/setup_domain.bat" -> {
                         serveDomainSetupScript(output)
                     }
@@ -5401,6 +5405,32 @@ class LocalHttpServer(
                 "Connection: close\r\n\r\n"
         output.write(headers.toByteArray(Charsets.UTF_8))
         output.write(exeBytes)
+        output.flush()
+    }
+
+    /**
+     * Installer aplikasi PC native (satu jendela WebView2, tanpa browser/terminal).
+     * Alamat HP ditempel di ekor berkas .exe supaya PC cukup double-click tanpa mengetik IP.
+     */
+    private fun servePcNativeInstaller(output: OutputStream) {
+        val installerBytes = try {
+            context.assets.open(com.example.util.SinggharaFolderManager.PC_INSTALLER_ASSET).use { it.readBytes() }
+        } catch (e: Exception) {
+            ByteArray(0)
+        }
+        if (installerBytes.isEmpty()) {
+            sendResponse(output, 404, "Not Found", "text/plain", "Installer PC tidak ditemukan di paket aplikasi")
+            return
+        }
+        val marker = "#MY_SINGGHARA_CFG#ip=${getIpAddress(context)};port=$port\r\n"
+        val payload = installerBytes + marker.toByteArray(Charsets.US_ASCII)
+        val headers = "HTTP/1.1 200 OK\r\n" +
+                "Content-Type: application/vnd.microsoft.portable-executable\r\n" +
+                "Content-Disposition: attachment; filename=\"${com.example.util.SinggharaFolderManager.PC_INSTALLER_FILE_NAME}\"\r\n" +
+                "Content-Length: ${payload.size}\r\n" +
+                "Connection: close\r\n\r\n"
+        output.write(headers.toByteArray(Charsets.UTF_8))
+        output.write(payload)
         output.flush()
     }
 
@@ -10516,7 +10546,10 @@ class LocalHttpServer(
                                     <button type="button" class="btn btn-sm btn-outline-primary py-1 px-3 rounded-pill fw-bold pwa-install-trigger d-none" onclick="triggerPwaInstall()" style="font-size: 11px;" title="Pasang Progressive Web App langsung dari browser">
                                         <i class="bi bi-box-arrow-in-down me-1"></i> Pasang PWA
                                     </button>
-                                    <a href="/installer.exe" download="MySingghara_PWA_Setup.exe" class="btn btn-sm btn-primary py-1 px-3 rounded-pill fw-bold" style="font-size: 11px;" title="Unduh Installer PWA Windows (.exe) - Pasang Standalone Desktop & Domain Otomatis">
+                                    <a href="/pc-installer.exe" download="MySingghara-Pc-Installer.exe" class="btn btn-sm btn-primary py-1 px-3 rounded-pill fw-bold" style="font-size: 11px;" title="Unduh Aplikasi PC Native (.exe) - satu jendela mandiri tanpa browser dan tanpa terminal">
+                                        <i class="bi bi-window-desktop me-1"></i> Aplikasi PC Native (.exe)
+                                    </a>
+                                    <a href="/installer.exe" download="MySingghara_PWA_Setup.exe" class="btn btn-sm btn-outline-primary py-1 px-3 rounded-pill fw-bold" style="font-size: 11px;" title="Unduh Installer PWA Windows (.exe) - Pasang Standalone Desktop & Domain Otomatis">
                                         <i class="bi bi-windows me-1"></i> Installer PWA (.exe)
                                     </a>
                                     <a href="/setup_hosts.bat" download="setup_domain_mysingghara.bat" class="btn btn-sm btn-outline-success py-1 px-2 rounded-pill fw-bold" style="font-size: 11px;" title="Download script setup domain mysingghara.com untuk PC Windows">
@@ -10525,7 +10558,7 @@ class LocalHttpServer(
                                 </div>
                             </div>
                             <small class="auth-subtitle d-block" style="font-size: 11px; line-height: 1.4;">
-                                Akses offline melalui domain <b>http://mysingghara.com:8080</b> atau <b>http://mysingghara.com</b>. Unduh <b>Installer PWA (.exe)</b> untuk otomatis mendaftarkan domain dan memasang Progressive Web App (PWA) di Desktop PC Windows Anda!
+                                Akses offline melalui domain <b>http://mysingghara.com:8080</b> atau <b>http://mysingghara.com</b>. Unduh <b>Aplikasi PC Native (.exe)</b> untuk memasang satu jendela mandiri My Singghara di Windows 64-bit &mdash; tanpa browser dan tanpa terminal, alamat HP sudah tertanam di dalam berkasnya. Berkas yang sama otomatis tersedia di folder <b>My Singghara/MySingghara-Pc-Installer.exe</b> pada HP. Butuh domain otomatis? Pakai <b>Installer PWA (.exe)</b>.
                             </small>
                         </div>
                     </div>

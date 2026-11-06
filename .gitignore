@@ -17,3 +17,8 @@ local.properties
 .env
 # debug.keystore is intentionally tracked: CI must sign every build with the
 # same key so in-app updates can replace the installed app (see app/build.gradle.kts).
+
+# Hasil kompilasi aplikasi PC (sumber + installer final disimpan di assets/web/pc)
+/pc-native/build/
+/pc-native/libs/*.dll
+/tmp/
