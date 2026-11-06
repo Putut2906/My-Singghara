@@ -1302,7 +1302,7 @@ private fun SetupSecurityStepView(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
-                listOf("123", "456", "789").forEach { rowDigits ->
+                listOf(listOf("1", "2", "3"), listOf("4", "5", "6"), listOf("7", "8", "9")).forEach { rowDigits ->
                     Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
                         rowDigits.forEach { digit ->
                             SetupKeypadButton(text = digit, modifier = Modifier.size(64.dp)) { onDigit(digit) }
