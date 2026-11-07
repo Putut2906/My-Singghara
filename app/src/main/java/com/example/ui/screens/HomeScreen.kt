@@ -3,7 +3,6 @@ package com.example.ui.screens
 
 import android.content.Context
 import android.content.Intent
-import android.content.res.Configuration
 import android.os.Build
 
 import com.example.ui.models.AppRegistry
@@ -117,13 +116,10 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -239,21 +235,6 @@ object HijriCalendarHelper {
         val finalDay = hDay.coerceAtLeast(1)
 
         return "$finalDay ${MONTHS[finalMonthIdx]} ${hYear} H"
-    }
-}
-
-@Composable
-private fun DexDoubleFontScale(content: @Composable () -> Unit) {
-    val isDesktopMode = (LocalConfiguration.current.uiMode and Configuration.UI_MODE_TYPE_MASK) ==
-        Configuration.UI_MODE_TYPE_DESK
-    val density = LocalDensity.current
-    if (isDesktopMode) {
-        CompositionLocalProvider(
-            LocalDensity provides Density(density = density.density, fontScale = density.fontScale * 2f),
-            content = content
-        )
-    } else {
-        content()
     }
 }
 
@@ -2040,7 +2021,6 @@ fun HomeScreen(viewModel: MainViewModel) {
 
         // SECTION 5: INTERACTIVE CALENDAR WITH JAVANESE AND HIJRI LABELS
         item {
-            DexDoubleFontScale {
                 Card(
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                     modifier = Modifier.fillMaxWidth(),
@@ -2266,7 +2246,6 @@ fun HomeScreen(viewModel: MainViewModel) {
                         }
                     }
                 }
-            }
         }
     }
 
