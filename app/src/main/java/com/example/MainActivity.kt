@@ -154,6 +154,9 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.example.ui.MainViewModel
 import com.example.ui.models.AppRegistry
+import com.example.ui.components.DexWebSidebar
+import com.example.ui.components.DexWebTopBarBrand
+import com.example.ui.components.rememberDexWebColors
 import com.example.ui.components.BottomNavBar
 import com.example.NotificationScheduler
 import com.example.network.HolidayClient
@@ -2633,17 +2636,29 @@ fun MainAppContent(viewModel: MainViewModel, desktopMode: Boolean = false) {
         Scaffold(
             modifier = Modifier.fillMaxSize(),
             topBar = {
+                val dexColors = rememberDexWebColors()
                 if (viewModel.currentRoute != "semua_transaksi_belanja" && viewModel.currentRoute != "semua_catatan_tabungan" && viewModel.currentRoute != "preview_catatan" && viewModel.currentRoute != "immersive_file_viewer" && viewModel.currentRoute != "quran" && viewModel.currentRoute != "transfer_file" && viewModel.currentRoute != "handy_talky" && viewModel.currentRoute != "pemutar_video" && !viewModel.hideGlobalTopAppBar) {
                     Box(
-                        modifier = Modifier
-                            .statusBarsPadding()
-                            .padding(horizontal = 16.dp, vertical = 8.dp)
-                            .shadow(elevation = 4.dp, shape = RoundedCornerShape(12.dp))
-                            .background(MaterialTheme.colorScheme.surface, shape = RoundedCornerShape(12.dp))
+                        modifier = if (desktopMode) {
+                            Modifier
+                                .fillMaxWidth()
+                                .height(64.dp)
+                                .background(dexColors.navbarBg)
+                        } else {
+                            Modifier
+                                .statusBarsPadding()
+                                .padding(horizontal = 16.dp, vertical = 8.dp)
+                                .shadow(elevation = 4.dp, shape = RoundedCornerShape(12.dp))
+                                .background(MaterialTheme.colorScheme.surface, shape = RoundedCornerShape(12.dp))
+                        }
                     ) {
                         CenterAlignedTopAppBar(
-                            title = {},
-                            modifier = Modifier.height(48.dp),
+                            title = {
+                                if (desktopMode) {
+                                    DexWebTopBarBrand(dexColors)
+                                }
+                            },
+                            modifier = Modifier.height(if (desktopMode) 63.dp else 48.dp),
                             windowInsets = WindowInsets(0, 0, 0, 0),
                             navigationIcon = {
                                 IconButton(
@@ -3753,11 +3768,20 @@ fun MainAppContent(viewModel: MainViewModel, desktopMode: Boolean = false) {
                             },
                             colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
                                 containerColor = Color.Transparent,
-                                titleContentColor = MaterialTheme.colorScheme.onSurface,
-                                navigationIconContentColor = MaterialTheme.colorScheme.onSurface,
-                                actionIconContentColor = MaterialTheme.colorScheme.onSurface
+                                titleContentColor = if (desktopMode) dexColors.textMain else MaterialTheme.colorScheme.onSurface,
+                                navigationIconContentColor = if (desktopMode) dexColors.textMain else MaterialTheme.colorScheme.onSurface,
+                                actionIconContentColor = if (desktopMode) dexColors.textSub else MaterialTheme.colorScheme.onSurface
                             )
                         )
+                        if (desktopMode) {
+                            Box(
+                                modifier = Modifier
+                                    .align(Alignment.BottomCenter)
+                                    .fillMaxWidth()
+                                    .height(1.dp)
+                                    .background(dexColors.border)
+                            )
+                        }
                     }
                 }
             },
@@ -3772,22 +3796,25 @@ fun MainAppContent(viewModel: MainViewModel, desktopMode: Boolean = false) {
             // Pemutar video menggambar edge-to-edge dan mengatur inset sendiri,
             // supaya status bar tidak mendapat padding ganda dari Scaffold.
             val fullscreenVideoPlayer = viewModel.currentRoute == "pemutar_video"
+            val dexContentPadding = desktopMode && !fullscreenVideoPlayer
             Box(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(
-                        start = 0.dp,
-                        end = 0.dp,
+                        start = if (dexContentPadding) 24.dp else 0.dp,
+                        end = if (dexContentPadding) 24.dp else 0.dp,
                         top = if (fullscreenVideoPlayer) {
                             0.dp
+                        } else if (dexContentPadding) {
+                            innerPadding.calculateTopPadding() + 24.dp
                         } else if (innerPadding.calculateTopPadding() > 0.dp) {
                             (innerPadding.calculateTopPadding() - 12.dp).coerceAtLeast(0.dp)
                         } else {
                             0.dp
                         },
-                        bottom = if (fullscreenVideoPlayer) 0.dp else innerPadding.calculateBottomPadding()
+                        bottom = if (fullscreenVideoPlayer) 0.dp else innerPadding.calculateBottomPadding() + (if (dexContentPadding) 24.dp else 0.dp)
                     )
-                    .background(MaterialTheme.colorScheme.background)
+                    .background(if (desktopMode) rememberDexWebColors().bgMain else MaterialTheme.colorScheme.background)
             ) {
                 // Animated screen navigation
                 AnimatedContent(
@@ -3802,17 +3829,17 @@ fun MainAppContent(viewModel: MainViewModel, desktopMode: Boolean = false) {
                         "rekap_belanja_pasar" -> RekapBelanjaPasarScreen(
                             viewModel = viewModel,
                             onBack = { viewModel.currentRoute = "home" },
-                            onOpenDrawer = { scope.launch { drawerState.open() } }
+                            onOpenDrawer = { if (desktopMode) isDesktopSidebarExpanded = true else scope.launch { drawerState.open() } }
                         )
                         "belanja_online" -> BelanjaOnlineScreen(
                             viewModel = viewModel,
                             onBack = { viewModel.currentRoute = "home" },
-                            onOpenDrawer = { scope.launch { drawerState.open() } }
+                            onOpenDrawer = { if (desktopMode) isDesktopSidebarExpanded = true else scope.launch { drawerState.open() } }
                         )
                         "kalkulator" -> KalkulatorScreen(
                             viewModel = viewModel,
                             onBack = { viewModel.currentRoute = "home" },
-                            onOpenDrawer = { scope.launch { drawerState.open() } }
+                            onOpenDrawer = { if (desktopMode) isDesktopSidebarExpanded = true else scope.launch { drawerState.open() } }
                         )
                         "arisan_keluarga" -> ArisanKeluargaScreen(
                             viewModel = viewModel,
@@ -3950,18 +3977,18 @@ fun MainAppContent(viewModel: MainViewModel, desktopMode: Boolean = false) {
                             isFullPage = false,
                             onOpenFullHistory = { viewModel.currentRoute = "riwayat_absensi_lengkap" },
                             onNavigateBack = { viewModel.currentRoute = "data_karyawan_murid" },
-                            onOpenDrawer = { scope.launch { drawerState.open() } }
+                            onOpenDrawer = { if (desktopMode) isDesktopSidebarExpanded = true else scope.launch { drawerState.open() } }
                         )
                         "gaji_karyawan" -> GajiScreen(
                             viewModel = viewModel,
                             onNavigateBack = { viewModel.currentRoute = "data_karyawan_murid" },
-                            onOpenDrawer = { scope.launch { drawerState.open() } }
+                            onOpenDrawer = { if (desktopMode) isDesktopSidebarExpanded = true else scope.launch { drawerState.open() } }
                         )
                         "riwayat_absensi_lengkap" -> AbsensiScreen(
                             viewModel = viewModel,
                             isFullPage = true,
                             onNavigateBack = { viewModel.currentRoute = "absensi_karyawan" },
-                            onOpenDrawer = { scope.launch { drawerState.open() } }
+                            onOpenDrawer = { if (desktopMode) isDesktopSidebarExpanded = true else scope.launch { drawerState.open() } }
                         )
                         "profil" -> ProfilScreen(
                             viewModel = viewModel,
@@ -3981,7 +4008,7 @@ fun MainAppContent(viewModel: MainViewModel, desktopMode: Boolean = false) {
                                 showAuthDialog = true
                             }
                         )
-                        "pemutar_musik" -> PemutarMusikScreen(viewModel = viewModel, onOpenDrawer = { scope.launch { drawerState.open() } })
+                        "pemutar_musik" -> PemutarMusikScreen(viewModel = viewModel, onOpenDrawer = { if (desktopMode) isDesktopSidebarExpanded = true else scope.launch { drawerState.open() } })
                         "pemutar_video" -> com.example.ui.screens.PemutarVideoScreen(
                             viewModel = viewModel,
                             onBack = { viewModel.currentRoute = "home" }
@@ -4133,16 +4160,27 @@ fun MainAppContent(viewModel: MainViewModel, desktopMode: Boolean = false) {
             )
         }
         CompositionLocalProvider(LocalDensity provides desktopDensity) {
-            Row(modifier = Modifier.fillMaxSize()) {
-                if (!hideNavigationSidebar && isDesktopSidebarExpanded) {
-                    Box(modifier = Modifier.width(300.dp).fillMaxHeight()) {
-                        drawerSheetContent()
-                    }
+            val dexColors = rememberDexWebColors()
+            Row(modifier = Modifier.fillMaxSize().background(dexColors.bgMain)) {
+                if (!hideNavigationSidebar) {
+                    DexWebSidebar(
+                        viewModel = viewModel,
+                        expanded = isDesktopSidebarExpanded,
+                        onRequestExpand = { isDesktopSidebarExpanded = true },
+                        onLogin = {
+                            authDialogInitialMode = com.example.ui.components.AuthMode.LOGIN
+                            showAuthDialog = true
+                        },
+                        onRegister = {
+                            authDialogInitialMode = com.example.ui.components.AuthMode.REGISTER
+                            showAuthDialog = true
+                        }
+                    )
                     Box(
                         modifier = Modifier
                             .width(1.dp)
                             .fillMaxHeight()
-                            .background(MaterialTheme.colorScheme.outlineVariant)
+                            .background(dexColors.border)
                     )
                 }
                 Box(
