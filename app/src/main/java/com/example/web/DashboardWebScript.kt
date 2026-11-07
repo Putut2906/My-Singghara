@@ -2441,6 +2441,7 @@ object DashboardWebScript {
         // --- L. ALL APPLICATIONS MODAL ---
         const ALL_MY_APPS = [
             { id: 'rekap_belanja', title: "Rekap Belanja Pasar", desc: "Daftar belanja pasar lengkap dalam satuan kg, pcs, ikat, liter, dll. dengan rekap kuantitas dan estimasi biaya.", icon: "bi-basket3-fill", color: "#10B981", badge: "Belanja Pasar" },
+            { id: 'kalkulator', title: "Kalkulator", desc: "Kalkulator ilmiah lengkap: mode biasa/ilmiah, SHIFT, memori, statistik, trigonometri, pangkat, akar, faktorial, dan pecahan.", icon: "bi-calculator", color: "#0EA5E9", badge: "Kalkulator Ilmiah" },
             { id: 'quran', title: "Al-Qur'an Digital", desc: "Kitab suci 114 Surah lengkap teks Arab, terjemahan Indonesia, dan audio murottal.", icon: "bi-journal-bookmark-fill", color: "#00796B", badge: "Spiritual & Ibadah" },
             { id: 'pembukuan', title: "Pembukuan Usaha", desc: "Kalkulator modal, estimasi pendapatan harian/bulanan, dan pengeluaran operasional.", icon: "bi-graph-up-arrow", color: "#E65100", badge: "Kalkulator Usaha" },
             { id: 'jurnal_umum', title: "Laporan Keuangan", desc: "Siklus akuntansi lengkap: Jurnal Umum, Buku Besar, Neraca Saldo, Laba Rugi, hingga Jurnal Penutup.", icon: "bi-file-earmark-spreadsheet", color: "#00838F", badge: "Siklus Akuntansi" },

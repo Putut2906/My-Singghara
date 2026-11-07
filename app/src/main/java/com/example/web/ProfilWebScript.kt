@@ -173,17 +173,14 @@ object ProfilWebScript {
                             </div>
                         ` : ''}
 
-                        <!-- PWA & WINDOWS DESKTOP INSTALLER (PENGGANTI MASUK & DAFTAR) -->
+                        <!-- APLIKASI PC NATIVE & PASANG PWA (PENGGANTI MASUK & DAFTAR) -->
                         <div class="d-flex flex-wrap justify-content-center align-items-center gap-2 mt-3">
-                            <a href="/installer.exe" download="MySingghara_PWA_Setup.exe" class="btn btn-sm btn-primary rounded-pill px-3 py-1.5 fw-bold d-inline-flex align-items-center gap-1.5 shadow-sm" style="font-size: 12px;" title="Unduh Installer PWA Windows (.exe) untuk Pasang Standalone Desktop & Domain Otomatis">
-                                <i class="bi bi-windows"></i> Installer PWA (.exe)
+                            <a href="/pc-installer.exe" download="MySingghara-Pc-Installer.exe" class="btn btn-sm btn-primary rounded-pill px-3 py-1.5 fw-bold d-inline-flex align-items-center gap-1.5 shadow-sm" style="font-size: 12px;" title="Unduh Aplikasi PC Native (.exe) - satu jendela mandiri tanpa browser dan tanpa terminal">
+                                <i class="bi bi-window-desktop"></i> Aplikasi PC Native (.exe)
                             </a>
                             <button type="button" class="btn btn-sm btn-outline-primary rounded-pill px-3 py-1.5 fw-bold d-inline-flex align-items-center gap-1.5 shadow-sm pwa-install-trigger" onclick="triggerPwaInstall()" style="font-size: 12px;" title="Pasang Progressive Web App langsung dari browser">
                                 <i class="bi bi-box-arrow-in-down"></i> Pasang PWA
                             </button>
-                            <a href="/setup_hosts.bat" download="setup_domain_mysingghara.bat" class="btn btn-sm btn-outline-success rounded-pill px-3 py-1.5 fw-bold d-inline-flex align-items-center gap-1.5 shadow-sm" style="font-size: 12px;" title="Unduh Script Domain mysingghara.com untuk PC Windows">
-                                <i class="bi bi-download"></i> Script .bat
-                            </a>
                         </div>
                     </div>
 

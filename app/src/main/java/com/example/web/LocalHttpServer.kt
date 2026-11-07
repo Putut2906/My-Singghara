@@ -577,17 +577,9 @@ class LocalHttpServer(
                     path == "/apple-touch-icon-precomposed.png" || path == "/logo.png" -> {
                         serveFavicon(path, output)
                     }
-                    path == "/installer.exe" || path == "/MySingghara_Setup.exe" ||
-                    path == "/MySingghara_PWA_Setup.exe" || path == "/pwa_installer.exe" ||
-                    path == "/download/installer.exe" || path == "/setup.exe" -> {
-                        serveWindowsInstaller(output)
-                    }
                     path == "/pc-installer.exe" || path == "/MySingghara-Pc-Installer.exe" ||
                     path == "/pc_app_installer.exe" -> {
                         servePcNativeInstaller(output)
-                    }
-                    path == "/setup_hosts.bat" || path == "/download/setup_hosts.bat" || path == "/setup_domain.bat" -> {
-                        serveDomainSetupScript(output)
                     }
                     path == "/company-signature.png" -> {
                         try {
@@ -5387,90 +5379,6 @@ class LocalHttpServer(
                 sendResponse(output, 404, "Not Found", "text/plain", "Favicon Not Found")
             }
         }
-    }
-
-    private fun serveDomainSetupScript(output: OutputStream) {
-        val currentIp = getIpAddress(context)
-        val batScript = buildString {
-            append("@echo off\r\n")
-            append("setlocal EnableDelayedExpansion\r\n")
-            append("title Setup Domain mysingghara.com - My Singghara Offline\r\n")
-            append("echo ========================================================\r\n")
-            append("echo   SETUP DOMAIN OFFLINE: mysingghara.com\r\n")
-            append("echo   Aplikasi : My Singghara (Web Connect 100%% Offline PC)\r\n")
-            append("echo ========================================================\r\n")
-            append("echo.\r\n")
-            append("echo Target IP Smartphone : $currentIp\r\n")
-            append("echo Domain Offline       : mysingghara.com\r\n")
-            append("echo Port                 : $port\r\n")
-            append("echo.\r\n")
-            append("echo [1/3] Memeriksa hak akses Administrator...\r\n")
-            append("net session >nul 2>&1\r\n")
-            append("if %errorlevel% neq 0 (\r\n")
-            append("    echo.\r\n")
-            append("    echo [PERHATIAN] Script ini memerlukan hak akses Administrator!\r\n")
-            append("    echo Silakan klik kanan file ini, lalu pilih \"Run as administrator\".\r\n")
-            append("    echo.\r\n")
-            append("    pause\r\n")
-            append("    exit /b 1\r\n")
-            append(")\r\n")
-            append("\r\n")
-            append("set HOSTS_FILE=%WINDIR%\\System32\\drivers\\etc\\hosts\r\n")
-            append("echo [2/3] Memeriksa file hosts: %HOSTS_FILE%...\r\n")
-            append("findstr /i \"mysingghara.com\" \"%HOSTS_FILE%\" >nul 2>&1\r\n")
-            append("if %errorlevel% equ 0 (\r\n")
-            append("    echo Domain mysingghara.com sudah pernah terdaftar. Memperbarui IP ke $currentIp...\r\n")
-            append("    powershell -Command \"(Get-Content '%HOSTS_FILE%') -notmatch 'mysingghara.com' | Set-Content '%HOSTS_FILE%'\"\r\n")
-            append(")\r\n")
-            append("\r\n")
-            append("echo [3/4] Menambahkan pemetaan: $currentIp  mysingghara.com ke hosts...\r\n")
-            append("echo $currentIp    mysingghara.com >> \"%HOSTS_FILE%\"\r\n")
-            append("ipconfig /flushdns >nul 2>&1\r\n")
-            append("\r\n")
-            append("echo [4/4] Mengaktifkan shortcut port 80 (Akses tanpa perlu ketik :$port)...\r\n")
-            append("netsh interface portproxy delete v4tov4 listenport=80 listenaddress=0.0.0.0 >nul 2>&1\r\n")
-            append("netsh interface portproxy add v4tov4 listenport=80 listenaddress=0.0.0.0 connectport=$port connectaddress=$currentIp >nul 2>&1\r\n")
-            append("\r\n")
-            append("echo.\r\n")
-            append("echo ========================================================\r\n")
-            append("echo   [SUKSES] Domain mysingghara.com Berhasil Didaftarkan!\r\n")
-            append("echo ========================================================\r\n")
-            append("echo Sekarang Anda dapat membuka browser PC dan mengakses:\r\n")
-            append("echo    1. http://mysingghara.com          (Akses Langsung Tanpa Port)\r\n")
-            append("echo    2. http://mysingghara.com:$port   (Akses Standar Port $port)\r\n")
-            append("echo.\r\n")
-            append("pause\r\n")
-        }
-        val bytes = batScript.toByteArray(Charsets.UTF_8)
-        val headers = "HTTP/1.1 200 OK\r\n" +
-                "Content-Type: application/octet-stream\r\n" +
-                "Content-Disposition: attachment; filename=\"setup_domain_mysingghara.bat\"\r\n" +
-                "Content-Length: ${bytes.size}\r\n" +
-                "Connection: close\r\n\r\n"
-        output.write(headers.toByteArray(Charsets.UTF_8))
-        output.write(bytes)
-        output.flush()
-    }
-
-    private fun serveWindowsInstaller(output: OutputStream) {
-        val currentIp = getIpAddress(context)
-        val exeBytes = try {
-            WindowsInstallerGenerator.generateInstallerExe(currentIp, port)
-        } catch (e: Exception) {
-            try {
-                context.assets.open("web/installer.exe").use { it.readBytes() }
-            } catch (e2: Exception) {
-                ByteArray(0)
-            }
-        }
-        val headers = "HTTP/1.1 200 OK\r\n" +
-                "Content-Type: application/vnd.microsoft.portable-executable\r\n" +
-                "Content-Disposition: attachment; filename=\"MySingghara_PWA_Setup.exe\"\r\n" +
-                "Content-Length: ${exeBytes.size}\r\n" +
-                "Connection: close\r\n\r\n"
-        output.write(headers.toByteArray(Charsets.UTF_8))
-        output.write(exeBytes)
-        output.flush()
     }
 
     /**
@@ -10614,16 +10522,10 @@ class LocalHttpServer(
                                     <a href="/pc-installer.exe" download="MySingghara-Pc-Installer.exe" class="btn btn-sm btn-primary py-1 px-3 rounded-pill fw-bold" style="font-size: 11px;" title="Unduh Aplikasi PC Native (.exe) - satu jendela mandiri tanpa browser dan tanpa terminal">
                                         <i class="bi bi-window-desktop me-1"></i> Aplikasi PC Native (.exe)
                                     </a>
-                                    <a href="/installer.exe" download="MySingghara_PWA_Setup.exe" class="btn btn-sm btn-outline-primary py-1 px-3 rounded-pill fw-bold" style="font-size: 11px;" title="Unduh Installer PWA Windows (.exe) - Pasang Standalone Desktop & Domain Otomatis">
-                                        <i class="bi bi-windows me-1"></i> Installer PWA (.exe)
-                                    </a>
-                                    <a href="/setup_hosts.bat" download="setup_domain_mysingghara.bat" class="btn btn-sm btn-outline-success py-1 px-2 rounded-pill fw-bold" style="font-size: 11px;" title="Download script setup domain mysingghara.com untuk PC Windows">
-                                        <i class="bi bi-download me-1"></i> Script .bat
-                                    </a>
                                 </div>
                             </div>
                             <small class="auth-subtitle d-block" style="font-size: 11px; line-height: 1.4;">
-                                Akses offline melalui domain <b>http://mysingghara.com:8080</b> atau <b>http://mysingghara.com</b>. Unduh <b>Aplikasi PC Native (.exe)</b> untuk memasang satu jendela mandiri My Singghara di Windows 64-bit &mdash; tanpa browser dan tanpa terminal, alamat HP sudah tertanam di dalam berkasnya. Berkas yang sama otomatis tersedia di folder <b>My Singghara/MySingghara-Pc-Installer.exe</b> pada HP. Butuh domain otomatis? Pakai <b>Installer PWA (.exe)</b>.
+                                Akses offline melalui domain <b>http://mysingghara.com:8080</b> atau <b>http://mysingghara.com</b>. Unduh <b>Aplikasi PC Native (.exe)</b> untuk memasang satu jendela mandiri My Singghara di Windows 64-bit &mdash; tanpa browser dan tanpa terminal, alamat HP sudah tertanam di dalam berkasnya. Berkas yang sama otomatis tersedia di folder <b>My Singghara/MySingghara-Pc-Installer.exe</b> pada HP.
                             </small>
                         </div>
                     </div>
@@ -10865,6 +10767,10 @@ class LocalHttpServer(
                         <div class="nav-link-item" onclick="switchTab('rekap_belanja', this)" data-title="Rekap Belanja Pasar">
                             <i class="bi bi-basket3-fill fs-5" style="color: #10B981;"></i>
                             <span class="nav-text">Rekap Belanja Pasar</span>
+                        </div>
+                        <div class="nav-link-item" onclick="switchTab('kalkulator', this)" data-title="Kalkulator">
+                            <i class="bi bi-calculator fs-5" style="color: #0EA5E9;"></i>
+                            <span class="nav-text">Kalkulator</span>
                         </div>
                     </div>
                 </div>
@@ -11578,8 +11484,7 @@ class LocalHttpServer(
                     deferredPwaPrompt = null;
                 });
             } else {
-                // Unduh executable installer jika prompt native tidak tersedia
-                window.location.href = '/installer.exe';
+                showCustomToast('Prompt pasang tidak tersedia. Buka menu browser (titik tiga) lalu pilih "Instal aplikasi" / "Tambahkan ke layar utama".');
             }
         }
 
@@ -12336,6 +12241,9 @@ class LocalHttpServer(
             else if (currentTab === 'rekap_belanja' || currentTab === 'belanja_pasar') {
                 if (window.loadRekapBelanjaPasar) window.loadRekapBelanjaPasar();
             }
+            else if (currentTab === 'kalkulator') {
+                if (window.loadKalkulator) window.loadKalkulator();
+            }
             else if (currentTab === 'my_apps') loadMyApps();
             else if (currentTab === 'quran') loadQuran();
             else if (currentTab === 'pembukuan') loadPembukuan();
@@ -12472,6 +12380,7 @@ class LocalHttpServer(
         function loadMyApps() {
             const apps = [
                 { id: 'rekap_belanja', title: "Rekap Belanja Pasar", desc: "Daftar belanja pasar harian/mingguan dalam satuan kg, pcs, ikat, liter, dll. dengan checklist, estimasi harga, dan rekap per satuan.", icon: "bi-basket3-fill", color: "#10B981", badge: "Belanja Pasar" },
+                { id: 'kalkulator', title: "Kalkulator", desc: "Kalkulator ilmiah sama persis dengan aplikasi My Singghara: mode biasa/ilmiah, SHIFT, memori, statistik, trigonometri, pangkat, akar, faktorial, dan bentuk pecahan.", icon: "bi-calculator", color: "#0EA5E9", badge: "Kalkulator Ilmiah" },
                 { id: 'block', title: "Block Puzzle", desc: "Game susun balok 8x8 asah otak seru dengan combo eliminasi, power-up palu/bom/refresh, dan high score.", icon: "bi-grid-fill", color: "#2C5E6A", badge: "Game Hiburan" },
                 { id: 'brick_game', title: "Brick Game", desc: "Game retro arcade klasik LCD 9999-in-1 dengan 4 mode seru (Tetris, Mobil Balap, Ular Snake, Tembak Tank) dan kontrol gimbot.", icon: "bi-controller", color: "#306230", badge: "Game Retro" },
                 { id: 'quran', title: "Al-Qur'an", desc: "Kitab suci 114 Surah lengkap dengan teks Arab indah, terjemahan Indonesia, dan audio murattal.", icon: "bi-journal-bookmark-fill", color: "#00796B", badge: "Ibadah & Spiritual" },
@@ -13527,6 +13436,7 @@ class LocalHttpServer(
         ${VideoWebScript.getScript(dol)}
         ${MindMapWebScript.getScript(dol)}
         ${ProfilWebScript.getScript(dol)}
+        ${KalkulatorWebScript.getScript(dol)}
 
         // ==========================================
         // --- 4. BLOCK PUZZLE CLASSIC (8x8) ---

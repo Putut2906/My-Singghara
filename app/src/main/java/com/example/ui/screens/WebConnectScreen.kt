@@ -306,44 +306,11 @@ fun WebConnectScreen(
 
                     Spacer(modifier = Modifier.height(8.dp))
 
-                    // Pilihan Utama: Installer Windows (.exe) Progressive Web App (PWA)
+                    // Pilihan 1: Perintah PowerShell
                     InstructionStep(
-                        number = "★",
+                        number = "1",
                         icon = Icons.Default.Laptop,
-                        title = "Pilihan Alternatif: Installer PWA Windows (.exe)",
-                        description = "Buka http://$detectedIp:8080/installer.exe di browser PC untuk mengunduh installer. Cukup double-click file MySingghara_PWA_Setup.exe untuk otomatis memasang My Singghara sebagai Progressive Web App (PWA) di Desktop Windows dengan jendela mandiri dan domain offline!"
-                    )
-
-                    Button(
-                        onClick = {
-                            val installerUrl = "http://$detectedIp:8080/installer.exe"
-                            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                            val clip = ClipData.newPlainText("Tautan Installer PWA .exe", installerUrl)
-                            clipboard.setPrimaryClip(clip)
-                            viewModel.showToastPopup("Tautan installer PWA (.exe) disalin: $installerUrl")
-                        },
-                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
-                        shape = RoundedCornerShape(6.dp),
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Icon(imageVector = Icons.Default.FileDownload, contentDescription = null, modifier = Modifier.size(14.dp))
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text("Salin Tautan Installer PWA (.exe)", fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                    }
-
-                    // Pilihan 1: Script Otomatis (.bat)
-                    InstructionStep(
-                        number = "A",
-                        icon = Icons.Default.FileDownload,
-                        title = "Cara 2: Script Otomatis (.bat)",
-                        description = "Buka $serverUrl di PC, lalu klik tombol 'Setup Domain .bat'. Setelah terunduh, klik kanan dan pilih 'Run as administrator'."
-                    )
-
-                    // Pilihan 2: Perintah PowerShell
-                    InstructionStep(
-                        number = "B",
-                        icon = Icons.Default.Laptop,
-                        title = "Cara 2: Lewat PowerShell (Windows)",
+                        title = "Cara 1: Lewat PowerShell (Windows)",
                         description = "Buka PowerShell di PC sebagai Administrator, lalu jalankan perintah di bawah ini:"
                     )
 
@@ -362,11 +329,11 @@ fun WebConnectScreen(
                         Text("Salin Perintah PowerShell", fontSize = 11.sp)
                     }
 
-                    // Pilihan 3: Manual Notepad
+                    // Pilihan 2: Manual Notepad
                     InstructionStep(
-                        number = "C",
+                        number = "2",
                         icon = Icons.Default.HelpOutline,
-                        title = "Cara 3: Manual via Notepad",
+                        title = "Cara 2: Manual via Notepad",
                         description = "1. Buka Notepad di PC dengan 'Run as administrator'.\n2. Buka berkas C:\\Windows\\System32\\drivers\\etc\\hosts\n3. Tambahkan baris: $hostsLine di paling bawah lalu Simpan (Ctrl+S)."
                     )
                 }
@@ -680,11 +647,11 @@ fun WebConnectScreen(
                                     onClick = {
                                         val detectedIp = if (serverUrl.contains("//")) serverUrl.substringAfter("//").substringBefore(":")
                                             else com.example.web.LocalHttpServer.getIpAddress(context)
-                                        val installerUrl = "http://$detectedIp:8080/installer.exe"
+                                        val installerUrl = "http://$detectedIp:8080/pc-installer.exe"
                                         val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                                        val clip = ClipData.newPlainText("Link Installer PC", installerUrl)
+                                        val clip = ClipData.newPlainText("Link Aplikasi PC Native", installerUrl)
                                         clipboard.setPrimaryClip(clip)
-                                        viewModel.showToastPopup("Tautan Installer PC (.exe) disalin: $installerUrl")
+                                        viewModel.showToastPopup("Tautan Aplikasi PC Native (.exe) disalin: $installerUrl")
                                     },
                                     colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF00A884)),
                                     border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF00A884).copy(alpha = 0.5f)),
@@ -693,7 +660,7 @@ fun WebConnectScreen(
                                 ) {
                                     Icon(imageVector = Icons.Default.Laptop, contentDescription = null, modifier = Modifier.size(16.dp))
                                     Spacer(modifier = Modifier.width(6.dp))
-                                    Text("Download Installer PWA (.exe)", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                    Text("Download Aplikasi PC Native (.exe)", fontSize = 12.sp, fontWeight = FontWeight.Bold)
                                 }
 
                                 Spacer(modifier = Modifier.height(14.dp))

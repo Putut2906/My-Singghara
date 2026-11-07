@@ -304,7 +304,7 @@ namespace MySinggharaPcInstaller
             if (!Environment.Is64BitOperatingSystem)
             {
                 MessageBox.Show("Aplikasi PC native membutuhkan Windows 64-bit.\n\n" +
-                    "Di Windows 32-bit gunakan installer PWA yang ada di halaman Web Connect.",
+                    "Di Windows 32-bit, buka alamat Web Connect HP langsung di browser PC.",
                     "My Singghara PC", MessageBoxButtons.OK, MessageBoxIcon.Exclamation);
                 Close();
                 return;

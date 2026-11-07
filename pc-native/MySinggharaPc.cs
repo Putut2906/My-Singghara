@@ -77,6 +77,7 @@ namespace MySinggharaPc
         private string configPath;
         private string currentUrl;
         private bool webViewReady;
+        private bool shortcutChecked;
 
         // Dua sumber layar penuh: preferensi pengguna (Alt+F) dan video HTML5.
         private bool appFullScreen;
@@ -924,7 +925,9 @@ namespace MySinggharaPc
                 {
                     ShowPanel("Koneksi ke HP terputus.\n" + currentUrl +
                               "\n\nAktifkan lagi Web Connect di HP lalu klik Coba Lagi.");
+                    return;
                 }
+                EnsureDesktopShortcut();
             };
 
             webViewReady = true;
@@ -965,6 +968,47 @@ namespace MySinggharaPc
         private void RaiseChrome()
         {
             if (chromePanel != null) chromePanel.BringToFront();
+        }
+
+        // ------------------------------------------------------------------
+        // Shortcut desktop: dibuat sekali saat koneksi pertama berhasil
+        // ------------------------------------------------------------------
+
+        private void EnsureDesktopShortcut()
+        {
+            if (shortcutChecked) return;
+            shortcutChecked = true;
+            try
+            {
+                string exe = Assembly.GetExecutingAssembly().Location;
+                if (string.IsNullOrEmpty(exe) || !File.Exists(exe)) return;
+                string desktop = Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory);
+                string linkPath = Path.Combine(desktop, "My Singghara PC.lnk");
+                if (File.Exists(linkPath)) return;
+                Type shellType = Type.GetTypeFromProgID("WScript.Shell");
+                if (shellType == null) return;
+                object shellObj = Activator.CreateInstance(shellType);
+                try
+                {
+                    object link = shellObj.GetType().InvokeMember("CreateShortcut",
+                        BindingFlags.InvokeMethod, null, shellObj, new object[] { linkPath });
+                    Type linkType = link.GetType();
+                    linkType.InvokeMember("TargetPath", BindingFlags.SetProperty, null, link, new object[] { exe });
+                    linkType.InvokeMember("WorkingDirectory", BindingFlags.SetProperty, null, link,
+                        new object[] { Path.GetDirectoryName(exe) });
+                    linkType.InvokeMember("IconLocation", BindingFlags.SetProperty, null, link,
+                        new object[] { exe + ",0" });
+                    linkType.InvokeMember("Description", BindingFlags.SetProperty, null, link,
+                        new object[] { "My Singghara - aplikasi PC native 100% offline" });
+                    linkType.InvokeMember("Save", BindingFlags.InvokeMethod, null, link, null);
+                    ShowModeToast("Terhubung ke HP  ·  shortcut dibuat di desktop");
+                }
+                finally
+                {
+                    Marshal.ReleaseComObject(shellObj);
+                }
+            }
+            catch { }
         }
 
         // ------------------------------------------------------------------
