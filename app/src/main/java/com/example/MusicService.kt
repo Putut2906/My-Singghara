@@ -64,8 +64,14 @@ class MusicService : Service() {
             if (musicPlaylist.isEmpty()) return
             val candidates = if (currentTrackIndex in musicPlaylist.indices) {
                 val currentTrack = musicPlaylist[currentTrackIndex]
-                val folderIndices = musicPlaylist.indices.filter { musicPlaylist[it].artist == currentTrack.artist }
-                if (folderIndices.isNotEmpty()) folderIndices else musicPlaylist.indices.toList()
+                // Grup mengikuti tab Folder (folder asal, atau artis bila kosong).
+                // Tag artis bukan kunci yang benar: satu folder bisa berisi MP3,
+                // AAC, FLAC, WAV, dan AIFF dengan artis berbeda-beda.
+                val folderIndices = musicPlaylist.indices.filter {
+                    folderKeyOf(musicPlaylist[it]) == folderKeyOf(currentTrack)
+                }
+                // Folder satu trek tidak boleh membuat acak mengulang lagu yang sama.
+                if (folderIndices.size > 1) folderIndices else musicPlaylist.indices.toList()
             } else {
                 musicPlaylist.indices.toList()
             }
@@ -73,6 +79,10 @@ class MusicService : Service() {
             remaining.shuffle()
             shuffleRemainingIndices.addAll(remaining)
         }
+
+        /** Kunci grup yang sama dengan tab Folder: folder asal, atau artis bila kosong. */
+        fun folderKeyOf(track: MusicTrack): String =
+            track.folder?.takeIf { it.isNotBlank() } ?: track.artist
     }
 
     private var mediaPlayer: android.media.MediaPlayer? = null
@@ -486,13 +496,19 @@ class MusicService : Service() {
 
     private fun getSameFolderTrackIndices(): List<Int> {
         if (musicPlaylist.isEmpty() || currentTrackIndex !in musicPlaylist.indices) return emptyList()
-        val currentTrack = musicPlaylist[currentTrackIndex]
-        return musicPlaylist.indices.filter { musicPlaylist[it].artist == currentTrack.artist }
+        val key = folderKeyOf(musicPlaylist[currentTrackIndex])
+        return musicPlaylist.indices.filter { folderKeyOf(musicPlaylist[it]) == key }
     }
 
     fun playNext() {
         if (musicPlaylist.isEmpty()) return
-        val candidates = getSameFolderTrackIndices().ifEmpty { (0 until musicPlaylist.size).toList() }
+        val folderCandidates = getSameFolderTrackIndices()
+        // Folder berisi satu trek tetap harus bisa Next: pakai seluruh antrean.
+        val candidates = if (folderCandidates.size > 1) {
+            folderCandidates
+        } else {
+            (0 until musicPlaylist.size).toList()
+        }
         if (candidates.isEmpty()) return
 
         if (candidates.size == 1) {
@@ -527,7 +543,13 @@ class MusicService : Service() {
 
     fun playPrevious() {
         if (musicPlaylist.isEmpty()) return
-        val candidates = getSameFolderTrackIndices().ifEmpty { (0 until musicPlaylist.size).toList() }
+        val folderCandidates = getSameFolderTrackIndices()
+        // Sama seperti Next: folder satu trek memakai seluruh antrean.
+        val candidates = if (folderCandidates.size > 1) {
+            folderCandidates
+        } else {
+            (0 until musicPlaylist.size).toList()
+        }
         if (candidates.isEmpty()) return
 
         if (candidates.size == 1) {

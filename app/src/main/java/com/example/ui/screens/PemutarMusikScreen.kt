@@ -1860,7 +1860,7 @@ fun PemutarMusikScreen(viewModel: MainViewModel, onOpenDrawer: () -> Unit) {
                                 if (activeTrack != null) {
                                     Spacer(modifier = Modifier.height(2.dp))
                                     Text(
-                                        text = "Folder: ${activeTrack.artist}",
+                                        text = "Folder: ${activeTrack.folder?.takeIf { it.isNotBlank() } ?: activeTrack.artist}",
                                         fontSize = 12.sp,
                                         color = MaterialTheme.colorScheme.primary,
                                         fontWeight = FontWeight.Medium,
@@ -1897,8 +1897,20 @@ fun PemutarMusikScreen(viewModel: MainViewModel, onOpenDrawer: () -> Unit) {
                         
                         Spacer(modifier = Modifier.height(12.dp))
                         
+                        // Samakan dengan Next/Previous: kunci folder = folder asal atau artis,
+                        // dan folder satu trek memakai seluruh antrean agar navigasi tetap jalan.
+                        val currentFolderKey = activeTrack?.let {
+                            it.folder?.takeIf { folder -> folder.isNotBlank() } ?: it.artist
+                        }
                         val currentFolderTracks = if (activeTrack != null) {
-                            viewModel.musicPlaylist.filter { it.artist == activeTrack.artist }
+                            val sameFolder = viewModel.musicPlaylist.filter {
+                                (it.folder?.takeIf { folder -> folder.isNotBlank() } ?: it.artist) == currentFolderKey
+                            }
+                            if (sameFolder.size > 1 || viewModel.musicPlaylist.size <= 1) {
+                                sameFolder
+                            } else {
+                                viewModel.musicPlaylist
+                            }
                         } else {
                             viewModel.musicPlaylist
                         }
