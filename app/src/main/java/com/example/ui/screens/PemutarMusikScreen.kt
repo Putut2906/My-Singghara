@@ -54,7 +54,6 @@ import com.example.ui.MainViewModel
 import com.example.ui.MusicTrack
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
-import android.media.MediaMetadataRetriever
 import android.os.Build
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
@@ -2491,6 +2490,7 @@ fun TrackAlbumArt(
     }
     
     val customArtUri = viewModel.getCustomAlbumArt(track.uriStr)
+    val folderCoverUri = track.coverUriStr
     
     Box(modifier = modifier) {
         if (customArtUri != null) {
@@ -2504,6 +2504,14 @@ fun TrackAlbumArt(
             Image(
                 bitmap = embeddedBitmap!!.asImageBitmap(),
                 contentDescription = "Embedded Album Art",
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize()
+            )
+        } else if (!folderCoverUri.isNullOrBlank()) {
+            // cover.jpg/folder.jpg di folder album (mis. hasil pilih folder SAF).
+            AsyncImage(
+                model = folderCoverUri,
+                contentDescription = "Sampul Album",
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize()
             )
@@ -2586,11 +2594,10 @@ fun getEmbeddedPicture(context: android.content.Context, uriStr: String): Bitmap
     val cached = embeddedArtCache.get(uriStr)
     if (cached != null) return cached
 
-    val retriever = MediaMetadataRetriever()
     try {
         val uri = Uri.parse(uriStr)
-        retriever.setDataSource(context, uri)
-        val art = retriever.embeddedPicture
+        // Tag tertanam -> album art MediaStore -> cover.jpg/folder.jpg di folder lagu.
+        val art = com.example.media.AlbumArtwork.rawArtwork(context, uri)
         if (art != null) {
             val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
             BitmapFactory.decodeByteArray(art, 0, art.size, bounds)
@@ -2605,10 +2612,6 @@ fun getEmbeddedPicture(context: android.content.Context, uriStr: String): Bitmap
         }
     } catch (e: Exception) {
         // ignore
-    } finally {
-        try {
-            retriever.release()
-        } catch (e: Exception) {}
     }
     nullEmbeddedArtUris.add(uriStr)
     return null

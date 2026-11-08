@@ -4887,7 +4887,10 @@ class LocalHttpServer(
     private suspend fun buildPhoneMediaListJson(type: String): String {
         val payload = JSONObject()
         val items = JSONArray()
-        val hasAccess = PhoneMediaScanner.hasMediaAccess(context)
+        val hasAccess = PhoneMediaScanner.hasMediaAccess(context, type)
+        // Daftar dimuat ulang setelah pengguna memberi izin: kesempatan kedua untuk
+        // trek yang sampulnya gagal dibaca saat MediaStore masih mengindeks.
+        PhoneMediaScanner.clearArtworkMisses()
         payload.put("type", type)
         payload.put("hasPermission", hasAccess)
 

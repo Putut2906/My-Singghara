@@ -679,11 +679,20 @@ class MainActivity : FragmentActivity() {
         notificationsPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
     }
 
-    /** Izin media yang belum diberikan; kosong pada Android 12 ke bawah karena memakai READ_EXTERNAL_STORAGE. */
+    /** Izin media yang belum diberikan sesuai versi Android; kosong bila semuanya sudah aktif. */
     private fun missingMediaPermissionNames(): List<String> {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return emptyList()
-        return listOf(Manifest.permission.READ_MEDIA_AUDIO, Manifest.permission.READ_MEDIA_VIDEO)
-            .filter { ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED }
+        val candidates = when {
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU ->
+                listOf(Manifest.permission.READ_MEDIA_AUDIO, Manifest.permission.READ_MEDIA_VIDEO)
+            // Android 11-12 tetap memakai READ_EXTERNAL_STORAGE; sebelumnya cabang ini
+            // mengembalikan daftar kosong sehingga dialog izin tidak pernah muncul.
+            Build.VERSION.SDK_INT >= Build.VERSION_CODES.R ->
+                listOf(Manifest.permission.READ_EXTERNAL_STORAGE)
+            else -> emptyList()
+        }
+        return candidates.filter {
+            ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
+        }
     }
 }
 

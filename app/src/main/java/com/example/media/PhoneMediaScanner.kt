@@ -6,7 +6,6 @@ import android.Manifest
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
-import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.os.Build
 import android.os.Environment
@@ -54,6 +53,9 @@ object PhoneMediaScanner {
     const val TYPE_VIDEO = "video"
 
     private val artCache = LruCache<String, ByteArray>(80)
+    // Trek tanpa sampul tidak diulang tiap render daftar lagu; pemindaian
+    // MediaMetadataRetriever per trek cukup mahal untuk dipanggil terus-menerus.
+    private val artMisses = java.util.Collections.synchronizedSet(mutableSetOf<String>())
 
     private const val ART_MAX_SIDE = 440
 
@@ -104,23 +106,23 @@ object PhoneMediaScanner {
         }
     }
 
-    fun hasMediaAccess(context: Context): Boolean {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && Environment.isExternalStorageManager()) {
+    /**
+     * Izin dicek per jenis media. Dulu audio dan video digabung dengan OR sehingga
+     * pengguna yang hanya mengizinkan "Foto dan video" tetap dianggap punya akses
+     * audio — pemindaiannya lalu gagal diam-diam dan daftar lagu tampak kosong.
+     */
+    fun hasMediaAccess(context: Context, type: String): Boolean {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R &&
+            runCatching { Environment.isExternalStorageManager() }.getOrDefault(false)
+        ) {
             return true
         }
-        val videoPermission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            Manifest.permission.READ_MEDIA_VIDEO
-        } else {
-            Manifest.permission.READ_EXTERNAL_STORAGE
+        val permission = when {
+            Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU -> Manifest.permission.READ_EXTERNAL_STORAGE
+            type == TYPE_VIDEO -> Manifest.permission.READ_MEDIA_VIDEO
+            else -> Manifest.permission.READ_MEDIA_AUDIO
         }
-        val audioPermission = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            Manifest.permission.READ_MEDIA_AUDIO
-        } else {
-            Manifest.permission.READ_EXTERNAL_STORAGE
-        }
-        val hasVideo = ContextCompat.checkSelfPermission(context, videoPermission) == PackageManager.PERMISSION_GRANTED
-        val hasAudio = ContextCompat.checkSelfPermission(context, audioPermission) == PackageManager.PERMISSION_GRANTED
-        return hasVideo || hasAudio
+        return ContextCompat.checkSelfPermission(context, permission) == PackageManager.PERMISSION_GRANTED
     }
 
     suspend fun scanAudio(context: Context): List<PhoneAudioTrack> = withContext(Dispatchers.IO) {
@@ -231,17 +233,26 @@ object PhoneMediaScanner {
         result
     }
 
+    /** Pindai ulang izin/album: lupakan trek yang sebelumnya gagal dapat sampul. */
+    fun clearArtworkMisses() {
+        artMisses.clear()
+    }
+
     /** Sampul album trek audio (atau thumbnail video) sebagai JPEG, dengan cache kecil. */
     fun artwork(context: Context, type: String, id: Long): ByteArray? {
         val cacheKey = "$type:$id"
         artCache.get(cacheKey)?.let { return it }
+        if (artMisses.contains(cacheKey)) return null
         val uri = uriFor(type, id) ?: return null
         val bytes = when (type) {
             TYPE_VIDEO -> videoArtwork(context, uri)
-            TYPE_AUDIO -> embeddedAudioArtwork(context, uri)
+            TYPE_AUDIO -> audioArtwork(context, uri)
             else -> null
         }
-        if (bytes == null || bytes.isEmpty()) return null
+        if (bytes == null || bytes.isEmpty()) {
+            artMisses.add(cacheKey)
+            return null
+        }
         artCache.put(cacheKey, bytes)
         return bytes
     }
@@ -257,24 +268,17 @@ object PhoneMediaScanner {
         null
     }
 
-    private fun embeddedAudioArtwork(context: Context, uri: Uri): ByteArray? {
-        val retriever = MediaMetadataRetriever()
-        val raw = try {
-            retriever.setDataSource(context, uri)
-            retriever.embeddedPicture
-        } catch (_: Exception) {
-            null
-        } finally {
-            try {
-                retriever.release()
-            } catch (_: Exception) {
-            }
-        }
-        if (raw == null || raw.isEmpty()) return null
+    // Tag tertanam -> album art MediaStore -> cover.jpg/folder.jpg di folder lagu.
+    private fun audioArtwork(context: Context, uri: Uri): ByteArray? {
+        val raw = AlbumArtwork.rawArtwork(context, uri) ?: return null
+        return shrinkArtwork(raw)
+    }
 
-        // Frame PICTURE bisa berupa PNG beberapa MB. Dikecilkan ke JPEG hemat agar web
-        // player tidak menunggu unduhan besar tiap ganti trek; byte asli dipakai
-        // kembali hanya bila gambarnya tidak bisa di-decode.
+    // Frame PICTURE/album art bisa berupa PNG beberapa MB. Dikecilkan ke JPEG hemat agar
+    // web player tidak menunggu unduhan besar tiap ganti trek; byte asli dipakai
+    // kembali hanya bila gambarnya tidak bisa di-decode.
+    private fun shrinkArtwork(raw: ByteArray): ByteArray? {
+        if (raw.isEmpty()) return null
         return try {
             val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
             BitmapFactory.decodeByteArray(raw, 0, raw.size, bounds)

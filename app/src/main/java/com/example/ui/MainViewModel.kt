@@ -38,7 +38,6 @@ import android.graphics.Paint
 import android.graphics.Shader
 import android.graphics.LinearGradient
 import android.graphics.Color
-import android.media.MediaMetadataRetriever
 import android.os.Build
 import android.media.session.MediaSession
 import android.media.session.PlaybackState
@@ -2898,6 +2897,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 try {
                     val mp3Folder = com.example.util.SinggharaFolderManager.getMp3Folder()
                     if (mp3Folder.exists()) {
+                        val mp3CoverUri = mp3Folder.listFiles { f ->
+                            f.isFile && isCoverFileName(f.name)
+                        }?.firstOrNull()?.let { Uri.fromFile(it).toString() }
                         val files = mp3Folder.listFiles { f -> f.isFile && f.name.endsWith(".mp3", ignoreCase = true) }
                         files?.forEach { f ->
                             val currentId = idCounterRef[0]
@@ -2907,7 +2909,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                                     id = "mysingghara_$currentId",
                                     title = f.nameWithoutExtension,
                                     artist = "My Singghara MP3",
-                                    uriStr = Uri.fromFile(f).toString()
+                                    uriStr = Uri.fromFile(f).toString(),
+                                    coverUriStr = mp3CoverUri
                                 )
                             )
                         }
@@ -2930,14 +2933,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private fun scanDirectoryRecursively(
         folder: DocumentFile,
         tracks: MutableList<MusicTrack>,
-        idCounterRef: Array<Int>
+        idCounterRef: Array<Int>,
+        inheritedCoverUri: String? = null
     ) {
         if (!folder.exists()) return
         try {
             val files = folder.listFiles()
+            // Satu cover per folder dipakai semua lagu di dalamnya (termasuk subfolder
+            // yang tidak punya cover sendiri), supaya album tanpa tag sampul tetap tampil.
+            val folderCoverUri = files.firstOrNull { isCoverImage(it) }?.uri?.toString() ?: inheritedCoverUri
             files.forEach { file ->
                 if (file.isDirectory) {
-                    scanDirectoryRecursively(file, tracks, idCounterRef)
+                    scanDirectoryRecursively(file, tracks, idCounterRef, folderCoverUri)
                 } else if (file.isFile) {
                     val name = file.name ?: ""
                     val isAudio = name.endsWith(".mp3", ignoreCase = true) ||
@@ -2955,7 +2962,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                                 id = currentId.toString(),
                                 title = name.substringBeforeLast("."),
                                 artist = folder.name ?: "Folder Audio",
-                                uriStr = file.uri.toString()
+                                uriStr = file.uri.toString(),
+                                coverUriStr = folderCoverUri
                             )
                         )
                     }
@@ -2964,6 +2972,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         } catch (e: Exception) {
             // Safely skip folders with issues or no permissions
         }
+    }
+
+    private fun isCoverImage(file: DocumentFile): Boolean {
+        return file.isFile && isCoverFileName(file.name ?: "")
+    }
+
+    private fun isCoverFileName(name: String): Boolean {
+        val lower = name.lowercase()
+        val dot = lower.lastIndexOf('.')
+        if (dot <= 0) return false
+        val base = lower.substring(0, dot)
+        val extension = lower.substring(dot + 1)
+        if (extension !in setOf("jpg", "jpeg", "png", "webp")) return false
+        return base in setOf("cover", "folder", "album", "front", "artwork", "albumart")
     }
 
     private fun startMusicService(context: Context) {
@@ -3061,12 +3083,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
         try {
-            val retriever = MediaMetadataRetriever()
-            retriever.setDataSource(context, Uri.parse(track.uriStr))
-            val artBytes = retriever.embeddedPicture
-            retriever.release()
+            val artBytes = com.example.media.AlbumArtwork.rawArtwork(context, Uri.parse(track.uriStr))
             if (artBytes != null) {
                 return BitmapFactory.decodeByteArray(artBytes, 0, artBytes.size)
+            }
+        } catch (e: Exception) {
+            // fallback
+        }
+        // Lagu dari folder SAF: cover.jpg di folder album sudah dipetakan saat pemindaian.
+        try {
+            val coverUri = track.coverUriStr
+            if (!coverUri.isNullOrBlank()) {
+                context.contentResolver.openInputStream(Uri.parse(coverUri))?.use { stream ->
+                    BitmapFactory.decodeStream(stream)?.let { return it }
+                }
             }
         } catch (e: Exception) {
             // fallback
@@ -3106,5 +3136,7 @@ data class MusicTrack(
     val title: String,
     val artist: String = "Folder Audio",
     val uriStr: String,
-    val durationMs: Long = 0L
+    val durationMs: Long = 0L,
+    // cover.jpg/folder.jpg di folder yang sama; dipakai bila lagu tidak punya tag sampul.
+    val coverUriStr: String? = null
 )

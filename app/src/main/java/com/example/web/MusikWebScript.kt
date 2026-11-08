@@ -45,6 +45,9 @@ object MusikWebScript {
         window._lyricsRafId = null; // satu loop requestAnimationFrame utk sorotan lirik halus
         window._lyricsScrollPauseUntil = 0; // auto-scroll berhenti sebentar saat user menggulir
         window.musicCustomAlbumArts = window.musicCustomAlbumArts || {}; // { [trackIdOrTitle]: dataUrl }
+        // Sampul otomatis (tag tertanam / cover.jpg folder impor). Disimpan di IndexedDB,
+        // bukan localStorage, karena data URL banyak lagu cepat melewati kuota ~5 MB.
+        window.musicAutoAlbumArts = window.musicAutoAlbumArts || {}; // { [trackIdOrTitle]: dataUrl }
         window.musicFavorites = window.musicFavorites || []; // [trackIdOrTitle]
         window.musicMyPlaylist = window.musicMyPlaylist || []; // [trackIdOrTitle]
         window.musicPlayCounts = window.musicPlayCounts || {}; // { [trackIdOrTitle]: number }
@@ -52,7 +55,9 @@ object MusikWebScript {
 
         // --- INDEXEDDB & LOCALSTORAGE PERSISTENCE (100% OFFLINE) ---
         const MUSIC_DB_NAME = 'SinggharaMusicOfflineDB';
-        const MUSIC_DB_VERSION = 1;
+        // Versi 2 menambah object store `covers`; pengguna lama perlu upgrade agar
+        // sampul hasil ekstraksi benar-benar tersimpan.
+        const MUSIC_DB_VERSION = 2;
         let musicDbInstance = null;
 
         function openMusicDatabase() {
@@ -143,6 +148,18 @@ object MusikWebScript {
                                     }
                                 });
                                 refreshLyricsViews();
+                            };
+                        } catch (e) {}
+                        // Sampul hasil ekstraksi tag/cover.jpg folder impor.
+                        try {
+                            const coverReq = db.transaction('covers', 'readonly').objectStore('covers').getAll();
+                            coverReq.onsuccess = () => {
+                                (coverReq.result || []).forEach(rec => {
+                                    if (rec && rec.id && typeof rec.dataUrl === 'string' && !window.musicAutoAlbumArts[rec.id]) {
+                                        window.musicAutoAlbumArts[rec.id] = rec.dataUrl;
+                                    }
+                                });
+                                refreshMusicDeckImages();
                             };
                         } catch (e) {}
                     };
@@ -358,8 +375,36 @@ object MusikWebScript {
             const arts = window.musicCustomAlbumArts || {};
             if (arts[track.id]) return arts[track.id];
             if (arts[track.title]) return arts[track.title];
+            const autoArts = window.musicAutoAlbumArts || {};
+            if (autoArts[track.id]) return autoArts[track.id];
+            if (autoArts[track.title]) return autoArts[track.title];
+            if (track.relFolder && autoArts['folder:' + track.relFolder]) return autoArts['folder:' + track.relFolder];
+            if (track.folder && autoArts['folder:' + track.folder]) return autoArts['folder:' + track.folder];
             if (track.artUrl) return track.artUrl;
             return null;
+        }
+
+        // Trek HP tanpa sampul membuat endpoint art menjawab 404; tanpa handler ini
+        // browser menampilkan ikon gambar rusak. Ganti dengan ikon/bentuk cadangan.
+        function musicCoverFailed(img) {
+            const parent = img.parentNode;
+            if (!parent) return;
+            img.remove();
+            if (parent.getAttribute('data-cover-fallback') === 'vinyl') {
+                const disc = document.createElement('div');
+                disc.className = 'rounded-circle shadow-lg d-flex align-items-center justify-content-center';
+                disc.style.cssText = 'width:min(240px,70%);aspect-ratio:1/1;background:radial-gradient(circle,#222 0%,#111 60%,#000 100%);border:8px solid #333;';
+                disc.innerHTML = '<i class="bi bi-music-note-beamed" style="font-size:44px;color:#e2e8f0;opacity:.8;"></i>';
+                parent.appendChild(disc);
+                return;
+            }
+            const size = Math.max(16, Math.round((parent.clientWidth || 40) * 0.42));
+            parent.innerHTML = '<i class="bi bi-music-note-beamed" style="font-size:' + size + 'px;color:var(--brand-green);opacity:.75;"></i>';
+        }
+
+        function musicCoverImgHtml(src) {
+            if (!src) return '<i class="bi bi-music-note-beamed text-secondary fs-5"></i>';
+            return '<img src="' + src + '" style="width:100%;height:100%;object-fit:cover;" onerror="musicCoverFailed(this)">';
         }
 
         function getTrackLyrics(track) {
@@ -772,7 +817,222 @@ object MusikWebScript {
             }
         }
 
-        // Simpan lirik .lrc impor/sampingan ke IndexedDB agar bertahan setelah reload.
+        // --- SAMPUL ALBUM UNTUK BERKAS PC (blob tidak pernah dikirim ke server) ---
+        function coverDataUrlFromBytes(bytes) {
+            if (!bytes || bytes.length < 512) return null;
+            const isPng = bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4E && bytes[3] === 0x47;
+            const isJpeg = bytes[0] === 0xFF && bytes[1] === 0xD8;
+            if (!isPng && !isJpeg) return null;
+            const maxBytes = 4 * 1024 * 1024;
+            const slice = bytes.length > maxBytes ? bytes.subarray(0, maxBytes) : bytes;
+            let binary = '';
+            const chunk = 0x8000;
+            for (let i = 0; i < slice.length; i += chunk) {
+                binary += String.fromCharCode.apply(null, slice.subarray(i, i + chunk));
+            }
+            try {
+                return 'data:' + (isPng ? 'image/png' : 'image/jpeg') + ';base64,' + btoa(binary);
+            } catch (err) {
+                return null;
+            }
+        }
+
+        // APIC (ID3v2.3/2.4) atau PIC (ID3v2.2): encoding, MIME/format, tipe, deskripsi, gambar.
+        function parseApicFrameBytes(data, start, size, isV22) {
+            const end = start + size;
+            if (start >= end) return null;
+            const encoding = data[start];
+            let p = start + 1;
+            if (isV22) {
+                p += 3;
+            } else {
+                while (p < end && data[p] !== 0) p++;
+                p++;
+            }
+            p++;
+            if (encoding === 1 || encoding === 2) {
+                while (p + 1 < end && !(data[p] === 0 && data[p + 1] === 0)) p += 2;
+                p += 2;
+            } else {
+                while (p < end && data[p] !== 0) p++;
+                p++;
+            }
+            if (p >= end) return null;
+            return data.subarray(p, end);
+        }
+
+        async function extractEmbeddedCoverFromBlob(blob) {
+            try {
+                if (!blob || blob.size < 1024) return null;
+                const head = new Uint8Array(await blob.slice(0, 10).arrayBuffer());
+                if (head.length < 10) return null;
+
+                if (head[0] === 0x49 && head[1] === 0x44 && head[2] === 0x33) {
+                    const version = head[3];
+                    const flags = head[5];
+                    const tagSize = syncInt32U(head, 6);
+                    if (version >= 2 && version <= 4 && tagSize > 10 && tagSize < 32 * 1024 * 1024) {
+                        let tag = new Uint8Array(await blob.slice(10, 10 + tagSize).arrayBuffer());
+                        if ((flags & 0x80) !== 0) tag = deUnsynchroniseBytes(tag);
+                        let bodyStart = 0;
+                        if ((flags & 0x40) !== 0 && tag.length >= 4) {
+                            bodyStart = version === 4 ? syncInt32U(tag, 0) : beInt32U(tag, 0) + 4;
+                            if (bodyStart < 0 || bodyStart >= tag.length) bodyStart = 0;
+                        }
+                        const headerSize = version === 2 ? 6 : 10;
+                        const idLength = version === 2 ? 3 : 4;
+                        let offset = bodyStart;
+                        while (offset + headerSize <= tag.length) {
+                            let frameId = '';
+                            for (let i = 0; i < idLength; i++) frameId += String.fromCharCode(tag[offset + i]);
+                            if (!/^[A-Z0-9]{3,4}$/.test(frameId)) break;
+                            const dataStart = offset + headerSize;
+                            const sizes = version === 2
+                                ? [beInt24U(tag, offset + 3)]
+                                : [beInt32U(tag, offset + 4), syncInt32U(tag, offset + 4)];
+                            let used = 0;
+                            for (let s = 0; s < sizes.length; s++) {
+                                const size = sizes[s];
+                                if (size <= 0 || dataStart + size > tag.length) continue;
+                                used = Math.max(used, size);
+                                if (frameId === 'APIC' || frameId === 'PIC') {
+                                    const img = parseApicFrameBytes(tag, dataStart, size, frameId === 'PIC');
+                                    const url = img ? coverDataUrlFromBytes(img) : null;
+                                    if (url) return url;
+                                }
+                            }
+                            if (used === 0) break;
+                            offset = dataStart + used;
+                        }
+                    }
+                }
+
+                if (head[0] === 0x66 && head[1] === 0x4C && head[2] === 0x61 && head[3] === 0x43) {
+                    const buf = new Uint8Array(await blob.slice(0, 8 * 1024 * 1024).arrayBuffer());
+                    let off = 4;
+                    while (off + 4 <= buf.length) {
+                        const blockHeader = buf[off];
+                        const isLast = (blockHeader & 0x80) !== 0;
+                        const type = blockHeader & 0x7F;
+                        const len = (buf[off + 1] << 16) | (buf[off + 2] << 8) | buf[off + 3];
+                        off += 4;
+                        if (len <= 0 || off + len > buf.length) break;
+                        if (type === 6) {
+                            let p = off + 4;
+                            if (p + 4 <= off + len) {
+                                const mimeLen = (buf[p] << 24) | (buf[p + 1] << 16) | (buf[p + 2] << 8) | buf[p + 3];
+                                p += 4 + mimeLen;
+                                if (p + 4 <= off + len) {
+                                    const descLen = (buf[p] << 24) | (buf[p + 1] << 16) | (buf[p + 2] << 8) | buf[p + 3];
+                                    // lewati deskripsi, 4 field 32-bit (w/h/depth/colors), dan panjang data
+                                    p += 4 + descLen + 16 + 4;
+                                    if (p < off + len) {
+                                        const url = coverDataUrlFromBytes(buf.subarray(p, off + len));
+                                        if (url) return url;
+                                    }
+                                }
+                            }
+                        }
+                        off += len;
+                        if (isLast) break;
+                    }
+                }
+
+                // MP4/M4A: atom covr -> anak atom data -> payload gambar.
+                const whole = new Uint8Array(await blob.slice(0, 8 * 1024 * 1024).arrayBuffer());
+                const covr = bytesIndexOf(whole, bytesFromAscii('covr'), 0);
+                if (covr >= 4) {
+                    const dataAtom = bytesIndexOf(whole, bytesFromAscii('data'), covr, Math.min(whole.length, covr + 64));
+                    if (dataAtom >= 4 && dataAtom + 12 <= whole.length) {
+                        const view = new DataView(whole.buffer, whole.byteOffset, whole.byteLength);
+                        const atomStart = dataAtom - 4;
+                        const atomSize = view.getUint32(atomStart, false);
+                        const payloadStart = dataAtom + 12;
+                        const payloadEnd = Math.min(whole.length, atomStart + atomSize);
+                        if (atomSize > 16 && payloadStart < payloadEnd) {
+                            const url = coverDataUrlFromBytes(whole.subarray(payloadStart, payloadEnd));
+                            if (url) return url;
+                        }
+                    }
+                }
+                return null;
+            } catch (err) {
+                return null;
+            }
+        }
+
+        function isCoverFileName(name) {
+            const lower = String(name || '').toLowerCase();
+            const dot = lower.lastIndexOf('.');
+            if (dot <= 0) return false;
+            const base = lower.substring(0, dot);
+            const extension = lower.substring(dot + 1);
+            if (['jpg', 'jpeg', 'png', 'webp'].indexOf(extension) < 0) return false;
+            return ['cover', 'folder', 'album', 'front', 'artwork', 'albumart'].indexOf(base) >= 0;
+        }
+
+        function relativeFolderOf(file) {
+            const rel = file && file.webkitRelativePath ? file.webkitRelativePath : '';
+            const slash = rel.lastIndexOf('/');
+            return slash > 0 ? rel.substring(0, slash) : '';
+        }
+
+        function fileToDataUrl(file) {
+            return new Promise(resolve => {
+                const reader = new FileReader();
+                reader.onload = () => resolve(typeof reader.result === 'string' ? reader.result : null);
+                reader.onerror = () => resolve(null);
+                reader.readAsDataURL(file);
+            });
+        }
+
+        async function applyImportedAlbumCovers(tracks, coverFileByTrackId) {
+            let changed = false;
+            for (let i = 0; i < tracks.length; i++) {
+                const track = tracks[i];
+                if (window.musicAutoAlbumArts[track.id]) continue;
+
+                // Tag sampul tertanam khusus satu trek.
+                if (track.blob) {
+                    const embedded = await extractEmbeddedCoverFromBlob(track.blob);
+                    if (embedded) {
+                        window.musicAutoAlbumArts[track.id] = embedded;
+                        persistCoverToDb(track.id, embedded);
+                        changed = true;
+                        continue;
+                    }
+                }
+
+                const coverFile = coverFileByTrackId ? coverFileByTrackId[track.id] : null;
+                if (!coverFile) continue;
+
+                if (!track.relFolder) {
+                    // Berkas tunggal tanpa folder: sampul hanya berlaku untuk trek ini.
+                    const singleUrl = await fileToDataUrl(coverFile);
+                    if (singleUrl) {
+                        window.musicAutoAlbumArts[track.id] = singleUrl;
+                        persistCoverToDb(track.id, singleUrl);
+                        changed = true;
+                    }
+                    continue;
+                }
+
+                // cover.jpg satu folder dipakai semua lagu di folder itu: simpan sekali
+                // dengan kunci folder agar IndexedDB tidak menyimpan salinan per trek.
+                const folderKey = 'folder:' + track.relFolder;
+                if (!window.musicAutoAlbumArts[folderKey]) {
+                    const dataUrl = await fileToDataUrl(coverFile);
+                    if (dataUrl) {
+                        window.musicAutoAlbumArts[folderKey] = dataUrl;
+                        persistCoverToDb(folderKey, dataUrl);
+                        changed = true;
+                    }
+                }
+            }
+            if (changed) refreshMusicDeckImages();
+        }
+
+
         function persistTrackLyricsToDb(trackId, text) {
             openMusicDatabase().then(db => {
                 if (!db) return;
@@ -780,6 +1040,24 @@ object MusikWebScript {
                     db.transaction('lyrics', 'readwrite').objectStore('lyrics').put({ id: trackId, text: text });
                 } catch (e) {}
             });
+        }
+
+        // Sampul otomatis disimpan terpisah dari sampul pilihan pengguna (localStorage).
+        function persistCoverToDb(trackId, dataUrl) {
+            openMusicDatabase().then(db => {
+                if (!db) return;
+                try {
+                    db.transaction('covers', 'readwrite').objectStore('covers').put({ id: trackId, dataUrl: dataUrl });
+                } catch (e) {}
+            });
+        }
+
+        function refreshMusicDeckImages() {
+            if (window.musicIsPlayerExpanded) refreshMusicDeck();
+            syncMusicDockState();
+            if (typeof currentTab !== 'undefined' && currentTab === 'musik') {
+                renderActiveMusicTabContent();
+            }
         }
 
         function refreshLyricsViews() {
@@ -803,7 +1081,7 @@ object MusikWebScript {
                 const res = await fetch('/api/phone_media/audio', { cache: 'no-store' });
                 const data = await res.json();
                 window.musicPhonePermission = data.hasPermission !== false;
-                window.musicPhoneError = window.musicPhonePermission ? '' : 'Izin baca audio di HP belum diberikan.';
+                window.musicPhoneError = window.musicPhonePermission ? '' : 'Izin baca audio di HP belum diberikan. Buka aplikasi My Singghara di HP, izinkan "Musik dan audio", lalu tekan Muat Musik HP.';
                 const playingId = window.musicPlaylist[window.currentMusicIndex] ? window.musicPlaylist[window.currentMusicIndex].id : null;
                 const phoneTracks = (data.items || []).map(function (item) {
                     return {
@@ -837,8 +1115,27 @@ object MusikWebScript {
                 if (showToast) showCustomToast('Gagal memuat musik dari HP.');
             } finally {
                 window.musicPhoneLoading = false;
+                if (!window.musicPhonePermission) schedulePhonePermissionRecheck();
                 if (typeof currentTab !== 'undefined' && currentTab === 'musik') loadMusik();
             }
+        }
+
+        // Izin bisa diberikan di HP setelah halaman ini terbuka. Periksa ulang berkala
+        // supaya pesan "belum diberikan" tidak tertinggal padahal izin sudah aktif.
+        let _musicPhoneRecheckTimer = null;
+        function schedulePhonePermissionRecheck() {
+            if (_musicPhoneRecheckTimer) return;
+            let attempts = 0;
+            _musicPhoneRecheckTimer = setInterval(() => {
+                attempts++;
+                const onMusicTab = typeof currentTab !== 'undefined' && currentTab === 'musik';
+                if (window.musicPhonePermission || attempts > 12 || !onMusicTab) {
+                    clearInterval(_musicPhoneRecheckTimer);
+                    _musicPhoneRecheckTimer = null;
+                    return;
+                }
+                loadPhoneMusicLibrary(false);
+            }, 5000);
         }
 
         function getMusicSourceChipsHtml() {
@@ -895,9 +1192,7 @@ object MusikWebScript {
             const coverBox = document.getElementById('dockCoverArt');
             if (coverBox) {
                 const src = getTrackCover(track);
-                coverBox.innerHTML = src
-                    ? '<img src="' + src + '" style="width:100%;height:100%;object-fit:cover;">'
-                    : '<i class="bi bi-music-note-beamed text-primary fs-4"></i>';
+                coverBox.innerHTML = musicCoverImgHtml(src);
             }
 
             const favBtn = document.getElementById('dockFavoriteBtn');
@@ -940,7 +1235,7 @@ object MusikWebScript {
             html += '  </div>';
             html += '  <div class="music-dock-main-row">';
             html += '    <div class="music-dock-cover" id="dockCoverArt" onclick="expandMusicPlayerDeck()" title="Buka pemutar penuh">' +
-                (src ? '<img src="' + src + '" style="width:100%;height:100%;object-fit:cover;">' : '<i class="bi bi-music-note-beamed text-primary fs-4"></i>') + '</div>';
+                musicCoverImgHtml(src) + '</div>';
             html += '    <div class="music-dock-meta" onclick="expandMusicPlayerDeck()" title="Buka pemutar penuh">';
             html += '      <div class="music-dock-title text-truncate" id="dockTrackTitle">' + escapeHtml(track.title) + originBadge + '</div>';
             html += '      <div class="music-dock-artist text-truncate" id="dockTrackArtist">' + escapeHtml(track.artist || track.folder || 'Musik') + '</div>';
@@ -1015,39 +1310,61 @@ object MusikWebScript {
                 '.lyrics-offset-btn:hover{background:var(--surface-hover);color:var(--brand-green);}' +
                 '.lyrics-offset-label{font-size:10px;font-weight:700;color:var(--text-sub);min-width:38px;text-align:center;font-variant-numeric:tabular-nums;}' +
                 '.lyrics-offset-label.is-shifted{color:var(--brand-green);}' +
-                // --- LAYAR LIRIK PENUH ---
+                // Semua warna layar lirik memakai token tema (body.dark ikut berubah
+                // otomatis saat pengguna mengganti mode terang/gelap).
                 'body.music-lyrics-fs-open{overflow:hidden;}' +
-                '.music-lyrics-fullscreen{position:fixed;inset:0;z-index:1080;display:flex;background:#050b18;--lyric-sung:#5eead4;--lyric-unsung:rgba(226,232,240,.38);--lyric-glow:rgba(94,234,212,.5);}' +
-                '.mlfs-bg{position:absolute;inset:-60px;background-size:cover;background-position:center;filter:blur(52px) saturate(1.3) brightness(.5);transform:scale(1.15);}' +
-                '.mlfs-scrim{position:absolute;inset:0;background:radial-gradient(120% 90% at 50% 0%,rgba(8,47,73,.55) 0%,rgba(2,6,23,.88) 60%,rgba(2,6,23,.96) 100%);}' +
+                '.music-lyrics-fullscreen{position:fixed;inset:0;z-index:1080;display:flex;' +
+                    'background:var(--mlfs-bg,#f1f5f9);' +
+                    '--mlfs-bg:#f1f5f9;' +
+                    '--mlfs-scrim:radial-gradient(120% 90% at 50% 0%,rgba(255,255,255,.72) 0%,rgba(241,245,249,.9) 60%,rgba(241,245,249,.97) 100%);' +
+                    '--mlfs-bg-filter:blur(52px) saturate(1.15) brightness(1.04);' +
+                    '--mlfs-btn-bg:rgba(255,255,255,.72);' +
+                    '--mlfs-btn-fg:var(--text-main);' +
+                    '--mlfs-play-fg:#ffffff;' +
+                    '--lyric-sung:var(--brand-green);' +
+                    '--lyric-unsung:rgba(71,85,105,.42);' +
+                    '--lyric-glow:rgba(54,116,181,.35);}' +
+                'body.dark .music-lyrics-fullscreen,[data-theme="dark"] .music-lyrics-fullscreen{' +
+                    'background:#050b18;' +
+                    '--mlfs-bg:#050b18;' +
+                    '--mlfs-scrim:radial-gradient(120% 90% at 50% 0%,rgba(8,47,73,.55) 0%,rgba(2,6,23,.88) 60%,rgba(2,6,23,.96) 100%);' +
+                    '--mlfs-bg-filter:blur(52px) saturate(1.3) brightness(.5);' +
+                    '--mlfs-btn-bg:rgba(15,23,42,.5);' +
+                    '--mlfs-btn-fg:#e2e8f0;' +
+                    '--mlfs-play-fg:#04121f;' +
+                    '--lyric-sung:var(--brand-green);' +
+                    '--lyric-unsung:rgba(226,232,240,.38);' +
+                    '--lyric-glow:rgba(56,189,248,.5);}' +
+                '.mlfs-bg{position:absolute;inset:-60px;background-size:cover;background-position:center;filter:var(--mlfs-bg-filter);transform:scale(1.15);}' +
+                '.mlfs-scrim{position:absolute;inset:0;background:var(--mlfs-scrim);}' +
                 '.mlfs-content{position:relative;z-index:2;display:flex;flex-direction:column;width:100%;max-width:860px;margin:0 auto;padding:18px 20px 16px;height:100%;min-height:0;}' +
                 '.mlfs-header{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:6px;}' +
-                '.mlfs-eyebrow{font-size:10px;font-weight:800;letter-spacing:2px;color:#5eead4;margin-bottom:4px;}' +
-                '.mlfs-title{font-size:clamp(18px,3vh,26px);font-weight:800;color:#f8fafc;}' +
-                '.mlfs-artist{font-size:13px;color:#94a3b8;}' +
-                '.mlfs-icon-btn{border:1px solid rgba(148,163,184,.3);background:rgba(15,23,42,.5);color:#e2e8f0;width:38px;height:38px;min-width:38px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:16px;cursor:pointer;transition:border-color .15s ease,color .15s ease;}' +
-                '.mlfs-icon-btn:hover{border-color:#5eead4;color:#5eead4;}' +
-                '.music-lyrics-fullscreen .lyrics-sync-badge{background:rgba(94,234,212,.12);color:#5eead4;border-color:rgba(94,234,212,.3);}' +
-                '.music-lyrics-fullscreen .lrc-line-item{color:rgba(226,232,240,.55);font-size:clamp(16px,2.6vh,22px);padding:12px 18px;}' +
-                '.music-lyrics-fullscreen .lrc-line-item.active-lrc-line{font-size:clamp(20px,3.6vh,32px);color:#f8fafc;background:rgba(94,234,212,.07);transform:scale(1.04);}' +
+                '.mlfs-eyebrow{font-size:10px;font-weight:800;letter-spacing:2px;color:var(--brand-green);margin-bottom:4px;}' +
+                '.mlfs-title{font-size:clamp(18px,3vh,26px);font-weight:800;color:var(--text-main);}' +
+                '.mlfs-artist{font-size:13px;color:var(--text-sub);}' +
+                '.mlfs-icon-btn{border:1px solid var(--border-color);background:var(--mlfs-btn-bg);color:var(--mlfs-btn-fg);width:38px;height:38px;min-width:38px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:16px;cursor:pointer;transition:border-color .15s ease,color .15s ease;}' +
+                '.mlfs-icon-btn:hover{border-color:var(--brand-green);color:var(--brand-green);}' +
+                '.music-lyrics-fullscreen .lyrics-sync-badge{background:var(--badge-bg);color:var(--brand-green);border-color:var(--border-color);}' +
+                '.music-lyrics-fullscreen .lrc-line-item{color:var(--text-sub);font-size:clamp(16px,2.6vh,22px);padding:12px 18px;}' +
+                '.music-lyrics-fullscreen .lrc-line-item.active-lrc-line{font-size:clamp(20px,3.6vh,32px);color:var(--text-main);background:var(--badge-bg);transform:scale(1.04);}' +
                 '.music-lyrics-fullscreen .lrc-line-item.past-lrc-line{opacity:.75;}' +
-                '.music-lyrics-fullscreen .lyrics-scroll{scrollbar-color:rgba(94,234,212,.5) transparent;}' +
-                '.music-lyrics-fullscreen .lyrics-scroll::-webkit-scrollbar-thumb{background:rgba(94,234,212,.5);}' +
-                '.music-lyrics-fullscreen .lyrics-resume-chip{background:rgba(15,23,42,.85);color:#5eead4;border-color:rgba(94,234,212,.35);}' +
+                '.music-lyrics-fullscreen .lyrics-scroll{scrollbar-color:var(--brand-green) transparent;}' +
+                '.music-lyrics-fullscreen .lyrics-scroll::-webkit-scrollbar-thumb{background:var(--brand-green);}' +
+                '.music-lyrics-fullscreen .lyrics-resume-chip{background:var(--mlfs-btn-bg);color:var(--brand-green);border-color:var(--border-color);}' +
                 '.mlfs-footer{flex:0 0 auto;padding-top:8px;}' +
-                '.mlfs-time{font-size:11px;color:#94a3b8;min-width:40px;text-align:center;font-variant-numeric:tabular-nums;}' +
-                '.mlfs-play-btn{width:56px;height:56px;border-radius:50%;border:0;background:linear-gradient(135deg,#2dd4bf,#0ea5e9);color:#04121f;font-size:26px;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;box-shadow:0 6px 24px rgba(45,212,191,.35);transition:transform .1s ease;}' +
+                '.mlfs-time{font-size:11px;color:var(--text-sub);min-width:40px;text-align:center;font-variant-numeric:tabular-nums;}' +
+                '.mlfs-play-btn{width:56px;height:56px;border-radius:50%;border:0;background:var(--brand-green);color:var(--mlfs-play-fg);font-size:26px;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;box-shadow:0 6px 24px var(--lyric-glow);transition:transform .1s ease;}' +
                 '.mlfs-play-btn:active{transform:scale(.93);}' +
-                '.music-lyrics-fullscreen .lyrics-offset-stepper{background:rgba(15,23,42,.6);border-color:rgba(148,163,184,.25);}' +
-                '.music-lyrics-fullscreen .lyrics-offset-label{color:#94a3b8;}' +
-                '.music-lyrics-fullscreen .lyrics-offset-label.is-shifted{color:#5eead4;}' +
-                '.music-lyrics-fullscreen .lyrics-offset-btn{color:#94a3b8;}' +
-                '.music-lyrics-fullscreen .lyrics-offset-btn:hover{color:#5eead4;background:rgba(94,234,212,.1);}' +
-                '.music-lyrics-fullscreen .music-seek-slider::-webkit-slider-runnable-track{background:linear-gradient(to right,#2dd4bf var(--seek-pct,0%),rgba(148,163,184,.25) var(--seek-pct,0%));}' +
-                '.music-lyrics-fullscreen .music-seek-slider::-webkit-slider-thumb{background:#5eead4;}' +
-                '.music-lyrics-fullscreen .music-seek-slider::-moz-range-progress{background:#2dd4bf;}' +
-                '.music-lyrics-fullscreen .music-seek-slider::-moz-range-thumb{background:#5eead4;}' +
-                '.music-lyrics-fullscreen .music-cur-time-text{color:#5eead4;}' +
+                '.music-lyrics-fullscreen .lyrics-offset-stepper{background:var(--mlfs-btn-bg);border-color:var(--border-color);}' +
+                '.music-lyrics-fullscreen .lyrics-offset-label{color:var(--text-sub);}' +
+                '.music-lyrics-fullscreen .lyrics-offset-label.is-shifted{color:var(--brand-green);}' +
+                '.music-lyrics-fullscreen .lyrics-offset-btn{color:var(--text-sub);}' +
+                '.music-lyrics-fullscreen .lyrics-offset-btn:hover{color:var(--brand-green);background:var(--badge-bg);}' +
+                '.music-lyrics-fullscreen .music-seek-slider::-webkit-slider-runnable-track{background:linear-gradient(to right,var(--brand-green) var(--seek-pct,0%),var(--surface-hover) var(--seek-pct,0%));}' +
+                '.music-lyrics-fullscreen .music-seek-slider::-webkit-slider-thumb{background:var(--brand-green);}' +
+                '.music-lyrics-fullscreen .music-seek-slider::-moz-range-progress{background:var(--brand-green);}' +
+                '.music-lyrics-fullscreen .music-seek-slider::-moz-range-thumb{background:var(--brand-green);}' +
+                '.music-lyrics-fullscreen .music-cur-time-text{color:var(--brand-green);}' +
                 '.music-seek-slider,.music-dock-volume{-webkit-appearance:none;appearance:none;background:transparent;height:20px;cursor:pointer;}' +
                 '.music-seek-slider::-webkit-slider-runnable-track,.music-dock-volume::-webkit-slider-runnable-track{height:6px;border-radius:99px;background:linear-gradient(to right,var(--brand-green) var(--seek-pct,0%),var(--surface-hover) var(--seek-pct,0%));}' +
                 '.music-seek-slider::-webkit-slider-thumb,.music-dock-volume::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:14px;height:14px;margin-top:-4px;border:0;border-radius:50%;background:var(--brand-green);box-shadow:0 1px 4px rgba(0,0,0,.35);}' +
@@ -1876,6 +2193,15 @@ object MusikWebScript {
             const newTracks = [];
             const startIndex = window.musicPlaylist.length;
 
+            // cover.jpg/folder.jpg di folder yang sama dipakai bila lagu tidak punya tag sampul.
+            const coverFiles = files.filter(f => isCoverFileName(f.name));
+            const coverByFolder = {};
+            coverFiles.forEach(img => {
+                const dir = relativeFolderOf(img);
+                if (coverByFolder[dir] === undefined) coverByFolder[dir] = img;
+            });
+            const coverFileByTrackId = {};
+
             for (let i = 0; i < audioFiles.length; i++) {
                 const file = audioFiles[i];
                 const url = URL.createObjectURL(file);
@@ -1883,12 +2209,14 @@ object MusikWebScript {
                 const folderName = file.webkitRelativePath ? file.webkitRelativePath.split('/')[0] : 'Folder Musik';
                 const cleanTitle = file.name.replace(/\.[^/.]+${dol}/, "");
                 const trackId = 'trk_' + Date.now() + '_' + i + '_' + Math.random().toString(36).substring(2, 6);
+                coverFileByTrackId[trackId] = coverByFolder[relativeFolderOf(file)] || null;
 
                 const trackObj = {
                     id: trackId,
                     title: cleanTitle,
                     artist: folderName,
                     folder: folderName,
+                    relFolder: relativeFolderOf(file),
                     origin: 'pc',
                     size: sizeMb,
                     url: url,
@@ -1911,6 +2239,8 @@ object MusikWebScript {
             }
 
             const attached = await attachSidecarLyrics(lrcFiles, newTracks);
+            // Ekstraksi sampul berjalan di latar belakang agar impor folder besar tidak tertahan.
+            applyImportedAlbumCovers(newTracks, coverFileByTrackId);
             showCustomToast(newTracks.length + ' file musik berhasil ditambahkan' + (attached ? ' · ' + attached + ' lirik .LRC terhubung' : '') + '!');
 
             if (startIndex === 0 && window.musicPlaylist.length > 0) {
@@ -2214,6 +2544,10 @@ object MusikWebScript {
             if (!window.musicPhoneTracksLoaded && !window.musicPhoneAutoTried) {
                 window.musicPhoneAutoTried = true;
                 loadPhoneMusicLibrary(false);
+            } else if (!window.musicPhonePermission && !window.musicPhoneLoading) {
+                // Izin mungkin baru diberikan lewat Pengaturan HP; cek ulang tanpa
+                // memaksa pengguna menekan tombol saat kembali ke tab Musik.
+                schedulePhonePermissionRecheck();
             }
         }
 
@@ -2432,7 +2766,7 @@ object MusikWebScript {
                                     <i class="bi bi-play-circle me-1"></i> Putar Demo Offline
                                 </button>
                             </div>
-                            ${dol}{window.musicPhoneError ? '<p class="text-danger small mb-0 mt-3">' + escapeHtml(window.musicPhoneError) + '</p>' : ''}
+                            ${dol}{window.musicPhoneError ? '<p class="text-danger small mb-0 mt-3">' + escapeHtml(window.musicPhoneError) + '</p><button class="btn btn-sm btn-outline-danger mt-2" onclick="loadPhoneMusicLibrary(true)"><i class="bi bi-arrow-clockwise me-1"></i>Periksa Izin Lagi</button>' : ''}
                         </div>
                     `;
                 }
@@ -2602,7 +2936,7 @@ object MusikWebScript {
                         <!-- ALBUM ART / VINYL THUMBNAIL -->
                         <div class="rounded-3 flex-shrink-0 d-flex align-items-center justify-content-center overflow-hidden" 
                              style="width: 44px; height: 44px; background: linear-gradient(135deg, #2c3e50, #1a252f); border: 1px solid rgba(255,255,255,0.1);">
-                            ${dol}{coverUrl ? `<img src="${dol}{coverUrl}" style="width: 100%; height: 100%; object-fit: cover;">` : '<i class="bi bi-music-note-beamed text-light fs-5"></i>'}
+                            ${dol}{musicCoverImgHtml(coverUrl)}
                         </div>
 
                         <!-- TITLE & ARTIST -->
@@ -2826,10 +3160,10 @@ object MusikWebScript {
             } else {
                 // NORMAL ALBUM ART VIEW
                 return `
-                    <div class="w-100 h-100 d-flex align-items-center justify-content-center cursor-pointer" 
+                    <div class="w-100 h-100 d-flex align-items-center justify-content-center cursor-pointer" data-cover-fallback="vinyl"
                          onclick="toggleLyricsMode()" title="Ketuk untuk melihat lirik">
                         ${dol}{coverUrl ? `
-                            <img src="${dol}{coverUrl}" style="width: 100%; height: 100%; object-fit: cover;">
+                            <img src="${dol}{coverUrl}" style="width: 100%; height: 100%; object-fit: cover;" onerror="musicCoverFailed(this)">
                         ` : `
                             <!-- STYLIZED VINYL RECORD / ARTWORK -->
                             <div class="rounded-circle shadow-lg d-flex align-items-center justify-content-center ${dol}{isPlaying ? 'spinning-disc' : ''}" 
@@ -3068,7 +3402,7 @@ object MusikWebScript {
                         <div class="d-flex align-items-center gap-3 overflow-hidden flex-grow-1">
                             <div class="rounded-3 flex-shrink-0 d-flex align-items-center justify-content-center overflow-hidden" 
                                  style="width: 36px; height: 36px; background: var(--surface-hover);">
-                                ${dol}{coverUrl ? `<img src="${dol}{coverUrl}" style="width: 100%; height: 100%; object-fit: cover;">` : '<i class="bi bi-music-note-beamed text-secondary"></i>'}
+                            ${dol}{musicCoverImgHtml(coverUrl)}
                             </div>
                             <div class="overflow-hidden">
                                 <div class="fw-bold text-truncate ${dol}{isPlaying ? 'text-primary' : ''}" style="font-size: 13px;">${dol}{escapeHtml(trk.title)}</div>
@@ -3261,6 +3595,7 @@ object MusikWebScript {
             window.musicPhoneTracksLoaded = false;
             window.musicPhoneAutoTried = true;
             window.musicFetchedLyrics = {};
+            window.musicAutoAlbumArts = {};
             window.musicDockTrackId = null;
             const dockEl = document.getElementById('musicGlobalDock');
             if (dockEl) dockEl.remove();
