@@ -40,6 +40,10 @@ object MusikWebScript {
         window.musicLyricsEditMode = window.musicLyricsEditMode || false;
         window.musicIsLyricsFullScreen = window.musicIsLyricsFullScreen || false;
         window.musicManualLyrics = window.musicManualLyrics || {}; // { [trackIdOrTitle]: string }
+        window.musicLyricsOffsets = window.musicLyricsOffsets || {}; // { [trackId]: ms } geser timing lirik
+        window._musicLrcCache = null; // { trackId, source, lines, info } hasil parse terakhir
+        window._lyricsRafId = null; // satu loop requestAnimationFrame utk sorotan lirik halus
+        window._lyricsScrollPauseUntil = 0; // auto-scroll berhenti sebentar saat user menggulir
         window.musicCustomAlbumArts = window.musicCustomAlbumArts || {}; // { [trackIdOrTitle]: dataUrl }
         window.musicFavorites = window.musicFavorites || []; // [trackIdOrTitle]
         window.musicMyPlaylist = window.musicMyPlaylist || []; // [trackIdOrTitle]
@@ -104,6 +108,7 @@ object MusikWebScript {
                     if (s.repeatMode) window.musicRepeatMode = s.repeatMode;
                     if (typeof s.shuffle === 'boolean') window.isMusicShuffle = s.shuffle;
                     if (typeof s.volume === 'number') window.musicPlayerAudio.volume = s.volume;
+                    if (s.lyricsOffsets && typeof s.lyricsOffsets === 'object') window.musicLyricsOffsets = s.lyricsOffsets;
                 }
 
                 // Restore cached tracks from IndexedDB
@@ -128,6 +133,18 @@ object MusikWebScript {
                                 loadMusik();
                             }
                         }
+                        // Lirik .lrc yang diimpor pengguna ikut bertahan setelah browser ditutup.
+                        try {
+                            const lyrReq = db.transaction('lyrics', 'readonly').objectStore('lyrics').getAll();
+                            lyrReq.onsuccess = () => {
+                                (lyrReq.result || []).forEach(rec => {
+                                    if (rec && rec.id && typeof rec.text === 'string' && window.musicFetchedLyrics[rec.id] === undefined) {
+                                        window.musicFetchedLyrics[rec.id] = rec.text;
+                                    }
+                                });
+                                refreshLyricsViews();
+                            };
+                        } catch (e) {}
                     };
                 }
             } catch (err) {
@@ -141,7 +158,8 @@ object MusikWebScript {
                 localStorage.setItem('singghara_music_settings', JSON.stringify({
                     repeatMode: window.musicRepeatMode,
                     shuffle: window.isMusicShuffle,
-                    volume: window.musicPlayerAudio.volume
+                    volume: window.musicPlayerAudio.volume,
+                    lyricsOffsets: window.musicLyricsOffsets
                 }));
                 localStorage.setItem('singghara_music_favs', JSON.stringify(window.musicFavorites));
                 localStorage.setItem('singghara_music_my_playlist', JSON.stringify(window.musicMyPlaylist));
@@ -239,11 +257,14 @@ object MusikWebScript {
             window.musicPlayerAudio.addEventListener('play', () => {
                 updatePlayPauseStateInUI(true);
                 syncMusicDockState();
+                startLyricsClock();
             });
 
             window.musicPlayerAudio.addEventListener('pause', () => {
                 updatePlayPauseStateInUI(false);
                 syncMusicDockState();
+                stopLyricsClock();
+                updateLyricsHighlight(window.musicPlayerAudio.currentTime || 0);
             });
         }
 
@@ -299,6 +320,11 @@ object MusikWebScript {
             if (disc) {
                 if (isPlaying) disc.classList.add('spinning-disc');
                 else disc.classList.remove('spinning-disc');
+            }
+            // Tombol putar di layar lirik penuh
+            const fsBtn = document.getElementById('musicFsPlayBtn');
+            if (fsBtn) {
+                fsBtn.innerHTML = `<i class="bi ${dol}{isPlaying ? 'bi-pause-fill' : 'bi-play-fill'}"></i>`;
             }
             // Update status badges and list play icons
             const activeIcons = document.querySelectorAll('.music-track-active-icon');
@@ -361,7 +387,7 @@ object MusikWebScript {
                 }
             } else if (track.origin === 'pc') {
                 if (!track.blob || window.musicFetchedLyrics[track.id] !== undefined) return;
-                window.musicFetchedLyrics[track.id] = await extractId3LyricsFromBlob(track.blob);
+                window.musicFetchedLyrics[track.id] = await extractEmbeddedLyricsFromBlob(track.blob);
             } else {
                 return;
             }
@@ -479,24 +505,46 @@ object MusikWebScript {
             if (r.next >= end) return '';
             return id3Sanitize(id3Decode(data, r.next, end, enc));
         }
-        function parseSyltBytes(data, offset, size) {
+        function parseSyltBytes(data, offset, size, mpegFrameMs) {
             const end = offset + size;
             if (size < 8) return '';
             const enc = data[offset];
             const tsFormat = data[offset + 4];
-            // Format 1 = hitungan frame MPEG (jarang); web hanya mendukung milidetik.
-            if (tsFormat !== 2) return '';
+            // Format 2 = milidetik; format 1 = hitungan frame MPEG (dikonversi).
+            if (tsFormat !== 1 && tsFormat !== 2) return '';
             const r = id3ReadTerminated(data, offset + 6, end, enc);
             let cursor = r.next;
             const entries = [];
             while (cursor < end - 1) {
                 const t = id3ReadTerminated(data, cursor, end, enc);
                 if (t.next + 4 > end) break;
-                const timeMs = beInt32U(data, t.next);
+                const rawTime = beInt32U(data, t.next);
                 cursor = t.next + 4;
+                const timeMs = tsFormat === 2 ? rawTime : Math.round(rawTime * (mpegFrameMs || 26.122448979591837));
                 if (t.text) entries.push([timeMs, t.text]);
             }
             return id3SyltEntriesToLrc(entries);
+        }
+        // Durasi satu frame MPEG audio — cermin EmbeddedLyricsReader.detectMpegFrameDurationMs.
+        function detectMpegFrameDurationMs(probe) {
+            for (let index = 0; index + 4 <= probe.length; index++) {
+                const b1 = probe[index];
+                const b2 = probe[index + 1];
+                if (b1 === 0xFF && (b2 & 0xE0) === 0xE0) {
+                    const versionBits = (b2 >> 3) & 0x03;
+                    const layerBits = (b2 >> 1) & 0x03;
+                    const b3 = probe[index + 2];
+                    const sampleRateIndex = (b3 >> 2) & 0x03;
+                    const bitrateIndex = (b3 >> 4) & 0x0F;
+                    if (versionBits !== 1 && layerBits !== 0 && sampleRateIndex !== 3 && bitrateIndex !== 0 && bitrateIndex !== 15) {
+                        const rates = versionBits === 3 ? [44100, 48000, 32000] : versionBits === 2 ? [22050, 24000, 16000] : [11025, 12000, 8000];
+                        const sampleRate = rates[sampleRateIndex];
+                        const samplesPerFrame = layerBits === 3 ? 384 : layerBits === 2 ? 1152 : (versionBits === 3 ? 1152 : 576);
+                        return samplesPerFrame * 1000 / sampleRate;
+                    }
+                }
+            }
+            return 0;
         }
         function deUnsynchroniseBytes(source) {
             const out = new Uint8Array(source.length);
@@ -524,6 +572,9 @@ object MusikWebScript {
                 if (tagSize <= 10 || tagSize > 16 * 1024 * 1024) return '';
                 let tag = new Uint8Array(await blob.slice(10, 10 + tagSize).arrayBuffer());
                 if ((flags & 0x80) !== 0) tag = deUnsynchroniseBytes(tag);
+                // SYLT berbasis frame butuh durasi frame MPEG dari header audio sesudah tag.
+                const audioProbe = new Uint8Array(await blob.slice(10 + tagSize, 10 + tagSize + 16384).arrayBuffer());
+                const mpegFrameMs = detectMpegFrameDurationMs(audioProbe);
 
                 let bodyStart = 0;
                 if ((flags & 0x40) !== 0 && tag.length >= 4) {
@@ -550,7 +601,7 @@ object MusikWebScript {
                         used = Math.max(used, size);
                         try {
                             if (frameId === 'SYLT' || frameId === 'SLT') {
-                                const t = parseSyltBytes(tag, dataStart, size);
+                                const t = parseSyltBytes(tag, dataStart, size, mpegFrameMs);
                                 if (t.length > synced.length) synced = t;
                             } else if (frameId === 'USLT' || frameId === 'ULT') {
                                 const t = parseUsltBytes(tag, dataStart, size);
@@ -576,12 +627,171 @@ object MusikWebScript {
             }
         }
 
+        function bytesIndexOf(data, needle, from, limit) {
+            const end = Math.min(limit === undefined ? data.length : limit, data.length) - needle.length;
+            outer: for (let i = from; i <= end; i++) {
+                for (let n = 0; n < needle.length; n++) {
+                    if (data[i + n] !== needle[n]) continue outer;
+                }
+                return i;
+            }
+            return -1;
+        }
+        function bytesFromAscii(text) {
+            const out = new Uint8Array(text.length);
+            for (let i = 0; i < text.length; i++) out[i] = text.charCodeAt(i) & 0xFF;
+            return out;
+        }
+        function looksLikeSyncedLrc(text) {
+            return /\[\d{1,3}:\d{1,2}/.test(text);
+        }
+
+        // FLAC: blok metadata VORBIS_COMMENT (tipe 4) berisi kunci LYRICS / UNSYNCEDLYRICS.
+        async function extractFlacLyricsFromBlob(blob) {
+            const buf = new Uint8Array(await blob.slice(0, 8 * 1024 * 1024).arrayBuffer());
+            if (buf.length < 8) return '';
+            const view = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
+            let off = 4;
+            let synced = '';
+            let plain = '';
+            while (off + 4 <= buf.length) {
+                const header = buf[off];
+                const isLast = (header & 0x80) !== 0;
+                const type = header & 0x7F;
+                const len = (buf[off + 1] << 16) | (buf[off + 2] << 8) | buf[off + 3];
+                off += 4;
+                if (len <= 0 || off + len > buf.length) break;
+                if (type === 4) {
+                    let cursor = off;
+                    const end = off + len;
+                    if (cursor + 4 <= end) {
+                        const vendorLen = view.getUint32(cursor, true);
+                        cursor += 4 + vendorLen;
+                        if (cursor + 4 <= end) {
+                            const count = view.getUint32(cursor, true);
+                            cursor += 4;
+                            for (let i = 0; i < count && cursor + 4 <= end; i++) {
+                                const clen = view.getUint32(cursor, true);
+                                cursor += 4;
+                                if (clen <= 0 || cursor + clen > end) break;
+                                const comment = new TextDecoder('utf-8').decode(buf.subarray(cursor, cursor + clen));
+                                cursor += clen;
+                                const eq = comment.indexOf('=');
+                                if (eq <= 0) continue;
+                                const key = comment.slice(0, eq).toUpperCase();
+                                const val = comment.slice(eq + 1).trim();
+                                if (!val) continue;
+                                if (key === 'LYRICS' || key === 'SYNCEDLYRICS' || key === 'UNSYNCEDLYRICS' || key === 'UNSYNCED LYRICS') {
+                                    if (looksLikeSyncedLrc(val)) { if (val.length > synced.length) synced = val; }
+                                    else if (val.length > plain.length) plain = val;
+                                }
+                            }
+                        }
+                    }
+                }
+                off += len;
+                if (isLast) break;
+            }
+            return synced || plain || '';
+        }
+
+        // MP4/M4A: atom (c)lyr dengan sub-atom "data" — cermin findMp4LyricAtom sisi aplikasi.
+        function findMp4LyricAtomInBytes(data) {
+            const needle = new Uint8Array([0xA9, 0x6C, 0x79, 0x72]); // ©lyr
+            let searchFrom = 0;
+            for (let hits = 0; hits < 8; hits++) {
+                const index = bytesIndexOf(data, needle, searchFrom);
+                if (index < 0) break;
+                searchFrom = index + 4;
+                const dataAtom = index + 4;
+                if (dataAtom + 16 > data.length) continue;
+                if (String.fromCharCode(data[dataAtom + 4], data[dataAtom + 5], data[dataAtom + 6], data[dataAtom + 7]) !== 'data') continue;
+                const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
+                const dataSize = view.getUint32(dataAtom, false);
+                const dataType = view.getUint32(dataAtom + 8, false);
+                const payloadStart = dataAtom + 16;
+                const payloadEnd = Math.min(data.length, dataSize >= 17 && dataAtom + dataSize <= data.length ? dataAtom + dataSize : payloadStart + 8192);
+                if (payloadEnd <= payloadStart) continue;
+                const slice = data.subarray(payloadStart, payloadEnd);
+                let text = '';
+                try {
+                    text = dataType === 2 ? new TextDecoder('utf-16be').decode(slice) : new TextDecoder('utf-8').decode(slice);
+                } catch (err) { continue; }
+                text = id3Sanitize(text);
+                if (text.length >= 8) return text;
+            }
+            return '';
+        }
+
+        // Ogg/Opus/FLAC mentah: komentar Vorbis "LYRICS=" / "UNSYNCEDLYRICS=".
+        function findVorbisLyricCommentInBytes(data) {
+            const keys = ['LYRICS=', 'UNSYNCEDLYRICS=', 'UNSYNCED LYRICS='];
+            let synced = '';
+            let plain = '';
+            for (let k = 0; k < keys.length; k++) {
+                const needle = bytesFromAscii(keys[k]);
+                let searchFrom = 0;
+                for (let hits = 0; hits < 4; hits++) {
+                    const index = bytesIndexOf(data, needle, searchFrom);
+                    if (index < 0) break;
+                    const valueStart = index + needle.length;
+                    searchFrom = valueStart;
+                    let valueEnd = valueStart;
+                    while (valueEnd < data.length && valueEnd - valueStart < 128 * 1024) {
+                        const b = data[valueEnd];
+                        if (b === 0 || b < 0x09) break;
+                        valueEnd++;
+                    }
+                    let text = '';
+                    try { text = new TextDecoder('utf-8').decode(data.subarray(valueStart, valueEnd)); } catch (err) { continue; }
+                    text = id3Sanitize(text);
+                    if (text.length < 8) continue;
+                    if (looksLikeSyncedLrc(text)) { if (text.length > synced.length) synced = text; }
+                    else if (text.length > plain.length) plain = text;
+                }
+            }
+            return synced || plain || '';
+        }
+
+        // Dispatcher lirik tertanam utk berkas PC: ID3 (MP3) -> FLAC -> pindai MP4/Vorbis.
+        async function extractEmbeddedLyricsFromBlob(blob) {
+            try {
+                if (!blob || blob.size < 16) return '';
+                const head = new Uint8Array(await blob.slice(0, 8).arrayBuffer());
+                if (head[0] === 0x49 && head[1] === 0x44 && head[2] === 0x33) {
+                    return await extractId3LyricsFromBlob(blob);
+                }
+                if (head[0] === 0x66 && head[1] === 0x4C && head[2] === 0x61 && head[3] === 0x43) { // "fLaC"
+                    const flac = await extractFlacLyricsFromBlob(blob);
+                    if (flac) return flac;
+                }
+                const scan = new Uint8Array(await blob.slice(0, 4 * 1024 * 1024).arrayBuffer());
+                return findMp4LyricAtomInBytes(scan) || findVorbisLyricCommentInBytes(scan) || '';
+            } catch (err) {
+                return '';
+            }
+        }
+
+        // Simpan lirik .lrc impor/sampingan ke IndexedDB agar bertahan setelah reload.
+        function persistTrackLyricsToDb(trackId, text) {
+            openMusicDatabase().then(db => {
+                if (!db) return;
+                try {
+                    db.transaction('lyrics', 'readwrite').objectStore('lyrics').put({ id: trackId, text: text });
+                } catch (e) {}
+            });
+        }
+
         function refreshLyricsViews() {
             const card = document.getElementById('musicCentralArtCard');
             const currentTrack = window.musicPlaylist[window.currentMusicIndex];
             if (card && currentTrack && window.musicIsLyricsMode && !window.musicLyricsEditMode) {
                 card.innerHTML = getCentralArtCardInnerHtml(currentTrack);
             }
+            if (window.musicIsLyricsFullScreen && currentTrack) {
+                renderLyricsFullScreen();
+            }
+            syncLyricsContainers();
             updateDockLyricLine(window.musicPlaybackPosition || 0);
         }
 
@@ -781,8 +991,63 @@ object MusikWebScript {
                 '.music-dock-play-btn:active{transform:scale(.94);}' +
                 '.music-dock-volume{width:70px;--seek-pct:100%;}' +
                 '.music-surface{background:var(--surface-subtle);border:1px solid var(--border-color);}' +
-                '.lrc-word{transition:color .12s ease;}' +
-                '.lrc-word.active-lrc-word{color:var(--brand-green);font-weight:800;}' +
+                // --- LIVE LYRICS: baris, sorotan kata karaoke, chip, badge, stepper ---
+                '.lyrics-viewport{position:relative;min-height:0;}' +
+                '.lyrics-scroll{position:relative;-webkit-mask-image:linear-gradient(to bottom,transparent 0,#000 14%,#000 86%,transparent 100%);mask-image:linear-gradient(to bottom,transparent 0,#000 14%,#000 86%,transparent 100%);scrollbar-width:thin;scrollbar-color:var(--brand-green) transparent;}' +
+                '.lyrics-scroll::-webkit-scrollbar{width:8px;height:8px;}' +
+                '.lyrics-scroll::-webkit-scrollbar-track{background:transparent;}' +
+                '.lyrics-scroll::-webkit-scrollbar-thumb{background:var(--brand-green);border-radius:99px;}' +
+                '.lyrics-pad{width:100%;pointer-events:none;}' +
+                '.lrc-line-item{padding:10px 16px;text-align:center;font-size:14px;color:var(--text-sub);cursor:pointer;border-radius:10px;opacity:.45;transform:scale(.85);transform-origin:center;line-height:1.55;transition:transform .45s cubic-bezier(.34,1.56,.64,1),font-size .35s ease,opacity .35s ease,color .35s ease,background .35s ease;}' +
+                '.lrc-line-item:hover{opacity:.8;}' +
+                '.lrc-line-item.past-lrc-line{opacity:.72;}' +
+                '.lrc-line-item.active-lrc-line{font-size:17px;font-weight:800;color:var(--brand-green);opacity:1;transform:scale(1.08);background:var(--badge-bg);letter-spacing:.2px;}' +
+                '.lrc-line-item.lrc-line-static{opacity:.9;transform:none;cursor:default;}' +
+                '.lrc-word{display:inline-block;transition:transform .15s ease;}' +
+                '.active-lrc-line .lrc-word{background:linear-gradient(90deg,var(--lyric-sung,var(--brand-green)) var(--fill,0%),var(--lyric-unsung,var(--text-sub)) var(--fill,0%));-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;color:transparent;}' +
+                '.active-lrc-line .lrc-word.singing-now{transform:translateY(-1.5px) scale(1.05);filter:drop-shadow(0 0 8px var(--lyric-glow,rgba(56,189,248,.45)));}' +
+                '@supports not (background-clip:text){.active-lrc-line .lrc-word{color:var(--lyric-unsung,var(--text-sub));}.active-lrc-line .lrc-word.singing-now{color:var(--lyric-sung,var(--brand-green));}}' +
+                '.lyrics-resume-chip{position:absolute;left:50%;bottom:10px;transform:translateX(-50%);z-index:5;border:1px solid var(--border-color);background:var(--card-bg,#fff);color:var(--brand-green);font-size:11px;font-weight:700;border-radius:99px;padding:5px 14px;cursor:pointer;box-shadow:0 4px 14px rgba(0,0,0,.18);display:flex;align-items:center;gap:6px;white-space:nowrap;}' +
+                '.lyrics-resume-chip:hover{filter:brightness(1.06);}' +
+                '.lyrics-sync-badge{display:inline-flex;align-items:center;gap:4px;font-size:9px;font-weight:800;letter-spacing:.4px;text-transform:uppercase;border-radius:99px;padding:3px 8px;background:var(--badge-bg);color:var(--brand-green);border:1px solid var(--border-color);white-space:nowrap;}' +
+                '.lyrics-offset-stepper{display:inline-flex;align-items:center;gap:2px;background:var(--surface-subtle);border:1px solid var(--border-color);border-radius:99px;padding:2px 4px;}' +
+                '.lyrics-offset-btn{border:0;background:transparent;color:var(--text-sub);width:22px;height:22px;border-radius:50%;font-size:13px;font-weight:800;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;line-height:1;}' +
+                '.lyrics-offset-btn:hover{background:var(--surface-hover);color:var(--brand-green);}' +
+                '.lyrics-offset-label{font-size:10px;font-weight:700;color:var(--text-sub);min-width:38px;text-align:center;font-variant-numeric:tabular-nums;}' +
+                '.lyrics-offset-label.is-shifted{color:var(--brand-green);}' +
+                // --- LAYAR LIRIK PENUH ---
+                'body.music-lyrics-fs-open{overflow:hidden;}' +
+                '.music-lyrics-fullscreen{position:fixed;inset:0;z-index:1080;display:flex;background:#050b18;--lyric-sung:#5eead4;--lyric-unsung:rgba(226,232,240,.38);--lyric-glow:rgba(94,234,212,.5);}' +
+                '.mlfs-bg{position:absolute;inset:-60px;background-size:cover;background-position:center;filter:blur(52px) saturate(1.3) brightness(.5);transform:scale(1.15);}' +
+                '.mlfs-scrim{position:absolute;inset:0;background:radial-gradient(120% 90% at 50% 0%,rgba(8,47,73,.55) 0%,rgba(2,6,23,.88) 60%,rgba(2,6,23,.96) 100%);}' +
+                '.mlfs-content{position:relative;z-index:2;display:flex;flex-direction:column;width:100%;max-width:860px;margin:0 auto;padding:18px 20px 16px;height:100%;min-height:0;}' +
+                '.mlfs-header{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:6px;}' +
+                '.mlfs-eyebrow{font-size:10px;font-weight:800;letter-spacing:2px;color:#5eead4;margin-bottom:4px;}' +
+                '.mlfs-title{font-size:clamp(18px,3vh,26px);font-weight:800;color:#f8fafc;}' +
+                '.mlfs-artist{font-size:13px;color:#94a3b8;}' +
+                '.mlfs-icon-btn{border:1px solid rgba(148,163,184,.3);background:rgba(15,23,42,.5);color:#e2e8f0;width:38px;height:38px;min-width:38px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;font-size:16px;cursor:pointer;transition:border-color .15s ease,color .15s ease;}' +
+                '.mlfs-icon-btn:hover{border-color:#5eead4;color:#5eead4;}' +
+                '.music-lyrics-fullscreen .lyrics-sync-badge{background:rgba(94,234,212,.12);color:#5eead4;border-color:rgba(94,234,212,.3);}' +
+                '.music-lyrics-fullscreen .lrc-line-item{color:rgba(226,232,240,.55);font-size:clamp(16px,2.6vh,22px);padding:12px 18px;}' +
+                '.music-lyrics-fullscreen .lrc-line-item.active-lrc-line{font-size:clamp(20px,3.6vh,32px);color:#f8fafc;background:rgba(94,234,212,.07);transform:scale(1.04);}' +
+                '.music-lyrics-fullscreen .lrc-line-item.past-lrc-line{opacity:.75;}' +
+                '.music-lyrics-fullscreen .lyrics-scroll{scrollbar-color:rgba(94,234,212,.5) transparent;}' +
+                '.music-lyrics-fullscreen .lyrics-scroll::-webkit-scrollbar-thumb{background:rgba(94,234,212,.5);}' +
+                '.music-lyrics-fullscreen .lyrics-resume-chip{background:rgba(15,23,42,.85);color:#5eead4;border-color:rgba(94,234,212,.35);}' +
+                '.mlfs-footer{flex:0 0 auto;padding-top:8px;}' +
+                '.mlfs-time{font-size:11px;color:#94a3b8;min-width:40px;text-align:center;font-variant-numeric:tabular-nums;}' +
+                '.mlfs-play-btn{width:56px;height:56px;border-radius:50%;border:0;background:linear-gradient(135deg,#2dd4bf,#0ea5e9);color:#04121f;font-size:26px;display:inline-flex;align-items:center;justify-content:center;cursor:pointer;box-shadow:0 6px 24px rgba(45,212,191,.35);transition:transform .1s ease;}' +
+                '.mlfs-play-btn:active{transform:scale(.93);}' +
+                '.music-lyrics-fullscreen .lyrics-offset-stepper{background:rgba(15,23,42,.6);border-color:rgba(148,163,184,.25);}' +
+                '.music-lyrics-fullscreen .lyrics-offset-label{color:#94a3b8;}' +
+                '.music-lyrics-fullscreen .lyrics-offset-label.is-shifted{color:#5eead4;}' +
+                '.music-lyrics-fullscreen .lyrics-offset-btn{color:#94a3b8;}' +
+                '.music-lyrics-fullscreen .lyrics-offset-btn:hover{color:#5eead4;background:rgba(94,234,212,.1);}' +
+                '.music-lyrics-fullscreen .music-seek-slider::-webkit-slider-runnable-track{background:linear-gradient(to right,#2dd4bf var(--seek-pct,0%),rgba(148,163,184,.25) var(--seek-pct,0%));}' +
+                '.music-lyrics-fullscreen .music-seek-slider::-webkit-slider-thumb{background:#5eead4;}' +
+                '.music-lyrics-fullscreen .music-seek-slider::-moz-range-progress{background:#2dd4bf;}' +
+                '.music-lyrics-fullscreen .music-seek-slider::-moz-range-thumb{background:#5eead4;}' +
+                '.music-lyrics-fullscreen .music-cur-time-text{color:#5eead4;}' +
                 '.music-seek-slider,.music-dock-volume{-webkit-appearance:none;appearance:none;background:transparent;height:20px;cursor:pointer;}' +
                 '.music-seek-slider::-webkit-slider-runnable-track,.music-dock-volume::-webkit-slider-runnable-track{height:6px;border-radius:99px;background:linear-gradient(to right,var(--brand-green) var(--seek-pct,0%),var(--surface-hover) var(--seek-pct,0%));}' +
                 '.music-seek-slider::-webkit-slider-thumb,.music-dock-volume::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:14px;height:14px;margin-top:-4px;border:0;border-radius:50%;background:var(--brand-green);box-shadow:0 1px 4px rgba(0,0,0,.35);}' +
@@ -797,7 +1062,8 @@ object MusikWebScript {
                 '.np-art-card{width:min(380px,90vw,48vh);aspect-ratio:1/1;flex:0 1 auto;min-height:0;}' +
                 '.np-card-minimize{position:absolute;left:0;right:0;bottom:0;padding:10px 14px 12px;text-align:center;font-size:12px;font-weight:800;letter-spacing:1.2px;text-transform:uppercase;color:#fff;background:linear-gradient(to top,rgba(0,0,0,.65),rgba(0,0,0,0));cursor:pointer;user-select:none;z-index:6;}' +
                 '.np-card-minimize:active{filter:brightness(.85);}' +
-                '#musicLyricsScrollContainer{-webkit-mask-image:linear-gradient(to bottom,transparent 0,#000 18%,#000 82%,transparent 100%);mask-image:linear-gradient(to bottom,transparent 0,#000 18%,#000 82%,transparent 100%);scroll-behavior:smooth;}' +
+                '.np-minimize-lyrics{left:auto;right:8px;bottom:6px;width:30px;height:30px;padding:0;display:flex;align-items:center;justify-content:center;border-radius:50%;background:var(--surface-subtle);border:1px solid var(--border-color);color:var(--text-sub);font-size:16px;letter-spacing:0;text-transform:none;backdrop-filter:blur(4px);}' +
+                '.np-minimize-lyrics:hover{color:var(--brand-green);border-color:var(--brand-green);}' +
                 '@media (hover:hover) and (pointer:fine){' +
                 '.music-now-playing-page,.music-now-playing-page *{scrollbar-width:thin;scrollbar-color:transparent transparent;scrollbar-gutter:stable;transition:scrollbar-color .25s ease;}' +
                 '.music-now-playing-page:hover,.music-now-playing-page *:hover{scrollbar-color:var(--brand-green) transparent;}' +
@@ -811,6 +1077,10 @@ object MusikWebScript {
                 '.music-global-dock{left:0 !important;padding:0 8px 8px;}' +
                 '.music-now-playing-page{top:56px;left:0 !important;}' +
                 'body.sidebar-mobile-open .music-global-dock{display:none;}' +
+                '.mlfs-content{padding:12px 12px 10px;}' +
+                '.mlfs-title{font-size:18px;}' +
+                '.mlfs-icon-btn{width:34px;height:34px;min-width:34px;font-size:14px;}' +
+                '.mlfs-controls{gap:8px !important;}' +
                 '}';
         }
 
@@ -819,28 +1089,24 @@ object MusikWebScript {
             if (!el) return;
             const track = window.musicPlaylist[window.currentMusicIndex];
             if (!track) { el.innerText = ''; return; }
-            const lrcText = getTrackLyrics(track);
-            let lines;
-            if (window._dockLrcTrack === track.id && window._dockLrcSource === lrcText) {
-                lines = window._dockLrcLines;
-            } else {
-                lines = lrcText ? parseLrcLyrics(lrcText) : [];
-                window._dockLrcTrack = track.id;
-                window._dockLrcSource = lrcText;
-                window._dockLrcLines = lines;
-            }
-            if (!lines || lines.length === 0) {
-                el.innerText = track.origin === 'phone' ? (track.folder || 'Berkas HP') : (track.folder || 'Berkas PC');
+            const entry = getParsedLyricsForTrack(track);
+            const lines = entry.lines;
+            if (!lines.length || entry.info.kind === 'static') {
+                el.innerText = track.folder || (track.origin === 'phone' ? 'Berkas HP' : 'Berkas PC');
                 return;
             }
-            let active = lines[0].text;
+            const t = (currentSec || 0) + getLyricsOffsetSec(track);
+            let active = '';
             for (let i = 0; i < lines.length; i++) {
-                if (lines[i].timeSec <= currentSec) active = lines[i].text; else break;
+                if (lines[i].timeSec <= t) active = lines[i].text; else break;
             }
-            el.innerText = active;
+            el.innerText = active || (lines[0] ? lines[0].text : '');
         }
 
         function stopMusicPlayback() {
+            stopLyricsClock();
+            closeLyricsFullScreen();
+            window._musicLrcCache = null;
             window.musicPlayerAudio.pause();
             window.musicPlayerAudio.removeAttribute('src');
             window.musicPlayerAudio.load();
@@ -916,119 +1182,466 @@ object MusikWebScript {
             } catch (err) {}
         }
 
-        // --- PARSING & LYRICS ENGINE (LRC COMPLIANT) ---
-        // Mendukung Enhanced LRC: "[mm:ss.ss]<mm:ss.ss>word <mm:ss.ss>word" seperti
-        // keluaran parser SYLT aplikasi, agar sorotan per kata bisa berjalan di web.
+        // --- PARSING & LIVE LYRICS ENGINE (LRC / ENHANCED LRC COMPLIANT) ---
+        // Mendukung: [mm:ss.xx] per baris, <mm:ss.xx> per kata (Enhanced LRC / keluaran
+        // SYLT), tag [offset:±ms], lirik statis tanpa timestamp, dan geser timing manual.
         function parseLrcLyrics(lrcText) {
-            if (!lrcText || !lrcText.trim()) return [];
-            const lines = lrcText.split(/\r?\n/);
+            if (!lrcText || !String(lrcText).trim()) return [];
+            const source = String(lrcText);
+            const rawLines = source.split(/\r?\n/);
+            let fileOffsetMs = 0;
+            const offsetMatch = /\[offset\s*:\s*([+-]?\d+)\s*\]/i.exec(source);
+            if (offsetMatch) fileOffsetMs = parseInt(offsetMatch[1], 10) || 0;
+            const metaReg = /^\[(ti|ar|al|au|by|offset|length|re|ve|tool|#)\s*:/i;
+            const timeReg = /\[(\d{1,3}):(\d{1,2})(?:[.:](\d{1,3}))?\]/g;
+            const wordReg = /<(\d{1,3}):(\d{1,2})(?:[.:](\d{1,3}))?>/g;
+            const stampToSec = (mm, ss, frac) => {
+                const ms = parseInt(String(frac || '0').padEnd(3, '0').slice(0, 3), 10);
+                return parseInt(mm, 10) * 60 + parseInt(ss, 10) + ms / 1000;
+            };
             const result = [];
-            const timeReg = /\[(\d{1,2}):(\d{1,2})(?:\.(\d{1,3}))?\]/g;
-            const wordReg = /<(\d{1,2}):(\d{1,2})(?:\.(\d{1,3}))?>/g;
+            const plainLines = [];
 
-            lines.forEach(line => {
-                const trimmed = line.trim();
-                if (!trimmed) return;
-                let match;
-                const hasWords = wordReg.test(trimmed);
+            rawLines.forEach(raw => {
+                const trimmed = raw.trim();
+                if (!trimmed || metaReg.test(trimmed)) return;
+                timeReg.lastIndex = 0;
+                const stamps = [];
+                let m;
+                while ((m = timeReg.exec(trimmed)) !== null) stamps.push(stampToSec(m[1], m[2], m[3]));
                 wordReg.lastIndex = 0;
-                let text = trimmed.replace(timeReg, '');
-                if (hasWords) text = text.replace(wordReg, '');
-                text = text.replace(/\s+/g, ' ').trim();
-
+                const wordStamps = [];
+                while ((m = wordReg.exec(trimmed)) !== null) {
+                    wordStamps.push({ timeSec: stampToSec(m[1], m[2], m[3]), from: m.index + m[0].length, to: m.index });
+                }
+                const text = trimmed.replace(timeReg, '').replace(wordReg, '').replace(/\s+/g, ' ').trim();
                 let words = null;
-                if (hasWords) {
-                    const toks = [];
-                    wordReg.lastIndex = 0;
-                    let wm;
-                    while ((wm = wordReg.exec(trimmed)) !== null) {
-                        const min = parseInt(wm[1], 10);
-                        const sec = parseInt(wm[2], 10);
-                        const msStr = wm[3] || '0';
-                        const ms = parseInt(msStr.padEnd(3, '0').slice(0, 3), 10);
-                        toks.push({ timeSec: min * 60 + sec + ms / 1000, from: wm.index + wm[0].length, to: wm.index });
-                    }
-                    toks.sort((a, b) => a.to - b.to);
-                    words = toks.map((t, i) => {
-                        const nextTo = i + 1 < toks.length ? toks[i + 1].to : trimmed.length;
-                        const w = trimmed.slice(t.from, nextTo).replace(/\s+/g, ' ').trim();
-                        return { timeSec: t.timeSec, text: w };
+                if (wordStamps.length) {
+                    words = wordStamps.map((t, i) => {
+                        const nextTo = i + 1 < wordStamps.length ? wordStamps[i + 1].to : trimmed.length;
+                        const wText = trimmed.slice(t.from, nextTo).replace(timeReg, '').replace(wordReg, '').replace(/\s+/g, ' ').trim();
+                        return { timeSec: t.timeSec, endSec: t.timeSec + 1, text: wText };
                     }).filter(w => w.text.length > 0);
                     if (!words.length) words = null;
                 }
-
-                timeReg.lastIndex = 0;
-                while ((match = timeReg.exec(trimmed)) !== null) {
-                    const min = parseInt(match[1], 10);
-                    const sec = parseInt(match[2], 10);
-                    const msStr = match[3] || '0';
-                    const ms = parseInt(msStr.padEnd(3, '0').slice(0, 3), 10);
-                    const timeMs = min * 60000 + sec * 1000 + ms;
-                    result.push({ timeMs, timeSec: timeMs / 1000, text: text || '...', words });
+                if (!stamps.length) {
+                    if (text) plainLines.push(text);
+                    return;
                 }
+                stamps.forEach(sec => {
+                    result.push({ timeMs: Math.round(sec * 1000), timeSec: sec, text: text || '♪', words: words });
+                });
             });
 
-            // If no timestamps found, treat as plain text lines evenly spaced
-            if (result.length === 0 && lines.length > 0) {
-                const estDur = window.musicTotalDuration || 180;
-                const slice = estDur / Math.max(lines.length, 1);
-                lines.forEach((l, idx) => {
-                    const t = l.trim();
-                    if (t) {
-                        result.push({ timeMs: idx * slice * 1000, timeSec: idx * slice, text: t });
-                    }
-                });
+            // Tanpa timestamp sama sekali = lirik statis (mis. USLT): tampil apa adanya,
+            // tanpa sorotan palsu yang bergeser tidak sesuai lagu.
+            if (result.length === 0) {
+                return plainLines.map(t => ({ timeMs: null, timeSec: null, text: t, words: null, unsynced: true }));
             }
 
             result.sort((a, b) => a.timeMs - b.timeMs);
+            if (fileOffsetMs) {
+                const shiftSec = fileOffsetMs / 1000;
+                result.forEach(line => {
+                    line.timeMs += fileOffsetMs;
+                    line.timeSec = line.timeMs / 1000;
+                    if (line.words) line.words.forEach(w => { w.timeSec += shiftSec; });
+                });
+            }
+            // Akhir tiap kata = awal kata berikutnya (kata terakhir dibatasi baris berikut).
+            for (let i = 0; i < result.length; i++) {
+                const line = result[i];
+                if (!line.words) continue;
+                const lineEnd = i + 1 < result.length ? result[i + 1].timeSec : line.timeSec + 6;
+                line.words.forEach((w, wi) => {
+                    const nextStart = wi + 1 < line.words.length ? line.words[wi + 1].timeSec : Math.min(lineEnd, w.timeSec + 4);
+                    w.endSec = Math.max(w.timeSec + 0.12, nextStart);
+                });
+            }
             return result;
         }
 
+        function getLyricsSyncInfo(lines) {
+            if (!lines || !lines.length) return { kind: 'none', label: '' };
+            if (lines[0].unsynced) return { kind: 'static', label: 'Lirik Statis' };
+            const hasWords = lines.some(l => l.words && l.words.length);
+            return hasWords ? { kind: 'word', label: 'Karaoke Kata' } : { kind: 'line', label: 'Tersinkron' };
+        }
+
+        // Cache parse bersama (kartu lirik, layar penuh, dock) — diganti hanya bila teks berubah.
+        function getParsedLyricsForTrack(track) {
+            const source = getTrackLyrics(track);
+            const cached = window._musicLrcCache;
+            if (cached && track && cached.trackId === track.id && cached.source === source) return cached;
+            const lines = source ? parseLrcLyrics(source) : [];
+            const entry = { trackId: track ? track.id : null, source: source, lines: lines, info: getLyricsSyncInfo(lines) };
+            window._musicLrcCache = entry;
+            return entry;
+        }
+
+        function getLyricsOffsetSec(track) {
+            if (!track) return 0;
+            const ms = window.musicLyricsOffsets[track.id];
+            return (typeof ms === 'number' ? ms : 0) / 1000;
+        }
+
+        function getLyricsBadgeHtml(info) {
+            if (!info || info.kind === 'none') return '';
+            const icons = { word: 'bi-mic-fill', line: 'bi-clock-fill', static: 'bi-file-text-fill' };
+            return '<span class="lyrics-sync-badge' + (info.kind === 'word' ? ' is-word' : '') + '"><i class="bi ' + icons[info.kind] + '"></i> ' + info.label + '</span>';
+        }
+
+        function getLyricsLineHtml(line, idx) {
+            if (line.unsynced) {
+                return '<div class="lrc-line-item lrc-line-static">' + escapeHtml(line.text) + '</div>';
+            }
+            const inner = line.words && line.words.length
+                ? line.words.map(w => '<span class="lrc-word">' + escapeHtml(w.text) + '</span>').join(' ')
+                : escapeHtml(line.text);
+            return '<div class="lrc-line-item" onclick="seekToLyricLine(' + idx + ')" title="Ketuk untuk memutar dari baris ini">' + inner + '</div>';
+        }
+
+        function getLyricsScrollInnerHtml(entry, emptyAction) {
+            if (!entry.lines.length) {
+                return '<div class="text-center text-secondary py-4" onclick="' + emptyAction + '" style="cursor: pointer;">' +
+                    '<i class="bi bi-file-earmark-music fs-2 d-block mb-2 opacity-50"></i>' +
+                    '<div class="fw-bold small">Belum ada lirik lagu</div>' +
+                    '<small class="opacity-75">Impor file .LRC atau ketuk di sini untuk menulis lirik manual.</small>' +
+                    '</div>';
+            }
+            return '<div class="lyrics-pad" aria-hidden="true"></div>' +
+                entry.lines.map((line, idx) => getLyricsLineHtml(line, idx)).join('') +
+                '<div class="lyrics-pad" aria-hidden="true"></div>';
+        }
+
+        function seekToLyricLine(idx) {
+            const track = window.musicPlaylist[window.currentMusicIndex];
+            if (!track) return;
+            const line = getParsedLyricsForTrack(track).lines[idx];
+            if (!line || line.timeSec === null) return;
+            seekAudioToSeconds(line.timeSec + getLyricsOffsetSec(track));
+        }
+
+        // --- OFFSET TIMING MANUAL (saat lirik kurang pas dengan lagu) ---
+        function getLyricsOffsetFooterHtml() {
+            const track = window.musicPlaylist[window.currentMusicIndex];
+            const ms = track ? (window.musicLyricsOffsets[track.id] || 0) : 0;
+            const label = (ms > 0 ? '+' : '') + (ms / 1000).toFixed(1) + 's';
+            return '<div class="lyrics-offset-stepper" title="Geser timing lirik bila kurang pas">' +
+                '<button class="lyrics-offset-btn" onclick="adjustLyricsOffset(-100)" title="Lirik lebih awal 0,1 detik">−</button>' +
+                '<span class="lyrics-offset-label' + (ms !== 0 ? ' is-shifted' : '') + '">' + label + '</span>' +
+                '<button class="lyrics-offset-btn" onclick="adjustLyricsOffset(100)" title="Lirik lebih lambat 0,1 detik">+</button>' +
+                '<button class="lyrics-offset-btn" onclick="resetLyricsOffset()" title="Reset timing lirik" style="' + (ms === 0 ? 'display:none;' : '') + '"><i class="bi bi-arrow-counterclockwise" style="font-size:11px;"></i></button>' +
+                '</div>';
+        }
+
+        function refreshLyricsOffsetUi() {
+            ['lyricsOffsetFooter', 'fsLyricsOffsetFooter'].forEach(id => {
+                const el = document.getElementById(id);
+                if (el) el.innerHTML = getLyricsOffsetFooterHtml();
+            });
+        }
+
+        function adjustLyricsOffset(deltaMs) {
+            const track = window.musicPlaylist[window.currentMusicIndex];
+            if (!track) return;
+            const next = Math.max(-10000, Math.min(10000, (window.musicLyricsOffsets[track.id] || 0) + deltaMs));
+            window.musicLyricsOffsets[track.id] = next;
+            saveMusicSettings();
+            refreshLyricsOffsetUi();
+            forceLyricsResync();
+        }
+
+        function resetLyricsOffset() {
+            const track = window.musicPlaylist[window.currentMusicIndex];
+            if (!track) return;
+            delete window.musicLyricsOffsets[track.id];
+            saveMusicSettings();
+            refreshLyricsOffsetUi();
+            forceLyricsResync();
+            showCustomToast('Timing lirik dikembalikan ke nol');
+        }
+
+        function forceLyricsResync() {
+            ['musicLyricsScrollContainer', 'musicFsLyricsContainer'].forEach(id => {
+                const c = document.getElementById(id);
+                if (c) c._lyricsActiveIdx = -1;
+            });
+            window._lyricsScrollPauseUntil = 0;
+            updateLyricsHighlight(window.musicPlayerAudio.currentTime || 0);
+            updateDockLyricLine(window.musicPlayerAudio.currentTime || 0);
+        }
+
+        // --- SOROTAN REAL-TIME (baris + kata) ---
         function updateLyricsHighlight(currentSec) {
-            const container = document.getElementById('musicLyricsScrollContainer');
-            if (!container) return;
-            const currentTrack = window.musicPlaylist[window.currentMusicIndex];
-            if (!currentTrack) return;
+            const track = window.musicPlaylist[window.currentMusicIndex];
+            if (!track) return;
+            const containers = [];
+            const cardContainer = document.getElementById('musicLyricsScrollContainer');
+            const fsContainer = document.getElementById('musicFsLyricsContainer');
+            if (cardContainer) containers.push(cardContainer);
+            if (fsContainer && window.musicIsLyricsFullScreen) containers.push(fsContainer);
+            if (!containers.length) return;
 
-            const lrcText = getTrackLyrics(currentTrack);
-            if (!lrcText) return;
+            const entry = getParsedLyricsForTrack(track);
+            const lines = entry.lines;
+            if (!lines.length || entry.info.kind === 'static') return;
 
-            const lines = parseLrcLyrics(lrcText);
-            if (lines.length === 0) return;
-
-            // Find current active line
+            const t = (currentSec || 0) + getLyricsOffsetSec(track);
             let activeIdx = -1;
             for (let i = 0; i < lines.length; i++) {
-                if (lines[i].timeSec <= currentSec) {
-                    activeIdx = i;
-                } else {
-                    break;
-                }
+                if (lines[i].timeSec <= t) activeIdx = i; else break;
             }
-            if (activeIdx === -1 && lines.length > 0) activeIdx = 0;
+            const autoScrollPaused = Date.now() < (window._lyricsScrollPauseUntil || 0);
 
-            const lineEls = container.querySelectorAll('.lrc-line-item');
-            lineEls.forEach((el, idx) => {
-                if (idx === activeIdx) {
-                    if (!el.classList.contains('active-lrc-line')) {
-                        el.classList.add('active-lrc-line');
-                        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                    }
-                    // Sorotan per kata (karaoke) untuk baris Enhanced LRC.
+            containers.forEach(container => {
+                const els = container.querySelectorAll('.lrc-line-item');
+                if (els.length !== lines.length) return;
+                els.forEach((el, idx) => {
+                    const isActive = idx === activeIdx;
+                    el.classList.toggle('active-lrc-line', isActive);
+                    el.classList.toggle('past-lrc-line', activeIdx >= 0 && idx < activeIdx);
                     const spans = el.querySelectorAll('.lrc-word');
-                    if (spans.length) {
-                        const words = (lines[activeIdx] && lines[activeIdx].words) || [];
-                        spans.forEach((sp, wi) => {
-                            const start = words[wi] ? words[wi].timeSec : 0;
-                            const next = words[wi + 1] ? words[wi + 1].timeSec : start + 10;
-                            sp.classList.toggle('active-lrc-word', currentSec >= start && currentSec < next);
-                        });
+                    if (!spans.length) return;
+                    const words = (lines[idx] && lines[idx].words) || [];
+                    spans.forEach((sp, wi) => {
+                        const w = words[wi];
+                        if (!w) return;
+                        const end = w.endSec || w.timeSec + 1;
+                        let fill = 0;
+                        if (activeIdx >= 0 && idx < activeIdx) fill = 100;
+                        else if (isActive) fill = Math.max(0, Math.min(100, ((t - w.timeSec) / Math.max(0.12, end - w.timeSec)) * 100));
+                        sp.style.setProperty('--fill', fill.toFixed(1) + '%');
+                        sp.classList.toggle('singing-now', isActive && t >= w.timeSec && t < end);
+                    });
+                });
+                if (!autoScrollPaused) {
+                    if (activeIdx >= 0 && container._lyricsActiveIdx !== activeIdx) {
+                        scrollLyricsContainerToLine(container, els[activeIdx]);
                     }
-                } else {
-                    el.classList.remove('active-lrc-line');
-                    el.querySelectorAll('.lrc-word.active-lrc-word').forEach(sp => sp.classList.remove('active-lrc-word'));
+                    container._lyricsActiveIdx = activeIdx;
                 }
             });
+            updateResumeChips(autoScrollPaused && activeIdx >= 0);
+        }
+
+        // Gulir HANYA kontainer lirik (scrollIntoView ikut menyeret halaman induk).
+        function scrollLyricsContainerToLine(container, el) {
+            if (!container || !el) return;
+            const cRect = container.getBoundingClientRect();
+            const eRect = el.getBoundingClientRect();
+            const target = container.scrollTop + (eRect.top - cRect.top) - container.clientHeight / 2 + el.offsetHeight / 2;
+            const max = Math.max(0, container.scrollHeight - container.clientHeight);
+            container._lyricsAutoScrollUntil = Date.now() + 800;
+            container.scrollTo({ top: Math.max(0, Math.min(max, target)), behavior: container._lyricsHasSynced ? 'smooth' : 'auto' });
+            container._lyricsHasSynced = true;
+        }
+
+        function sizeLyricsPads() {
+            ['musicLyricsScrollContainer', 'musicFsLyricsContainer'].forEach(id => {
+                const c = document.getElementById(id);
+                if (!c) return;
+                const pad = Math.max(0, c.clientHeight / 2 - 24);
+                c.querySelectorAll('.lyrics-pad').forEach(p => { p.style.height = pad + 'px'; });
+            });
+        }
+
+        function bindLyricsContainerInteraction(container) {
+            if (container._lyricsBound) return;
+            container._lyricsBound = true;
+            container.addEventListener('wheel', pauseLyricsAutoScroll, { passive: true });
+            container.addEventListener('touchmove', pauseLyricsAutoScroll, { passive: true });
+            container.addEventListener('scroll', () => {
+                if (Date.now() > (container._lyricsAutoScrollUntil || 0)) pauseLyricsAutoScroll();
+            }, { passive: true });
+        }
+
+        function pauseLyricsAutoScroll() {
+            window._lyricsScrollPauseUntil = Date.now() + 4000;
+            updateResumeChips(true);
+        }
+
+        function resumeLyricsAutoScroll() {
+            window._lyricsScrollPauseUntil = 0;
+            updateResumeChips(false);
+            forceLyricsResync();
+        }
+
+        function updateResumeChips(show) {
+            if (window._lyricsChipsShown === show) return;
+            window._lyricsChipsShown = show;
+            ['lyricsResumeChip', 'fsLyricsResumeChip'].forEach(id => {
+                const chip = document.getElementById(id);
+                if (chip) chip.style.display = show ? 'flex' : 'none';
+            });
+        }
+
+        // Dipanggil setiap kali kontainer lirik selesai dirender ulang.
+        function syncLyricsContainers() {
+            ['musicLyricsScrollContainer', 'musicFsLyricsContainer'].forEach(id => {
+                const c = document.getElementById(id);
+                if (!c) return;
+                bindLyricsContainerInteraction(c);
+                c._lyricsActiveIdx = -1;
+                c._lyricsHasSynced = false;
+            });
+            sizeLyricsPads();
+            updateLyricsHighlight(window.musicPlayerAudio.currentTime || window.musicPlaybackPosition || 0);
+            if (!window._lyricsResizeBound) {
+                window._lyricsResizeBound = true;
+                window.addEventListener('resize', () => {
+                    sizeLyricsPads();
+                    forceLyricsResync();
+                });
+            }
+        }
+
+        // Satu loop rAF menggerakkan sorotan kata sehalus 60 fps selama lagu diputar.
+        function startLyricsClock() {
+            if (window._lyricsRafId) return;
+            const step = () => {
+                const audio = window.musicPlayerAudio;
+                if (!audio || audio.paused || audio.ended) { window._lyricsRafId = null; return; }
+                window._lyricsRafId = requestAnimationFrame(step);
+                updateLyricsHighlight(audio.currentTime || 0);
+                updateDockLyricLine(audio.currentTime || 0);
+            };
+            window._lyricsRafId = requestAnimationFrame(step);
+        }
+
+        function stopLyricsClock() {
+            if (window._lyricsRafId) {
+                cancelAnimationFrame(window._lyricsRafId);
+                window._lyricsRafId = null;
+            }
+        }
+
+        if (!window._lyricsKeysBound) {
+            window._lyricsKeysBound = true;
+            document.addEventListener('keydown', (e) => {
+                if (e.key === 'Escape' && window.musicIsLyricsFullScreen) closeLyricsFullScreen();
+            });
+        }
+
+        // --- LAYAR LIRIK PENUH (IMMERSIVE LIVE LYRICS) ---
+        function toggleLyricsFullScreen() {
+            if (window.musicIsLyricsFullScreen) { closeLyricsFullScreen(); return; }
+            const track = window.musicPlaylist[window.currentMusicIndex];
+            if (!track) { showCustomToast('Putar lagu terlebih dahulu'); return; }
+            window.musicIsLyricsFullScreen = true;
+            renderLyricsFullScreen();
+            const overlay = document.getElementById('musicLyricsFullScreen');
+            if (overlay) overlay.style.display = 'flex';
+            document.body.classList.add('music-lyrics-fs-open');
+            syncLyricsContainers();
+            updatePlayPauseStateInUI(!window.musicPlayerAudio.paused && !window.musicPlayerAudio.ended);
+            if (!window.musicPlayerAudio.paused) startLyricsClock();
+        }
+
+        function closeLyricsFullScreen() {
+            window.musicIsLyricsFullScreen = false;
+            const overlay = document.getElementById('musicLyricsFullScreen');
+            if (overlay) overlay.style.display = 'none';
+            document.body.classList.remove('music-lyrics-fs-open');
+        }
+
+        function renderLyricsFullScreen() {
+            const track = window.musicPlaylist[window.currentMusicIndex];
+            if (!track) return;
+            const entry = getParsedLyricsForTrack(track);
+            const titleEl = document.getElementById('mlfsTitle');
+            if (titleEl) titleEl.innerText = track.title;
+            const artistEl = document.getElementById('mlfsArtist');
+            if (artistEl) artistEl.innerText = track.artist || track.folder || 'Folder Audio';
+            const badgeEl = document.getElementById('mlfsBadge');
+            if (badgeEl) badgeEl.innerHTML = getLyricsBadgeHtml(entry.info);
+            const bg = document.getElementById('mlfsBg');
+            if (bg) {
+                const cover = getTrackCover(track);
+                bg.style.backgroundImage = cover ? 'url("' + cover.replace(/"/g, '%22') + '")' : 'none';
+            }
+            const container = document.getElementById('musicFsLyricsContainer');
+            if (container) container.innerHTML = getLyricsScrollInnerHtml(entry, 'closeLyricsFullScreen(); openLyricsEditMode()');
+            refreshLyricsOffsetUi();
+            const dur = window.musicTotalDuration || 0;
+            const pos = window.musicPlaybackPosition || 0;
+            const overlay = document.getElementById('musicLyricsFullScreen');
+            if (overlay) {
+                const slider = overlay.querySelector('.music-seek-slider');
+                if (slider) {
+                    slider.max = dur || 100;
+                    slider.value = pos;
+                    slider.style.setProperty('--seek-pct', (dur > 0 ? Math.min(100, pos * 100 / dur) : 0) + '%');
+                }
+                overlay.querySelectorAll('.music-dur-time-text').forEach(el => { el.innerText = formatAudioTime(dur); });
+                overlay.querySelectorAll('.music-cur-time-text').forEach(el => { el.innerText = formatAudioTime(pos); });
+            }
+        }
+
+        function openLyricsEditModeFromFs() {
+            closeLyricsFullScreen();
+            window.musicIsLyricsMode = true;
+            expandMusicPlayerDeck();
+            openLyricsEditMode();
+        }
+
+        // --- IMPOR FILE .LRC & PENCOCOKAN LIRIK SAMPINGAN ---
+        function handleLrcFileImport(event) {
+            const file = event.target.files && event.target.files[0];
+            event.target.value = '';
+            const track = window.musicPlaylist[window.currentMusicIndex];
+            if (!file || !track) return;
+            const reader = new FileReader();
+            reader.onload = () => {
+                const text = String(reader.result || '').replace(/^\uFEFF/, '');
+                if (!text.trim()) { showCustomToast('File lirik kosong.'); return; }
+                setTrackLyricsText(track, text);
+                showCustomToast('Lirik "' + file.name + '" berhasil dimuat!');
+            };
+            reader.onerror = () => showCustomToast('Gagal membaca file lirik.');
+            reader.readAsText(file);
+        }
+
+        function setTrackLyricsText(track, text) {
+            // Impor eksplisit pengguna menang atas lirik manual yang mungkin ada sebelumnya.
+            delete window.musicManualLyrics[track.id];
+            delete window.musicManualLyrics[track.title];
+            window.musicFetchedLyrics[track.id] = text;
+            window._musicLrcCache = null;
+            persistTrackLyricsToDb(track.id, text);
+            saveMusicSettings();
+            autoOpenLyricsIfPresent();
+            refreshLyricsViews();
+        }
+
+        function normalizeLyricsBaseName(name) {
+            return String(name || '').toLowerCase().replace(/\.[^.]+${dol}/, '').replace(/[^\p{L}\p{N}]/gu, '');
+        }
+
+        // Saat impor folder: pasangkan .lrc dengan audio bernama sama (lalu nama mirip),
+        // cermin aturan pencocokan EmbeddedLyricsReader sisi aplikasi.
+        async function attachSidecarLyrics(lrcFiles, newTracks) {
+            if (!lrcFiles.length || !newTracks.length) return 0;
+            const entries = [];
+            for (let i = 0; i < lrcFiles.length; i++) {
+                try {
+                    const text = await lrcFiles[i].text();
+                    entries.push({ base: normalizeLyricsBaseName(lrcFiles[i].name), text: String(text || '').replace(/^\uFEFF/, '') });
+                } catch (e) {}
+            }
+            let attached = 0;
+            newTracks.forEach(trk => {
+                const base = normalizeLyricsBaseName(trk.title);
+                if (!base) return;
+                let hit = entries.find(en => en.base === base);
+                if (!hit) hit = entries.find(en => en.base && (en.base.indexOf(base) >= 0 || base.indexOf(en.base) >= 0));
+                if (hit && hit.text.trim()) {
+                    window.musicFetchedLyrics[trk.id] = hit.text;
+                    persistTrackLyricsToDb(trk.id, hit.text);
+                    attached++;
+                }
+            });
+            return attached;
         }
 
         // --- TRACK FAVORITES & PLAYLISTS MANAGEMENT ---
@@ -1127,12 +1740,14 @@ object MusikWebScript {
             setupMusicMediaSession();
             ensureTrackLyricsLoaded(track);
             refreshLyricsViews();
+            window._lyricsScrollPauseUntil = 0;
+            if (window.musicIsLyricsFullScreen) renderLyricsFullScreen();
 
             renderActiveMusicTabContent();
             updateExpandedDeckTrackInfo();
             updateDeckActionIcons();
             syncMusicDockState();
-            updateMediaSession();
+            updateMediaSession(track);
         }
 
         function togglePlayMusic() {
@@ -1238,16 +1853,31 @@ object MusikWebScript {
         }
 
         // --- FILE & FOLDER IMPORT (100% OFFLINE) ---
+        // Hanya berkas audio yang menjadi trek; .lrc/.txt di folder yang sama otomatis
+        // dipasangkan sebagai lirik sampingan (nama sama, lalu nama mirip).
         async function handleMusicFilesImport(event) {
-            const files = event.target.files;
-            if (!files || files.length === 0) return;
+            const fileList = event.target.files;
+            if (!fileList || fileList.length === 0) return;
+            const files = Array.prototype.slice.call(fileList);
+            event.target.value = '';
+
+            const audioExt = /\.(mp3|m4a|m4b|aac|mp4|flac|ogg|oga|opus|wav|webm|wma|amr|mid|midi|aiff|aif|caf)${dol}/i;
+            const lrcExt = /\.(lrc|txt)${dol}/i;
+            const audioFiles = files.filter(f => audioExt.test(f.name) || (f.type && f.type.indexOf('audio/') === 0));
+            const lrcFiles = files.filter(f => lrcExt.test(f.name));
+            if (audioFiles.length === 0) {
+                showCustomToast(lrcFiles.length
+                    ? 'Tidak ada audio terpilih — impor folder agar .lrc terhubung otomatis, atau gunakan tombol Impor .LRC di tampilan lirik.'
+                    : 'Tidak ada berkas audio yang didukung.');
+                return;
+            }
 
             const db = await openMusicDatabase();
             const newTracks = [];
             const startIndex = window.musicPlaylist.length;
 
-            for (let i = 0; i < files.length; i++) {
-                const file = files[i];
+            for (let i = 0; i < audioFiles.length; i++) {
+                const file = audioFiles[i];
                 const url = URL.createObjectURL(file);
                 const sizeMb = (file.size / (1024 * 1024)).toFixed(1) + ' MB';
                 const folderName = file.webkitRelativePath ? file.webkitRelativePath.split('/')[0] : 'Folder Musik';
@@ -1259,6 +1889,7 @@ object MusikWebScript {
                     title: cleanTitle,
                     artist: folderName,
                     folder: folderName,
+                    origin: 'pc',
                     size: sizeMb,
                     url: url,
                     blob: file,
@@ -1279,8 +1910,8 @@ object MusikWebScript {
                 }
             }
 
-            event.target.value = '';
-            showCustomToast(newTracks.length + ' file musik berhasil ditambahkan!');
+            const attached = await attachSidecarLyrics(lrcFiles, newTracks);
+            showCustomToast(newTracks.length + ' file musik berhasil ditambahkan' + (attached ? ' · ' + attached + ' lirik .LRC terhubung' : '') + '!');
 
             if (startIndex === 0 && window.musicPlaylist.length > 0) {
                 playTrackByIndex(0);
@@ -1290,6 +1921,12 @@ object MusikWebScript {
 
         // Generate procedural offline lo-fi demo track using Web Audio API
         function generateOfflineDemoTrack() {
+            const existingIdx = window.musicPlaylist.findIndex(t => t.id === 'demo_lofi_singghara');
+            if (existingIdx >= 0) {
+                playTrackByIndex(existingIdx);
+                showCustomToast('Demo musik offline diputar ulang!');
+                return;
+            }
             try {
                 const AudioContextClass = window.AudioContext || window.webkitAudioContext;
                 const ctx = new AudioContextClass();
@@ -1338,26 +1975,39 @@ object MusikWebScript {
                     title: 'My Singghara Lo-Fi Chill (Offline Demo)',
                     artist: 'My Singghara Audio',
                     folder: 'Demo Musik',
+                    origin: 'pc',
                     size: '1.8 MB',
                     url: url,
                     blob: wavBlob,
                     addedAt: Date.now()
                 };
 
-                // Add sample LRC lyrics
-                window.musicManualLyrics[demoTrack.id] = 
+                // Contoh Enhanced LRC: timestamp baris [mm:ss.xx] + timestamp kata <mm:ss.xx>
+                // agar sorotan karaoke kata demi kata langsung terdemo tanpa file apa pun.
+                window.musicManualLyrics[demoTrack.id] =
                     "[ti:My Singghara Lo-Fi Chill]\n" +
                     "[ar:My Singghara Audio]\n" +
+                    "[offset:0]\n" +
                     "[00:00.00] ~ Intro Lo-Fi Instrumental ~\n" +
-                    "[00:03.00] Selamat datang di Pemutar Musik My Singghara\n" +
-                    "[00:06.00] Musik santai untuk menemani aktivitas Anda\n" +
-                    "[00:10.00] Semua fitur dapat diakses 100% offline\n" +
-                    "[00:14.00] Putar lagu favorit, folder musik, dan lirik lagu\n" +
-                    "[00:18.00] Ketuk album art untuk melihat mode lirik\n" +
+                    "[00:03.00]<00:03.00>Selamat <00:03.60>datang <00:04.10>di <00:04.40>Pemutar <00:05.00>Musik <00:05.50>My <00:05.90>Singghara\n" +
+                    "[00:06.50]<00:06.50>Musik <00:07.10>santai <00:07.70>untuk <00:08.20>menemani <00:08.90>aktivitas <00:09.50>Anda\n" +
+                    "[00:10.00]<00:10.00>Semua <00:10.60>fitur <00:11.10>dapat <00:11.60>diakses <00:12.30>100% <00:12.90>offline\n" +
+                    "[00:14.00]<00:14.00>Putar <00:14.60>lagu <00:15.10>favorit, <00:15.80>folder <00:16.40>musik, <00:17.00>dan <00:17.40>lirik <00:17.80>lagu\n" +
+                    "[00:18.00]<00:18.00>Ketuk <00:18.60>album <00:19.20>art <00:19.60>untuk <00:20.10>melihat <00:20.70>mode <00:21.20>lirik\n" +
                     "[00:22.00] ~ Melodi Cmaj7 - Am7 - Dm7 - G7 ~";
 
                 window.musicPlaylist.unshift(demoTrack);
                 saveMusicSettings();
+                // Demo ikut tersimpan agar tetap ada setelah halaman di-reload.
+                openMusicDatabase().then(db => {
+                    if (db) {
+                        try {
+                            db.transaction('tracks', 'readwrite').objectStore('tracks').put(demoTrack);
+                        } catch (e) {
+                            console.warn('IDB write failed for track:', e);
+                        }
+                    }
+                });
                 showCustomToast('Demo musik offline berhasil dimuat!');
                 playTrackByIndex(0);
                 loadMusik();
@@ -1515,31 +2165,6 @@ object MusikWebScript {
                         margin-top: 24px;
                         z-index: 100;
                     }
-                    .lrc-line-item {
-                        padding: 10px 16px;
-                        text-align: center;
-                        font-size: 14px;
-                        color: var(--text-sub);
-                        cursor: pointer;
-                        border-radius: 8px;
-                        opacity: .45;
-                        transform: scale(.85);
-                        transform-origin: center;
-                        line-height: 1.5;
-                        transition: transform .45s cubic-bezier(.34,1.56,.64,1), font-size .35s ease, opacity .35s ease, color .35s ease, letter-spacing .35s ease;
-                    }
-                    .lrc-line-item.active-lrc-line {
-                        font-size: 18px;
-                        font-weight: 800;
-                        color: var(--brand-green) !important;
-                        opacity: 1;
-                        transform: scale(1.15);
-                        background: var(--badge-bg);
-                        letter-spacing: .3px;
-                    }
-                    .lrc-line-item.active-lrc-line .lrc-word {
-                        transition: color .12s linear;
-                    }
                     .music-marquee {
                         white-space: nowrap;
                         overflow: hidden;
@@ -1610,11 +2235,52 @@ object MusikWebScript {
                 <input type="file" id="musicFilesPickerInput" accept="audio/*" multiple class="d-none" onchange="handleMusicFilesImport(event)">
                 <input type="file" id="musicCoverPickerInput" accept="image/*" class="d-none" onchange="handleCustomCoverUpload(event)">
                 <input type="file" id="musicLrcRestoreInput" accept=".json,application/json" class="d-none" onchange="handleRestoreLyricsFile(event)">
+                <input type="file" id="musicLrcFileInput" accept=".lrc,.txt,text/plain" class="d-none" onchange="handleLrcFileImport(event)">
 
                 <!-- FULL PLAYER "KINI MEMUTAR" — area halaman: navbar + sidebar tetap terlihat -->
                 <style>${dol}{getMusicDockCss()}</style>
                 <div id="musicExpandedPlayerDeck" class="music-now-playing-page">
                     ${dol}{currentTrack ? getExpandedPlayerDeckHtml(currentTrack) : ''}
+                </div>
+
+                <!-- LAYAR LIRIK PENUH (LIVE LYRICS IMMERSIVE) -->
+                <div id="musicLyricsFullScreen" class="music-lyrics-fullscreen" style="display:none;" role="dialog" aria-label="Lirik layar penuh">
+                    <div class="mlfs-bg" id="mlfsBg"></div>
+                    <div class="mlfs-scrim"></div>
+                    <div class="mlfs-content">
+                        <div class="mlfs-header">
+                            <div class="overflow-hidden">
+                                <div class="mlfs-eyebrow"><i class="bi bi-music-note-beamed me-1"></i>KINI MEMUTAR · LIVE LYRICS</div>
+                                <div class="mlfs-title text-truncate" id="mlfsTitle"></div>
+                                <div class="mlfs-artist text-truncate" id="mlfsArtist"></div>
+                            </div>
+                            <div class="d-flex align-items-center gap-2 flex-shrink-0">
+                                <span id="mlfsBadge"></span>
+                                <button class="mlfs-icon-btn" onclick="closeLyricsFullScreen()" title="Tutup layar penuh (Esc)"><i class="bi bi-x-lg"></i></button>
+                            </div>
+                        </div>
+                        <div class="lyrics-viewport flex-grow-1">
+                            <div id="musicFsLyricsContainer" class="lyrics-scroll h-100 overflow-auto px-2"></div>
+                            <button id="fsLyricsResumeChip" class="lyrics-resume-chip" onclick="resumeLyricsAutoScroll()" style="display:none;"><i class="bi bi-skip-end-fill"></i> Ikuti lagu</button>
+                        </div>
+                        <div class="mlfs-footer">
+                            <div class="d-flex align-items-center gap-2 px-1 mb-2">
+                                <span class="music-cur-time-text mlfs-time">00:00</span>
+                                <input type="range" class="form-range music-seek-slider flex-grow-1" min="0" max="100" value="0" style="--seek-pct:0%"
+                                       onchange="handleMusicSeekChange(this.value)"
+                                       oninput="handleMusicSeekInput(this.value); this.style.setProperty('--seek-pct', (this.value / Math.max(1, this.max) * 100) + '%')">
+                                <span class="music-dur-time-text mlfs-time">00:00</span>
+                            </div>
+                            <div class="mlfs-controls d-flex align-items-center justify-content-center gap-3 flex-wrap">
+                                <span id="fsLyricsOffsetFooter"></span>
+                                <button class="mlfs-icon-btn" onclick="prevMusicTrack()" title="Sebelumnya"><i class="bi bi-skip-start-fill"></i></button>
+                                <button class="mlfs-play-btn" id="musicFsPlayBtn" onclick="togglePlayMusic()" title="Putar / Jeda"><i class="bi bi-play-fill"></i></button>
+                                <button class="mlfs-icon-btn" onclick="nextMusicTrack()" title="Selanjutnya"><i class="bi bi-skip-end-fill"></i></button>
+                                <button class="mlfs-icon-btn" onclick="document.getElementById('musicLrcFileInput').click()" title="Impor file .LRC"><i class="bi bi-file-earmark-arrow-down"></i></button>
+                                <button class="mlfs-icon-btn" onclick="openLyricsEditModeFromFs()" title="Edit lirik"><i class="bi bi-pencil-square"></i></button>
+                            </div>
+                        </div>
+                    </div>
                 </div>
 
                 <!-- ANTREAN LAGU (QUEUE) MODAL SHEET -->
@@ -1663,6 +2329,7 @@ object MusikWebScript {
             const currentTrack = window.musicPlaylist[window.currentMusicIndex];
             if (currentTrack) deck.innerHTML = getExpandedPlayerDeckHtml(currentTrack);
             deck.style.display = window.musicIsPlayerExpanded ? 'block' : 'none';
+            syncLyricsContainers();
         }
 
         function getMusicHeaderTabsHtml() {
@@ -1989,7 +2656,7 @@ object MusikWebScript {
                         </div>
 
                         <!-- TRACK METADATA (TITLE & ARTIST) -->
-                        <div class="text-center px-3">
+                        <div class="text-center px-3 w-100" style="min-width:0;">
                             <h4 class="fw-bold mb-1 text-truncate cursor-pointer" id="deckTrackTitle"
                                 onclick="toggleLyricsMode()" title="Ketuk untuk melihat lirik">
                                 ${dol}{escapeHtml(currentTrack.title)}
@@ -2093,9 +2760,12 @@ object MusikWebScript {
                                 <span class="badge text-secondary" style="font-size: 10px; background: var(--surface-subtle);">Posisi: ${dol}{curPos}</span>
                             </div>
 
-                            <div class="d-flex gap-2 mb-2">
+                            <div class="d-flex gap-2 mb-2 flex-wrap">
                                 <button class="btn btn-xs btn-primary py-1 px-2 fw-bold" style="font-size: 11px;" onclick="insertTimestampAtLyricsCursor()">
                                     <i class="bi bi-plus-lg me-1"></i> Sisipkan Waktu
+                                </button>
+                                <button class="btn btn-xs btn-outline-primary py-1 px-2 fw-bold" style="font-size: 11px;" onclick="document.getElementById('musicLrcFileInput').click()">
+                                    <i class="bi bi-file-earmark-arrow-down me-1"></i> Impor .LRC
                                 </button>
                                 <button class="btn btn-xs btn-outline-secondary py-1 px-2 fw-bold" style="font-size: 11px;" onclick="loadSampleLrcTemplate()">
                                     <i class="bi bi-file-text me-1"></i> Templat LRC
@@ -2113,15 +2783,24 @@ object MusikWebScript {
                         </div>
                     `;
                 } else {
-                    // VIEW LYRICS MODE
-                    const parsedLines = parseLrcLyrics(lrcText);
+                    // VIEW LYRICS MODE — Live Lyrics: sorotan baris/kata + auto-scroll
+                    const entry = getParsedLyricsForTrack(currentTrack);
+                    const isTimed = entry.info.kind === 'line' || entry.info.kind === 'word';
                     return `
                         <div class="p-3 d-flex flex-column h-100 music-surface">
                             <div class="d-flex justify-content-between align-items-center mb-2 border-bottom pb-2" style="--bs-border-color: var(--border-color);">
-                                <div class="d-flex align-items-center gap-1 text-primary fw-bold small">
-                                    <i class="bi bi-lyrics"></i> Lirik Lagu
+                                <div class="d-flex align-items-center gap-2 text-primary fw-bold small overflow-hidden">
+                                    <i class="bi bi-lyrics"></i>
+                                    <span class="text-nowrap">Lirik Lagu</span>
+                                    ${dol}{getLyricsBadgeHtml(entry.info)}
                                 </div>
-                                <div class="d-flex align-items-center gap-1">
+                                <div class="d-flex align-items-center gap-1 flex-shrink-0">
+                                    <button class="btn btn-sm btn-link text-primary p-0 px-1" onclick="document.getElementById('musicLrcFileInput').click()" title="Impor file .LRC">
+                                        <i class="bi bi-file-earmark-arrow-down fs-6"></i>
+                                    </button>
+                                    <button class="btn btn-sm btn-link text-primary p-0 px-1" onclick="toggleLyricsFullScreen()" title="Lirik layar penuh">
+                                        <i class="bi bi-arrows-fullscreen fs-6"></i>
+                                    </button>
                                     <button class="btn btn-sm btn-link text-primary p-0 px-1" onclick="openLyricsEditMode()" title="Edit Lirik">
                                         <i class="bi bi-pencil-square fs-6"></i>
                                     </button>
@@ -2131,23 +2810,17 @@ object MusikWebScript {
                                 </div>
                             </div>
 
-                            <div class="flex-grow-1 overflow-auto px-3" id="musicLyricsScrollContainer" style="min-height:0;padding-top:24%;padding-bottom:22%;">
-                                ${dol}{parsedLines.length === 0 ? `
-                                    <div class="text-center text-secondary py-4" onclick="openLyricsEditMode()" style="cursor: pointer;">
-                                        <i class="bi bi-file-earmark-music fs-2 d-block mb-2 opacity-50"></i>
-                                        <div class="fw-bold small">Belum ada lirik lagu</div>
-                                        <small class="opacity-75">Ketuk ikon pensil di atas untuk menambahkan lirik manual.</small>
-                                    </div>
-                                ` : parsedLines.map((line, idx) => `
-                                    <div class="lrc-line-item" onclick="seekAudioToSeconds(${dol}{line.timeSec})">
-                                        ${dol}{line.words && line.words.length
-                                            ? line.words.map(w => `<span class="lrc-word">${dol}{escapeHtml(w.text)}</span>`).join(' ')
-                                            : escapeHtml(line.text)}
-                                    </div>
-                                `).join('')}
+                            <div class="lyrics-viewport flex-grow-1">
+                                <div class="lyrics-scroll h-100 overflow-auto px-2" id="musicLyricsScrollContainer">
+                                    ${dol}{getLyricsScrollInnerHtml(entry, 'openLyricsEditMode()')}
+                                </div>
+                                <button id="lyricsResumeChip" class="lyrics-resume-chip" onclick="resumeLyricsAutoScroll()" style="display:none;"><i class="bi bi-skip-end-fill"></i> Ikuti lagu</button>
+                            </div>
+                            <div class="d-flex justify-content-center pt-2" id="lyricsOffsetFooter" style="min-height:28px;">
+                                ${dol}{isTimed ? getLyricsOffsetFooterHtml() : ''}
                             </div>
                         </div>
-                        <div class="np-card-minimize" onclick="collapseMusicPlayerDeck()" title="Perkecil">Kini Memutar</div>
+                        <button class="np-card-minimize np-minimize-lyrics" onclick="collapseMusicPlayerDeck()" title="Perkecil"><i class="bi bi-chevron-compact-down"></i></button>
                     `;
                 }
             } else {
@@ -2199,6 +2872,7 @@ object MusikWebScript {
                 updateRepeatButtonUI();
                 updateShuffleButtonUI();
                 setupMusicArtworkGestures();
+                syncLyricsContainers();
             }
             const dock = document.getElementById('musicGlobalDock');
             if (dock) dock.style.display = 'none';
@@ -2223,6 +2897,7 @@ object MusikWebScript {
 
             const card = document.getElementById('musicCentralArtCard');
             if (card) card.innerHTML = getCentralArtCardInnerHtml(currentTrack);
+            syncLyricsContainers();
         }
 
         function toggleLyricsMode() {
@@ -2235,6 +2910,7 @@ object MusikWebScript {
             if (card && currentTrack) {
                 card.innerHTML = getCentralArtCardInnerHtml(currentTrack);
             }
+            syncLyricsContainers();
         }
 
         function openLyricsEditMode() {
@@ -2253,6 +2929,7 @@ object MusikWebScript {
             if (card && currentTrack) {
                 card.innerHTML = getCentralArtCardInnerHtml(currentTrack);
             }
+            syncLyricsContainers();
         }
 
         function insertTimestampAtLyricsCursor() {
@@ -2299,15 +2976,24 @@ object MusikWebScript {
             const text = textarea.value;
             window.musicManualLyrics[currentTrack.id] = text;
             window.musicManualLyrics[currentTrack.title] = text;
+            window._musicLrcCache = null;
             saveMusicSettings();
             showCustomToast('Lirik manual berhasil disimpan!');
             window.musicLyricsEditMode = false;
             const card = document.getElementById('musicCentralArtCard');
             if (card) card.innerHTML = getCentralArtCardInnerHtml(currentTrack);
+            if (window.musicIsLyricsFullScreen) renderLyricsFullScreen();
+            syncLyricsContainers();
         }
 
         function seekAudioToSeconds(sec) {
-            window.musicPlayerAudio.currentTime = sec;
+            const audio = window.musicPlayerAudio;
+            const dur = audio.duration;
+            let target = Math.max(0, sec || 0);
+            if (isFinite(dur) && dur > 0) target = Math.min(target, dur - 0.05);
+            audio.currentTime = target;
+            window.musicPlaybackPosition = target;
+            forceLyricsResync();
         }
 
         function handleCustomCoverUpload(event) {
@@ -2331,7 +3017,8 @@ object MusikWebScript {
 
         function setupMusicArtworkGestures() {
             const card = document.getElementById('musicCentralArtCard');
-            if (!card) return;
+            if (!card || card._musicGesturesBound) return;
+            card._musicGesturesBound = true;
             let startX = 0;
             let diffX = 0;
 
@@ -2563,6 +3250,9 @@ object MusikWebScript {
 
         async function resetEntireMusicPlaylist() {
             if (!confirm('Apakah Anda yakin ingin mengosongkan seluruh daftar lagu?')) return;
+            stopLyricsClock();
+            closeLyricsFullScreen();
+            window._musicLrcCache = null;
             window.musicPlayerAudio.pause();
             window.musicPlayerAudio.src = '';
             window.musicPlaylist = [];
@@ -2580,8 +3270,10 @@ object MusikWebScript {
             const db = await openMusicDatabase();
             if (db) {
                 try {
-                    const tx = db.transaction('tracks', 'readwrite');
+                    const tx = db.transaction(['tracks', 'lyrics', 'covers'], 'readwrite');
                     tx.objectStore('tracks').clear();
+                    tx.objectStore('lyrics').clear();
+                    tx.objectStore('covers').clear();
                 } catch (e) {}
             }
 
