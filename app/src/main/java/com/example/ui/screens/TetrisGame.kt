@@ -548,10 +548,12 @@ fun TetrisGame(
     var racingTicks by remember { mutableStateOf(0) }
     var roadStripesOffset by remember { mutableStateOf(false) }
 
+    // Kolom tengah mobil 3 sel. Lane kanan memakai 7 (bukan 8) supaya badan
+    // mobil tidak menimpa sel tembok di kolom 9.
     fun getLaneCol(lane: Int): Int = when (lane) {
         0 -> 2
         1 -> 5
-        else -> 8
+        else -> 7
     }
 
     // ----------------------------------------
@@ -559,22 +561,31 @@ fun TetrisGame(
     // ----------------------------------------
     val snakeBody = remember { mutableStateListOf<Pair<Int, Int>>() } // Head is index 0
     var snakeDirection by remember { mutableStateOf(Pair(-1, 0)) } // rowDelta, colDelta
+    var snakePendingDir by remember { mutableStateOf<Pair<Int, Int>?>(null) }
     var snakeFood by remember { mutableStateOf(Pair(5, 5)) }
     var snakeTicks by remember { mutableStateOf(0) }
 
     fun spawnSnakeFood() {
-        var found = false
-        var attempts = 0
-        while (!found && attempts < 100) {
-            val r = Random.nextInt(1, 19)
-            val c = Random.nextInt(0, 10)
-            val proposal = Pair(r, c)
-            if (!snakeBody.contains(proposal)) {
-                snakeFood = proposal
-                found = true
+        val freeCells = mutableListOf<Pair<Int, Int>>()
+        for (r in 0 until rowsCount) {
+            for (c in 0 until colsCount) {
+                val cell = Pair(r, c)
+                if (!snakeBody.contains(cell)) freeCells.add(cell)
             }
-            attempts++
         }
+        if (freeCells.isNotEmpty()) snakeFood = freeCells[Random.nextInt(freeCells.size)]
+    }
+
+    // Arah disimpan sebagai antrean satu langkah. Membandingkan dengan arah
+    // yang sedang berjalan mencegah balik badan 180 derajat walau dua tombol
+    // ditekan dalam satu tick.
+    fun queueSnakeDirection(rowDelta: Int, colDelta: Int) {
+        if (isGameOver || isPaused) return
+        val current = snakeDirection
+        if (current.first == -rowDelta && current.second == -colDelta) return
+        if (current.first == rowDelta && current.second == colDelta) return
+        snakePendingDir = Pair(rowDelta, colDelta)
+        playBeep(ToneGenerator.TONE_PROP_ACK)
     }
 
     // ----------------------------------------
@@ -635,6 +646,7 @@ fun TetrisGame(
                 snakeBody.add(Pair(11, 5))
                 snakeBody.add(Pair(12, 5))
                 snakeDirection = Pair(-1, 0) // Up
+                snakePendingDir = null
                 snakeTicks = 0
                 spawnSnakeFood()
             }
@@ -863,8 +875,12 @@ fun TetrisGame(
         val enemiesToRemove = mutableSetOf<Pair<Int, Int>>()
 
         for (bullet in shooterBullets) {
+            // Satu musuh hanya boleh dihancurkan satu peluru agar skor tidak
+            // bertambah dua kali saat dua peluru mengenai target yang sama.
             val hitIndex = shooterEnemies.firstOrNull { enemy ->
-                enemy == bullet || (enemy.second == bullet.second && (enemy.first == bullet.first || enemy.first == bullet.first + 1))
+                !enemiesToRemove.contains(enemy) &&
+                    enemy.second == bullet.second &&
+                    (enemy.first == bullet.first || enemy.first == bullet.first + 1)
             }
             if (hitIndex != null) {
                 bulletsToRemove.add(bullet)
@@ -925,9 +941,10 @@ fun TetrisGame(
                 val obsCol = getLaneCol(obsLane)
                 val playerCol = getLaneCol(racingPlayerLane)
 
-                // Crash overlap formula
+                // Crash overlap formula. Badan mobil selebar 3 sel, jadi dua
+                // mobil bertabrakan saat jarak kolomnya kurang dari 3.
                 val overlapR = (16..19).any { pr -> pr >= nextR && pr <= nextR + 3 }
-                val overlapC = (Math.abs(playerCol - obsCol) <= 1)
+                val overlapC = Math.abs(playerCol - obsCol) < 3
 
                 if (overlapR && overlapC) {
                     collisionDetected = true
@@ -966,8 +983,8 @@ fun TetrisGame(
         // Spawn cars
         val rate = (32 - level * 2).coerceAtLeast(15)
         if (racingTicks % rate == 0) {
-            val busyLanes = racingObstacles.filter { it.first < 6 }.map { it.second }
-            val allowed = (0..2).filter { !busyLanes.contains(it) }
+            val busyCols = racingObstacles.filter { it.first < 8 }.map { getLaneCol(it.second) }
+            val allowed = (0..2).filter { lane -> busyCols.none { Math.abs(getLaneCol(lane) - it) < 3 } }
             if (allowed.isNotEmpty()) {
                 val spawnL = allowed[Random.nextInt(allowed.size)]
                 racingObstacles.add(Pair(-6, spawnL))
@@ -983,6 +1000,10 @@ fun TetrisGame(
         val delayTicks = (5 - level / 3).coerceAtLeast(2)
         if (snakeTicks % delayTicks == 0) {
             if (snakeBody.isEmpty()) return
+            snakePendingDir?.let {
+                snakeDirection = it
+                snakePendingDir = null
+            }
             val head = snakeBody[0]
             val nextH = Pair(head.first + snakeDirection.first, head.second + snakeDirection.second)
 
@@ -994,8 +1015,9 @@ fun TetrisGame(
                 return
             }
 
-            // Self bite check
-            if (snakeBody.contains(nextH)) {
+            // Self bite check. Ekor akan bergeser, jadi sel ekor tidak dihitung.
+            val bodyExceptTail = if (snakeBody.size > 1) snakeBody.take(snakeBody.size - 1) else snakeBody
+            if (bodyExceptTail.contains(nextH)) {
                 playBeep(ToneGenerator.TONE_CDMA_PIP)
                 triggerVibration(200)
                 isGameOver = true
@@ -1028,41 +1050,43 @@ fun TetrisGame(
     // 5. BREAKOUT UPDATE MECHANICS
     // ----------------------------------------
     fun updateBreakout() {
+        if (isGameOver || isPaused) return
+
+        val prevY = ballY
         ballX += ballVx
         ballY += ballVy
-
-        val padCol = ballX.coerceIn(0f, 9f).toInt()
-        val padRow = ballY.toInt()
 
         // Left / Right boundaries bounce
         if (ballX <= 0f) {
             ballX = 0f
-            ballVx = -ballVx
+            ballVx = Math.abs(ballVx)
             playBeep(ToneGenerator.TONE_PROP_ACK)
         } else if (ballX >= 9f) {
             ballX = 9f
-            ballVx = -ballVx
+            ballVx = -Math.abs(ballVx)
             playBeep(ToneGenerator.TONE_PROP_ACK)
         }
 
         // Roof bounce
         if (ballY <= 0f) {
             ballY = 0f
-            ballVy = -ballVy
+            ballVy = Math.abs(ballVy)
             playBeep(ToneGenerator.TONE_PROP_ACK)
         }
 
-        // Paddle strike reflection (paddle on row 19)
-        if (ballY >= 18.5f && ballY <= 19.3f) {
+        // Paddle strike reflection (paddle is rendered on row 19). Deteksi
+        // perlintasan bidang atas paddle agar bola cepat tidak menembus paddle.
+        if (ballVy > 0f && prevY < 19f && ballY >= 19f) {
+            val hitCol = ballX.coerceIn(0f, 9f).toInt()
             val padL = breakoutPaddleCol - 1
             val padR = breakoutPaddleCol + 1
-            if (padCol in padL..padR) {
-                ballY = 18.5f
+            if (hitCol in padL..padR) {
+                ballY = 19f
                 ballVy = -Math.abs(ballVy)
 
                 // slight angle drift
-                val offset = ballX - breakoutPaddleCol
-                ballVx = (ballVx + offset * 0.18f).coerceIn(-0.6f, 0.6f)
+                val offset = (ballX - breakoutPaddleCol).coerceIn(-2f, 2f)
+                ballVx = (ballVx + offset * 0.22f).coerceIn(-0.65f, 0.65f)
 
                 playBeep(ToneGenerator.TONE_PROP_BEEP)
                 triggerVibration(45)
@@ -1070,8 +1094,10 @@ fun TetrisGame(
         }
 
         // Brick Hit Detection (Rows 1..4)
-        if (padRow in 1..4) {
-            val brick = Pair(padRow, padCol)
+        val ballRow = ballY.toInt()
+        val ballCol = ballX.coerceIn(0f, 9f).toInt()
+        if (ballRow in 1..4) {
+            val brick = Pair(ballRow, ballCol)
             if (breakoutBricks.contains(brick)) {
                 breakoutBricks.remove(brick)
                 ballVy = -ballVy
@@ -1087,8 +1113,8 @@ fun TetrisGame(
 
                 if (breakoutBricks.isEmpty()) {
                     level++
-                    ballVx *= 1.15f
-                    ballVy *= 1.15f
+                    ballVx = (ballVx * 1.15f).coerceIn(-0.75f, 0.75f)
+                    ballVy = (ballVy * 1.15f).coerceIn(-0.9f, 0.9f)
                     ballX = 5.0f
                     ballY = 15.0f
                     // Repopulate
@@ -1101,18 +1127,20 @@ fun TetrisGame(
             }
         }
 
-        // Bottom floor drop
+        // Ball fell past the paddle: always cost a life, then respawn or end
         if (ballY >= 20f) {
-            lives--
+            ballY = 20f
+            lives = (lives - 1).coerceAtLeast(0)
             playBeep(ToneGenerator.TONE_CDMA_PIP)
             triggerVibration(200)
 
             if (lives <= 0) {
                 isGameOver = true
+                playBeep(ToneGenerator.TONE_CDMA_ABBR_ALERT)
             } else {
-                ballX = 5.0f
+                ballX = breakoutPaddleCol.toFloat()
                 ballY = 15.0f
-                ballVx = 0.35f
+                ballVx = if (Random.nextBoolean()) 0.35f else -0.35f
                 ballVy = -0.45f
             }
         }
@@ -1313,7 +1341,7 @@ fun TetrisGame(
                                     1 -> moveTetrisLeft()
                                     2 -> shooterPlayerCol = (shooterPlayerCol - 1).coerceAtLeast(1)
                                     3 -> racingPlayerLane = (racingPlayerLane - 1).coerceAtLeast(0)
-                                    4 -> { if (snakeDirection.second != 1) snakeDirection = Pair(0, -1) }
+                                    4 -> queueSnakeDirection(0, -1)
                                     5 -> breakoutPaddleCol = (breakoutPaddleCol - 1).coerceAtLeast(1)
                                 }
                             }
@@ -1326,7 +1354,7 @@ fun TetrisGame(
                                     1 -> moveTetrisRight()
                                     2 -> shooterPlayerCol = (shooterPlayerCol + 1).coerceAtMost(8)
                                     3 -> racingPlayerLane = (racingPlayerLane + 1).coerceAtMost(2)
-                                    4 -> { if (snakeDirection.second != -1) snakeDirection = Pair(0, 1) }
+                                    4 -> queueSnakeDirection(0, 1)
                                     5 -> breakoutPaddleCol = (breakoutPaddleCol + 1).coerceAtMost(8)
                                 }
                             }
@@ -1340,7 +1368,7 @@ fun TetrisGame(
                             } else {
                                 when (gameType) {
                                     1 -> rotateTetrisPiece(true)
-                                    4 -> { if (snakeDirection.first != 1) snakeDirection = Pair(-1, 0) }
+                                    4 -> queueSnakeDirection(-1, 0)
                                 }
                             }
                             consumed = true
@@ -1353,7 +1381,7 @@ fun TetrisGame(
                             } else {
                                 when (gameType) {
                                     1 -> moveTetrisDown()
-                                    4 -> { if (snakeDirection.first != -1) snakeDirection = Pair(1, 0) }
+                                    4 -> queueSnakeDirection(1, 0)
                                 }
                             }
                             consumed = true
@@ -1403,7 +1431,7 @@ fun TetrisGame(
                         AndroidKeyEvent.KEYCODE_BUTTON_START -> {
                             if (gameType > 0) {
                                 triggerVibration(30)
-                                isPaused = !isPaused
+                                if (isGameOver) resetAndStartGame(gameType) else isPaused = !isPaused
                                 playBeep(ToneGenerator.TONE_PROP_ACK)
                             }
                             consumed = true
@@ -2183,7 +2211,7 @@ fun TetrisGame(
                                         } else {
                                             when (gameType) {
                                                 1 -> rotateTetrisPiece(true)
-                                                4 -> { if (snakeDirection.first != 1) snakeDirection = Pair(-1, 0) }
+                                                4 -> queueSnakeDirection(-1, 0)
                                             }
                                         }
                                     },
@@ -2215,7 +2243,7 @@ fun TetrisGame(
                                         } else {
                                             when (gameType) {
                                                 1 -> moveTetrisDown()
-                                                4 -> { if (snakeDirection.first != -1) snakeDirection = Pair(1, 0) }
+                                                4 -> queueSnakeDirection(1, 0)
                                             }
                                         }
                                     },
@@ -2246,7 +2274,7 @@ fun TetrisGame(
                                                 1 -> moveTetrisLeft()
                                                 2 -> shooterPlayerCol = (shooterPlayerCol - 1).coerceAtLeast(1)
                                                 3 -> racingPlayerLane = (racingPlayerLane - 1).coerceAtLeast(0)
-                                                4 -> { if (snakeDirection.second != 1) snakeDirection = Pair(0, -1) }
+                                                4 -> queueSnakeDirection(0, -1)
                                                 5 -> breakoutPaddleCol = (breakoutPaddleCol - 1).coerceAtLeast(1)
                                             }
                                         }
@@ -2273,7 +2301,7 @@ fun TetrisGame(
                                                 1 -> moveTetrisRight()
                                                 2 -> shooterPlayerCol = (shooterPlayerCol + 1).coerceAtMost(8)
                                                 3 -> racingPlayerLane = (racingPlayerLane + 1).coerceAtMost(2)
-                                                4 -> { if (snakeDirection.second != -1) snakeDirection = Pair(0, 1) }
+                                                4 -> queueSnakeDirection(0, 1)
                                                 5 -> breakoutPaddleCol = (breakoutPaddleCol + 1).coerceAtMost(8)
                                             }
                                         }
@@ -2432,6 +2460,8 @@ fun TetrisGame(
                                     triggerVibration(30)
                                     if (gameType == 0) {
                                         resetAndStartGame(selectedGameId)
+                                    } else if (isGameOver) {
+                                        resetAndStartGame(gameType)
                                     } else {
                                         isPaused = !isPaused
                                         playBeep(ToneGenerator.TONE_PROP_ACK)

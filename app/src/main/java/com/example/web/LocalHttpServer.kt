@@ -14603,6 +14603,7 @@ class LocalHttpServer(
         // Mode 4: Snake
         window.brickSnakeBody = [{ r: 10, c: 5 }, { r: 11, c: 5 }, { r: 12, c: 5 }];
         window.brickSnakeDir = { r: -1, c: 0 };
+        window.brickSnakePendingDir = null;
         window.brickSnakeFood = { r: 5, c: 5 };
         window.brickSnakeTicks = 0;
 
@@ -15068,6 +15069,7 @@ class LocalHttpServer(
             } else if (type === 4) { // Snake
                 window.brickSnakeBody = [{ r: 10, c: 5 }, { r: 11, c: 5 }, { r: 12, c: 5 }];
                 window.brickSnakeDir = { r: -1, c: 0 };
+                window.brickSnakePendingDir = null;
                 window.brickSnakeTicks = 0;
                 spawnSnakeFood();
             } else if (type === 5) { // Breakout
@@ -15789,9 +15791,8 @@ class LocalHttpServer(
                 if (window.brickGameType === 1) moveTetrisLeft();
                 else if (window.brickGameType === 2) window.brickShooterCol = Math.max(1, window.brickShooterCol - 1);
                 else if (window.brickGameType === 3) window.brickRacingLane = Math.max(0, window.brickRacingLane - 1);
-                else if (window.brickGameType === 4) {
-                    if (window.brickSnakeDir.c !== 1) window.brickSnakeDir = { r: 0, c: -1 };
-                } else if (window.brickGameType === 5) window.brickBreakoutPaddleCol = Math.max(1, window.brickBreakoutPaddleCol - 1);
+                else if (window.brickGameType === 4) queueSnakeDir(0, -1);
+                else if (window.brickGameType === 5) window.brickBreakoutPaddleCol = Math.max(1, window.brickBreakoutPaddleCol - 1);
                 playBrickBeep('move');
                 drawBrickGame();
             }
@@ -15808,9 +15809,8 @@ class LocalHttpServer(
                 if (window.brickGameType === 1) moveTetrisRight();
                 else if (window.brickGameType === 2) window.brickShooterCol = Math.min(8, window.brickShooterCol + 1);
                 else if (window.brickGameType === 3) window.brickRacingLane = Math.min(2, window.brickRacingLane + 1);
-                else if (window.brickGameType === 4) {
-                    if (window.brickSnakeDir.c !== -1) window.brickSnakeDir = { r: 0, c: 1 };
-                } else if (window.brickGameType === 5) window.brickBreakoutPaddleCol = Math.min(8, window.brickBreakoutPaddleCol + 1);
+                else if (window.brickGameType === 4) queueSnakeDir(0, 1);
+                else if (window.brickGameType === 5) window.brickBreakoutPaddleCol = Math.min(8, window.brickBreakoutPaddleCol + 1);
                 playBrickBeep('move');
                 drawBrickGame();
             }
@@ -15826,8 +15826,7 @@ class LocalHttpServer(
             } else if (window.brickGameType === 1) {
                 rotateTetrisPiece(true);
             } else if (window.brickGameType === 4) {
-                if (window.brickSnakeDir.r !== 1) window.brickSnakeDir = { r: -1, c: 0 };
-                playBrickBeep('move');
+                queueSnakeDir(-1, 0);
             }
         }
 
@@ -15841,8 +15840,7 @@ class LocalHttpServer(
             } else if (window.brickGameType === 1) {
                 moveTetrisDown();
             } else if (window.brickGameType === 4) {
-                if (window.brickSnakeDir.r !== -1) window.brickSnakeDir = { r: 1, c: 0 };
-                playBrickBeep('move');
+                queueSnakeDir(1, 0);
             }
         }
 
@@ -15918,13 +15916,9 @@ class LocalHttpServer(
                 return [Math.round(nr), Math.round(nc)];
             });
 
-            // Normalize so min row and min col are >= 0
-            let minR = Math.min(...newCoords.map(c => c[0]));
-            let minC = Math.min(...newCoords.map(c => c[1]));
-            if (minR < 0 || minC < 0) {
-                newCoords = newCoords.map(c => [c[0] - (minR < 0 ? minR : 0), c[1] - (minC < 0 ? minC : 0)]);
-            }
-
+            // Baris negatif dibiarkan (area spawn di atas papan, sama seperti
+            // versi native). Normalisasi lama menggeser potongan ke bawah satu
+            // baris saat diputar di baris 0, sehingga balok terlihat turun sendiri.
             const kicks = [[0, 0], [0, -1], [0, 1], [0, -2], [0, 2], [-1, 0]];
             for (let kick of kicks) {
                 if (canPlaceTetrisPiece(newCoords, window.brickCurRow + kick[0], window.brickCurCol + kick[1])) {
@@ -16056,17 +16050,13 @@ class LocalHttpServer(
                 }
             }
 
-            // Bullet vs Enemy Collision
+            // Bullet vs Enemy Collision. Hanya satu peluru yang dipakai per
+            // musuh supaya peluru lain tidak ikut hilang percuma.
             window.brickShooterEnemies = window.brickShooterEnemies.filter(enemy => {
-                let hit = false;
-                window.brickShooterBullets = window.brickShooterBullets.filter(bullet => {
-                    if (bullet.c === enemy.c && (bullet.r === enemy.r || bullet.r === enemy.r - 1)) {
-                        hit = true;
-                        return false;
-                    }
-                    return true;
-                });
-                if (hit) {
+                const hitIdx = window.brickShooterBullets.findIndex(bullet =>
+                    bullet.c === enemy.c && (bullet.r === enemy.r || bullet.r === enemy.r - 1));
+                if (hitIdx !== -1) {
+                    window.brickShooterBullets.splice(hitIdx, 1);
                     window.brickScore += 50;
                     checkAndUpdateHighScore();
                     updateBrickHUD();
@@ -16124,15 +16114,16 @@ class LocalHttpServer(
                 obs.r += 1;
             }
 
-            // Check collision with player car (player is at row 16..19, lane: window.brickRacingLane)
+            // Check collision with player car (player is at row 16..19). Badan
+            // mobil selebar 3 sel, jadi tabrakan terjadi saat jarak kolom < 3.
+            const playerCol = getLaneCol(window.brickRacingLane);
             for (let obs of window.brickRacingObstacles) {
-                if (obs.lane === window.brickRacingLane) {
-                    // Enemy spans row obs.r to obs.r + 3
-                    if (obs.r + 3 >= 16 && obs.r <= 19) {
-                        playBrickBeep('crash');
-                        handleBrickGameOver();
-                        return;
-                    }
+                const obsCol = getLaneCol(obs.lane);
+                const overlapCol = Math.abs(playerCol - obsCol) < 3;
+                if (overlapCol && obs.r + 3 >= 16 && obs.r <= 19) {
+                    playBrickBeep('crash');
+                    handleBrickGameOver();
+                    return;
                 }
             }
 
@@ -16150,10 +16141,13 @@ class LocalHttpServer(
                 return true;
             });
 
-            // Spawn new obstacle
+            // Spawn new obstacle, tetapi jangan menumpuk di lane yang masih dekat
             if (window.brickRacingObstacles.length === 0 || (window.brickRacingObstacles[window.brickRacingObstacles.length - 1].r >= 8)) {
-                if (Math.random() < 0.6) {
-                    const newLane = Math.floor(Math.random() * 3);
+                const busyCols = window.brickRacingObstacles.filter(o => o.r < 10).map(o => getLaneCol(o.lane));
+                const freeLanes = [0, 1, 2].filter(l =>
+                    busyCols.every(bc => Math.abs(getLaneCol(l) - bc) >= 3));
+                if (freeLanes.length > 0 && Math.random() < 0.6) {
+                    const newLane = freeLanes[Math.floor(Math.random() * freeLanes.length)];
                     window.brickRacingObstacles.push({ r: -4, lane: newLane });
                 }
             }
@@ -16175,10 +16169,26 @@ class LocalHttpServer(
             }
         }
 
+        // Arah masuk antrean satu langkah dan dibandingkan dengan arah yang
+        // sedang berjalan, sehingga dua tombol dalam satu tick tidak bisa
+        // membuat ular berbalik 180 derajat ke tubuhnya sendiri.
+        function queueSnakeDir(r, c) {
+            if (window.brickGameOver || window.brickIsPaused) return;
+            const current = window.brickSnakeDir;
+            if (current.r === -r && current.c === -c) return;
+            if (current.r === r && current.c === c) return;
+            window.brickSnakePendingDir = { r, c };
+        }
+
         function updateSnake() {
             window.brickSnakeTicks++;
             const speedLimit = Math.max(2, 8 - window.brickLevel);
             if (window.brickSnakeTicks % speedLimit !== 0) return;
+
+            if (window.brickSnakePendingDir) {
+                window.brickSnakeDir = window.brickSnakePendingDir;
+                window.brickSnakePendingDir = null;
+            }
 
             const head = window.brickSnakeBody[0];
             const nextH = {
@@ -16193,8 +16203,9 @@ class LocalHttpServer(
                 return;
             }
 
-            // Self collision
-            if (window.brickSnakeBody.some(b => b.r === nextH.r && b.c === nextH.c)) {
+            // Self collision. Sel ekor dikecualikan karena akan bergeser.
+            const bodyExceptTail = window.brickSnakeBody.slice(0, Math.max(0, window.brickSnakeBody.length - 1));
+            if (bodyExceptTail.some(b => b.r === nextH.r && b.c === nextH.c)) {
                 playBrickBeep('crash');
                 handleBrickGameOver();
                 return;
@@ -16224,6 +16235,7 @@ class LocalHttpServer(
         function updateBreakout() {
             if (window.brickGameOver || window.brickIsPaused) return;
 
+            const prevY = window.brickBallY;
             window.brickBallX += window.brickBallVx;
             window.brickBallY += window.brickBallVy;
 
@@ -16245,24 +16257,24 @@ class LocalHttpServer(
                 playBrickBeep('move');
             }
 
-            // Paddle bounce (Paddle is at Row 19, width 3: padCol - 1, padCol, padCol + 1)
-            // The ball hits paddle top only when moving downwards (Vy > 0) and in row 18..19
-            if (window.brickBallVy > 0 && window.brickBallY >= 18.0 && window.brickBallY <= 19.0) {
-                const ballCol = Math.round(window.brickBallX);
+            // Paddle bounce (paddle is drawn on row 19). Deteksi perlintasan
+            // permukaan atas paddle supaya bola cepat tidak menembusnya.
+            if (window.brickBallVy > 0 && prevY < 19.0 && window.brickBallY >= 19.0) {
+                const ballCol = Math.max(0, Math.min(9, Math.floor(window.brickBallX)));
                 const padL = window.brickBreakoutPaddleCol - 1;
                 const padR = window.brickBreakoutPaddleCol + 1;
                 if (ballCol >= padL && ballCol <= padR) {
-                    window.brickBallY = 18.0;
+                    window.brickBallY = 19.0;
                     window.brickBallVy = -Math.abs(window.brickBallVy);
 
-                    const offset = window.brickBallX - window.brickBreakoutPaddleCol;
-                    window.brickBallVx = Math.max(-0.6, Math.min(0.6, window.brickBallVx + offset * 0.22));
+                    const offset = Math.max(-2, Math.min(2, window.brickBallX - window.brickBreakoutPaddleCol));
+                    window.brickBallVx = Math.max(-0.65, Math.min(0.65, window.brickBallVx + offset * 0.22));
                     playBrickBeep('hit');
                 }
             }
 
             // Brick Hit Detection (Rows 1..4)
-            const padCol = Math.max(0, Math.min(9, Math.round(window.brickBallX)));
+            const padCol = Math.max(0, Math.min(9, Math.floor(window.brickBallX)));
             const padRow = Math.floor(window.brickBallY);
             if (padRow >= 1 && padRow <= 4) {
                 const hitIdx = window.brickBreakoutBricks.findIndex(b => b.r === padRow && b.c === padCol);
@@ -16276,7 +16288,8 @@ class LocalHttpServer(
 
                     if (window.brickBreakoutBricks.length === 0) {
                         window.brickLevel++;
-                        window.brickBallVx = (Math.random() > 0.5 ? 0.38 : -0.38);
+                        window.brickBallVx = (window.brickBallVx * 1.15);
+                        window.brickBallVx = Math.max(-0.75, Math.min(0.75, window.brickBallVx));
                         window.brickBallVy = -0.48;
                         window.brickBallX = window.brickBreakoutPaddleCol;
                         window.brickBallY = 18.0;
@@ -16291,7 +16304,8 @@ class LocalHttpServer(
 
             // Bottom floor drop - ball missed paddle and fell off screen
             if (window.brickBallY >= 20.0) {
-                window.brickLives--;
+                window.brickBallY = 20.0;
+                window.brickLives = Math.max(0, window.brickLives - 1);
                 updateBrickHUD();
                 playBrickBeep('crash');
 
