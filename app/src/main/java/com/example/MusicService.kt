@@ -395,6 +395,9 @@ class MusicService : Service() {
                 player.setOnErrorListener { _, _, _ ->
                     isMusicPlaying = false
                     MainViewModel.instance?.isMusicPlaying = false
+                    MainViewModel.instance?.showToastPopup(
+                        "Tidak bisa memutar ${track.title}. Berkas rusak atau formatnya tidak didukung perangkat ini."
+                    )
                     if (musicPlaylist.size > 1) {
                         playNext()
                     }
@@ -432,6 +435,11 @@ class MusicService : Service() {
             isMusicPlaying = false
             MainViewModel.instance?.isMusicPlaying = false
             android.util.Log.e("MusicService", "playTrack gagal: ${e.message}")
+            if (playFailureStreak == 0) {
+                MainViewModel.instance?.showToastPopup(
+                    "Tidak bisa memutar ${track.title}. Berkas rusak atau formatnya tidak didukung perangkat ini."
+                )
+            }
             // Lompat otomatis ke trek berikutnya tanpa batas berbahaya bila folder musik
             // sudah dipindah/hilang: setiap trek melempar exception dan playNext()
             // memanggil ulang playTrack() secara rekursif sampai StackOverflowError.

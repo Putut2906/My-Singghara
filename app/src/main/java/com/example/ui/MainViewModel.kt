@@ -2810,8 +2810,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     /**
      * Memindai berkas audio: folder My Singghara/Data/mp3 (selalu) plus MediaStore
-     * perangkat. Pemindaian folder langsung selalu digabung agar berkas yang belum
-     * terindeks MediaStore tidak terlewat; izin yang dipakai hanya izin audio.
+     * perangkat. Format yang didukung MP3, AAC, FLAC/ALAC, WAV, dan AIFF. Pemindaian
+     * folder langsung selalu digabung agar berkas yang belum terindeks MediaStore
+     * tidak terlewat; izin yang dipakai hanya izin audio.
      */
     @Volatile
     private var lastFolderScanAtMillis = 0L
@@ -2842,7 +2843,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     val mp3CoverUri = mp3Folder.listFiles { f ->
                         f.isFile && isCoverFileName(f.name)
                     }?.firstOrNull()?.let { Uri.fromFile(it).toString() }
-                    val files = mp3Folder.listFiles { f -> f.isFile && f.name.endsWith(".mp3", ignoreCase = true) }
+                    val files = mp3Folder.listFiles { f -> f.isFile && com.example.util.AudioFormats.isSupported(f.name) }
                     files?.forEach { f ->
                         knownPaths.add(f.absolutePath.lowercase(Locale.ROOT))
                         appFolderNames.add(f.name.lowercase(Locale.ROOT))
@@ -2850,7 +2851,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             MusicTrack(
                                 id = "mysingghara_${nextId++}",
                                 title = f.nameWithoutExtension,
-                                artist = "My Singghara MP3",
+                                artist = "My Singghara",
                                 uriStr = Uri.fromFile(f).toString(),
                                 coverUriStr = mp3CoverUri,
                                 folder = "My Singghara"
@@ -2863,8 +2864,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 Log.w("MusicScan", "Folder mp3 aplikasi gagal dibaca: ${e.message}")
             }
 
-            // 2. MediaStore. Kueri pertama khusus .mp3; bila kosong, ulangi untuk
-            //    semua audio agar berkas yang metadata namanya tidak biasa tetap terbaca.
+            // 2. MediaStore: SATU kueri untuk semua audio. Dulu kueri pertama khusus
+            //    .mp3 lalu berhenti saat ada hasil, sehingga AAC/FLAC/WAV/AIFF tidak
+            //    pernah masuk daftar bila perangkat juga menyimpan MP3.
             var deviceTracks = 0
             if (canReadDeviceAudio) {
                 val collection = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
@@ -2883,87 +2885,75 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     MediaStore.Audio.Media.SIZE,
                     "bucket_display_name"
                 )
-                val supportedExtensions = setOf("mp3", "wav", "m4a", "aac", "flac", "ogg", "opus")
                 val noiseFolders = listOf("/ringtones/", "/notifications/", "/alarms/")
-                val attempts = listOf(
-                    "${MediaStore.Audio.Media.DISPLAY_NAME} LIKE ?" to arrayOf("%.mp3"),
-                    "${MediaStore.Audio.Media.MIME_TYPE} LIKE ?" to arrayOf("audio/%")
-                )
-                for ((selection, selectionArgs) in attempts) {
-                    val found = mutableListOf<MusicTrack>()
-                    try {
-                        context.contentResolver.query(
-                            collection,
-                            projection,
-                            selection,
-                            selectionArgs,
-                            "${MediaStore.Audio.Media.TITLE} COLLATE NOCASE ASC"
-                        )?.use { cursor ->
-                            val idIdx = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media._ID)
-                            val titleIdx = cursor.getColumnIndex(MediaStore.Audio.Media.TITLE)
-                            val artistIdx = cursor.getColumnIndex(MediaStore.Audio.Media.ARTIST)
-                            val nameIdx = cursor.getColumnIndex(MediaStore.Audio.Media.DISPLAY_NAME)
-                            val durationIdx = cursor.getColumnIndex(MediaStore.Audio.Media.DURATION)
-                            val dataIdx = cursor.getColumnIndex(MediaStore.Audio.Media.DATA)
-                            val sizeIdx = cursor.getColumnIndex(MediaStore.Audio.Media.SIZE)
-                            val bucketIdx = cursor.getColumnIndex("bucket_display_name")
-                            while (cursor.moveToNext()) {
-                                val id = cursor.getLong(idIdx)
-                                val displayName = cursor.textAt(nameIdx)
-                                val extension = displayName
-                                    ?.substringAfterLast('.', "")
-                                    ?.lowercase(Locale.ROOT)
-                                    .orEmpty()
-                                if (extension !in supportedExtensions) continue
-                                val title = cursor.textAt(titleIdx)?.takeIf { it.isNotBlank() }
-                                    ?: displayName?.substringBeforeLast('.')
-                                    ?: continue
-                                val artist = cursor.textAt(artistIdx)
-                                    ?.takeIf { it.isNotBlank() && it != "<unknown>" }
-                                    ?: "Penyimpanan Perangkat"
-                                val dataPath = cursor.textAt(dataIdx)
-                                val pathKey = dataPath?.lowercase(Locale.ROOT)
-                                val sizeBytes = if (sizeIdx >= 0) cursor.getLong(sizeIdx) else 0L
-                                val fileKey = displayName
-                                    ?.lowercase(Locale.ROOT)
-                                    ?.let { "$it|$sizeBytes" }
-                                // Nada dering/notifikasi bukan bagian pustaka musik.
-                                if (pathKey != null && noiseFolders.any { pathKey.contains(it) }) continue
-                                if (pathKey != null) {
-                                    // Hanya lewati berkas yang sudah masuk lewat folder aplikasi.
-                                    if (!knownPaths.add(pathKey)) continue
-                                } else {
-                                    if (displayName != null && appFolderNames.contains(displayName.lowercase(Locale.ROOT))) {
-                                        continue
-                                    }
-                                    // Baris tanpa DATA hanya bisa dikenali dari nama dan ukuran.
-                                    if (fileKey != null) knownFileKeys.add(fileKey)
+                val found = mutableListOf<MusicTrack>()
+                try {
+                    context.contentResolver.query(
+                        collection,
+                        projection,
+                        null,
+                        null,
+                        "${MediaStore.Audio.Media.TITLE} COLLATE NOCASE ASC"
+                    )?.use { cursor ->
+                        val idIdx = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media._ID)
+                        val titleIdx = cursor.getColumnIndex(MediaStore.Audio.Media.TITLE)
+                        val artistIdx = cursor.getColumnIndex(MediaStore.Audio.Media.ARTIST)
+                        val nameIdx = cursor.getColumnIndex(MediaStore.Audio.Media.DISPLAY_NAME)
+                        val durationIdx = cursor.getColumnIndex(MediaStore.Audio.Media.DURATION)
+                        val dataIdx = cursor.getColumnIndex(MediaStore.Audio.Media.DATA)
+                        val sizeIdx = cursor.getColumnIndex(MediaStore.Audio.Media.SIZE)
+                        val bucketIdx = cursor.getColumnIndex("bucket_display_name")
+                        while (cursor.moveToNext()) {
+                            val id = cursor.getLong(idIdx)
+                            val displayName = cursor.textAt(nameIdx)
+                            // MediaStore juga memuat format yang tidak diputar aplikasi
+                            // (mis. rekaman AMR); saring lewat ekstensi yang didukung.
+                            if (!com.example.util.AudioFormats.isSupported(displayName)) continue
+                            val title = cursor.textAt(titleIdx)?.takeIf { it.isNotBlank() }
+                                ?: displayName?.substringBeforeLast('.')
+                                ?: continue
+                            val artist = cursor.textAt(artistIdx)
+                                ?.takeIf { it.isNotBlank() && it != "<unknown>" }
+                                ?: "Penyimpanan Perangkat"
+                            val dataPath = cursor.textAt(dataIdx)
+                            val pathKey = dataPath?.lowercase(Locale.ROOT)
+                            val sizeBytes = if (sizeIdx >= 0) cursor.getLong(sizeIdx) else 0L
+                            val fileKey = displayName
+                                ?.lowercase(Locale.ROOT)
+                                ?.let { "$it|$sizeBytes" }
+                            // Nada dering/notifikasi bukan bagian pustaka musik.
+                            if (pathKey != null && noiseFolders.any { pathKey.contains(it) }) continue
+                            if (pathKey != null) {
+                                // Hanya lewati berkas yang sudah masuk lewat folder aplikasi.
+                                if (!knownPaths.add(pathKey)) continue
+                            } else {
+                                if (displayName != null && appFolderNames.contains(displayName.lowercase(Locale.ROOT))) {
+                                    continue
                                 }
-                                val folderName = cursor.textAt(bucketIdx)?.trim()?.takeIf { it.isNotEmpty() }
-                                    ?: dataPath?.substringBeforeLast('/')?.substringAfterLast('/')?.takeIf { it.isNotEmpty() }
-                                    ?: "Musik"
-                                val uri = ContentUris.withAppendedId(collection, id)
-                                found.add(
-                                    MusicTrack(
-                                        id = "device_$id",
-                                        title = title,
-                                        artist = artist,
-                                        uriStr = uri.toString(),
-                                        durationMs = if (durationIdx >= 0) cursor.getLong(durationIdx) else 0L,
-                                        folder = folderName
-                                    )
-                                )
+                                // Baris tanpa DATA hanya bisa dikenali dari nama dan ukuran.
+                                if (fileKey != null) knownFileKeys.add(fileKey)
                             }
+                            val folderName = cursor.textAt(bucketIdx)?.trim()?.takeIf { it.isNotEmpty() }
+                                ?: dataPath?.substringBeforeLast('/')?.substringAfterLast('/')?.takeIf { it.isNotEmpty() }
+                                ?: "Musik"
+                            val uri = ContentUris.withAppendedId(collection, id)
+                            found.add(
+                                MusicTrack(
+                                    id = "device_$id",
+                                    title = title,
+                                    artist = artist,
+                                    uriStr = uri.toString(),
+                                    durationMs = if (durationIdx >= 0) cursor.getLong(durationIdx) else 0L,
+                                    folder = folderName
+                                )
+                            )
                         }
-                    } catch (e: Exception) {
-                        Log.w("MusicScan", "Kueri MediaStore gagal ($selection): ${e.message}")
                     }
-                    if (found.isNotEmpty()) {
-                        tracks.addAll(found)
-                        deviceTracks = found.size
-                        break
-                    }
+                } catch (e: Exception) {
+                    Log.w("MusicScan", "Kueri MediaStore gagal: ${e.message}")
                 }
+                tracks.addAll(found)
+                deviceTracks = found.size
             }
 
             // 3. Pemindaian folder langsung, selalu digabung dengan MediaStore agar
@@ -2972,7 +2962,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             if (deepScan) {
                 lastFolderScanAtMillis = now
                 try {
-                    val audioExtensions = setOf("mp3", "wav", "m4a", "aac", "flac", "ogg", "opus")
+                    val audioExtensions = com.example.util.AudioFormats.extensions
                     val skippedFolders = setOf(
                         "android", "ringtones", "notifications", "alarms", ".thumbnails",
                         "lost.dir", "\$recycle.bin", ".trash", "cache",

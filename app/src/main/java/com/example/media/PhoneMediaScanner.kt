@@ -13,6 +13,7 @@ import android.provider.MediaStore
 import android.util.LruCache
 import android.util.Size
 import androidx.core.content.ContextCompat
+import com.example.util.AudioFormats
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.ByteArrayOutputStream
@@ -136,6 +137,7 @@ object PhoneMediaScanner {
             MediaStore.Audio.Media.SIZE,
             MediaStore.Audio.Media.DATE_ADDED,
             MediaStore.Audio.Media.MIME_TYPE,
+            MediaStore.Audio.Media.DISPLAY_NAME,
             MediaStore.Audio.Media.DATA,
             "album_artist",
             "bucket_display_name"
@@ -167,6 +169,7 @@ object PhoneMediaScanner {
         val sizeCol = cursor.getColumnIndex(MediaStore.Audio.Media.SIZE)
         val dateCol = cursor.getColumnIndex(MediaStore.Audio.Media.DATE_ADDED)
         val mimeCol = cursor.getColumnIndex(MediaStore.Audio.Media.MIME_TYPE)
+        val nameCol = cursor.getColumnIndex(MediaStore.Audio.Media.DISPLAY_NAME)
         val dataCol = cursor.getColumnIndex(MediaStore.Audio.Media.DATA)
         while (cursor.moveToNext()) {
             val namedArtist = cursor.stringAt(albumArtistCol).orFallback(cursor.stringAt(artistCol))
@@ -178,7 +181,7 @@ object PhoneMediaScanner {
                 folder = cursor.stringAt(bucketCol)?.takeIf { it.isNotBlank() } ?: "Musik",
                 durationMs = if (durationCol >= 0) cursor.getLong(durationCol) else 0L,
                 sizeBytes = if (sizeCol >= 0) cursor.getLong(sizeCol) else 0L,
-                mimeType = cursor.stringAt(mimeCol) ?: "audio/mpeg",
+                mimeType = cursor.stringAt(mimeCol) ?: AudioFormats.mimeTypeOf(cursor.stringAt(nameCol)),
                 dateAddedSec = if (dateCol >= 0) cursor.getLong(dateCol) else 0L,
                 lyricsPath = resolveLyricsPath(cursor.stringAt(dataCol))
             )

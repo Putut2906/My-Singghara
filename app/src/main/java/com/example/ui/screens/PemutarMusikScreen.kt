@@ -164,7 +164,7 @@ fun PemutarMusikScreen(viewModel: MainViewModel, onOpenDrawer: () -> Unit) {
             viewModel.showToastPopup("Akses media berhasil diaktifkan!")
             requestPlaybackNotificationPermission()
         } else {
-            viewModel.showToastPopup("Akses audio ditolak. Lagu .mp3 perangkat belum bisa dibaca.")
+            viewModel.showToastPopup("Akses audio ditolak. Lagu di perangkat belum bisa dibaca.")
         }
     }
 
@@ -500,9 +500,9 @@ fun PemutarMusikScreen(viewModel: MainViewModel, onOpenDrawer: () -> Unit) {
                                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                     EmptyStatePlaceholder(
                                         message = if (hasMediaAccess) {
-                                            "Tidak ada file .mp3 yang ditemukan di perangkat ini."
+                                            "Tidak ada file audio (MP3, AAC, FLAC, WAV, AIFF) yang ditemukan di perangkat ini."
                                         } else {
-                                            "Izinkan akses media agar file .mp3 di perangkat bisa dibaca dan diputar."
+                                            "Izinkan akses media agar file audio (MP3, AAC, FLAC, WAV, AIFF) di perangkat bisa dibaca dan diputar."
                                         }
                                     )
                                     if (!hasMediaAccess) {
@@ -2127,7 +2127,7 @@ fun PemutarMusikScreen(viewModel: MainViewModel, onOpenDrawer: () -> Unit) {
                                             requestMediaAccess()
                                         } else {
                                             viewModel.scanDeviceMusic(context, force = true)
-                                            viewModel.showToastPopup("Memindai ulang file .mp3 perangkat...")
+                                            viewModel.showToastPopup("Memindai ulang file audio perangkat...")
                                         }
                                     }
                                     .padding(16.dp)
@@ -2157,7 +2157,7 @@ fun PemutarMusikScreen(viewModel: MainViewModel, onOpenDrawer: () -> Unit) {
                                         )
                                         Spacer(modifier = Modifier.height(2.dp))
                                         Text(
-                                            text = "Segarkan daftar .mp3 dari penyimpanan perangkat",
+                                            text = "Segarkan daftar audio dari penyimpanan perangkat",
                                             fontSize = 12.sp,
                                             color = MaterialTheme.colorScheme.onSurfaceVariant
                                         )
