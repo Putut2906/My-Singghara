@@ -527,10 +527,17 @@ class MainActivity : FragmentActivity() {
                     } catch (_: Exception) {}
                 }
                 viewModel.sharedReceiptUri = uri
-                viewModel.sharedReceiptText = sharedText
+                viewModel.sharedReceiptText = sharedText?.trim()?.takeIf { it.isNotEmpty() }
                 viewModel.showSharedReceiptDialog = true
                 viewModel.currentRoute = "tabungan"
             }
+
+            // Share hanya boleh diproses sekali. Tanpa ini intent yang sama
+            // diproses ulang saat activity dibuat ulang dan dialog muncul lagi.
+            intent.action = null
+            intent.removeExtra(Intent.EXTRA_STREAM)
+            intent.removeExtra(Intent.EXTRA_TEXT)
+            intent.clipData = null
         }
     }
 

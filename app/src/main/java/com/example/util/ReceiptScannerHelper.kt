@@ -298,6 +298,15 @@ object ReceiptScannerHelper {
     }
 
     fun loadBitmapFromUri(context: Context, uri: Uri): Bitmap? {
+        // Sebagian aplikasi lama membagikan bukti lewat skema file://,
+        // yang tidak bisa dibaca lewat ContentResolver/ImageDecoder.
+        if (uri.scheme == "file") {
+            return try {
+                BitmapFactory.decodeFile(uri.path)
+            } catch (_: Exception) {
+                null
+            }
+        }
         return try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
                 val source = ImageDecoder.createSource(context.contentResolver, uri)
