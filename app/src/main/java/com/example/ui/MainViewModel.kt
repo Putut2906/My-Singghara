@@ -2810,12 +2810,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     /**
      * Memindai berkas audio: folder My Singghara/Data/mp3 (selalu) plus MediaStore
-     * perangkat. Bila MediaStore belum mengindeks berkas, folder Music/Download
-     * dibaca langsung sebagai cadangan. Izin yang dipakai hanya izin audio.
+     * perangkat. Pemindaian folder langsung selalu digabung agar berkas yang belum
+     * terindeks MediaStore tidak terlewat; izin yang dipakai hanya izin audio.
      */
+    @Volatile
+    private var lastFolderScanAtMillis = 0L
+
     @Suppress("DEPRECATION")
-    fun scanDeviceMusic(context: Context) {
+    fun scanDeviceMusic(context: Context, force: Boolean = false) {
         val canReadDeviceAudio = com.example.util.MediaPermission.hasAudioAccess(context)
+        val now = System.currentTimeMillis()
+        // Pemindaian folder seluruh penyimpanan cukup berat; ulangi paling cepat 30 detik
+        // kecuali pengguna menekan "Pindai Ulang Media" (force = true).
+        val deepScan = canReadDeviceAudio && (force || now - lastFolderScanAtMillis >= 30_000L)
         isMusicLoading = musicPlaylist.isEmpty()
         viewModelScope.launch(Dispatchers.IO) {
             val tracks = mutableListOf<MusicTrack>()
@@ -2825,6 +2832,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             // Mencegah lagu folder aplikasi tampil dua kali dari MediaStore.
             val knownPaths = mutableSetOf<String>()
             val appFolderNames = mutableSetOf<String>()
+            // Kunci nama|ukuran untuk baris MediaStore yang tidak menyertakan path.
+            val knownFileKeys = mutableSetOf<String>()
 
             // 1. Folder aplikasi; selalu terbaca tanpa izin media.
             try {
@@ -2871,6 +2880,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     MediaStore.Audio.Media.DURATION,
                     MediaStore.Audio.Media.MIME_TYPE,
                     MediaStore.Audio.Media.DATA,
+                    MediaStore.Audio.Media.SIZE,
                     "bucket_display_name"
                 )
                 val supportedExtensions = setOf("mp3", "wav", "m4a", "aac", "flac", "ogg", "opus")
@@ -2895,6 +2905,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             val nameIdx = cursor.getColumnIndex(MediaStore.Audio.Media.DISPLAY_NAME)
                             val durationIdx = cursor.getColumnIndex(MediaStore.Audio.Media.DURATION)
                             val dataIdx = cursor.getColumnIndex(MediaStore.Audio.Media.DATA)
+                            val sizeIdx = cursor.getColumnIndex(MediaStore.Audio.Media.SIZE)
                             val bucketIdx = cursor.getColumnIndex("bucket_display_name")
                             while (cursor.moveToNext()) {
                                 val id = cursor.getLong(idIdx)
@@ -2912,13 +2923,21 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                                     ?: "Penyimpanan Perangkat"
                                 val dataPath = cursor.textAt(dataIdx)
                                 val pathKey = dataPath?.lowercase(Locale.ROOT)
+                                val sizeBytes = if (sizeIdx >= 0) cursor.getLong(sizeIdx) else 0L
+                                val fileKey = displayName
+                                    ?.lowercase(Locale.ROOT)
+                                    ?.let { "$it|$sizeBytes" }
                                 // Nada dering/notifikasi bukan bagian pustaka musik.
                                 if (pathKey != null && noiseFolders.any { pathKey.contains(it) }) continue
                                 if (pathKey != null) {
                                     // Hanya lewati berkas yang sudah masuk lewat folder aplikasi.
                                     if (!knownPaths.add(pathKey)) continue
-                                } else if (displayName != null && appFolderNames.contains(displayName.lowercase(Locale.ROOT))) {
-                                    continue
+                                } else {
+                                    if (displayName != null && appFolderNames.contains(displayName.lowercase(Locale.ROOT))) {
+                                        continue
+                                    }
+                                    // Baris tanpa DATA hanya bisa dikenali dari nama dan ukuran.
+                                    if (fileKey != null) knownFileKeys.add(fileKey)
                                 }
                                 val folderName = cursor.textAt(bucketIdx)?.trim()?.takeIf { it.isNotEmpty() }
                                     ?: dataPath?.substringBeforeLast('/')?.substringAfterLast('/')?.takeIf { it.isNotEmpty() }
@@ -2947,30 +2966,72 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
             }
 
-            // 3. Berkas yang belum terindeks MediaStore: baca folder umum langsung.
-            if (canReadDeviceAudio && deviceTracks == 0) {
+            // 3. Pemindaian folder langsung, selalu digabung dengan MediaStore agar
+            //    berkas yang belum terindeks tetap masuk. Hasil MediaStore dilewati
+            //    lewat knownPaths (berdasarkan path) dan knownFileKeys (nama|ukuran).
+            if (deepScan) {
+                lastFolderScanAtMillis = now
                 try {
-                    val scanRoots = mutableListOf<File>()
-                    scanRoots.add(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MUSIC))
-                    scanRoots.add(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS))
-                    scanRoots.add(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOCUMENTS))
-                    scanRoots.add(File(Environment.getExternalStorageDirectory(), "My Singghara/Data/mp3"))
-                    scanRoots.add(com.example.util.SinggharaFolderManager.getMp3Folder(context))
-                    val skippedFolders = setOf("android", "ringtones", "notifications", "alarms", ".thumbnails")
                     val audioExtensions = setOf("mp3", "wav", "m4a", "aac", "flac", "ogg", "opus")
+                    val skippedFolders = setOf(
+                        "android", "ringtones", "notifications", "alarms", ".thumbnails",
+                        "lost.dir", "\$recycle.bin", ".trash", "cache",
+                        // Folder non-audio besar; memperlambat pemindaian tanpa hasil.
+                        "dcim", "pictures", "movies", "screenshots"
+                    )
                     val coverCache = mutableMapOf<String, String?>()
-                    for (root in scanRoots.distinct()) {
-                        if (!root.exists() || !root.isDirectory) continue
+                    val candidateRoots = mutableListOf<File>()
+                    try {
+                        context.getExternalFilesDirs(null).forEach { appDir ->
+                            val raw = appDir?.absolutePath ?: return@forEach
+                            // /storage/<volume>/Android/data/<pkg>/files -> /storage/<volume>
+                            val volumeRoot = raw.substringBefore("/Android/", "")
+                            if (volumeRoot.isNotBlank()) candidateRoots.add(File(volumeRoot))
+                        }
+                    } catch (e: Exception) {
+                        Log.w("MusicScan", "Gagal mendeteksi volume penyimpanan: ${e.message}")
+                    }
+                    listOf(
+                        Environment.DIRECTORY_MUSIC,
+                        Environment.DIRECTORY_DOWNLOADS,
+                        Environment.DIRECTORY_DOCUMENTS,
+                        Environment.DIRECTORY_PODCASTS
+                    ).forEach { dirName ->
+                        candidateRoots.add(Environment.getExternalStoragePublicDirectory(dirName))
+                    }
+                    candidateRoots.add(Environment.getExternalStorageDirectory())
+                    candidateRoots.add(File(Environment.getExternalStorageDirectory(), "My Singghara/Data/mp3"))
+                    candidateRoots.add(com.example.util.SinggharaFolderManager.getMp3Folder(context))
+
+                    // Folder yang sudah tercakup induknya tidak perlu dipindai ulang.
+                    val scanRoots = mutableListOf<File>()
+                    candidateRoots
+                        .filter { it.exists() && it.isDirectory }
+                        .distinctBy { it.absolutePath.lowercase(Locale.ROOT) }
+                        .sortedBy { it.absolutePath.length }
+                        .forEach { candidate ->
+                            val coveredByParent = scanRoots.any { root ->
+                                candidate.absolutePath.startsWith(root.absolutePath + File.separator)
+                            }
+                            if (!coveredByParent) scanRoots.add(candidate)
+                        }
+
+                    val maxFolderFiles = 2500
+                    for (root in scanRoots) {
+                        if (fallbackTracks >= maxFolderFiles) break
                         val files = try {
                             root.walkTopDown()
-                                .maxDepth(3)
-                                .onEnter { dir -> dir.name.lowercase(Locale.ROOT) !in skippedFolders }
+                                .maxDepth(6)
+                                .onEnter { dir ->
+                                    val lower = dir.name.lowercase(Locale.ROOT)
+                                    lower !in skippedFolders && !lower.startsWith(".")
+                                }
                                 .filter {
                                     it.isFile && it.name
                                         .substringAfterLast('.', "")
                                         .lowercase(Locale.ROOT) in audioExtensions
                                 }
-                                .take(1500)
+                                .take(maxFolderFiles - fallbackTracks)
                                 .toList()
                         } catch (e: Exception) {
                             Log.w("MusicScan", "Gagal membaca folder ${root.absolutePath}: ${e.message}")
@@ -2978,6 +3039,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         }
                         files.forEach { file ->
                             if (!knownPaths.add(file.absolutePath.lowercase(Locale.ROOT))) return@forEach
+                            // Baris MediaStore tanpa DATA hanya cocok lewat nama + ukuran.
+                            val fileKey = "${file.name.lowercase(Locale.ROOT)}|${file.length()}"
+                            if (knownFileKeys.contains(fileKey)) return@forEach
                             val parent = file.parentFile
                             val cover = coverCache.getOrPut(parent?.absolutePath.orEmpty()) {
                                 parent?.listFiles { f -> f.isFile && isCoverFileName(f.name) }
@@ -2997,7 +3061,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         }
                     }
                 } catch (e: Exception) {
-                    Log.w("MusicScan", "Fallback pemindaian folder gagal: ${e.message}")
+                    Log.w("MusicScan", "Pemindaian folder langsung gagal: ${e.message}")
                 }
             }
 

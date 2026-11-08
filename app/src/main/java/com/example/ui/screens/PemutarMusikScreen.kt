@@ -2126,7 +2126,7 @@ fun PemutarMusikScreen(viewModel: MainViewModel, onOpenDrawer: () -> Unit) {
                                         if (!MediaPermission.hasAudioAccess(context)) {
                                             requestMediaAccess()
                                         } else {
-                                            viewModel.scanDeviceMusic(context)
+                                            viewModel.scanDeviceMusic(context, force = true)
                                             viewModel.showToastPopup("Memindai ulang file .mp3 perangkat...")
                                         }
                                     }
