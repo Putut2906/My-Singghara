@@ -1743,58 +1743,38 @@ fun PemutarMusikScreen(viewModel: MainViewModel, onOpenDrawer: () -> Unit) {
                                 }
 
                                 // 6. Tombol Repeat / Ulang Mode
-                                Box(
-                                    contentAlignment = Alignment.Center,
-                                    modifier = Modifier
-                                        .size(48.dp)
-                                        .clip(CircleShape)
-                                        .clickable {
-                                            val nextMode = when (viewModel.musicRepeatMode) {
-                                                "NONE" -> "ONE"
-                                                "ONE" -> "ALL"
-                                                "ALL" -> "AZ"
-                                                else -> "NONE"
-                                            }
-                                            viewModel.musicRepeatMode = nextMode
-                                            com.example.MusicService.musicRepeatMode = nextMode
+                                // Ikon Material: repeat (mati), repeat_one (1 lagu),
+                                // repeat_on (semua lagu), sort_by_alpha (urutan A-Z).
+                                val repeatMode = viewModel.musicRepeatMode
+                                val (repeatIcon, repeatLabel) = when (repeatMode) {
+                                    "ONE" -> Icons.Default.RepeatOne to "Ulangi 1 lagu"
+                                    "ALL" -> Icons.Default.RepeatOn to "Ulangi semua"
+                                    "AZ" -> Icons.Default.SortByAlpha to "Urutan A-Z"
+                                    else -> Icons.Default.Repeat to "Pengulangan mati"
+                                }
+                                IconButton(
+                                    onClick = {
+                                        val nextMode = when (repeatMode) {
+                                            "NONE" -> "ONE"
+                                            "ONE" -> "ALL"
+                                            "ALL" -> "AZ"
+                                            else -> "NONE"
                                         }
+                                        viewModel.musicRepeatMode = nextMode
+                                        com.example.MusicService.musicRepeatMode = nextMode
+                                    },
+                                    modifier = Modifier.size(48.dp)
                                 ) {
-                                    val isActive = viewModel.musicRepeatMode != "NONE"
                                     Icon(
-                                        imageVector = Icons.Default.Repeat,
-                                        contentDescription = "Mode Pengulangan",
-                                        tint = if (isActive) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                                        imageVector = repeatIcon,
+                                        contentDescription = repeatLabel,
+                                        tint = if (repeatMode != "NONE") {
+                                            MaterialTheme.colorScheme.primary
+                                        } else {
+                                            MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f)
+                                        },
                                         modifier = Modifier.size(24.dp)
                                     )
-                                    when (viewModel.musicRepeatMode) {
-                                        "ONE" -> {
-                                            Text(
-                                                text = "1",
-                                                fontSize = 9.sp,
-                                                fontWeight = FontWeight.Bold,
-                                                color = MaterialTheme.colorScheme.primary,
-                                                modifier = Modifier.padding(top = 1.dp)
-                                            )
-                                        }
-                                        "ALL" -> {
-                                            Text(
-                                                text = "A",
-                                                fontSize = 9.sp,
-                                                fontWeight = FontWeight.Bold,
-                                                color = MaterialTheme.colorScheme.primary,
-                                                modifier = Modifier.padding(top = 1.dp)
-                                            )
-                                        }
-                                        "AZ" -> {
-                                            Text(
-                                                text = "A-Z",
-                                                fontSize = 7.5.sp,
-                                                fontWeight = FontWeight.ExtraBold,
-                                                color = MaterialTheme.colorScheme.primary,
-                                                modifier = Modifier.padding(top = 1.dp)
-                                            )
-                                        }
-                                    }
                                 }
                             }
 
