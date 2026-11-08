@@ -145,6 +145,15 @@ fun PemutarMusikScreen(viewModel: MainViewModel, onOpenDrawer: () -> Unit) {
     // Izin media yang sama dengan tombol "Izinkan Akses Media" pada setup pertama.
     var hasMediaAccess by remember { mutableStateOf(MediaPermission.hasAccess(context)) }
 
+    // Dijalankan setelah permintaan media selesai agar dua dialog izin tidak bertumpuk.
+    fun requestPlaybackNotificationPermission() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) return
+        val check = ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS)
+        if (check != PackageManager.PERMISSION_GRANTED) {
+            permissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
+    }
+
     val mediaPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestMultiplePermissions()
     ) {
@@ -152,6 +161,7 @@ fun PemutarMusikScreen(viewModel: MainViewModel, onOpenDrawer: () -> Unit) {
         if (hasMediaAccess) {
             viewModel.scanDeviceMusic(context)
             viewModel.showToastPopup("Akses media berhasil diaktifkan!")
+            requestPlaybackNotificationPermission()
         } else {
             viewModel.showToastPopup("Akses media ditolak. Lagu .mp3 perangkat belum bisa dibaca.")
         }
@@ -175,17 +185,9 @@ fun PemutarMusikScreen(viewModel: MainViewModel, onOpenDrawer: () -> Unit) {
         hasMediaAccess = MediaPermission.hasAccess(context)
         if (hasMediaAccess) {
             if (viewModel.musicPlaylist.isEmpty()) viewModel.scanDeviceMusic(context)
+            requestPlaybackNotificationPermission()
         } else {
             requestMediaAccess()
-        }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            val check = ContextCompat.checkSelfPermission(
-                context,
-                Manifest.permission.POST_NOTIFICATIONS
-            )
-            if (check != PackageManager.PERMISSION_GRANTED) {
-                permissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
-            }
         }
     }
 
@@ -516,7 +518,16 @@ fun PemutarMusikScreen(viewModel: MainViewModel, onOpenDrawer: () -> Unit) {
                             }
                         } else {
                             val groupedByFolder = viewModel.musicPlaylist.groupBy { it.artist }
-                            
+
+                            // Setelah pemindaian ulang, grup folder lama bisa hilang; jangan
+                            // tinggalkan pengguna di daftar kosong tanpa folder yang valid.
+                            LaunchedEffect(selectedFolder, viewModel.musicPlaylist.size) {
+                                val current = selectedFolder
+                                if (current != null && !groupedByFolder.containsKey(current)) {
+                                    selectedFolder = null
+                                }
+                            }
+
                             if (selectedFolder == null) {
                                 // Render folder list view as requested
                                 groupedByFolder.forEach { (folderName, tracksInFolder) ->
@@ -2205,12 +2216,7 @@ fun PemutarMusikScreen(viewModel: MainViewModel, onOpenDrawer: () -> Unit) {
                                 color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
                             )
 
-                            HorizontalDivider(
-                                modifier = Modifier.padding(horizontal = 16.dp),
-                                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
-                            )
-
-                            // 5. Backup Lirik Manual
+                            // 4. Backup Lirik Manual
                             Column(
                                 modifier = Modifier
                                     .fillMaxWidth()
@@ -2306,12 +2312,12 @@ fun PemutarMusikScreen(viewModel: MainViewModel, onOpenDrawer: () -> Unit) {
                                 color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
                             )
 
-                            // 4. Kosongkan daftar lagu
+                            // 5. Kosongkan daftar lagu
                             Column(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .clickable {
-                                        viewModel.musicPlaylist.clear()
+                                        viewModel.clearMusicPlaylist()
                                         viewModel.showToastPopup("Daftar lagu dikosongkan. Pindai ulang untuk memuat kembali.")
                                     }
                                     .padding(16.dp)

@@ -3434,7 +3434,7 @@ object MusikWebScript {
             const phoneMusicCount = window.musicPlaylist.filter(function (t) { return t.origin === 'phone'; }).length;
             return `
                 <div class="d-flex flex-column gap-3">
-                    <!-- 1. FOLDER MUSIK SAF / LOCAL -->
+                    <!-- 1. FOLDER MUSIK LOKAL/PC -->
                     <div class="p-3 rounded-3 cursor-pointer d-flex align-items-center gap-3 dashboard-subcard" 
                          onclick="document.getElementById('musicFolderPickerInput').click()">
                         <div class="rounded-3 d-flex align-items-center justify-content-center flex-shrink-0" 

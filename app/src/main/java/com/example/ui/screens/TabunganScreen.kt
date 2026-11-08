@@ -102,14 +102,12 @@ fun TabunganScreen(viewModel: MainViewModel) {
         }
     }
 
-    var hasMediaAccess by remember { mutableStateOf(MediaPermission.hasAccess(context)) }
     var pendingMediaAction by remember { mutableStateOf<(() -> Unit)?>(null) }
 
     val mediaPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestMultiplePermissions()
     ) {
-        hasMediaAccess = MediaPermission.hasAccess(context)
-        if (hasMediaAccess) {
+        if (MediaPermission.hasAccess(context)) {
             val action = pendingMediaAction
             pendingMediaAction = null
             showMediaWarningDialog = false
@@ -121,8 +119,7 @@ fun TabunganScreen(viewModel: MainViewModel) {
     }
 
     fun requestMediaAccess(action: (() -> Unit)? = null) {
-        hasMediaAccess = MediaPermission.hasAccess(context)
-        if (hasMediaAccess) {
+        if (MediaPermission.hasAccess(context)) {
             action?.invoke()
             return
         }
@@ -144,7 +141,6 @@ fun TabunganScreen(viewModel: MainViewModel) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
                 val granted = MediaPermission.hasAccess(context)
-                hasMediaAccess = granted
                 if (granted) {
                     val action = pendingMediaAction
                     pendingMediaAction = null
@@ -230,7 +226,6 @@ fun TabunganScreen(viewModel: MainViewModel) {
         if (viewModel.showTabunganFabDialog) {
             viewModel.showTabunganFabDialog = false
             if (MediaPermission.hasAccess(context)) {
-                hasMediaAccess = true
                 showChoosePopup = true
             } else {
                 requestMediaAccess { showChoosePopup = true }

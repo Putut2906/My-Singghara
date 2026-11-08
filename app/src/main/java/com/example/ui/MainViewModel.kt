@@ -2772,6 +2772,19 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         sharedPrefs.edit().remove("music_play_counts").apply()
     }
 
+    /** Mengosongkan daftar lagu sekaligus menghentikan pemutaran agar indeks tidak basi. */
+    fun clearMusicPlaylist() {
+        musicPlaylist.clear()
+        currentTrackIndex = -1
+        isMusicPlaying = false
+        musicPlaybackPosition = 0
+        com.example.MusicService.instance?.let { service ->
+            service.pauseMusic()
+            service.syncPlaylist(emptyList())
+            com.example.MusicService.currentTrackIndex = -1
+        }
+    }
+
     private var progressJob: kotlinx.coroutines.Job? = null
 
     private fun startProgressTracker() {
@@ -2810,7 +2823,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
             // 1. Folder internal: /storage/emulated/0/My Singghara/Data/mp3
             try {
-                val mp3Folder = com.example.util.SinggharaFolderManager.getMp3Folder()
+                val mp3Folder = com.example.util.SinggharaFolderManager.getMp3Folder(context)
                 if (mp3Folder.exists()) {
                     val mp3CoverUri = mp3Folder.listFiles { f ->
                         f.isFile && isCoverFileName(f.name)
@@ -2819,7 +2832,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     files?.forEach { f ->
                         val currentId = idCounterRef[0]
                         idCounterRef[0] = currentId + 1
-                        seenKeys.add(f.nameWithoutExtension.lowercase())
+                        seenKeys.add(f.name.lowercase())
                         tracks.add(
                             MusicTrack(
                                 id = "mysingghara_$currentId",
@@ -2870,7 +2883,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             ?.takeIf { it.isNotBlank() && it != "<unknown>" }
                             ?: "Penyimpanan Perangkat"
                         // Berkas di folder aplikasi biasanya juga terindeks MediaStore.
-                        if (!seenKeys.add(title.lowercase())) continue
+                        // Kunci memakai nama berkas agar lagu berbeda bertajuk sama tetap tampil.
+                        val dedupeKey = (displayName ?: "$title.mp3").lowercase()
+                        if (!seenKeys.add(dedupeKey)) continue
                         val uri = ContentUris.withAppendedId(collection, id)
                         tracks.add(
                             MusicTrack(

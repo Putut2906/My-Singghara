@@ -533,7 +533,7 @@ class LocalRepository(private val db: AppDatabase) {
             val jsonString = backupAdapter.indent("  ").toJson(buildBackupData(context))
 
             // Simpan utama ke folder My Singghara/Back Up/mysingghara_backup.json
-            val primaryBackupFile = com.example.util.SinggharaFolderManager.getPrimaryBackupFile()
+            val primaryBackupFile = com.example.util.SinggharaFolderManager.getPrimaryBackupFile(context)
             primaryBackupFile.writeText(jsonString, Charsets.UTF_8)
 
             // Salinan di Download publik hanya pelengkap; tanpa akses semua file folder ini
@@ -657,25 +657,31 @@ class LocalRepository(private val db: AppDatabase) {
      */
     suspend fun importDataFromPublicDownload(context: Context): Result<String> = withContext(Dispatchers.IO) {
         try {
-            val primaryBackupFile = com.example.util.SinggharaFolderManager.getPrimaryBackupFile()
-            val downloadDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
-            val downloadBackupFile = File(downloadDir, "mysingghara_backup.json")
-            
-            val backupFile = if (primaryBackupFile.exists()) {
-                primaryBackupFile
-            } else if (downloadBackupFile.exists()) {
-                downloadBackupFile
-            } else {
-                return@withContext Result.failure(Exception("File backup 'mysingghara_backup.json' tidak ditemukan di folder 'My Singghara/Back Up' maupun 'Download'."))
+            val primaryBackupFile = com.example.util.SinggharaFolderManager.getPrimaryBackupFile(context)
+            val downloadBackupFile = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+                ?.let { File(it, "mysingghara_backup.json") }
+
+            val backupFile = when {
+                primaryBackupFile.exists() -> primaryBackupFile
+                downloadBackupFile != null && downloadBackupFile.exists() -> downloadBackupFile
+                else -> return@withContext Result.failure(
+                    Exception("File backup 'mysingghara_backup.json' tidak ditemukan di folder 'My Singghara/Back Up' maupun 'Download'.")
+                )
             }
 
-            val jsonString = backupFile.readText(Charsets.UTF_8)
+            val jsonString = try {
+                backupFile.readText(Charsets.UTF_8)
+            } catch (e: Exception) {
+                return@withContext Result.failure(
+                    Exception("Berkas cadangan di ${backupFile.absolutePath} tidak bisa dibaca: ${e.message}")
+                )
+            }
             val backupObj = backupAdapter.fromJson(jsonString)
                 ?: return@withContext Result.failure(Exception("Format file JSON backup tidak valid."))
 
             applyBackupData(context, backupObj)
 
-            Result.success("Berhasil mengimpor data dari ${backupFile.name}!")
+            Result.success("Berhasil mengimpor data dari ${backupFile.absolutePath}!")
         } catch (e: Exception) {
             Result.failure(e)
         }
