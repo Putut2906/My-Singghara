@@ -125,7 +125,7 @@ object AlbumArtwork {
                 } catch (_: Exception) {
                     null
                 }
-                if (!bytes.isNullOrEmpty()) return bytes
+                if (bytes != null && bytes.isNotEmpty()) return bytes
             }
         }
         return null
