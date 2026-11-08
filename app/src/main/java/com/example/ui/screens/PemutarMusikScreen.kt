@@ -213,6 +213,15 @@ fun PemutarMusikScreen(viewModel: MainViewModel, onOpenDrawer: () -> Unit) {
         searchQuery = ""
     }
 
+    // Setelah pemindaian ulang, grup folder lama bisa hilang; jangan tinggalkan
+    // pengguna di daftar kosong tanpa folder yang valid.
+    LaunchedEffect(viewModel.musicPlaylist.size, viewModel.musicPlaylist.firstOrNull()?.uriStr) {
+        val current = selectedFolder
+        if (current != null && viewModel.musicPlaylist.none { it.artist == current }) {
+            selectedFolder = null
+        }
+    }
+
     // Animasi rotasi disk lama masih dideklarasikan di sini tetapi hasilnya tidak
     // pernah dipakai siapa pun. rememberInfiniteTransition di root screen tetap
     // berjalan 60 fps dan memaksa SELURUH layar dikomposisi ulang terus-menerus,
@@ -518,15 +527,6 @@ fun PemutarMusikScreen(viewModel: MainViewModel, onOpenDrawer: () -> Unit) {
                             }
                         } else {
                             val groupedByFolder = viewModel.musicPlaylist.groupBy { it.artist }
-
-                            // Setelah pemindaian ulang, grup folder lama bisa hilang; jangan
-                            // tinggalkan pengguna di daftar kosong tanpa folder yang valid.
-                            LaunchedEffect(selectedFolder, viewModel.musicPlaylist.size) {
-                                val current = selectedFolder
-                                if (current != null && !groupedByFolder.containsKey(current)) {
-                                    selectedFolder = null
-                                }
-                            }
 
                             if (selectedFolder == null) {
                                 // Render folder list view as requested
