@@ -248,6 +248,32 @@ fun SemuaCatatanTabunganScreen(viewModel: MainViewModel) {
                                         modifier = Modifier.size(20.dp)
                                     )
                                 }
+
+                                // BAGIKAN BUTTON (Android Share Sheet)
+                                IconButton(
+                                    onClick = {
+                                        if (filteredTransactions.isEmpty()) {
+                                            viewModel.showToastPopup("Belum ada transaksi tabungan untuk dibagikan")
+                                        } else {
+                                            shareSavingsRecap(
+                                                context = context,
+                                                targetName = targetName,
+                                                targetAmount = targetAmount,
+                                                currentSaved = currentSaved,
+                                                progressPercent = progressPercent,
+                                                transactions = filteredTransactions
+                                            )
+                                        }
+                                    },
+                                    modifier = Modifier.size(36.dp).testTag("share_savings_button")
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Share,
+                                        contentDescription = "Bagikan Catatan Tabungan",
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
                             }
                         }
 
@@ -521,7 +547,7 @@ fun SemuaCatatanTabunganScreen(viewModel: MainViewModel) {
                             value = inputTrxDeskripsi,
                             onValueChange = { inputTrxDeskripsi = it },
                             modifier = Modifier.fillMaxWidth(),
-                            label = { Text("Keterangan/Deskripsi *)") },
+                            label = { Text("Keterangan/Deskripsi *") },
                             singleLine = true
                         )
 

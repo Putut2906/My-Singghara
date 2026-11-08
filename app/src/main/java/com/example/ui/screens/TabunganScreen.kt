@@ -258,6 +258,31 @@ fun TabunganScreen(viewModel: MainViewModel) {
                                         modifier = Modifier.size(16.dp)
                                     )
                                 }
+                                IconButton(
+                                    onClick = {
+                                        val source = if (isFilterActive && filteredTransactions.isNotEmpty()) filteredTransactions else transactionsFlow
+                                        if (source.isEmpty()) {
+                                            viewModel.showToastPopup("Belum ada transaksi tabungan untuk dibagikan")
+                                        } else {
+                                            shareSavingsRecap(
+                                                context = context,
+                                                targetName = targetName,
+                                                targetAmount = targetAmount,
+                                                currentSaved = currentSaved,
+                                                progressPercent = progressPercent,
+                                                transactions = source
+                                            )
+                                        }
+                                    },
+                                    modifier = Modifier.size(24.dp).testTag("share_savings_button")
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Share,
+                                        contentDescription = "Bagikan Catatan Tabungan",
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                }
                             }
                             Spacer(modifier = Modifier.height(4.dp))
                             Text(
@@ -1066,6 +1091,33 @@ fun TabunganScreen(viewModel: MainViewModel) {
                         Text("Pindai Bukti E-Wallet (GoPay/DANA/OVO)")
                     }
 
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    // Option 4: Bagikan Ringkasan Tabungan lewat Share Sheet OS
+                    OutlinedButton(
+                        onClick = {
+                            showChoosePopup = false
+                            val source = if (isFilterActive && filteredTransactions.isNotEmpty()) filteredTransactions else transactionsFlow
+                            if (source.isEmpty()) {
+                                viewModel.showToastPopup("Belum ada transaksi tabungan untuk dibagikan")
+                            } else {
+                                shareSavingsRecap(
+                                    context = context,
+                                    targetName = targetName,
+                                    targetAmount = targetAmount,
+                                    currentSaved = currentSaved,
+                                    progressPercent = progressPercent,
+                                    transactions = source
+                                )
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth().testTag("share_savings_menu_button")
+                    ) {
+                        Icon(Icons.Default.Share, null)
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Bagikan Ringkasan Tabungan")
+                    }
+
                     Spacer(modifier = Modifier.height(16.dp))
 
                     TextButton(onClick = { showChoosePopup = false }) {
@@ -1256,7 +1308,7 @@ fun TabunganScreen(viewModel: MainViewModel) {
                         value = inputTrxDeskripsi,
                         onValueChange = { inputTrxDeskripsi = it },
                         modifier = Modifier.fillMaxWidth(),
-                        label = { Text("Keterangan/Deskripsi *)") },
+                        label = { Text("Keterangan/Deskripsi *") },
                         singleLine = true
                     )
 
@@ -1357,7 +1409,9 @@ fun TabunganScreen(viewModel: MainViewModel) {
     }
 
     // Dialog Pemrosesan Bukti Pembayaran / Transaksi E-Wallet (GoPay, DANA, OVO, Bank) dari Menu Sheet OS
-    if (viewModel.showSharedReceiptDialog) {
+    // Jangan tampilkan selagi aplikasi terkunci: Dialog adalah window terpisah
+    // sehingga bisa muncul di atas layar kunci aplikasi.
+    if (viewModel.showSharedReceiptDialog && viewModel.isAppUnlocked) {
         SharedReceiptProcessDialog(
             viewModel = viewModel,
             onDismiss = {
@@ -1793,6 +1847,54 @@ fun printSavings(
     webView.loadDataWithBaseURL(null, htmlBuilder.toString(), "text/html", "UTF-8", null)
 }
 
+// SHARE SAVINGS UTILITY (Android Share Sheet)
+fun shareSavingsRecap(
+    context: Context,
+    targetName: String,
+    targetAmount: Double,
+    currentSaved: Double,
+    progressPercent: Int,
+    transactions: List<SavingTransaction>
+) {
+    if (transactions.isEmpty()) return
+
+    val remainingTarget = (targetAmount - currentSaved).coerceAtLeast(0.0)
+    val totalMasuk = transactions.filter { it.jenis == "masuk" }.sumOf { it.nominal }
+    val totalKeluar = transactions.filter { it.jenis == "keluar" }.sumOf { it.nominal }
+    val idr = { value: Double -> String.format("Rp %,.0f", value) }
+
+    val builder = StringBuilder()
+    builder.append("*CATATAN TABUNGAN - MY SINGGHARA*\n")
+    builder.append("Diperbarui: ${SimpleDateFormat("dd MMM yyyy HH:mm", Locale.getDefault()).format(Date())}\n")
+    builder.append("--------------------------------\n")
+    builder.append("*Target:* $targetName\n")
+    builder.append("*Jumlah Target:* ${idr(targetAmount)}\n")
+    builder.append("*Terkumpul:* ${idr(currentSaved)} ($progressPercent%)\n")
+    builder.append("*Sisa Target:* ${idr(remainingTarget)}\n")
+    builder.append("*Total Uang Masuk:* ${idr(totalMasuk)}\n")
+    builder.append("*Total Uang Keluar:* ${idr(totalKeluar)}\n")
+    builder.append("--------------------------------\n")
+    builder.append("*Riwayat Transaksi (${transactions.size}):*\n")
+
+    // Batasi agar teks tidak melampaui batas aman aplikasi chat.
+    val previewLimit = 100
+    transactions.take(previewLimit).forEachIndexed { index, trx ->
+        val sign = if (trx.jenis == "masuk") "+" else "-"
+        val keterangan = trx.deskripsi.ifBlank { trx.kategori }
+        builder.append("${index + 1}. ${trx.tanggal} | $keterangan | $sign ${idr(trx.nominal)}\n")
+    }
+    if (transactions.size > previewLimit) {
+        builder.append("... dan ${transactions.size - previewLimit} transaksi lainnya\n")
+    }
+    builder.append("\n_Dibagikan dari aplikasi My Singghara_")
+
+    val shareIntent = Intent(Intent.ACTION_SEND).apply {
+        type = "text/plain"
+        putExtra(Intent.EXTRA_TEXT, builder.toString())
+    }
+    context.startActivity(Intent.createChooser(shareIntent, "Bagikan Catatan Tabungan"))
+}
+
 @Composable
 fun SavingTable(
     transactions: List<SavingTransaction>,
@@ -2032,7 +2134,14 @@ fun SharedReceiptProcessDialog(
         kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
             try {
                 val result = if (uri != null) {
-                    ReceiptScannerHelper.parseReceiptImage(context, uri)
+                    val imageResult = ReceiptScannerHelper.parseReceiptImage(context, uri)
+                    // Sebagian share sheet menyertakan teks bukti di samping gambar;
+                    // pakai teks itu bila OCR gambar tidak menemukan nominal.
+                    if (imageResult.nominal <= 0 && !sharedText.isNullOrBlank()) {
+                        ReceiptScannerHelper.parseReceiptText(sharedText)
+                    } else {
+                        imageResult
+                    }
                 } else if (!sharedText.isNullOrBlank()) {
                     ReceiptScannerHelper.parseReceiptText(sharedText)
                 } else {
@@ -2048,6 +2157,9 @@ fun SharedReceiptProcessDialog(
                         tanggal = result.tanggal
                         detectedPlatform = result.platformName
                         rawExtractedText = result.rawText
+                        if (result.nominal <= 0) {
+                            analysisError = "Bukti terkirim, tetapi nominal tidak terbaca otomatis. Periksa dan lengkapi data di bawah ini."
+                        }
                     } else {
                         analysisError = "Bukti transaksi tidak dapat dibaca otomatis. Silakan masukkan data secara manual."
                     }
