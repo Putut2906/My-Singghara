@@ -2,14 +2,15 @@ package com.example.ui
 
 import android.app.Application
 import com.example.ui.models.AppRegistry
+import android.content.ContentUris
 import android.content.Context
 import android.net.Uri
+import android.provider.MediaStore
 import android.widget.Toast
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
-import androidx.documentfile.provider.DocumentFile
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.data.*
@@ -1006,9 +1007,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    // Storage Access Framework (SAF) URI persistence
-    var safFolderUriStr by mutableStateOf(sharedPrefs.getString("saf_folder_uri", "") ?: "")
-
     // Global popup toast message state for dialog replacements
     var toastPopupMessage by mutableStateOf<String?>(null)
     var toastPopupType by mutableStateOf(com.example.ui.components.ToastType.AUTO)
@@ -1152,7 +1150,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     fun reloadFromSharedPrefs() {
-        safFolderUriStr = sharedPrefs.getString("saf_folder_uri", "") ?: ""
         profileName = sharedPrefs.getString("profile_name", "Singghara User") ?: "Singghara User"
         profileImageUri = sharedPrefs.getString("profile_image_uri", "") ?: ""
         profileAvatarIndex = sharedPrefs.getInt("profile_avatar_index", 0)
@@ -1170,7 +1167,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         azanSoundSetting = sharedPrefs.getInt("azan_sound_setting", 2)
         isFirstInstallSetupCompleted = sharedPrefs.getBoolean("first_install_setup_completed", false)
         activeTimeZone = sharedPrefs.getString("active_timezone", "WIB") ?: "WIB"
-        musicFolderUriStr = sharedPrefs.getString("music_folder_uri", "") ?: ""
+        // Folder musik SAF lama tidak dipakai lagi; pemutar membaca .mp3 perangkat lewat izin media.
+        sharedPrefs.edit().remove("music_folder_uri").remove("saf_folder_uri").apply()
 
         favoriteTrackUris.clear()
         favoriteTrackUris.addAll(sharedPrefs.getStringSet("music_favorites", emptySet()) ?: emptySet())
@@ -1298,31 +1296,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun completeFirstInstallSetup() {
         sharedPrefs.edit().putBoolean("first_install_setup_completed", true).commit()
         isFirstInstallSetupCompleted = true
-    }
-
-    fun saveSelectedFolderUri(uriStr: String) {
-        sharedPrefs.edit().putString("saf_folder_uri", uriStr).apply()
-        safFolderUriStr = uriStr
-    }
-
-    fun clearSelectedFolderUri() {
-        sharedPrefs.edit().remove("saf_folder_uri").apply()
-        safFolderUriStr = ""
-    }
-
-    fun isSafFolderConfigured(context: Context): Boolean {
-        if (safFolderUriStr.isEmpty()) return false
-        return try {
-            val uri = android.net.Uri.parse(safFolderUriStr)
-            val hasPerm = context.contentResolver.persistedUriPermissions.any {
-                it.uri == uri && it.isWritePermission && it.isReadPermission
-            }
-            if (!hasPerm) return false
-            val folder = androidx.documentfile.provider.DocumentFile.fromTreeUri(context, uri)
-            folder != null && folder.exists() && folder.canWrite() && folder.canRead()
-        } catch (e: Exception) {
-            false
-        }
     }
 
     // Navigator & UI State Management
@@ -2435,61 +2408,10 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    // STORAGE ACCESS FRAMEWORK (SAF) EXPORT & IMPORT BACKUP METHODS
-    fun exportBackupSAF(context: Context, onResult: (String, Boolean) -> Unit) {
-        if (safFolderUriStr.isEmpty()) {
-            onResult("Silakan tentukan folder utama Anda terlebih dahulu via tab Profil.", false)
-            return
-        }
-        preventAutoLock = true
-        viewModelScope.launch {
-            try {
-                val folderUri = android.net.Uri.parse(safFolderUriStr)
-                val result = repository.exportDataToSAF(context, folderUri)
-                result.onSuccess {
-                    onResult(it, true)
-                }.onFailure {
-                    onResult(it.message ?: "Gagal mengekspor data", false)
-                }
-            } catch (e: Exception) {
-                onResult("Terjadi kesalahan: ${e.message}", false)
-            } finally {
-                kotlinx.coroutines.delay(1000)
-                preventAutoLock = false
-            }
-        }
-    }
-
-    fun importBackupSAF(context: Context, onResult: (String, Boolean) -> Unit) {
-        if (safFolderUriStr.isEmpty()) {
-            onResult("Silakan tentukan folder utama Anda terlebih dahulu via tab Profil.", false)
-            return
-        }
-        preventAutoLock = true
-        viewModelScope.launch {
-            try {
-                val folderUri = android.net.Uri.parse(safFolderUriStr)
-                val result = repository.importDataFromSAF(context, folderUri)
-                result.onSuccess {
-                    refreshAfterRestore()
-                    onResult(it, true)
-                }.onFailure {
-                    onResult(it.message ?: "Gagal mengimpor data", false)
-                }
-            } catch (e: Exception) {
-                onResult("Terjadi kesalahan: ${e.message}", false)
-            } finally {
-                kotlinx.coroutines.delay(1000)
-                preventAutoLock = false
-            }
-        }
-    }
-
     // EXPORT TO CSV METHODS
     fun exportShoppingCSV(context: Context, onResult: (String, Boolean) -> Unit) {
         viewModelScope.launch {
-            val folderUri = if (safFolderUriStr.isNotEmpty()) android.net.Uri.parse(safFolderUriStr) else null
-            val result = repository.exportShoppingToCSV(context, folderUri)
+            val result = repository.exportShoppingToCSV(context)
             result.onSuccess {
                 onResult(it, true)
             }.onFailure {
@@ -2500,8 +2422,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun exportTabunganCSV(context: Context, onResult: (String, Boolean) -> Unit) {
         viewModelScope.launch {
-            val folderUri = if (safFolderUriStr.isNotEmpty()) android.net.Uri.parse(safFolderUriStr) else null
-            val result = repository.exportTabunganToCSV(context, folderUri)
+            val result = repository.exportTabunganToCSV(context)
             result.onSuccess {
                 onResult(it, true)
             }.onFailure {
@@ -2608,7 +2529,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     // ==========================================
     private var mediaPlayer: android.media.MediaPlayer? = null
     private var mediaSession: MediaSession? = null
-    var musicFolderUriStr by mutableStateOf(sharedPrefs.getString("music_folder_uri", "") ?: "")
     val musicPlaylist = mutableStateListOf<MusicTrack>()
     var currentTrackIndex by mutableStateOf(-1)
     var isMusicPlaying by mutableStateOf(false)
@@ -2725,8 +2645,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         val formatStr = String.format("%02d-%02d-%04d", today.get(Calendar.DAY_OF_MONTH), today.get(Calendar.MONTH) + 1, today.get(Calendar.YEAR))
         loadLiveAladhanHijri(formatStr)
 
-        if (musicFolderUriStr.isNotEmpty()) {
-            scanMusicFolder(application)
+        if (com.example.util.MediaPermission.hasAccess(application)) {
+            scanDeviceMusic(application)
         }
         
         fetchKemenagPrayerSchedule(application)
@@ -2872,110 +2792,120 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    fun saveMusicFolderUri(uriStr: String) {
-        sharedPrefs.edit().putString("music_folder_uri", uriStr).apply()
-        musicFolderUriStr = uriStr
-    }
-
-    fun scanMusicFolder(context: Context) {
+    /**
+     * Memindai seluruh berkas .mp3: folder My Singghara/Data/mp3 plus MediaStore
+     * perangkat. Dipakai setelah pengguna memberi izin "Izinkan Akses Media";
+     * tanpa izin pemindaian dilewati dan daftar lama dibiarkan apa adanya.
+     */
+    fun scanDeviceMusic(context: Context) {
+        if (!com.example.util.MediaPermission.hasAccess(context)) {
+            isMusicLoading = false
+            return
+        }
         isMusicLoading = musicPlaylist.isEmpty()
         viewModelScope.launch(Dispatchers.IO) {
+            val tracks = mutableListOf<MusicTrack>()
+            val idCounterRef = arrayOf(1)
+            val seenKeys = mutableSetOf<String>()
+
+            // 1. Folder internal: /storage/emulated/0/My Singghara/Data/mp3
             try {
-                val tracks = mutableListOf<MusicTrack>()
-                val idCounterRef = arrayOf(1)
-
-                // 1. Scan folder SAF jika pengguna telah memilih folder musik
-                if (musicFolderUriStr.isNotEmpty()) {
-                    val treeUri = Uri.parse(musicFolderUriStr)
-                    val folder = DocumentFile.fromTreeUri(context, treeUri)
-                    if (folder != null && folder.exists()) {
-                        scanDirectoryRecursively(folder, tracks, idCounterRef)
-                    }
-                }
-
-                // 2. Otomatis scan folder internal: /storage/emulated/0/My Singghara/Data/mp3
-                try {
-                    val mp3Folder = com.example.util.SinggharaFolderManager.getMp3Folder()
-                    if (mp3Folder.exists()) {
-                        val mp3CoverUri = mp3Folder.listFiles { f ->
-                            f.isFile && isCoverFileName(f.name)
-                        }?.firstOrNull()?.let { Uri.fromFile(it).toString() }
-                        val files = mp3Folder.listFiles { f -> f.isFile && f.name.endsWith(".mp3", ignoreCase = true) }
-                        files?.forEach { f ->
-                            val currentId = idCounterRef[0]
-                            idCounterRef[0] = currentId + 1
-                            tracks.add(
-                                MusicTrack(
-                                    id = "mysingghara_$currentId",
-                                    title = f.nameWithoutExtension,
-                                    artist = "My Singghara MP3",
-                                    uriStr = Uri.fromFile(f).toString(),
-                                    coverUriStr = mp3CoverUri
-                                )
-                            )
-                        }
-                    }
-                } catch (ignored: Exception) {}
-
-                viewModelScope.launch(Dispatchers.Main) {
-                    musicPlaylist.clear()
-                    musicPlaylist.addAll(tracks)
-                    isMusicLoading = false
-                }
-            } catch (e: Exception) {
-                viewModelScope.launch(Dispatchers.Main) {
-                    isMusicLoading = false
-                }
-            }
-        }
-    }
-
-    private fun scanDirectoryRecursively(
-        folder: DocumentFile,
-        tracks: MutableList<MusicTrack>,
-        idCounterRef: Array<Int>,
-        inheritedCoverUri: String? = null
-    ) {
-        if (!folder.exists()) return
-        try {
-            val files = folder.listFiles()
-            // Satu cover per folder dipakai semua lagu di dalamnya (termasuk subfolder
-            // yang tidak punya cover sendiri), supaya album tanpa tag sampul tetap tampil.
-            val folderCoverUri = files.firstOrNull { isCoverImage(it) }?.uri?.toString() ?: inheritedCoverUri
-            files.forEach { file ->
-                if (file.isDirectory) {
-                    scanDirectoryRecursively(file, tracks, idCounterRef, folderCoverUri)
-                } else if (file.isFile) {
-                    val name = file.name ?: ""
-                    val isAudio = name.endsWith(".mp3", ignoreCase = true) ||
-                                  name.endsWith(".wav", ignoreCase = true) ||
-                                  name.endsWith(".m4a", ignoreCase = true) ||
-                                  name.endsWith(".aac", ignoreCase = true) ||
-                                  name.endsWith(".ogg", ignoreCase = true) ||
-                                  file.type?.startsWith("audio/") == true
-                    
-                    if (isAudio) {
+                val mp3Folder = com.example.util.SinggharaFolderManager.getMp3Folder()
+                if (mp3Folder.exists()) {
+                    val mp3CoverUri = mp3Folder.listFiles { f ->
+                        f.isFile && isCoverFileName(f.name)
+                    }?.firstOrNull()?.let { Uri.fromFile(it).toString() }
+                    val files = mp3Folder.listFiles { f -> f.isFile && f.name.endsWith(".mp3", ignoreCase = true) }
+                    files?.forEach { f ->
                         val currentId = idCounterRef[0]
                         idCounterRef[0] = currentId + 1
+                        seenKeys.add(f.nameWithoutExtension.lowercase())
                         tracks.add(
                             MusicTrack(
-                                id = currentId.toString(),
-                                title = name.substringBeforeLast("."),
-                                artist = folder.name ?: "Folder Audio",
-                                uriStr = file.uri.toString(),
-                                coverUriStr = folderCoverUri
+                                id = "mysingghara_$currentId",
+                                title = f.nameWithoutExtension,
+                                artist = "My Singghara MP3",
+                                uriStr = Uri.fromFile(f).toString(),
+                                coverUriStr = mp3CoverUri
                             )
                         )
                     }
                 }
-            }
-        } catch (e: Exception) {
-            // Safely skip folders with issues or no permissions
-        }
-    }
+            } catch (_: Exception) {}
 
-    private fun isCoverImage(file: DocumentFile): Boolean {
-        return file.isFile && isCoverFileName(file.name ?: "")
+            // 2. Berkas .mp3 lain di perangkat lewat MediaStore.
+            try {
+                val collection = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    MediaStore.Audio.Media.getContentUri(MediaStore.VOLUME_EXTERNAL)
+                } else {
+                    MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
+                }
+                val projection = arrayOf(
+                    MediaStore.Audio.Media._ID,
+                    MediaStore.Audio.Media.TITLE,
+                    MediaStore.Audio.Media.ARTIST,
+                    MediaStore.Audio.Media.DISPLAY_NAME,
+                    MediaStore.Audio.Media.DURATION
+                )
+                context.contentResolver.query(
+                    collection,
+                    projection,
+                    "${MediaStore.Audio.Media.DISPLAY_NAME} LIKE ?",
+                    arrayOf("%.mp3"),
+                    "${MediaStore.Audio.Media.TITLE} COLLATE NOCASE ASC"
+                )?.use { cursor ->
+                    val idIdx = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media._ID)
+                    val titleIdx = cursor.getColumnIndex(MediaStore.Audio.Media.TITLE)
+                    val artistIdx = cursor.getColumnIndex(MediaStore.Audio.Media.ARTIST)
+                    val nameIdx = cursor.getColumnIndex(MediaStore.Audio.Media.DISPLAY_NAME)
+                    val durationIdx = cursor.getColumnIndex(MediaStore.Audio.Media.DURATION)
+                    while (cursor.moveToNext()) {
+                        val id = cursor.getLong(idIdx)
+                        val displayName = if (nameIdx >= 0) cursor.getString(nameIdx) else null
+                        val title = (if (titleIdx >= 0) cursor.getString(titleIdx) else null)
+                            ?.takeIf { it.isNotBlank() }
+                            ?: displayName?.substringBeforeLast('.')
+                            ?: continue
+                        val artist = (if (artistIdx >= 0) cursor.getString(artistIdx) else null)
+                            ?.takeIf { it.isNotBlank() && it != "<unknown>" }
+                            ?: "Penyimpanan Perangkat"
+                        // Berkas di folder aplikasi biasanya juga terindeks MediaStore.
+                        if (!seenKeys.add(title.lowercase())) continue
+                        val uri = ContentUris.withAppendedId(collection, id)
+                        tracks.add(
+                            MusicTrack(
+                                id = "device_$id",
+                                title = title,
+                                artist = artist,
+                                uriStr = uri.toString(),
+                                durationMs = if (durationIdx >= 0) cursor.getLong(durationIdx) else 0L
+                            )
+                        )
+                    }
+                }
+            } catch (_: Exception) {}
+
+            viewModelScope.launch(Dispatchers.Main) {
+                // Lagu yang sedang diputar tidak boleh hilang saat daftar disegarkan.
+                val activeTrack = if (currentTrackIndex in musicPlaylist.indices) {
+                    musicPlaylist[currentTrackIndex]
+                } else null
+                if (activeTrack != null && tracks.none { it.uriStr == activeTrack.uriStr }) {
+                    tracks.add(0, activeTrack)
+                }
+                musicPlaylist.clear()
+                musicPlaylist.addAll(tracks)
+                if (activeTrack != null) {
+                    val newIndex = tracks.indexOfFirst { it.uriStr == activeTrack.uriStr }
+                    if (newIndex >= 0) currentTrackIndex = newIndex
+                }
+                isMusicLoading = false
+                com.example.MusicService.instance?.let { service ->
+                    service.syncPlaylist(musicPlaylist)
+                    com.example.MusicService.currentTrackIndex = currentTrackIndex
+                }
+            }
+        }
     }
 
     private fun isCoverFileName(name: String): Boolean {
@@ -3090,7 +3020,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         } catch (e: Exception) {
             // fallback
         }
-        // Lagu dari folder SAF: cover.jpg di folder album sudah dipetakan saat pemindaian.
+        // Lagu dari folder aplikasi: cover.jpg di folder album sudah dipetakan saat pemindaian.
         try {
             val coverUri = track.coverUriStr
             if (!coverUri.isNullOrBlank()) {

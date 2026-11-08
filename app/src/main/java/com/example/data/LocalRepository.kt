@@ -350,10 +350,10 @@ class LocalRepository(private val db: AppDatabase) {
 
     private fun getSharedPrefsMap(context: Context, prefsName: String): Map<String, Any?> {
         val prefs = context.getSharedPreferences(prefsName, Context.MODE_PRIVATE)
-        // Kunci yang hanya berlaku untuk perangkat ini (PIN, folder SAF, ID radio) tidak diekspor;
+        // Kunci yang hanya berlaku untuk perangkat ini (PIN, ID radio) tidak diekspor;
         // pemulihan memang selalu mempertahankan nilai lokalnya.
         val localOnlyKeys = when (prefsName) {
-            PREFS_MAIN -> setOf("app_pin", "app_lock_enabled", "first_install_setup_completed", "saf_folder_uri")
+            PREFS_MAIN -> setOf("app_pin", "app_lock_enabled", "first_install_setup_completed")
             PREFS_HT -> setOf("device_id")
             else -> emptySet()
         }
@@ -363,7 +363,6 @@ class LocalRepository(private val db: AppDatabase) {
     private fun restoreSharedPrefsFromMap(context: Context, prefsName: String, dataMap: Map<String, Any?>) {
         val prefs = context.getSharedPreferences(prefsName, Context.MODE_PRIVATE)
         
-        val oldSafUri = prefs.getString("saf_folder_uri", "") ?: ""
         val oldAppPin = prefs.getString("app_pin", "") ?: ""
         val oldAppLockEnabled = prefs.getBoolean("app_lock_enabled", false)
         val oldFirstInstallCompleted = prefs.getBoolean("first_install_setup_completed", false)
@@ -406,9 +405,6 @@ class LocalRepository(private val db: AppDatabase) {
         
         when (prefsName) {
             PREFS_MAIN -> {
-                if (oldSafUri.isNotEmpty()) {
-                    editor.putString("saf_folder_uri", oldSafUri)
-                }
                 if (oldAppPin.isNotEmpty()) {
                     editor.putString("app_pin", oldAppPin)
                     editor.putBoolean("app_lock_enabled", oldAppLockEnabled)
@@ -540,13 +536,16 @@ class LocalRepository(private val db: AppDatabase) {
             val primaryBackupFile = com.example.util.SinggharaFolderManager.getPrimaryBackupFile()
             primaryBackupFile.writeText(jsonString, Charsets.UTF_8)
 
-            // Simpan juga ke folder Download publik untuk kompatibilitas
-            val downloadDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
-            if (downloadDir != null && !downloadDir.exists()) {
-                downloadDir.mkdirs()
+            // Salinan di Download publik hanya pelengkap; tanpa akses semua file folder ini
+            // tidak bisa ditulis sehingga kegagalannya tidak boleh membatalkan cadangan utama.
+            runCatching {
+                val downloadDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+                if (downloadDir != null && !downloadDir.exists()) {
+                    downloadDir.mkdirs()
+                }
+                val backupFile = File(downloadDir, "mysingghara_backup.json")
+                backupFile.writeText(jsonString, Charsets.UTF_8)
             }
-            val backupFile = File(downloadDir, "mysingghara_backup.json")
-            backupFile.writeText(jsonString, Charsets.UTF_8)
 
             Result.success("Berhasil ekspor ke ${primaryBackupFile.absolutePath}")
         } catch (e: Exception) {
@@ -682,68 +681,6 @@ class LocalRepository(private val db: AppDatabase) {
         }
     }
 
-    /**
-     * Mengekspor seluruh database Room ke folder SAF yang dipilih pengguna sebagai file 'data_aplikasi.json'.
-     */
-    suspend fun exportDataToSAF(context: Context, folderUri: android.net.Uri): Result<String> = withContext(Dispatchers.IO) {
-        try {
-            val jsonString = backupAdapter.indent("  ").toJson(buildBackupData(context))
-
-            // Dapatkan DocumentFile dari folder URI
-            val folder = androidx.documentfile.provider.DocumentFile.fromTreeUri(context, folderUri)
-                ?: return@withContext Result.failure(Exception("Folder penyimpanan eksternal tidak dapat diakses."))
-
-            if (!folder.exists() || !folder.canWrite()) {
-                return@withContext Result.failure(Exception("Izin menulis ditolak atau folder tidak lagi ada."))
-            }
-
-            // Cari atau buat file data_aplikasi.json
-            var file = folder.findFile("data_aplikasi.json")
-            if (file == null) {
-                file = folder.createFile("application/json", "data_aplikasi.json")
-            }
-
-            if (file == null) {
-                return@withContext Result.failure(Exception("Gagal membuat file 'data_aplikasi.json' di folder terpilih."))
-            }
-
-            context.contentResolver.openOutputStream(file.uri)?.use { os ->
-                os.write(jsonString.toByteArray(Charsets.UTF_8))
-                os.flush()
-            } ?: return@withContext Result.failure(Exception("Gagal membuka output stream ke file."))
-
-            Result.success("Berhasil mengekspor cadangan data_aplikasi.json (termasuk Rekap Belanja Pasar) ke folder SAF terpilih!")
-        } catch (e: Exception) {
-            Result.failure(e)
-        }
-    }
-
-    /**
-     * Membaca file 'data_aplikasi.json' dari folder SAF dan memulihkannya ke dalam database Room.
-     */
-    suspend fun importDataFromSAF(context: Context, folderUri: android.net.Uri): Result<String> = withContext(Dispatchers.IO) {
-        try {
-            val folder = androidx.documentfile.provider.DocumentFile.fromTreeUri(context, folderUri)
-                ?: return@withContext Result.failure(Exception("Folder penyimpanan eksternal tidak dapat diakses."))
-
-            val file = folder.findFile("data_aplikasi.json")
-                ?: return@withContext Result.failure(Exception("File backup 'data_aplikasi.json' tidak ditemukan di folder tersebut."))
-
-            val inputStream = context.contentResolver.openInputStream(file.uri)
-                ?: return@withContext Result.failure(Exception("Gagal membuka input stream dari file backup."))
-
-            val jsonString = inputStream.bufferedReader().use { it.readText() }
-            val backupObj = backupAdapter.fromJson(jsonString)
-                ?: return@withContext Result.failure(Exception("Format file JSON cadangan tidak valid."))
-
-            applyBackupData(context, backupObj)
-
-            Result.success("Berhasil memulihkan/mengimpor data aplikasi (termasuk Rekap Belanja Pasar) dari folder kustom Anda!")
-        } catch (e: Exception) {
-            Result.failure(e)
-        }
-    }
-
     private fun String.escapeCsv(): String {
         val quote = "\""
         val escaped = this.replace(quote, "$quote$quote")
@@ -755,11 +692,9 @@ class LocalRepository(private val db: AppDatabase) {
     }
 
     /**
-     * Mengekspor data belanja ke file CSV.
-     * Jika folderUri tidak null, simpan ke SAF folder.
-     * Jika folderUri null, simpan ke public Download folder.
+     * Mengekspor data belanja ke file CSV di folder My Singghara/Back Up.
      */
-    suspend fun exportShoppingToCSV(context: Context, folderUri: android.net.Uri?): Result<String> = withContext(Dispatchers.IO) {
+    suspend fun exportShoppingToCSV(context: Context): Result<String> = withContext(Dispatchers.IO) {
         try {
             val items = allShoppingItems.first()
             val sb = java.lang.StringBuilder()
@@ -777,44 +712,25 @@ class LocalRepository(private val db: AppDatabase) {
             val csvContent = sb.toString()
             val filename = "daftar_belanja.csv"
 
-            if (folderUri != null) {
-                val folder = androidx.documentfile.provider.DocumentFile.fromTreeUri(context, folderUri)
-                    ?: return@withContext Result.failure(Exception("Folder penyimpanan eksternal tidak dapat diakses."))
-                if (!folder.exists() || !folder.canWrite()) {
-                    return@withContext Result.failure(Exception("Izin menulis ditolak atau folder tidak lagi ada."))
-                }
-                var file = folder.findFile(filename)
-                if (file == null) {
-                    file = folder.createFile("text/csv", filename)
-                }
-                if (file == null) {
-                    return@withContext Result.failure(Exception("Gagal membuat file '$filename' di folder terpilih."))
-                }
-                context.contentResolver.openOutputStream(file.uri)?.use { os ->
-                    os.write(csvContent.toByteArray(Charsets.UTF_8))
-                    os.flush()
-                } ?: return@withContext Result.failure(Exception("Gagal membuka output stream."))
-                Result.success("Berhasil ekspor ke folder SAF: $filename")
-            } else {
+            val file = File(com.example.util.SinggharaFolderManager.getBackupFolder(context), filename)
+            file.writeText(csvContent, Charsets.UTF_8)
+            runCatching {
                 val downloadDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
                 if (downloadDir != null && !downloadDir.exists()) {
                     downloadDir.mkdirs()
                 }
-                val file = File(downloadDir, filename)
-                file.writeText(csvContent, Charsets.UTF_8)
-                Result.success("Berhasil ekspor ke folder Download: ${file.name}")
+                File(downloadDir, filename).writeText(csvContent, Charsets.UTF_8)
             }
+            Result.success("Berhasil ekspor ke ${file.absolutePath}")
         } catch (e: Exception) {
             Result.failure(e)
         }
     }
 
     /**
-     * Mengekspor data tabungan ke file CSV.
-     * Jika folderUri tidak null, simpan ke SAF folder.
-     * Jika folderUri null, simpan ke public Download folder.
+     * Mengekspor data tabungan ke file CSV di folder My Singghara/Back Up.
      */
-    suspend fun exportTabunganToCSV(context: Context, folderUri: android.net.Uri?): Result<String> = withContext(Dispatchers.IO) {
+    suspend fun exportTabunganToCSV(context: Context): Result<String> = withContext(Dispatchers.IO) {
         try {
             val target = activeSavingTarget.first()
             val transactions = allSavingTransactions.first()
@@ -834,33 +750,16 @@ class LocalRepository(private val db: AppDatabase) {
             val csvContent = sb.toString()
             val filename = "catatan_tabungan.csv"
 
-            if (folderUri != null) {
-                val folder = androidx.documentfile.provider.DocumentFile.fromTreeUri(context, folderUri)
-                    ?: return@withContext Result.failure(Exception("Folder penyimpanan eksternal tidak dapat diakses."))
-                if (!folder.exists() || !folder.canWrite()) {
-                    return@withContext Result.failure(Exception("Izin menulis ditolak atau folder tidak lagi ada."))
-                }
-                var file = folder.findFile(filename)
-                if (file == null) {
-                    file = folder.createFile("text/csv", filename)
-                }
-                if (file == null) {
-                    return@withContext Result.failure(Exception("Gagal membuat file '$filename' di folder terpilih."))
-                }
-                context.contentResolver.openOutputStream(file.uri)?.use { os ->
-                    os.write(csvContent.toByteArray(Charsets.UTF_8))
-                    os.flush()
-                } ?: return@withContext Result.failure(Exception("Gagal membuka output stream."))
-                Result.success("Berhasil ekspor ke folder SAF: $filename")
-            } else {
+            val file = File(com.example.util.SinggharaFolderManager.getBackupFolder(context), filename)
+            file.writeText(csvContent, Charsets.UTF_8)
+            runCatching {
                 val downloadDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
                 if (downloadDir != null && !downloadDir.exists()) {
                     downloadDir.mkdirs()
                 }
-                val file = File(downloadDir, filename)
-                file.writeText(csvContent, Charsets.UTF_8)
-                Result.success("Berhasil ekspor ke folder Download: ${file.name}")
+                File(downloadDir, filename).writeText(csvContent, Charsets.UTF_8)
             }
+            Result.success("Berhasil ekspor ke ${file.absolutePath}")
         } catch (e: Exception) {
             Result.failure(e)
         }

@@ -768,7 +768,6 @@ private fun PrimaryDrawerEntry(
 @Composable
 fun MainAppContent(viewModel: MainViewModel, desktopMode: Boolean = false) {
     val context = LocalContext.current
-    var showInitialSafDialog by remember { mutableStateOf(false) }
 
     var showExitConfirmDialog by remember { mutableStateOf(false) }
     val activity = androidx.activity.compose.LocalActivity.current
@@ -987,69 +986,6 @@ fun MainAppContent(viewModel: MainViewModel, desktopMode: Boolean = false) {
         } else {
             showExitConfirmDialog = true
         }
-    }
-
-    // Registrasi Launcher SAF Open Document Tree untuk inisialisasi awal
-    val initialFolderPicker = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.OpenDocumentTree()
-    ) { uri ->
-        if (uri != null) {
-            try {
-                val flags = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
-                context.contentResolver.takePersistableUriPermission(uri, flags)
-                viewModel.saveSelectedFolderUri(uri.toString())
-                showInitialSafDialog = false
-                viewModel.showToastPopup("Folder Penyimpanan Utama SAF berhasil dikonfigurasi secara permanen!")
-            } catch (e: Exception) {
-                viewModel.showToastPopup("Gagal mengeset izin folder: ${e.message}")
-            }
-        }
-    }
-
-    if (showInitialSafDialog) {
-        AlertDialog(
-            onDismissRequest = { showInitialSafDialog = false },
-            title = {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        imageVector = Icons.Default.Folder,
-                        contentDescription = "Folder",
-                        tint = MaterialTheme.colorScheme.primary
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("Aktivasi Folder SAF Lokal", fontWeight = FontWeight.Black, fontSize = 18.sp)
-                }
-            },
-            text = {
-                Text(
-                    text = "Aplikasi membutuhkan folder eksternal kustom (Storage Access Framework) pilihan Anda sendiri " +
-                           "(misal folder 'Pictures', 'Documents', atau folder buatan baru) untuk menyimpan file cadangan 'data_aplikasi.json' serta dokumen kustom Anda " +
-                           "secara permanen tanpa bisa terhapus saat pembersihan cache.",
-                    lineHeight = 20.sp,
-                    fontSize = 13.sp
-                )
-            },
-            confirmButton = {
-                Button(
-                    onClick = {
-                        try {
-                            viewModel.preventAutoLock = true
-                            initialFolderPicker.launch(null)
-                        } catch (e: Exception) {
-                            viewModel.preventAutoLock = false
-                            viewModel.showToastPopup("Gagal membuka file manager: ${e.message}")
-                        }
-                    }
-                ) {
-                    Text("Pilih/Buat Folder")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showInitialSafDialog = false }) {
-                    Text("Nanti Saja")
-                }
-            }
-        )
     }
 
     // Daftar navigasi menu dalam Drawer (dibuat kosong sesuai permintaan user)

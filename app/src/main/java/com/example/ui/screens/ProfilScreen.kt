@@ -24,6 +24,10 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import com.example.util.MediaPermission
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -132,22 +136,54 @@ fun ProfilScreen(
         }
     }
 
-    val folderPickLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.OpenDocumentTree()
-    ) { uri ->
-        if (uri != null) {
-            try {
-                val flags = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
-                context.contentResolver.takePersistableUriPermission(uri, flags)
-                viewModel.saveSelectedFolderUri(uri.toString())
-                statusMessage = "Folder terpilih berhasil disimpan: $uri"
-                isStatusError = false
-                viewModel.showToastPopup("Folder SAF diaktifkan dan disimpan!")
-            } catch (e: Exception) {
-                statusMessage = "Gagal mengambil hak akses: ${e.message}"
-                isStatusError = true
+    var hasMediaAccess by remember { mutableStateOf(MediaPermission.hasAccess(context)) }
+    var pendingMediaAction by remember { mutableStateOf<(() -> Unit)?>(null) }
+
+    val mediaPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestMultiplePermissions()
+    ) {
+        hasMediaAccess = MediaPermission.hasAccess(context)
+        if (hasMediaAccess) {
+            val action = pendingMediaAction
+            pendingMediaAction = null
+            viewModel.showToastPopup("Akses media berhasil diaktifkan!")
+            action?.invoke()
+        } else {
+            viewModel.showToastPopup("Akses media ditolak. Cadangan lokal belum bisa dibuat.")
+        }
+    }
+
+    fun requestMediaAccess(action: (() -> Unit)? = null) {
+        hasMediaAccess = MediaPermission.hasAccess(context)
+        if (hasMediaAccess) {
+            action?.invoke()
+            return
+        }
+        val missing = MediaPermission.missingPermissions(context)
+        if (missing.isEmpty()) {
+            pendingMediaAction = action
+            MediaPermission.openAllFilesSettings(context)
+        } else {
+            pendingMediaAction = action
+            mediaPermissionLauncher.launch(missing.toTypedArray())
+        }
+    }
+
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                val granted = MediaPermission.hasAccess(context)
+                hasMediaAccess = granted
+                if (granted) {
+                    val action = pendingMediaAction
+                    pendingMediaAction = null
+                    action?.invoke()
+                }
             }
         }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
 
@@ -664,12 +700,12 @@ fun ProfilScreen(
                         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
 
                         // b. Sub-Menu: Cadangkan & Pulihkan (Backup & Restore)
-                        val hasFolderForBackup = viewModel.safFolderUriStr.isNotEmpty()
+                        val hasLocalBackupAccess = hasMediaAccess
                         val currentUser = viewModel.currentFirebaseUser
                         val backupSubtitle = if (currentUser != null) {
                             "Cloud Firebase (${currentUser.email ?: currentUser.displayName}) & Berkas Lokal"
                         } else {
-                            "Cloud Firebase Terisolasi & Berkas Lokal (SAF)"
+                            "Cloud Firebase Terisolasi & Berkas Lokal"
                         }
                         
                         MenuItem(
@@ -1140,7 +1176,7 @@ fun ProfilScreen(
                                     ) {
                                         Card(
                                             colors = CardDefaults.cardColors(
-                                                containerColor = if (hasFolderForBackup) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f) 
+                                                containerColor = if (hasLocalBackupAccess) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f) 
                                                                  else MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.15f)
                                             ),
                                             modifier = Modifier.fillMaxWidth()
@@ -1150,17 +1186,17 @@ fun ProfilScreen(
                                                 verticalAlignment = Alignment.CenterVertically
                                             ) {
                                                 Icon(
-                                                    imageVector = if (hasFolderForBackup) Icons.Default.CheckCircle else Icons.Default.FolderOff,
+                                                    imageVector = if (hasLocalBackupAccess) Icons.Default.CheckCircle else Icons.Default.PermMedia,
                                                     contentDescription = null,
-                                                    tint = if (hasFolderForBackup) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
+                                                    tint = if (hasLocalBackupAccess) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error,
                                                     modifier = Modifier.size(18.dp)
                                                 )
                                                 Spacer(modifier = Modifier.width(8.dp))
                                                 Text(
-                                                    text = if (hasFolderForBackup) "Siap: ${Uri.parse(viewModel.safFolderUriStr).path ?: viewModel.safFolderUriStr}" else "Silakan pilih direktori default lokal Anda",
+                                                    text = if (hasLocalBackupAccess) "Siap: penyimpanan perangkat (My Singghara/Back Up)" else "Izinkan akses media untuk menyimpan cadangan lokal",
                                                     fontWeight = FontWeight.Bold,
                                                     fontSize = 11.sp,
-                                                    color = if (hasFolderForBackup) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.error,
+                                                    color = if (hasLocalBackupAccess) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.error,
                                                     maxLines = 2,
                                                     lineHeight = 15.sp
                                                 )
@@ -1169,21 +1205,17 @@ fun ProfilScreen(
                                         
                                         Button(
                                             onClick = {
-                                                try {
-                                                    viewModel.preventAutoLock = true
-                                                    folderPickLauncher.launch(null)
-                                                } catch (e: Exception) {
-                                                    viewModel.preventAutoLock = false
-                                                    viewModel.showToastPopup("Gagal meluncurkan picker SAF: ${e.message}")
-                                                }
+                                                viewModel.preventAutoLock = false
+                                                requestMediaAccess()
                                             },
-                                            modifier = Modifier.fillMaxWidth().testTag("select_saf_folder_button"),
+                                            enabled = !hasLocalBackupAccess,
+                                            modifier = Modifier.fillMaxWidth().testTag("local_backup_permission_button"),
                                             shape = RoundedCornerShape(8.dp),
                                             colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
                                         ) {
-                                            Icon(Icons.Default.FolderOpen, null, modifier = Modifier.size(16.dp))
+                                            Icon(Icons.Default.PermMedia, null, modifier = Modifier.size(16.dp))
                                             Spacer(modifier = Modifier.width(8.dp))
-                                            Text(if (hasFolderForBackup) "Ubah Folder" else "Pilih Folder", fontSize = 12.sp)
+                                            Text(if (hasLocalBackupAccess) "Akses Media Sudah Diberikan" else "Izinkan Akses Media", fontSize = 12.sp)
                                         }
 
                                         HorizontalDivider(
@@ -1384,19 +1416,19 @@ fun ProfilScreen(
                                         )
 
                                         Text(
-                                            text = "Cadangan Berkas Lokal (SAF)",
+                                            text = "Cadangan Berkas Lokal (Penyimpanan Perangkat)",
                                             fontWeight = FontWeight.Bold,
                                             fontSize = 12.sp,
                                             color = MaterialTheme.colorScheme.onSurface
                                         )
 
-                                        if (!hasFolderForBackup) {
+                                        if (!hasLocalBackupAccess) {
                                             Card(
                                                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.15f)),
                                                 modifier = Modifier.fillMaxWidth()
                                             ) {
                                                 Text(
-                                                    text = "Silakan pilih folder terlebih dahulu di atas sebelum melakukan cadangan (backup).",
+                                                    text = "Izinkan akses media terlebih dahulu di atas sebelum melakukan cadangan (backup) lokal.",
                                                     color = MaterialTheme.colorScheme.error,
                                                     fontSize = 11.sp,
                                                     modifier = Modifier.padding(10.dp)
@@ -1409,12 +1441,12 @@ fun ProfilScreen(
                                             ) {
                                                 Button(
                                                     onClick = {
-                                                        viewModel.exportBackupSAF(context) { msg, success ->
+                                                        viewModel.exportBackup(context) { msg, success ->
                                                             statusMessage = msg
                                                             isStatusError = !success
                                                         }
                                                     },
-                                                    modifier = Modifier.weight(1f).testTag("saf_export_button"),
+                                                    modifier = Modifier.weight(1f).testTag("local_export_button"),
                                                     shape = RoundedCornerShape(8.dp),
                                                     colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary)
                                                 ) {
@@ -1425,12 +1457,12 @@ fun ProfilScreen(
 
                                                 Button(
                                                     onClick = {
-                                                        viewModel.importBackupSAF(context) { msg, success ->
+                                                        viewModel.importBackup(context) { msg, success ->
                                                             statusMessage = msg
                                                             isStatusError = !success
                                                         }
                                                     },
-                                                    modifier = Modifier.weight(1f).testTag("saf_import_button"),
+                                                    modifier = Modifier.weight(1f).testTag("local_import_button"),
                                                     shape = RoundedCornerShape(8.dp),
                                                     colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.tertiary)
                                                 ) {

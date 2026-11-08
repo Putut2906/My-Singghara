@@ -1,7 +1,9 @@
 @file:OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 package com.example.ui.screens
 
+import android.Manifest
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.widget.Toast
 import com.example.media.EmbeddedLyricsReader
@@ -50,8 +52,13 @@ import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.core.content.ContextCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
 import com.example.ui.MainViewModel
 import com.example.ui.MusicTrack
+import com.example.util.MediaPermission
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.os.Build
@@ -135,45 +142,73 @@ fun PemutarMusikScreen(viewModel: MainViewModel, onOpenDrawer: () -> Unit) {
         }
     }
 
-    // Auto-scan folder on entry if already selected but playlist is empty
+    // Izin media yang sama dengan tombol "Izinkan Akses Media" pada setup pertama.
+    var hasMediaAccess by remember { mutableStateOf(MediaPermission.hasAccess(context)) }
+
+    val mediaPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestMultiplePermissions()
+    ) {
+        hasMediaAccess = MediaPermission.hasAccess(context)
+        if (hasMediaAccess) {
+            viewModel.scanDeviceMusic(context)
+            viewModel.showToastPopup("Akses media berhasil diaktifkan!")
+        } else {
+            viewModel.showToastPopup("Akses media ditolak. Lagu .mp3 perangkat belum bisa dibaca.")
+        }
+    }
+
+    fun requestMediaAccess() {
+        hasMediaAccess = MediaPermission.hasAccess(context)
+        if (hasMediaAccess) {
+            viewModel.scanDeviceMusic(context)
+            return
+        }
+        val missing = MediaPermission.missingPermissions(context)
+        if (missing.isEmpty()) {
+            MediaPermission.openAllFilesSettings(context)
+        } else {
+            mediaPermissionLauncher.launch(missing.toTypedArray())
+        }
+    }
+
     LaunchedEffect(Unit) {
-        if (viewModel.musicFolderUriStr.isNotEmpty() && viewModel.musicPlaylist.isEmpty()) {
-            viewModel.scanMusicFolder(context)
+        hasMediaAccess = MediaPermission.hasAccess(context)
+        if (hasMediaAccess) {
+            if (viewModel.musicPlaylist.isEmpty()) viewModel.scanDeviceMusic(context)
+        } else {
+            requestMediaAccess()
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            val check = androidx.core.content.ContextCompat.checkSelfPermission(
+            val check = ContextCompat.checkSelfPermission(
                 context,
-                android.Manifest.permission.POST_NOTIFICATIONS
+                Manifest.permission.POST_NOTIFICATIONS
             )
-            if (check != android.content.pm.PackageManager.PERMISSION_GRANTED) {
-                permissionLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+            if (check != PackageManager.PERMISSION_GRANTED) {
+                permissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
             }
         }
     }
 
-    LaunchedEffect(viewModel.musicFolderUriStr) {
-        selectedFolder = null
+    // Pengguna bisa mengubah izin lewat Setelan Android lalu kembali ke aplikasi.
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                val granted = MediaPermission.hasAccess(context)
+                if (granted && !hasMediaAccess) {
+                    hasMediaAccess = true
+                    viewModel.scanDeviceMusic(context)
+                } else {
+                    hasMediaAccess = granted
+                }
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
     LaunchedEffect(selectedTab, selectedFolder, selectedSubTab) {
         searchQuery = ""
-    }
-
-    // SAF Directory picker
-    val folderPickerLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.OpenDocumentTree()
-    ) { uri ->
-        if (uri != null) {
-            try {
-                val flags = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
-                context.contentResolver.takePersistableUriPermission(uri, flags)
-                viewModel.saveMusicFolderUri(uri.toString())
-                viewModel.scanMusicFolder(context)
-                viewModel.showToastPopup("Folder musik berhasil diatur!")
-            } catch (e: Exception) {
-                viewModel.showToastPopup("Gagal memproses folder: ${e.message}")
-            }
-        }
     }
 
     // Animasi rotasi disk lama masih dideklarasikan di sini tetapi hasilnya tidak
@@ -449,9 +484,35 @@ fun PemutarMusikScreen(viewModel: MainViewModel, onOpenDrawer: () -> Unit) {
                             }
                         } else if (viewModel.musicPlaylist.isEmpty()) {
                             item {
-                                EmptyStatePlaceholder(
-                                    message = if (viewModel.musicFolderUriStr.isNotEmpty()) "Tidak ada file musik ditemukan di folder ini." else "Pilih folder musik SAF untuk memuat lagu."
-                                )
+                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                    EmptyStatePlaceholder(
+                                        message = if (hasMediaAccess) {
+                                            "Tidak ada file .mp3 yang ditemukan di perangkat ini."
+                                        } else {
+                                            "Izinkan akses media agar file .mp3 di perangkat bisa dibaca dan diputar."
+                                        }
+                                    )
+                                    if (!hasMediaAccess) {
+                                        Spacer(modifier = Modifier.height(12.dp))
+                                        Button(
+                                            onClick = { requestMediaAccess() },
+                                            shape = RoundedCornerShape(12.dp),
+                                            modifier = Modifier.testTag("music_grant_media_button")
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.MusicNote,
+                                                contentDescription = null,
+                                                modifier = Modifier.size(18.dp)
+                                            )
+                                            Spacer(modifier = Modifier.width(8.dp))
+                                            Text(
+                                                text = "Izinkan Akses Media",
+                                                fontSize = 13.sp,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                        }
+                                    }
+                                }
                             }
                         } else {
                             val groupedByFolder = viewModel.musicPlaylist.groupBy { it.artist }
@@ -1948,14 +2009,16 @@ fun PemutarMusikScreen(viewModel: MainViewModel, onOpenDrawer: () -> Unit) {
                         elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
                     ) {
                         Column {
-                            // 1. Folder Musik SAF selection
-                            val isConnected = viewModel.musicFolderUriStr.isNotEmpty()
+                            // 1. Izin akses media (sama dengan setup pertama)
                             Column(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .clickable {
-                                        viewModel.preventAutoLock = true
-                                        folderPickerLauncher.launch(null)
+                                        if (hasMediaAccess) {
+                                            viewModel.showToastPopup("Akses media sudah diberikan.")
+                                        } else {
+                                            requestMediaAccess()
+                                        }
                                     }
                                     .padding(16.dp)
                             ) {
@@ -1968,7 +2031,7 @@ fun PemutarMusikScreen(viewModel: MainViewModel, onOpenDrawer: () -> Unit) {
                                         contentAlignment = Alignment.Center
                                     ) {
                                         Icon(
-                                            imageVector = Icons.Default.Folder,
+                                            imageVector = Icons.Default.MusicNote,
                                             contentDescription = null,
                                             tint = MaterialTheme.colorScheme.onPrimaryContainer,
                                             modifier = Modifier.size(20.dp)
@@ -1977,16 +2040,16 @@ fun PemutarMusikScreen(viewModel: MainViewModel, onOpenDrawer: () -> Unit) {
                                     Spacer(modifier = Modifier.width(16.dp))
                                     Column(modifier = Modifier.weight(1f)) {
                                         Text(
-                                            text = "Folder Musik",
+                                            text = "Akses Media",
                                             fontSize = 15.sp,
                                             fontWeight = FontWeight.Bold,
                                             color = MaterialTheme.colorScheme.onSurface
                                         )
                                         Spacer(modifier = Modifier.height(2.dp))
                                         Text(
-                                            text = if (isConnected) "Terkoneksi ke penyimpanan lokal SAF" else "Folder musik belum dipilih (Klik untuk memilih)",
+                                            text = if (hasMediaAccess) "Akses media sudah diberikan" else "Izinkan Akses Media",
                                             fontSize = 12.sp,
-                                            color = if (isConnected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
+                                            color = if (hasMediaAccess) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
                                         )
                                     }
                                 }
@@ -1997,13 +2060,62 @@ fun PemutarMusikScreen(viewModel: MainViewModel, onOpenDrawer: () -> Unit) {
                                 color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
                             )
 
-                            // 2. Pindai Ulang Folder
+                            // 1b. Opsional: akses semua file untuk folder publik
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { MediaPermission.openAllFilesSettings(context) }
+                                    .padding(16.dp)
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(40.dp)
+                                            .clip(RoundedCornerShape(10.dp))
+                                            .background(MaterialTheme.colorScheme.tertiaryContainer),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Folder,
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.onTertiaryContainer,
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                    }
+                                    Spacer(modifier = Modifier.width(16.dp))
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = "Akses Semua File",
+                                            fontSize = 15.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = MaterialTheme.colorScheme.onSurface
+                                        )
+                                        Spacer(modifier = Modifier.height(2.dp))
+                                        Text(
+                                            text = if (MediaPermission.hasAllFilesAccess()) "Aktif" else "Opsional, untuk folder My Singghara publik",
+                                            fontSize = 12.sp,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                }
+                            }
+
+                            HorizontalDivider(
+                                modifier = Modifier.padding(horizontal = 16.dp),
+                                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+                            )
+
+                            // 2. Pindai Ulang Media
                             Column(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .clickable {
-                                        viewModel.scanMusicFolder(context)
-                                        viewModel.showToastPopup("Memindai ulang folder musik...")
+                                        if (!MediaPermission.hasAccess(context)) {
+                                            requestMediaAccess()
+                                        } else {
+                                            viewModel.scanDeviceMusic(context)
+                                            viewModel.showToastPopup("Memindai ulang file .mp3 perangkat...")
+                                        }
                                     }
                                     .padding(16.dp)
                             ) {
@@ -2025,14 +2137,14 @@ fun PemutarMusikScreen(viewModel: MainViewModel, onOpenDrawer: () -> Unit) {
                                     Spacer(modifier = Modifier.width(16.dp))
                                     Column(modifier = Modifier.weight(1f)) {
                                         Text(
-                                            text = "Pindai Ulang Folder",
+                                            text = "Pindai Ulang Media",
                                             fontSize = 15.sp,
                                             fontWeight = FontWeight.Bold,
                                             color = MaterialTheme.colorScheme.onSurface
                                         )
                                         Spacer(modifier = Modifier.height(2.dp))
                                         Text(
-                                            text = "Segarkan daftar lagu dari folder aktif",
+                                            text = "Segarkan daftar .mp3 dari penyimpanan perangkat",
                                             fontSize = 12.sp,
                                             color = MaterialTheme.colorScheme.onSurfaceVariant
                                         )
@@ -2194,14 +2306,13 @@ fun PemutarMusikScreen(viewModel: MainViewModel, onOpenDrawer: () -> Unit) {
                                 color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
                             )
 
-                            // 4. Reset Path Folder
+                            // 4. Kosongkan daftar lagu
                             Column(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .clickable {
-                                        viewModel.saveMusicFolderUri("")
                                         viewModel.musicPlaylist.clear()
-                                        viewModel.showToastPopup("Folder musik telah di-reset")
+                                        viewModel.showToastPopup("Daftar lagu dikosongkan. Pindai ulang untuk memuat kembali.")
                                     }
                                     .padding(16.dp)
                             ) {
@@ -2223,14 +2334,14 @@ fun PemutarMusikScreen(viewModel: MainViewModel, onOpenDrawer: () -> Unit) {
                                     Spacer(modifier = Modifier.width(16.dp))
                                     Column(modifier = Modifier.weight(1f)) {
                                         Text(
-                                            text = "Reset Path Folder",
+                                            text = "Kosongkan Daftar Lagu",
                                             fontSize = 15.sp,
                                             fontWeight = FontWeight.Bold,
                                             color = MaterialTheme.colorScheme.onErrorContainer
                                         )
                                         Spacer(modifier = Modifier.height(2.dp))
                                         Text(
-                                            text = "Putus koneksi folder musik saat ini",
+                                            text = "Hapus daftar lagu yang sedang dimuat",
                                             fontSize = 12.sp,
                                             color = MaterialTheme.colorScheme.onSurfaceVariant
                                         )
@@ -2508,7 +2619,7 @@ fun TrackAlbumArt(
                 modifier = Modifier.fillMaxSize()
             )
         } else if (!folderCoverUri.isNullOrBlank()) {
-            // cover.jpg/folder.jpg di folder album (mis. hasil pilih folder SAF).
+            // cover.jpg/folder.jpg di folder album (mis. lagu dari folder aplikasi).
             AsyncImage(
                 model = folderCoverUri,
                 contentDescription = "Sampul Album",

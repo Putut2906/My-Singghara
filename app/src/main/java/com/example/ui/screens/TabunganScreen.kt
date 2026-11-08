@@ -50,6 +50,10 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import com.example.util.MediaPermission
 import androidx.compose.ui.window.Dialog
 import coil.compose.AsyncImage
 import com.example.data.SavingTarget
@@ -82,7 +86,7 @@ fun TabunganScreen(viewModel: MainViewModel) {
     var showChoosePopup by remember { mutableStateOf(false) }
     var showTargetFormPopup by remember { mutableStateOf(false) }
     var showTrxFormPopup by remember { mutableStateOf(false) }
-    var showSafWarningDialog by remember { mutableStateOf(false) }
+    var showMediaWarningDialog by remember { mutableStateOf(false) }
     var trxToDelete by remember { mutableStateOf<SavingTransaction?>(null) }
     var editingTrx by remember { mutableStateOf<SavingTransaction?>(null) }
     var selectedCategory by remember { mutableStateOf("sisa") } // sisa, masuk, keluar
@@ -96,6 +100,61 @@ fun TabunganScreen(viewModel: MainViewModel) {
             viewModel.sharedReceiptText = null
             viewModel.showSharedReceiptDialog = true
         }
+    }
+
+    var hasMediaAccess by remember { mutableStateOf(MediaPermission.hasAccess(context)) }
+    var pendingMediaAction by remember { mutableStateOf<(() -> Unit)?>(null) }
+
+    val mediaPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestMultiplePermissions()
+    ) {
+        hasMediaAccess = MediaPermission.hasAccess(context)
+        if (hasMediaAccess) {
+            val action = pendingMediaAction
+            pendingMediaAction = null
+            showMediaWarningDialog = false
+            viewModel.showToastPopup("Akses media berhasil diaktifkan!")
+            action?.invoke()
+        } else {
+            viewModel.showToastPopup("Akses media ditolak. Data tabungan belum bisa dikelola.")
+        }
+    }
+
+    fun requestMediaAccess(action: (() -> Unit)? = null) {
+        hasMediaAccess = MediaPermission.hasAccess(context)
+        if (hasMediaAccess) {
+            action?.invoke()
+            return
+        }
+        pendingMediaAction = action
+        showMediaWarningDialog = true
+    }
+
+    fun launchMediaPermissionRequest() {
+        val missing = MediaPermission.missingPermissions(context)
+        if (missing.isEmpty()) {
+            MediaPermission.openAllFilesSettings(context)
+        } else {
+            mediaPermissionLauncher.launch(missing.toTypedArray())
+        }
+    }
+
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) {
+                val granted = MediaPermission.hasAccess(context)
+                hasMediaAccess = granted
+                if (granted) {
+                    val action = pendingMediaAction
+                    pendingMediaAction = null
+                    showMediaWarningDialog = false
+                    action?.invoke()
+                }
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
     var feedbackBannerMessage by remember { mutableStateOf<String?>(null) }
@@ -169,12 +228,13 @@ fun TabunganScreen(viewModel: MainViewModel) {
     // Trigger choose popup if FAB set it to true
     LaunchedEffect(viewModel.showTabunganFabDialog) {
         if (viewModel.showTabunganFabDialog) {
-            if (viewModel.safFolderUriStr.isEmpty()) {
-                showSafWarningDialog = true
-            } else {
-                showChoosePopup = true
-            }
             viewModel.showTabunganFabDialog = false
+            if (MediaPermission.hasAccess(context)) {
+                hasMediaAccess = true
+                showChoosePopup = true
+            } else {
+                requestMediaAccess { showChoosePopup = true }
+            }
         }
     }
 
@@ -301,9 +361,7 @@ fun TabunganScreen(viewModel: MainViewModel) {
                             ) {
                                 Surface(
                                     onClick = {
-                                        if (viewModel.safFolderUriStr.isEmpty()) {
-                                            showSafWarningDialog = true
-                                        } else {
+                                        requestMediaAccess {
                                             inputTargetNama = targetName
                                             inputTargetJumlah = targetAmount.toLong().toString()
                                             showTargetFormPopup = true
@@ -325,9 +383,7 @@ fun TabunganScreen(viewModel: MainViewModel) {
 
                                 Surface(
                                     onClick = {
-                                        if (viewModel.safFolderUriStr.isEmpty()) {
-                                            showSafWarningDialog = true
-                                        } else {
+                                        requestMediaAccess {
                                             inputTrxJenis = "masuk"
                                             inputTrxKategori = ""
                                             inputTrxDeskripsi = ""
@@ -1427,35 +1483,38 @@ fun TabunganScreen(viewModel: MainViewModel) {
         )
     }
 
-    if (showSafWarningDialog) {
+    if (showMediaWarningDialog) {
         AlertDialog(
-            onDismissRequest = { showSafWarningDialog = false },
+            onDismissRequest = {
+                showMediaWarningDialog = false
+                pendingMediaAction = null
+            },
             title = {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(
-                        imageVector = Icons.Default.Folder,
+                        imageVector = Icons.Default.PermMedia,
                         contentDescription = null,
                         tint = MaterialTheme.colorScheme.error
                     )
                     Spacer(modifier = Modifier.width(8.dp))
-                    Text("Penyimpanan SAF Diperlukan", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                    Text("Izinkan Akses Media", fontWeight = FontWeight.Bold, fontSize = 16.sp)
                 }
             },
             text = {
-                Text("Untuk mengelola target atau menambahkan data transaksi tabungan lokal kustom Anda, " +
-                     "Anda harus mengaktifkan/memilih Folder Penyimpanan utama (SAF) terlebih dahulu di tab Profil " +
-                     "agar seluruh data dicadangkan dengan aman.")
+                Text("Akses media adalah izin yang sama dengan saat penyiapan aplikasi pertama kali. " +
+                     "Izin ini diperlukan agar data tabungan dapat dikelola dan dicadangkan dengan aman " +
+                     "tanpa memilih folder manual.")
             },
             confirmButton = {
-                Button(onClick = {
-                    showSafWarningDialog = false
-                    viewModel.currentRoute = "profil"
-                }) {
-                    Text("Ke Pengaturan Profil")
+                Button(onClick = { launchMediaPermissionRequest() }) {
+                    Text("Izinkan Akses Media")
                 }
             },
             dismissButton = {
-                TextButton(onClick = { showSafWarningDialog = false }) {
+                TextButton(onClick = {
+                    showMediaWarningDialog = false
+                    pendingMediaAction = null
+                }) {
                     Text("Batal")
                 }
             }

@@ -95,7 +95,7 @@ fun BelanjaScreen(viewModel: MainViewModel) {
 
     var showFormDialog by remember { mutableStateOf(false) }
     var isEditingItem by remember { mutableStateOf<ShoppingItem?>(null) }
-    var showSafWarningDialog by remember { mutableStateOf(false) }
+
     var itemToDelete by remember { mutableStateOf<ShoppingItem?>(null) }
     var feedbackBannerMessage by remember { mutableStateOf<String?>(null) }
     var feedbackBannerIcon by remember { mutableStateOf<androidx.compose.ui.graphics.vector.ImageVector?>(null) }
@@ -316,12 +316,8 @@ fun BelanjaScreen(viewModel: MainViewModel) {
                                 // 3. Add Icon Button (tanpa title/label)
                                 IconButton(
                                     onClick = {
-                                        if (viewModel.safFolderUriStr.isEmpty()) {
-                                            showSafWarningDialog = true
-                                        } else {
-                                            resetForm()
-                                            showFormDialog = true
-                                        }
+                                        resetForm()
+                                        showFormDialog = true
                                     },
                                     modifier = Modifier.size(32.dp)
                                 ) {
@@ -825,41 +821,6 @@ fun BelanjaScreen(viewModel: MainViewModel) {
                 }
             }
         }
-    }
-
-    if (showSafWarningDialog) {
-        AlertDialog(
-            onDismissRequest = { showSafWarningDialog = false },
-            title = {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        imageVector = Icons.Default.Folder,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.error
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("Penyimpanan SAF Diperlukan", fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                }
-            },
-            text = {
-                Text("Untuk mengelola pembelanjaan lokal atau menambahkan data item belanja kustom Anda, " +
-                     "Anda harus mengaktifkan/memilih Folder Penyimpanan utama (SAF) terlebih dahulu di tab Profil " +
-                     "agar seluruh data dicadangkan dengan aman.")
-            },
-            confirmButton = {
-                Button(onClick = {
-                    showSafWarningDialog = false
-                    viewModel.currentRoute = "profil"
-                }) {
-                    Text("Ke Pengaturan Profil")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showSafWarningDialog = false }) {
-                    Text("Batal")
-                }
-            }
-        )
     }
 
     if (itemToDelete != null) {

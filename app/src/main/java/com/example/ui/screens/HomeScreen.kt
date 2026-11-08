@@ -457,7 +457,7 @@ fun HomeScreen(viewModel: MainViewModel) {
 
     var selectedDayAgenda by remember { mutableStateOf<Calendar?>(null) }
     var showAddAgendaPopup by remember { mutableStateOf(false) }
-    var showSafWarningDialog by remember { mutableStateOf(false) }
+
     var showTimezoneMenu by remember { mutableStateOf(false) }
     var showClockFontDialog by remember { mutableStateOf(false) }
     var isClockResizing by remember { mutableStateOf(false) }
@@ -2473,41 +2473,6 @@ fun HomeScreen(viewModel: MainViewModel) {
         }
     }
 
-    if (showSafWarningDialog) {
-        AlertDialog(
-            onDismissRequest = { showSafWarningDialog = false },
-            title = {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        imageVector = Icons.Default.Folder,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.error
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    Text("Penyimpanan SAF Diperlukan", fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                }
-            },
-            text = {
-                Text("Untuk menambahkan agenda kegiatan atau mengelola acara lokal kustom Anda, " +
-                     "Anda harus mengaktifkan/memilih Folder Penyimpanan utama (SAF) terlebih dahulu di tab Profil " +
-                     "agar seluruh data dicadangkan dengan aman.")
-            },
-            confirmButton = {
-                Button(onClick = {
-                    showSafWarningDialog = false
-                    viewModel.currentRoute = "profil"
-                }) {
-                    Text("Ke Pengaturan Profil")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showSafWarningDialog = false }) {
-                    Text("Batal")
-                }
-            }
-        )
-    }
-
     // DIALOG: MONTH EVENT & CALENDAR DOWNLOAD POPUP (With + Icon and PDF/PNG/JPG Art Paper/Art Carton Export)
     if (showMonthEventsPopup) {
         val calendarMonthName = viewCalendar.getDisplayName(
@@ -2586,11 +2551,7 @@ fun HomeScreen(viewModel: MainViewModel) {
                         // '+' Icon button (without title text) as requested
                         IconButton(
                             onClick = {
-                                if (viewModel.safFolderUriStr.isEmpty()) {
-                                    showSafWarningDialog = true
-                                } else {
-                                    showMonthAddAgendaForm = !showMonthAddAgendaForm
-                                }
+                                showMonthAddAgendaForm = !showMonthAddAgendaForm
                             },
                             modifier = Modifier
                                 .clip(CircleShape)
@@ -3761,7 +3722,7 @@ fun HomeScreen(viewModel: MainViewModel) {
                             )
                             Spacer(modifier = Modifier.width(12.dp))
                             Column {
-                                Text(text = "Pilih MP3 dari Lokasi Lain (SAF)", fontSize = 13.sp)
+                                Text(text = "Pilih MP3 dari Lokasi Lain", fontSize = 13.sp)
                                 val customFile = java.io.File(context.filesDir, "azan_custom_${prayer.lowercase(java.util.Locale.getDefault())}.mp3")
                                 if (customFile.exists()) {
                                     Text(text = "File kustom termuat", fontSize = 10.sp, color = MaterialTheme.colorScheme.secondary)

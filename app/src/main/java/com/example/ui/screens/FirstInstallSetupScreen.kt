@@ -61,6 +61,7 @@ import com.example.ui.components.AppUserAvatar
 import com.example.ui.components.PhotoRepositionDialog
 import com.example.ui.components.defaultAvatarGradients
 import com.example.ui.components.defaultAvatarIcons
+import com.example.util.MediaPermission
 import com.example.util.SinggharaFolderManager
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -117,7 +118,6 @@ fun FirstInstallSetupScreen(
     var notificationsAllowed by rememberSaveable { mutableStateOf(false) }
     var mediaAccessAllowed by rememberSaveable { mutableStateOf(false) }
     var allFilesAllowed by rememberSaveable { mutableStateOf(false) }
-    var safAccessValid by rememberSaveable { mutableStateOf(false) }
     val statusScope = rememberCoroutineScope()
 
     fun refreshPermissionStatuses() {
@@ -126,11 +126,9 @@ fun FirstInstallSetupScreen(
                 val notif = isNotificationAccessEnabled(context)
                 val media = storagePermissionsGranted(context)
                 val allFiles = hasAllFilesAccess()
-                val safValid = viewModel.safFolderUriStr.isNotEmpty() && viewModel.isSafFolderConfigured(context)
                 notificationsAllowed = notif
                 mediaAccessAllowed = media
                 allFilesAllowed = allFiles
-                safAccessValid = safValid
             }
         }
     }
@@ -170,27 +168,6 @@ fun FirstInstallSetupScreen(
     ) { uri ->
         viewModel.preventAutoLock = false
         if (uri != null) photoToRepositionUri = uri
-    }
-
-    val safFolderLauncher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.OpenDocumentTree()
-    ) { uri ->
-        viewModel.preventAutoLock = false
-        if (uri != null) {
-            try {
-                val flags = Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION
-                context.contentResolver.takePersistableUriPermission(uri, flags)
-                viewModel.saveSelectedFolderUri(uri.toString())
-                backupStatusMessage = "Folder cadangan SAF aktif dan hak aksesnya tersimpan permanen."
-                isBackupStatusError = false
-                refreshPermissionStatuses()
-                viewModel.showToastPopup("Folder SAF berhasil dikonfigurasi!")
-            } catch (e: Exception) {
-                backupStatusMessage = "Gagal mengambil hak akses folder: ${e.message}"
-                isBackupStatusError = true
-                viewModel.showToastPopup("Gagal mengambil hak akses folder SAF.")
-            }
-        }
     }
 
     val notificationPermissionLauncher = rememberLauncherForActivityResult(
@@ -427,17 +404,20 @@ fun FirstInstallSetupScreen(
                                 onOpenAllFilesSettings = { openAllFilesAccessSettings(context, viewModel) }
                             )
                             5 -> SetupBackupStepView(
-                                hasSafFolder = viewModel.safFolderUriStr.isNotEmpty(),
-                                isSafValid = safAccessValid,
+                                mediaGranted = mediaAccessAllowed,
                                 rootFolderPath = rootFolderPath,
                                 backupStatusMessage = backupStatusMessage,
                                 isBackupStatusError = isBackupStatusError,
-                                onSelectFolderClick = {
-                                    viewModel.preventAutoLock = true
-                                    safFolderLauncher.launch(null)
+                                onRequestMediaClick = {
+                                    val missing = missingStoragePermissions(context)
+                                    if (missing.isEmpty()) {
+                                        MediaPermission.openAllFilesSettings(context)
+                                    } else {
+                                        storagePermissionLauncher.launch(missing.toTypedArray())
+                                    }
                                 },
                                 onRestoreClick = {
-                                    viewModel.importBackupSAF(context) { msg, success ->
+                                    viewModel.importBackup(context) { msg, success ->
                                         backupStatusMessage = msg
                                         isBackupStatusError = !success
                                         if (success) {
@@ -464,7 +444,7 @@ fun FirstInstallSetupScreen(
                                 profileName = tempProfileName,
                                 isPinActive = viewModel.isAppLockEnabled && viewModel.appPin.length == 4,
                                 notificationsEnabled = notificationsAllowed,
-                                isSafValid = safAccessValid,
+                                mediaGranted = mediaAccessAllowed,
                                 rootFolderPath = rootFolderPath
                             )
                         }
@@ -565,7 +545,7 @@ fun FirstInstallSetupScreen(
             title = { Text("Lewati pengaturan awal?", fontWeight = FontWeight.Bold) },
             text = {
                 Text(
-                    "Profil, PIN, izin notifikasi, dan folder cadangan SAF akan memakai pengaturan bawaan. Semuanya tetap bisa diubah lewat menu Profil.",
+                    "Profil, PIN, izin notifikasi, dan akses media akan memakai pengaturan bawaan. Semuanya tetap bisa diubah lewat menu Profil.",
                     fontSize = 13.sp,
                     lineHeight = 20.sp
                 )
@@ -872,7 +852,7 @@ private fun SetupWelcomeStepView() {
         SetupFeatureItem(
             icon = Icons.Default.Shield,
             title = "Proteksi Perangkat",
-            description = "Kunci PIN, cadangan SAF, dan pemulihan data penuh."
+            description = "Kunci PIN, cadangan lokal, dan pemulihan data penuh."
         )
     }
 }
@@ -1354,7 +1334,7 @@ private fun SetupSecurityStepView(
             Spacer(modifier = Modifier.height(14.dp))
 
             Text(
-                text = "PIN disimpan hanya di perangkat ini dan tidak ikut terekspor ke berkas cadangan SAF.",
+                text = "PIN disimpan hanya di perangkat ini dan tidak ikut terekspor ke berkas cadangan.",
                 fontSize = 11.sp,
                 lineHeight = 16.sp,
                 color = colorScheme.onSurfaceVariant,
@@ -1662,12 +1642,11 @@ private fun SetupPermissionStepView(
 
 @Composable
 private fun SetupBackupStepView(
-    hasSafFolder: Boolean,
-    isSafValid: Boolean,
+    mediaGranted: Boolean,
     rootFolderPath: String,
     backupStatusMessage: String,
     isBackupStatusError: Boolean,
-    onSelectFolderClick: () -> Unit,
+    onRequestMediaClick: () -> Unit,
     onRestoreClick: () -> Unit
 ) {
     val colorScheme = MaterialTheme.colorScheme
@@ -1676,7 +1655,7 @@ private fun SetupBackupStepView(
         SetupStepHeading(
             icon = Icons.Default.Backup,
             title = "Cadangan & Pemulihan",
-            description = "Struktur folder dibuat otomatis. Folder SAF opsional untuk memindahkan cadangan ke file manager atau kartu SD."
+            description = "Struktur folder dibuat otomatis. Cadangan disimpan ke penyimpanan perangkat memakai izin akses media."
         )
 
         Spacer(modifier = Modifier.height(18.dp))
@@ -1720,7 +1699,7 @@ private fun SetupBackupStepView(
 
         SetupCard {
             Text(
-                text = "FOLDER CADANGAN SAF (OPSIONAL)",
+                text = "IZIN AKSES MEDIA",
                 fontSize = 11.sp,
                 fontWeight = FontWeight.ExtraBold,
                 letterSpacing = 0.5.sp,
@@ -1732,35 +1711,33 @@ private fun SetupBackupStepView(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = when {
-                        !hasSafFolder -> "Belum dipilih. Cadangan memakai struktur folder di atas."
-                        isSafValid -> "Folder SAF aktif dengan hak akses permanen."
-                        else -> "Folder SAF terdaftar, tetapi izin aksesnya sudah hilang."
-                    },
+                    text = if (mediaGranted) "Akses media aktif. Cadangan disimpan di My Singghara/Back Up."
+                    else "Izinkan akses media agar cadangan bisa disimpan ke penyimpanan perangkat.",
                     fontSize = 12.sp,
                     lineHeight = 17.sp,
-                    color = if (hasSafFolder && !isSafValid) colorScheme.error else colorScheme.onSurfaceVariant,
+                    color = if (mediaGranted) colorScheme.onSurfaceVariant else colorScheme.error,
                     modifier = Modifier.weight(1f)
                 )
                 Spacer(modifier = Modifier.width(10.dp))
                 SetupStatusPill(
-                    text = if (isSafValid) "Aktif" else "Belum",
-                    icon = if (isSafValid) Icons.Default.CheckCircle else Icons.Default.Warning,
-                    isPositive = isSafValid
+                    text = if (mediaGranted) "Aktif" else "Belum",
+                    icon = if (mediaGranted) Icons.Default.CheckCircle else Icons.Default.Warning,
+                    isPositive = mediaGranted
                 )
             }
             Spacer(modifier = Modifier.height(14.dp))
             Button(
-                onClick = onSelectFolderClick,
+                onClick = onRequestMediaClick,
+                enabled = !mediaGranted,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .testTag("setup_select_saf_button"),
+                    .testTag("setup_grant_media_button"),
                 shape = RoundedCornerShape(12.dp)
             ) {
-                Icon(Icons.Default.FolderOpen, contentDescription = null, modifier = Modifier.size(16.dp))
+                Icon(Icons.Default.PermMedia, contentDescription = null, modifier = Modifier.size(16.dp))
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
-                    text = if (hasSafFolder) "Ubah Folder SAF" else "Pilih Folder Penyimpanan SAF",
+                    text = if (mediaGranted) "Akses Media Sudah Diberikan" else "Izinkan Akses Media",
                     fontSize = 12.sp
                 )
             }
@@ -1777,7 +1754,7 @@ private fun SetupBackupStepView(
             )
             Spacer(modifier = Modifier.height(6.dp))
             Text(
-                text = "Impor berkas mysingghara_backup.json. PIN dan folder perangkat ini tetap dipertahankan.",
+                text = "Impor berkas mysingghara_backup.json dari folder My Singghara/Back Up. PIN perangkat ini tetap dipertahankan.",
                 fontSize = 11.sp,
                 lineHeight = 16.sp,
                 color = colorScheme.onSurfaceVariant
@@ -1785,7 +1762,7 @@ private fun SetupBackupStepView(
             Spacer(modifier = Modifier.height(12.dp))
             Button(
                 onClick = onRestoreClick,
-                enabled = isSafValid,
+                enabled = mediaGranted,
                 colors = ButtonDefaults.buttonColors(
                     containerColor = colorScheme.tertiary,
                     disabledContainerColor = colorScheme.surfaceVariant,
@@ -1793,13 +1770,13 @@ private fun SetupBackupStepView(
                 ),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .testTag("setup_restore_saf_button"),
+                    .testTag("setup_restore_button"),
                 shape = RoundedCornerShape(12.dp)
             ) {
                 Icon(Icons.Default.Restore, contentDescription = null, modifier = Modifier.size(16.dp))
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
-                    text = if (isSafValid) "Impor / Pulihkan Sekarang" else "Pilih folder SAF lebih dulu",
+                    text = if (mediaGranted) "Impor / Pulihkan Sekarang" else "Izinkan akses media lebih dulu",
                     fontSize = 12.sp
                 )
             }
@@ -1857,7 +1834,7 @@ private fun SetupCompletionStepView(
     profileName: String,
     isPinActive: Boolean,
     notificationsEnabled: Boolean,
-    isSafValid: Boolean,
+    mediaGranted: Boolean,
     rootFolderPath: String
 ) {
     val colorScheme = MaterialTheme.colorScheme
@@ -1950,14 +1927,14 @@ private fun SetupCompletionStepView(
             )
             SetupSummaryDivider()
             SetupSummaryRow(
-                icon = Icons.Default.Backup,
-                label = "Folder cadangan SAF",
-                value = if (isSafValid) "Aktif & permanen" else "Belum dikonfigurasi",
-                isPositive = isSafValid
+                icon = Icons.Default.PermMedia,
+                label = "Akses media",
+                value = if (mediaGranted) "Diizinkan" else "Belum diizinkan",
+                isPositive = mediaGranted
             )
         }
 
-        if (!isSafValid || !notificationsEnabled) {
+        if (!mediaGranted || !notificationsEnabled) {
             Spacer(modifier = Modifier.height(12.dp))
             SetupCard(
                 containerColor = colorScheme.tertiaryContainer.copy(alpha = 0.2f),
@@ -1973,12 +1950,12 @@ private fun SetupCompletionStepView(
                     Spacer(modifier = Modifier.width(12.dp))
                     Text(
                         text = when {
-                            !notificationsEnabled && !isSafValid ->
-                                "Pengingat belum aktif dan folder SAF belum dipilih. Lengkapi keduanya lewat menu Profil agar notifikasi dan cadangan berjalan penuh."
+                            !notificationsEnabled && !mediaGranted ->
+                                "Pengingat belum aktif dan akses media belum diberikan. Lengkapi keduanya lewat menu Profil agar notifikasi dan cadangan berjalan penuh."
                             !notificationsEnabled ->
                                 "Pengingat sholat dan agenda butuh izin notifikasi. Aktifkan lewat menu Profil."
                             else ->
-                                "Cadangan masih memakai folder privat. Pilih folder SAF lewat menu Profil bila ingin memindahkannya."
+                                "Cadangan lokal butuh akses media. Aktifkan lewat menu Profil agar penyimpanan cadangan bisa diakses."
                         },
                         fontSize = 11.sp,
                         lineHeight = 16.sp,
@@ -2085,30 +2062,13 @@ private fun isNotificationAccessEnabled(context: Context): Boolean {
     return runCatching { NotificationManagerCompat.from(context).areNotificationsEnabled() }.getOrDefault(false)
 }
 
-private fun hasAllFilesAccess(): Boolean {
-    if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return true
-    return runCatching { Environment.isExternalStorageManager() }.getOrDefault(false)
-}
+private fun hasAllFilesAccess(): Boolean = MediaPermission.hasAllFilesAccess()
 
-private fun storagePermissionCandidates(): List<String> {
-    return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-        listOf(Manifest.permission.READ_MEDIA_AUDIO, Manifest.permission.READ_MEDIA_VIDEO)
-    } else {
-        listOf(Manifest.permission.READ_EXTERNAL_STORAGE, Manifest.permission.WRITE_EXTERNAL_STORAGE)
-    }
-}
+private fun storagePermissionsGranted(context: Context): Boolean =
+    MediaPermission.hasAccess(context)
 
-private fun storagePermissionsGranted(context: Context): Boolean {
-    return storagePermissionCandidates().all {
-        ContextCompat.checkSelfPermission(context, it) == PackageManager.PERMISSION_GRANTED
-    }
-}
-
-private fun missingStoragePermissions(context: Context): List<String> {
-    return storagePermissionCandidates().filter {
-        ContextCompat.checkSelfPermission(context, it) != PackageManager.PERMISSION_GRANTED
-    }
-}
+private fun missingStoragePermissions(context: Context): List<String> =
+    MediaPermission.missingPermissions(context)
 
 private fun openNotificationSettings(context: Context, viewModel: MainViewModel) {
     val intent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -2125,14 +2085,8 @@ private fun openNotificationSettings(context: Context, viewModel: MainViewModel)
 }
 
 private fun openAllFilesAccessSettings(context: Context, viewModel: MainViewModel) {
-    val intent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-        Intent(Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION)
-            .setData(Uri.parse("package:${context.packageName}"))
-    } else {
-        Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${context.packageName}"))
-    }
     try {
-        context.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        MediaPermission.openAllFilesSettings(context)
     } catch (e: Exception) {
         viewModel.showToastPopup("Gagal membuka setelan akses file: ${e.message}")
     }

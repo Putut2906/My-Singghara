@@ -877,7 +877,7 @@ object ProfilWebScript {
             if (existingModal) existingModal.remove();
 
             const pData = window.profileData || {};
-            const userEmail = pData.userEmail || (pData.currentUid ? 'Akun Terhubung' : 'Lokal (SAF)');
+            const userEmail = pData.userEmail || (pData.currentUid ? 'Akun Terhubung' : 'Lokal');
 
             const modalHtml = `
                 <div class="modal fade" id="backupRestoreCustomModal" tabindex="-1" aria-hidden="true">
