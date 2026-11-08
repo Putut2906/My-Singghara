@@ -143,7 +143,8 @@ fun PemutarMusikScreen(viewModel: MainViewModel, onOpenDrawer: () -> Unit) {
     }
 
     // Izin media yang sama dengan tombol "Izinkan Akses Media" pada setup pertama.
-    var hasMediaAccess by remember { mutableStateOf(MediaPermission.hasAccess(context)) }
+    // Pemutar musik hanya butuh izin audio; izin video tidak boleh ikut memblokir.
+    var hasMediaAccess by remember { mutableStateOf(MediaPermission.hasAudioAccess(context)) }
 
     // Dijalankan setelah permintaan media selesai agar dua dialog izin tidak bertumpuk.
     fun requestPlaybackNotificationPermission() {
@@ -157,23 +158,23 @@ fun PemutarMusikScreen(viewModel: MainViewModel, onOpenDrawer: () -> Unit) {
     val mediaPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestMultiplePermissions()
     ) {
-        hasMediaAccess = MediaPermission.hasAccess(context)
+        hasMediaAccess = MediaPermission.hasAudioAccess(context)
         if (hasMediaAccess) {
             viewModel.scanDeviceMusic(context)
             viewModel.showToastPopup("Akses media berhasil diaktifkan!")
             requestPlaybackNotificationPermission()
         } else {
-            viewModel.showToastPopup("Akses media ditolak. Lagu .mp3 perangkat belum bisa dibaca.")
+            viewModel.showToastPopup("Akses audio ditolak. Lagu .mp3 perangkat belum bisa dibaca.")
         }
     }
 
     fun requestMediaAccess() {
-        hasMediaAccess = MediaPermission.hasAccess(context)
+        hasMediaAccess = MediaPermission.hasAudioAccess(context)
         if (hasMediaAccess) {
             viewModel.scanDeviceMusic(context)
             return
         }
-        val missing = MediaPermission.missingPermissions(context)
+        val missing = MediaPermission.missingAudioPermissions(context)
         if (missing.isEmpty()) {
             MediaPermission.openAllFilesSettings(context)
         } else {
@@ -182,9 +183,10 @@ fun PemutarMusikScreen(viewModel: MainViewModel, onOpenDrawer: () -> Unit) {
     }
 
     LaunchedEffect(Unit) {
-        hasMediaAccess = MediaPermission.hasAccess(context)
+        hasMediaAccess = MediaPermission.hasAudioAccess(context)
+        // Folder aplikasi selalu terbaca; MediaStore perangkat hanya bila izin audio ada.
+        viewModel.scanDeviceMusic(context)
         if (hasMediaAccess) {
-            if (viewModel.musicPlaylist.isEmpty()) viewModel.scanDeviceMusic(context)
             requestPlaybackNotificationPermission()
         } else {
             requestMediaAccess()
@@ -196,7 +198,7 @@ fun PemutarMusikScreen(viewModel: MainViewModel, onOpenDrawer: () -> Unit) {
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
-                val granted = MediaPermission.hasAccess(context)
+                val granted = MediaPermission.hasAudioAccess(context)
                 if (granted && !hasMediaAccess) {
                     hasMediaAccess = true
                     viewModel.scanDeviceMusic(context)
@@ -217,7 +219,7 @@ fun PemutarMusikScreen(viewModel: MainViewModel, onOpenDrawer: () -> Unit) {
     // pengguna di daftar kosong tanpa folder yang valid.
     LaunchedEffect(viewModel.musicPlaylist.size, viewModel.musicPlaylist.firstOrNull()?.uriStr) {
         val current = selectedFolder
-        if (current != null && viewModel.musicPlaylist.none { it.artist == current }) {
+        if (current != null && viewModel.musicPlaylist.none { (it.folder ?: it.artist) == current }) {
             selectedFolder = null
         }
     }
@@ -526,7 +528,7 @@ fun PemutarMusikScreen(viewModel: MainViewModel, onOpenDrawer: () -> Unit) {
                                 }
                             }
                         } else {
-                            val groupedByFolder = viewModel.musicPlaylist.groupBy { it.artist }
+                            val groupedByFolder = viewModel.musicPlaylist.groupBy { it.folder ?: it.artist }
 
                             if (selectedFolder == null) {
                                 // Render folder list view as requested
@@ -2121,7 +2123,7 @@ fun PemutarMusikScreen(viewModel: MainViewModel, onOpenDrawer: () -> Unit) {
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .clickable {
-                                        if (!MediaPermission.hasAccess(context)) {
+                                        if (!MediaPermission.hasAudioAccess(context)) {
                                             requestMediaAccess()
                                         } else {
                                             viewModel.scanDeviceMusic(context)

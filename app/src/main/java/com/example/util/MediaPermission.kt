@@ -36,14 +36,39 @@ object MediaPermission {
         ContextCompat.checkSelfPermission(context, it) != PackageManager.PERMISSION_GRANTED
     }
 
+    /**
+     * Izin yang benar-benar dibutuhkan pemutar musik. Video tidak ikut karena
+     * penolakan "Foto dan video" (mis. akses terbatas di Android 14) tidak boleh
+     * membuat daftar lagu kosong.
+     */
+    fun requiredAudioPermissions(): List<String> = when {
+        Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU ->
+            listOf(Manifest.permission.READ_MEDIA_AUDIO)
+        else -> listOf(Manifest.permission.READ_EXTERNAL_STORAGE)
+    }
+
+    fun missingAudioPermissions(context: Context): List<String> = requiredAudioPermissions().filter {
+        ContextCompat.checkSelfPermission(context, it) != PackageManager.PERMISSION_GRANTED
+    }
+
+    /** Khusus pemindaian audio: cukup izin audio atau akses semua file. */
+    fun hasAudioAccess(context: Context): Boolean {
+        val managedAllFiles = Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && hasAllFilesAccess()
+        return managedAllFiles || missingAudioPermissions(context).isEmpty()
+    }
+
     fun hasAllFilesAccess(): Boolean {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return true
         return runCatching { Environment.isExternalStorageManager() }.getOrDefault(false)
     }
 
     /** Izin media sudah diberikan, atau akses semua file mencakupnya. */
-    fun hasAccess(context: Context): Boolean =
-        missingPermissions(context).isEmpty() || hasAllFilesAccess()
+    fun hasAccess(context: Context): Boolean {
+        // hasAllFilesAccess() bernilai true di bawah Android 11 karena tidak ada
+        // pembatasan scoped storage, jadi hanya dipakai sebagai sumber izin di R+.
+        val managedAllFiles = Build.VERSION.SDK_INT >= Build.VERSION_CODES.R && hasAllFilesAccess()
+        return managedAllFiles || missingPermissions(context).isEmpty()
+    }
 
     fun openAllFilesSettings(context: Context) {
         val appSettings = Intent(
