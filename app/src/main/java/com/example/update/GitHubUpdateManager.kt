@@ -9,6 +9,7 @@ import android.provider.Settings
 import androidx.core.content.FileProvider
 import com.example.BuildConfig
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -17,7 +18,6 @@ import org.json.JSONObject
 import java.io.File
 import java.io.FileInputStream
 import java.io.FileOutputStream
-import java.io.InputStream
 import java.util.concurrent.TimeUnit
 
 object GitHubUpdateManager {
@@ -33,6 +33,7 @@ object GitHubUpdateManager {
     const val DEFAULT_OWNER = "Putut2906"
     const val DEFAULT_REPO = "My-Singghara"
     const val DEFAULT_TOKEN = ""
+    private const val MAX_DOWNLOAD_ATTEMPTS = 5
 
     private val okHttpClient = OkHttpClient.Builder()
         .connectTimeout(15, TimeUnit.SECONDS)
@@ -352,6 +353,10 @@ object GitHubUpdateManager {
 
     /**
      * Downloads APK file directly to cache folder with real-time byte progress.
+     *
+     * GitHub CDN membalas 504/502 secara berkala untuk aset besar. Unduhan dicoba
+     * ulang dengan jeda bertahap; byte yang sudah diterima dilanjutkan lewat
+     * header Range sehingga APK 100+ MB tidak perlu diunduh dari awal.
      */
     suspend fun downloadApk(
         context: Context,
@@ -366,13 +371,46 @@ object GitHubUpdateManager {
         }
 
         val targetFile = File(downloadDir, fileName.ifBlank { "MySingghara-update.apk" })
-        if (targetFile.exists()) {
+        if (targetFile.exists() && targetFile.length() <= 0L) {
             targetFile.delete()
         }
 
+        var lastError: Exception? = null
+        for (attempt in 1..MAX_DOWNLOAD_ATTEMPTS) {
+            try {
+                downloadApkAttempt(downloadUrl, targetFile, token, onProgress)
+                return@withContext targetFile
+            } catch (e: RetryableDownloadException) {
+                lastError = e
+                if (attempt == MAX_DOWNLOAD_ATTEMPTS) break
+                delay(1000L shl (attempt - 1))
+            }
+        }
+
+        throw Exception(
+            "Gagal mengunduh APK setelah $MAX_DOWNLOAD_ATTEMPTS percobaan" +
+                (lastError?.message?.let { " ($it)" } ?: "") +
+                ". Coba lagi beberapa saat lagi atau buka halaman rilis GitHub untuk mengunduh manual.",
+            lastError
+        )
+    }
+
+    private class RetryableDownloadException(message: String, cause: Throwable? = null) :
+        Exception(message, cause)
+
+    private fun downloadApkAttempt(
+        downloadUrl: String,
+        targetFile: File,
+        token: String,
+        onProgress: (progressPercent: Float, downloadedBytes: Long, totalBytes: Long) -> Unit
+    ) {
+        val existingBytes = if (targetFile.exists()) targetFile.length().coerceAtLeast(0L) else 0L
         val requestBuilder = Request.Builder()
             .url(downloadUrl)
             .addHeader("User-Agent", "MySingghara-Android-App")
+        if (existingBytes > 0) {
+            requestBuilder.addHeader("Range", "bytes=$existingBytes-")
+        }
 
         // In case it's a GitHub API asset url rather than public browser_download_url
         if (token.isNotBlank() && downloadUrl.contains("api.github.com")) {
@@ -380,40 +418,59 @@ object GitHubUpdateManager {
             requestBuilder.addHeader("Accept", "application/octet-stream")
         }
 
-        val response = okHttpClient.newCall(requestBuilder.build()).execute()
-        if (!response.isSuccessful) {
-            throw Exception("Gagal mengunduh APK (HTTP ${response.code}): ${response.message}")
+        val response = try {
+            okHttpClient.newCall(requestBuilder.build()).execute()
+        } catch (e: java.io.IOException) {
+            throw RetryableDownloadException("Koneksi gagal: ${e.message}", e)
         }
 
-        val body = response.body ?: throw Exception("Respons file APK kosong dari server.")
-        val contentLength = body.contentLength()
-
-        var inputStream: InputStream? = null
-        var outputStream: FileOutputStream? = null
-
-        try {
-            inputStream = body.byteStream()
-            outputStream = FileOutputStream(targetFile)
-
-            val buffer = ByteArray(8 * 1024)
-            var totalRead: Long = 0
-            var read: Int
-
-            while (inputStream.read(buffer).also { read = it } != -1) {
-                outputStream.write(buffer, 0, read)
-                totalRead += read
-                val progress = if (contentLength > 0) {
-                    (totalRead.toFloat() / contentLength.toFloat()).coerceIn(0f, 1f)
-                } else {
-                    0f
-                }
-                onProgress(progress, totalRead, contentLength)
+        response.use { resp ->
+            val code = resp.code
+            if (code == 416) {
+                // Berkas parsial tidak lagi cocok dengan aset di server; mulai ulang.
+                targetFile.delete()
+                throw RetryableDownloadException("Permintaan lanjutan unduhan ditolak (HTTP 416)")
             }
-            outputStream.flush()
-            targetFile
-        } finally {
-            try { inputStream?.close() } catch (_: Exception) {}
-            try { outputStream?.close() } catch (_: Exception) {}
+            if (code == 408 || code == 429 || code >= 500) {
+                throw RetryableDownloadException("HTTP $code")
+            }
+            if (!resp.isSuccessful) {
+                throw Exception("Gagal mengunduh APK (HTTP $code): ${resp.message}")
+            }
+
+            val body = resp.body ?: throw Exception("Respons file APK kosong dari server.")
+            val resuming = code == 206 && existingBytes > 0L
+            val alreadyThere = if (resuming) existingBytes else 0L
+            val remainingBytes = body.contentLength()
+            val totalBytes = if (remainingBytes > 0) alreadyThere + remainingBytes else -1L
+            var written = alreadyThere
+
+            body.byteStream().use { input ->
+                FileOutputStream(targetFile, resuming).use { output ->
+                    val buffer = ByteArray(64 * 1024)
+                    while (true) {
+                        val read = try {
+                            input.read(buffer)
+                        } catch (e: java.io.IOException) {
+                            throw RetryableDownloadException("Koneksi terputus di $written byte", e)
+                        }
+                        if (read == -1) break
+                        output.write(buffer, 0, read)
+                        written += read
+                        val progress = if (totalBytes > 0) {
+                            (written.toFloat() / totalBytes.toFloat()).coerceIn(0f, 1f)
+                        } else {
+                            0f
+                        }
+                        onProgress(progress, written, totalBytes)
+                    }
+                    output.flush()
+                }
+            }
+
+            if (totalBytes > 0 && written < totalBytes) {
+                throw RetryableDownloadException("Unduhan terputus di $written dari $totalBytes byte")
+            }
         }
     }
 
