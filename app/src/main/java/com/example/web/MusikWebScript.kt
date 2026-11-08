@@ -17,6 +17,22 @@ object MusikWebScript {
         window.musicPlaybackPosition = 0;
         window.musicTotalDuration = 0;
 
+        // Ikon Material Symbols (Google) ditanam inline agar Web Connect tetap
+        // 100% offline: repeat, repeat_one, repeat_on, dan sort_by_alpha.
+        window.musicRepeatIconPaths = {
+            'NONE': 'M280-80 120-240l160-160 56 58-62 62h406v-160h80v240H274l62 62-56 58Zm-80-440v-240h486l-62-62 56-58 160 160-160 160-56-58 62-62H280v160h-80Z',
+            'ONE': 'M460-360v-180h-60v-60h120v240h-60ZM280-80 120-240l160-160 56 58-62 62h406v-160h80v240H274l62 62-56 58Zm-80-440v-240h486l-62-62 56-58 160 160-160 160-56-58 62-62H280v160h-80Z',
+            'ALL': 'M120-40q-33 0-56.5-23.5T40-120v-720q0-33 23.5-56.5T120-920h720q33 0 56.5 23.5T920-840v720q0 33-23.5 56.5T840-40H120Zm160-40 56-58-62-62h486v-240h-80v160H274l62-62-56-58-160 160L280-80Zm-80-440h80v-160h406l-62 62 56 58 160-160-160-160-56 58 62 62H200v240Z',
+            'AZ': 'm80-280 150-400h86l150 400h-82l-34-96H196l-32 96H80Zm140-164h104l-48-150h-6l-50 150Zm328 164v-76l202-252H556v-72h282v76L638-352h202v72H548ZM360-760l120-120 120 120H360ZM480-80 360-200h240L480-80Z'
+        };
+
+        function musicRepeatIconHtml(mode, size, colorClass) {
+            var path = window.musicRepeatIconPaths[mode] || window.musicRepeatIconPaths['NONE'];
+            return '<svg xmlns="http://www.w3.org/2000/svg" width="' + size + '" height="' + size +
+                '" viewBox="0 -960 960 960" fill="currentColor" style="display:block" class="' + (colorClass || '') +
+                '" aria-hidden="true" focusable="false"><path d="' + path + '"/></svg>';
+        }
+
         // Sumber berkas: 'phone' = penyimpanan HP (MediaStore), 'pc' = berkas yang diimpor browser.
         window.musicSourceFilter = window.musicSourceFilter || 'all'; // 'all' | 'phone' | 'pc'
         window.musicPhoneTracksLoaded = window.musicPhoneTracksLoaded || false;
@@ -1246,7 +1262,7 @@ object MusikWebScript {
             html += '      <button class="music-dock-btn" onclick="prevMusicTrack()" title="Sebelumnya"><i class="bi bi-skip-start-fill"></i></button>';
             html += '      <button class="music-dock-play-btn" id="musicDockPlayPauseBtn" onclick="togglePlayMusic()" title="Putar / Jeda"><i class="bi ' + (isPlaying ? 'bi-pause-fill' : 'bi-play-fill') + '" style="font-size:26px"></i></button>';
             html += '      <button class="music-dock-btn" onclick="nextMusicTrack()" title="Selanjutnya"><i class="bi bi-skip-end-fill"></i></button>';
-            html += '      <button class="music-dock-btn music-repeat-btn" onclick="cycleRepeatMode()" title="Pengulangan"><i class="bi bi-repeat"></i></button>';
+            html += '      <button class="music-dock-btn music-repeat-btn" onclick="cycleRepeatMode()" title="Pengulangan">' + musicRepeatIconHtml(window.musicRepeatMode, 16, window.musicRepeatMode === 'NONE' ? 'text-secondary' : 'text-primary') + '</button>';
             html += '      <button class="music-dock-btn" id="dockFavoriteBtn" onclick="toggleTrackFavorite(\'' + track.id + '\', event)" title="Favorit"><i class="bi bi-heart text-secondary"></i></button>';
             html += '      <button class="music-dock-btn" onclick="openMusicDeckWithLyrics()" title="Lirik"><i class="bi bi-text-center"></i></button>';
             html += '      <button class="music-dock-btn" onclick="openMusicQueueModal()" title="Antrean Lagu"><i class="bi bi-music-note-list"></i></button>';
@@ -1280,7 +1296,6 @@ object MusikWebScript {
                 '.music-dock-btn:hover{background:var(--surface-hover);color:var(--text-main);}' +
                 '.music-dock-btn.is-active{color:var(--brand-green);}' +
                 '.music-dock-btn.is-active:hover{color:var(--brand-green-hover);}' +
-                '.music-repeat-badge{position:absolute;top:-1px;right:0;font-size:8px;font-weight:800;line-height:1;}' +
                 '.music-dock-play-btn{background:var(--brand-green);border:0;color:#fff;width:42px;height:42px;border-radius:50%;display:flex;align-items:center;justify-content:center;cursor:pointer;transition:filter .15s ease,transform .1s ease;}' +
                 '.music-dock-play-btn:hover{filter:brightness(1.08);}' +
                 '.music-dock-play-btn:active{transform:scale(.94);}' +
@@ -2122,21 +2137,17 @@ object MusikWebScript {
         }
 
         function updateRepeatButtonUI() {
-            const mode = window.musicRepeatMode;
+            const mode = window.musicRepeatMode || 'NONE';
             const isActive = mode !== 'NONE';
-            let badgeText = '';
-            if (mode === 'ONE') badgeText = '1';
-            else if (mode === 'ALL') badgeText = 'A';
-            else if (mode === 'AZ') badgeText = 'A-Z';
+            const labels = { 'NONE': 'Pengulangan mati', 'ONE': 'Ulangi 1 lagu', 'ALL': 'Ulangi semua', 'AZ': 'Urutan A-Z' };
 
             // Tombol pengulangan ada dua: di dock mini player dan di deck penuh.
             document.querySelectorAll('.music-repeat-btn').forEach(function (btn) {
                 const isDock = btn.classList.contains('music-dock-btn');
                 const iconSize = isDock ? 16 : 24;
-                const badge = badgeText
-                    ? '<span style="position:absolute;top:' + (isDock ? '-1' : '2') + 'px;right:' + (isDock ? '0' : '4') + 'px;font-size:' + (mode === 'AZ' ? 7 : 9) + 'px;font-weight:800;line-height:1;">' + badgeText + '</span>'
-                    : '';
-                btn.innerHTML = '<i class="bi bi-repeat ' + (isActive ? 'text-primary' : 'text-secondary') + '" style="font-size:' + iconSize + 'px;"></i>' + badge;
+                btn.innerHTML = musicRepeatIconHtml(mode, iconSize, isActive ? 'text-primary' : 'text-secondary');
+                btn.title = labels[mode] || 'Pengulangan';
+                btn.setAttribute('aria-label', btn.title);
             });
         }
 
@@ -3068,7 +3079,7 @@ object MusikWebScript {
 
                             <!-- 5. REPEAT MODE -->
                             <button class="btn btn-link p-0 music-repeat-btn" id="deckRepeatBtn" onclick="cycleRepeatMode()" title="Mode Pengulangan" style="position:relative;">
-                                <i class="bi bi-repeat text-secondary" style="font-size: 24px;"></i>
+                                ${dol}{musicRepeatIconHtml(window.musicRepeatMode, 24, window.musicRepeatMode === 'NONE' ? 'text-secondary' : 'text-primary')}
                             </button>
                         </div>
                     </div>
