@@ -2819,7 +2819,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch(Dispatchers.IO) {
             val tracks = mutableListOf<MusicTrack>()
             val idCounterRef = arrayOf(1)
-            val seenKeys = mutableSetOf<String>()
+            // Hanya untuk mencegah lagu folder aplikasi tampil dua kali dari MediaStore.
+            val appFolderNames = mutableSetOf<String>()
 
             // 1. Folder internal: /storage/emulated/0/My Singghara/Data/mp3
             try {
@@ -2832,7 +2833,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     files?.forEach { f ->
                         val currentId = idCounterRef[0]
                         idCounterRef[0] = currentId + 1
-                        seenKeys.add(f.name.lowercase())
+                        appFolderNames.add(f.name.lowercase())
                         tracks.add(
                             MusicTrack(
                                 id = "mysingghara_$currentId",
@@ -2882,10 +2883,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         val artist = (if (artistIdx >= 0) cursor.getString(artistIdx) else null)
                             ?.takeIf { it.isNotBlank() && it != "<unknown>" }
                             ?: "Penyimpanan Perangkat"
-                        // Berkas di folder aplikasi biasanya juga terindeks MediaStore.
-                        // Kunci memakai nama berkas agar lagu berbeda bertajuk sama tetap tampil.
-                        val dedupeKey = (displayName ?: "$title.mp3").lowercase()
-                        if (!seenKeys.add(dedupeKey)) continue
+                        // Lewati hanya berkas yang sudah masuk lewat folder aplikasi;
+                        // berkas lain dengan nama sama di folder berbeda tetap ditampilkan.
+                        if (displayName != null && appFolderNames.contains(displayName.lowercase())) continue
                         val uri = ContentUris.withAppendedId(collection, id)
                         tracks.add(
                             MusicTrack(
