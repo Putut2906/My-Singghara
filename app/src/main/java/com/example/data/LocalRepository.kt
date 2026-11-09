@@ -29,7 +29,6 @@ class LocalRepository(private val db: AppDatabase) {
     val belanjaOnlineDao = db.belanjaOnlineDao()
     val fcmNotificationDao = db.fcmNotificationDao()
     val arisanDao = db.arisanDao()
-    val catatanKeuanganDao = db.catatanKeuanganDao()
 
     // Flows
     val allShoppingItems: Flow<List<ShoppingItem>> = shoppingDao.getAllShoppingItems()
@@ -49,34 +48,6 @@ class LocalRepository(private val db: AppDatabase) {
     val allFcmNotifications: Flow<List<FcmNotification>> = fcmNotificationDao.getAllNotifications()
     val unreadFcmCount: Flow<Int> = fcmNotificationDao.getUnreadCount()
     val allArisanKelompok: Flow<List<ArisanKelompok>> = arisanDao.getAllKelompok()
-    val allCatatanKeuangan: Flow<List<CatatanKeuanganItem>> = catatanKeuanganDao.getAllFlow()
-    val allSaldoSumberDana: Flow<List<SaldoSumberDana>> = catatanKeuanganDao.getSaldoAwalFlow()
-    val allRekonsiliasiSaldo: Flow<List<RekonsiliasiSaldo>> = catatanKeuanganDao.getRekonsiliasiFlow()
-
-    // Catatan keuangan operasi
-    suspend fun insertCatatanKeuangan(item: CatatanKeuanganItem): Long = withContext(Dispatchers.IO) {
-        catatanKeuanganDao.insert(item)
-    }
-
-    suspend fun updateCatatanKeuangan(item: CatatanKeuanganItem) = withContext(Dispatchers.IO) {
-        catatanKeuanganDao.update(item)
-    }
-
-    suspend fun deleteCatatanKeuangan(item: CatatanKeuanganItem) = withContext(Dispatchers.IO) {
-        catatanKeuanganDao.delete(item)
-    }
-
-    suspend fun setSaldoSumberDana(item: SaldoSumberDana) = withContext(Dispatchers.IO) {
-        catatanKeuanganDao.setSaldoAwal(item)
-    }
-
-    suspend fun insertRekonsiliasiSaldo(item: RekonsiliasiSaldo): Long = withContext(Dispatchers.IO) {
-        catatanKeuanganDao.insertRekonsiliasi(item)
-    }
-
-    suspend fun deleteRekonsiliasiSaldo(item: RekonsiliasiSaldo) = withContext(Dispatchers.IO) {
-        catatanKeuanganDao.deleteRekonsiliasi(item)
-    }
 
     // Arisan operations
     fun getPesertaByArisan(arisanId: Int): Flow<List<ArisanPeserta>> = arisanDao.getPesertaByArisan(arisanId)

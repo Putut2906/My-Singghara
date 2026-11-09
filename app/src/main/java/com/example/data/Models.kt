@@ -248,33 +248,4 @@ data class ArisanPemenangRiwayat(
     val catatan: String = ""
 )
 
-@Entity(tableName = "catatan_keuangan")
-data class CatatanKeuanganItem(
-    @PrimaryKey(autoGenerate = true) val id: Int = 0,
-    val tanggal: String, // YYYY-MM-DD
-    val keterangan: String,
-    val kategori: String, // Makan & Minum, Transportasi, Tagihan, Belanja & Hiburan, Lainnya
-    val sumberDana: String, // BCA, Mandiri, BRI, BNI, Bank Jago, GoPay, dll.
-    val jenis: String, // "masuk" atau "keluar"
-    val jumlah: Double
-)
-
-@Entity(tableName = "saldo_sumber_dana")
-data class SaldoSumberDana(
-    @PrimaryKey val sumberDana: String,
-    val saldoAwal: Double = 0.0
-)
-
-@Entity(tableName = "rekonsiliasi_saldo")
-data class RekonsiliasiSaldo(
-    @PrimaryKey(autoGenerate = true) val id: Int = 0,
-    val sumberDana: String,
-    val mingguMulai: String, // YYYY-MM-DD, hari Senin
-    val saldoTercatat: Double,
-    val saldoAktual: Double,
-    val selisih: Double,
-    val catatan: String = "",
-    val tanggalCek: String // YYYY-MM-DD
-)
-
 

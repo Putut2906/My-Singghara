@@ -27,12 +27,9 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         ArisanPeserta::class,
         ArisanIuran::class,
         ArisanKasTransaksi::class,
-        ArisanPemenangRiwayat::class,
-        CatatanKeuanganItem::class,
-        SaldoSumberDana::class,
-        RekonsiliasiSaldo::class
+        ArisanPemenangRiwayat::class
     ],
-    version = 17,
+    version = 16,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -51,7 +48,6 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun belanjaOnlineDao(): BelanjaOnlineDao
     abstract fun fcmNotificationDao(): FcmNotificationDao
     abstract fun arisanDao(): ArisanDao
-    abstract fun catatanKeuanganDao(): CatatanKeuanganDao
 
 
     companion object {
@@ -65,38 +61,6 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
-        // v16 -> v17: catatan keuangan, saldo awal sumber dana, dan riwayat rekonsiliasi
-        private val MIGRATION_16_17 = object : androidx.room.migration.Migration(16, 17) {
-            override fun migrate(db: SupportSQLiteDatabase) {
-                db.execSQL(
-                    "CREATE TABLE IF NOT EXISTS `catatan_keuangan` (" +
-                        "`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
-                        "`tanggal` TEXT NOT NULL, " +
-                        "`keterangan` TEXT NOT NULL, " +
-                        "`kategori` TEXT NOT NULL, " +
-                        "`sumberDana` TEXT NOT NULL, " +
-                        "`jenis` TEXT NOT NULL, " +
-                        "`jumlah` REAL NOT NULL)"
-                )
-                db.execSQL(
-                    "CREATE TABLE IF NOT EXISTS `saldo_sumber_dana` (" +
-                        "`sumberDana` TEXT NOT NULL PRIMARY KEY, " +
-                        "`saldoAwal` REAL NOT NULL)"
-                )
-                db.execSQL(
-                    "CREATE TABLE IF NOT EXISTS `rekonsiliasi_saldo` (" +
-                        "`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
-                        "`sumberDana` TEXT NOT NULL, " +
-                        "`mingguMulai` TEXT NOT NULL, " +
-                        "`saldoTercatat` REAL NOT NULL, " +
-                        "`saldoAktual` REAL NOT NULL, " +
-                        "`selisih` REAL NOT NULL, " +
-                        "`catatan` TEXT NOT NULL, " +
-                        "`tanggalCek` TEXT NOT NULL)"
-                )
-            }
-        }
-
         fun getDatabase(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -104,7 +68,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "my_singghara_database"
                 )
-                .addMigrations(MIGRATION_15_16, MIGRATION_16_17)
+                .addMigrations(MIGRATION_15_16)
                 .fallbackToDestructiveMigration()
                 .build()
                 INSTANCE = instance

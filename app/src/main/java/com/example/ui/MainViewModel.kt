@@ -1587,15 +1587,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val savingTransactions: StateFlow<List<SavingTransaction>> = repository.allSavingTransactions
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    val catatanKeuangan: StateFlow<List<CatatanKeuanganItem>> = repository.allCatatanKeuangan
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
-
-    val saldoSumberDana: StateFlow<List<SaldoSumberDana>> = repository.allSaldoSumberDana
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
-
-    val rekonsiliasiSaldo: StateFlow<List<RekonsiliasiSaldo>> = repository.allRekonsiliasiSaldo
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
-
     val agendaItems: StateFlow<List<AgendaItem>> = repository.allAgendas
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
@@ -2517,47 +2508,6 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun deleteSavingTransaction(trx: SavingTransaction) {
         viewModelScope.launch {
             repository.deleteSavingTransaction(trx)
-        }
-    }
-
-    // CRUD - Catatan Keuangan (m-banking & e-wallet)
-    fun addCatatanKeuangan(item: CatatanKeuanganItem) {
-        viewModelScope.launch {
-            repository.insertCatatanKeuangan(item)
-            showToastPopup("Catatan keuangan disimpan")
-        }
-    }
-
-    fun updateCatatanKeuangan(item: CatatanKeuanganItem) {
-        viewModelScope.launch {
-            repository.updateCatatanKeuangan(item)
-            showToastPopup("Catatan keuangan diperbarui")
-        }
-    }
-
-    fun deleteCatatanKeuangan(item: CatatanKeuanganItem) {
-        viewModelScope.launch {
-            repository.deleteCatatanKeuangan(item)
-            showToastPopup("Catatan keuangan dihapus")
-        }
-    }
-
-    fun setSaldoSumberDana(sumberDana: String, saldoAwal: Double) {
-        viewModelScope.launch {
-            repository.setSaldoSumberDana(SaldoSumberDana(sumberDana, saldoAwal))
-        }
-    }
-
-    fun addRekonsiliasiSaldo(item: RekonsiliasiSaldo) {
-        viewModelScope.launch {
-            repository.insertRekonsiliasiSaldo(item)
-            showToastPopup("Rekonsiliasi saldo tersimpan")
-        }
-    }
-
-    fun deleteRekonsiliasiSaldo(item: RekonsiliasiSaldo) {
-        viewModelScope.launch {
-            repository.deleteRekonsiliasiSaldo(item)
         }
     }
 

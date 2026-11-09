@@ -65,8 +65,6 @@ import androidx.compose.material.icons.filled.NearMe
 import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AccountBalance
-import androidx.compose.material.icons.filled.EditNote
-import androidx.compose.material.icons.outlined.EditNote
 import androidx.compose.material.icons.filled.TrendingUp
 import androidx.compose.material.icons.filled.Face
 import androidx.compose.material.icons.filled.Star
@@ -2348,7 +2346,6 @@ fun MainAppContent(viewModel: MainViewModel, desktopMode: Boolean = false) {
                         ) {
                             Column(modifier = Modifier.fillMaxWidth()) {
                                 val reports = listOf(
-                                    Triple("catatan_keuangan", "Catatan Keuangan", if (viewModel.currentRoute == "catatan_keuangan") Icons.Default.EditNote else Icons.Outlined.EditNote),
                                     Triple("jurnal_umum", "Jurnal Umum", if (viewModel.currentRoute == "jurnal_umum") Icons.Default.List else Icons.Outlined.List),
                                     Triple("buku_besar", "Buku Besar", if (viewModel.currentRoute == "buku_besar") Icons.Default.List else Icons.Outlined.List),
                                     Triple("neraca_saldo", "Neraca Saldo", if (viewModel.currentRoute == "neraca_saldo") Icons.Default.AccountBalance else Icons.Outlined.AccountBalance),
@@ -3975,7 +3972,6 @@ fun MainAppContent(viewModel: MainViewModel, desktopMode: Boolean = false) {
                             onBack = { viewModel.currentRoute = "home" }
                         )
                         "pembukuan_usaha" -> PembukuanScreen(viewModel = viewModel)
-                        "catatan_keuangan" -> CatatanKeuanganScreen(viewModel = viewModel)
                         "my_kasir" -> MyKasirScreen(viewModel = viewModel)
                         "jurnal_umum" -> JurnalUmumScreen(
                             journalEntries = journalEntries,
