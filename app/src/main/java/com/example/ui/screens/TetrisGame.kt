@@ -683,16 +683,17 @@ fun TetrisGame(
     val tankEnemySpawns = listOf(Pair(0, 1), Pair(0, 6))
 
     // Jenis musuh: 3 = normal, 4 = cepat, 5/6/7 = tank berat dengan sisa HP 3/2/1.
-    // Tank pemain: badan 3x2 penuh. Tank musuh: 3x2 dengan sel tengah atas dihilangkan
-    // agar siluetnya tidak sama dengan pemain.
+    // Tank pemain: badan 3x2 penuh. Tank musuh: badan 3x2 penuh + kubah di atas
+    // (petak 3x3) supaya siluetnya tampak seperti tank utuh, bukan bentuk berlubang.
     fun tankCellsAt(row: Int, col: Int): List<Pair<Int, Int>> = listOf(
         Pair(row, col), Pair(row, col + 1), Pair(row, col + 2),
         Pair(row + 1, col), Pair(row + 1, col + 1), Pair(row + 1, col + 2)
     )
 
     fun tankEnemyCellsAt(row: Int, col: Int): List<Pair<Int, Int>> = listOf(
-        Pair(row, col), Pair(row, col + 2),
-        Pair(row + 1, col), Pair(row + 1, col + 1), Pair(row + 1, col + 2)
+        Pair(row, col + 1),
+        Pair(row + 1, col), Pair(row + 1, col + 1), Pair(row + 1, col + 2),
+        Pair(row + 2, col), Pair(row + 2, col + 1), Pair(row + 2, col + 2)
     )
 
     // Tank lain harus berjarak minimal 1 sel agar siluet tidak menempel/menyatu.
@@ -825,7 +826,7 @@ fun TetrisGame(
         }
         val laras = when (arah) {
             0 -> Pair(enemy.first - 1, enemy.second + 1)
-            1 -> Pair(enemy.first + 2, enemy.second + 1)
+            1 -> Pair(enemy.first + 3, enemy.second + 1)
             2 -> Pair(enemy.first + 1, enemy.second - 1)
             else -> Pair(enemy.first + 1, enemy.second + 3)
         }
@@ -1698,7 +1699,7 @@ fun TetrisGame(
                     }
                     val larasMusuh = when (arahBidik) {
                         0 -> Pair(enemy.first - 1, enemy.second + 1)
-                        1 -> Pair(enemy.first + 2, enemy.second + 1)
+                        1 -> Pair(enemy.first + 3, enemy.second + 1)
                         2 -> Pair(enemy.first + 1, enemy.second - 1)
                         else -> Pair(enemy.first + 1, enemy.second + 3)
                     }
