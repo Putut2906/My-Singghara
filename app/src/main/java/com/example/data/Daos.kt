@@ -362,3 +362,45 @@ interface ArisanDao {
 
 
 
+
+@Dao
+interface CatatanKeuanganDao {
+    @Query("SELECT * FROM catatan_keuangan ORDER BY tanggal DESC, id DESC")
+    fun getAllFlow(): Flow<List<CatatanKeuanganItem>>
+
+    @Query("SELECT * FROM catatan_keuangan ORDER BY tanggal DESC, id DESC")
+    suspend fun getAll(): List<CatatanKeuanganItem>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insert(item: CatatanKeuanganItem): Long
+
+    @Update
+    suspend fun update(item: CatatanKeuanganItem)
+
+    @Delete
+    suspend fun delete(item: CatatanKeuanganItem)
+
+    @Query("DELETE FROM catatan_keuangan")
+    suspend fun deleteAll()
+
+    @Query("SELECT * FROM saldo_sumber_dana")
+    fun getSaldoAwalFlow(): Flow<List<SaldoSumberDana>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun setSaldoAwal(item: SaldoSumberDana)
+
+    @Query("DELETE FROM saldo_sumber_dana")
+    suspend fun deleteAllSaldoAwal()
+
+    @Query("SELECT * FROM rekonsiliasi_saldo ORDER BY tanggalCek DESC, id DESC")
+    fun getRekonsiliasiFlow(): Flow<List<RekonsiliasiSaldo>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertRekonsiliasi(item: RekonsiliasiSaldo): Long
+
+    @Delete
+    suspend fun deleteRekonsiliasi(item: RekonsiliasiSaldo)
+
+    @Query("DELETE FROM rekonsiliasi_saldo")
+    suspend fun deleteAllRekonsiliasi()
+}
