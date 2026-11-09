@@ -789,7 +789,7 @@ fun TetrisGame(
 
     fun tankStartStage(stageLevel: Int) {
         tankLoadWalls(stageLevel - 1)
-        tankRemainingEnemies = 6 + stageLevel * 2
+        tankRemainingEnemies = 20
         tankEnemies.clear()
         tankPlayerBullets.clear()
         tankEnemyBullets.clear()
@@ -1576,7 +1576,7 @@ fun TetrisGame(
         }
 
         // Tambah musuh baru selama stok tahap masih ada.
-        if (!isGameOver && tankEnemies.size < 3 && tankRemainingEnemies > 0 && tankTicks % 50 == 0) {
+        if (!isGameOver && tankEnemies.size < 4 && tankRemainingEnemies > 0 && tankTicks % 40 == 0) {
             tankSpawnEnemy()
         }
 
@@ -1584,7 +1584,8 @@ fun TetrisGame(
         if (!isGameOver && tankEnemies.isEmpty() && tankRemainingEnemies <= 0) {
             level++
             tankLoadWalls(level - 1)
-            tankRemainingEnemies = 6 + level * 2
+            tankRemainingEnemies = 20
+            tankTicks = 0
             tankPlayerBullets.clear()
             tankEnemyBullets.clear()
             tankSpawnEnemy()
@@ -2585,7 +2586,7 @@ fun TetrisGame(
                                                 fontFamily = FontFamily.Monospace
                                             )
                                             Text(
-                                                text = "L$level",
+                                                text = if (gameType == 6) "CH $level" else "L$level",
                                                 fontSize = 11.sp,
                                                 fontWeight = FontWeight.Bold,
                                                 color = screenPrimaryTextColor,
@@ -2690,6 +2691,36 @@ fun TetrisGame(
                                                         fontFamily = FontFamily.Monospace
                                                     )
                                                 }
+                                            }
+                                        }
+
+                                        // Sisa musuh & waktu berjalan, seperti panel kanan Brick Game asli.
+                                        if (gameType == 6) {
+                                            val sisaMusuh = tankEnemies.size + tankRemainingEnemies
+                                            val menit = tankTicks / 1200
+                                            val detik = (tankTicks / 20) % 60
+                                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                                Text(
+                                                    text = "ENEMY",
+                                                    fontSize = 7.sp,
+                                                    fontWeight = FontWeight.ExtraBold,
+                                                    color = screenSecondaryTextColor,
+                                                    fontFamily = FontFamily.Monospace
+                                                )
+                                                Text(
+                                                    text = "$sisaMusuh",
+                                                    fontSize = 10.sp,
+                                                    fontWeight = FontWeight.Black,
+                                                    color = accentPinkColor,
+                                                    fontFamily = FontFamily.Monospace
+                                                )
+                                                Text(
+                                                    text = menit.toString().padStart(2, '0') + ":" + detik.toString().padStart(2, '0'),
+                                                    fontSize = 8.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = accentCyanColor,
+                                                    fontFamily = FontFamily.Monospace
+                                                )
                                             }
                                         }
 
