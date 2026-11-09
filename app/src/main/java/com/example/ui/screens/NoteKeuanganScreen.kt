@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -336,6 +337,7 @@ private fun FilterKeuanganSection(
             value = search,
             onValueChange = onSearchChange,
             modifier = Modifier.weight(1f),
+            placeholder = { Text("Cari keterangan, kategori, sumber dana...", fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) },
             leadingIcon = { Icon(Icons.Default.Search, contentDescription = "Cari", modifier = Modifier.size(18.dp)) },
             trailingIcon = {
                 if (search.isNotEmpty()) {
@@ -385,17 +387,19 @@ private fun DropdownSaring(
     val aktif = nilai != "Semua"
     Box {
         Surface(
-            shape = RoundedCornerShape(10.dp),
+            shape = RoundedCornerShape(12.dp),
             color = if (aktif) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface,
             border = BorderStroke(
                 1.dp,
                 if (aktif) MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)
                 else MaterialTheme.colorScheme.outlineVariant
             ),
-            modifier = Modifier.clickable { expanded = true }
+            modifier = Modifier
+                .height(56.dp)
+                .clickable { expanded = true }
         ) {
             Row(
-                modifier = Modifier.padding(horizontal = 9.dp, vertical = 12.dp),
+                modifier = Modifier.fillMaxHeight().padding(horizontal = 10.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(3.dp)
             ) {
