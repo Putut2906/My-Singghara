@@ -3,8 +3,11 @@ package com.example.ui.screens
 import com.example.ui.MainViewModel
 
 import android.content.Context
+import android.media.AudioAttributes
 import android.media.AudioManager
+import android.media.SoundPool
 import android.media.ToneGenerator
+import com.example.R
 import android.os.Build
 import android.os.VibrationEffect
 import android.os.Vibrator
@@ -359,7 +362,8 @@ fun TetrisGame(
         }
     }
 
-    // Sound engine
+    // Sound engine: memakai rekaman efek Brick Game 9999 in 1 milik pengguna (res/raw/mr_9999_*.wav).
+    // ToneGenerator tetap disiapkan sebagai cadangan bila sampel gagal dimuat.
     val toneGen = remember {
         try {
             ToneGenerator(AudioManager.STREAM_MUSIC, 70)
@@ -368,11 +372,71 @@ fun TetrisGame(
         }
     }
 
-    fun playBeep(type: Int) {
+    val brickSoundPool = remember {
         try {
-            toneGen?.startTone(type, 70)
+            SoundPool.Builder()
+                .setMaxStreams(8)
+                .setAudioAttributes(
+                    AudioAttributes.Builder()
+                        .setUsage(AudioAttributes.USAGE_GAME)
+                        .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                        .build()
+                )
+                .build()
         } catch (e: Exception) {
-            // ignore
+            null
+        }
+    }
+
+    // Pemetaan nada internal ke nomor sampel mr_9999_XX.
+    val brickSoundIds = remember(brickSoundPool) {
+        val ids = mutableMapOf<Int, Int>()
+        val pool = brickSoundPool
+        if (pool != null) {
+            fun load(tone: Int, resId: Int) {
+                try {
+                    ids[tone] = pool.load(context, resId, 1)
+                } catch (e: Exception) {
+                    // biarkan jatuh ke ToneGenerator
+                }
+            }
+            load(ToneGenerator.TONE_PROP_ACK, R.raw.mr_9999_05)
+            load(ToneGenerator.TONE_CDMA_PIP, R.raw.mr_9999_06)
+            load(ToneGenerator.TONE_DTMF_1, R.raw.mr_9999_11)
+            load(ToneGenerator.TONE_CDMA_ABBR_ALERT, R.raw.mr_9999_04)
+            load(ToneGenerator.TONE_PROP_BEEP, R.raw.mr_9999_01)
+            load(ToneGenerator.TONE_PROP_NACK, R.raw.mr_9999_13)
+            load(ToneGenerator.TONE_DTMF_S, R.raw.mr_9999_02)
+            load(ToneGenerator.TONE_DTMF_B, R.raw.mr_9999_03)
+            load(ToneGenerator.TONE_DTMF_0, R.raw.mr_9999_08)
+        }
+        ids
+    }
+
+    DisposableEffect(brickSoundPool) {
+        onDispose {
+            try {
+                brickSoundPool?.release()
+            } catch (e: Exception) {
+                // abaikan
+            }
+        }
+    }
+
+    fun playBeep(type: Int) {
+        val sampleId = brickSoundIds[type]
+        if (sampleId != null && sampleId > 0) {
+            try {
+                brickSoundPool?.play(sampleId, 0.9f, 0.9f, 1, 0, 1f)
+            } catch (e: Exception) {
+                // abaikan
+            }
+        } else {
+            try {
+                toneGen?.startTone(type, 70)
+            } catch (e: Exception) {
+                // ignore
+            }
         }
     }
 
