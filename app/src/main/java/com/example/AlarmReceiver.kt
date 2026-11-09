@@ -11,6 +11,17 @@ import kotlinx.coroutines.launch
 class AlarmReceiver : BroadcastReceiver() {
 
     override fun onReceive(context: Context, intent: Intent) {
+        // BroadcastReceiver hidup di proses utama. Exception yang lolos dari sini
+        // mematikan seluruh proses, sehingga aplikasi terlihat "force close" saat
+        // layar mati, setelah reboot, atau setelah pembaruan dipasang.
+        try {
+            handleIntent(context, intent)
+        } catch (t: Throwable) {
+            Log.e("AlarmReceiver", "Gagal memproses broadcast ${intent.action}", t)
+        }
+    }
+
+    private fun handleIntent(context: Context, intent: Intent) {
         val action = intent.action
         Log.d("AlarmReceiver", "Received intent action: $action")
 
@@ -19,10 +30,18 @@ class AlarmReceiver : BroadcastReceiver() {
             action == Intent.ACTION_MY_PACKAGE_REPLACED) {
             // Device rebooted, system clock changed, timezone changed, or app updated: reschedule all notifications
             Log.d("AlarmReceiver", "Rescheduling alarms on system trigger: $action")
-            NotificationScheduler.scheduleAlarms(context)
+            try {
+                NotificationScheduler.scheduleAlarms(context)
+            } catch (t: Throwable) {
+                Log.e("AlarmReceiver", "Gagal menjadwalkan ulang alarm: ${t.message}", t)
+            }
             // Re-register the periodic background check for new versions so the schedule
             // survives a reboot and points at the freshly-installed package after an update.
-            com.example.update.UpdateCheckScheduler.ensurePeriodic(context)
+            try {
+                com.example.update.UpdateCheckScheduler.ensurePeriodic(context)
+            } catch (t: Throwable) {
+                Log.e("AlarmReceiver", "Gagal menjadwalkan cek pembaruan: ${t.message}", t)
+            }
             return
         }
 
@@ -38,10 +57,21 @@ class AlarmReceiver : BroadcastReceiver() {
                         Log.e("AlarmReceiver", "Error checking daily agenda and holiday at 00:00: ${e.message}")
                     } finally {
                         // Reschedule midnight check for the next day
-                        NotificationScheduler.scheduleDailyMidnightCheck(context)
+                        try {
+                            NotificationScheduler.scheduleDailyMidnightCheck(context)
+                        } catch (t: Throwable) {
+                            Log.e("AlarmReceiver", "Gagal menjadwalkan ulang cek tengah malam: ${t.message}", t)
+                        }
                         // Also update today's remaining prayer alarms just in case
-                        NotificationScheduler.schedulePrayerAlarmsForToday(context)
-                        pendingResult.finish()
+                        try {
+                            NotificationScheduler.schedulePrayerAlarmsForToday(context)
+                        } catch (t: Throwable) {
+                            Log.e("AlarmReceiver", "Gagal menjadwalkan ulang alarm sholat: ${t.message}", t)
+                        }
+                        try {
+                            pendingResult.finish()
+                        } catch (_: Throwable) {
+                        }
                     }
                 }
             }
@@ -56,8 +86,15 @@ class AlarmReceiver : BroadcastReceiver() {
                         Log.e("AlarmReceiver", "Error checking morning holiday at 06:00: ${e.message}")
                     } finally {
                         // Reschedule morning holiday check for the next day
-                        NotificationScheduler.scheduleMorningHolidayCheck(context)
-                        pendingResult.finish()
+                        try {
+                            NotificationScheduler.scheduleMorningHolidayCheck(context)
+                        } catch (t: Throwable) {
+                            Log.e("AlarmReceiver", "Gagal menjadwalkan ulang cek pagi: ${t.message}", t)
+                        }
+                        try {
+                            pendingResult.finish()
+                        } catch (_: Throwable) {
+                        }
                     }
                 }
             }

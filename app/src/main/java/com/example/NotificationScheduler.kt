@@ -393,15 +393,33 @@ object NotificationScheduler {
     }
 
     fun scheduleAlarms(context: Context) {
-        createNotificationChannels(context)
-        scheduleDailyMidnightCheck(context)
-        scheduleMorningHolidayCheck(context)
-        schedulePrayerAlarmsForToday(context)
+        // Satu langkah yang gagal tidak boleh membatalkan langkah lain, dan tidak boleh
+        // menjatuhkan proses ketika dipanggil dari BroadcastReceiver saat aplikasi diam.
+        try {
+            createNotificationChannels(context)
+        } catch (t: Throwable) {
+            Log.e("NotificationScheduler", "Gagal menyiapkan channel notifikasi: ${t.message}", t)
+        }
+        try {
+            scheduleDailyMidnightCheck(context)
+        } catch (t: Throwable) {
+            Log.e("NotificationScheduler", "Gagal menjadwalkan cek tengah malam: ${t.message}", t)
+        }
+        try {
+            scheduleMorningHolidayCheck(context)
+        } catch (t: Throwable) {
+            Log.e("NotificationScheduler", "Gagal menjadwalkan cek pagi: ${t.message}", t)
+        }
+        try {
+            schedulePrayerAlarmsForToday(context)
+        } catch (t: Throwable) {
+            Log.e("NotificationScheduler", "Gagal menjadwalkan alarm sholat: ${t.message}", t)
+        }
         // Pastikan pengecekan agenda kegiatan harian tetap berjalan jika ada agenda hari ini
         com.example.util.AppCrashGuard.io().launch {
             try {
                 checkAndShowDailyAgenda(context)
-            } catch (e: Exception) {
+            } catch (e: Throwable) {
                 Log.e("NotificationScheduler", "Failed to check agenda on schedule: ${e.message}")
             }
         }
@@ -502,6 +520,14 @@ object NotificationScheduler {
 
     @SuppressLint("ScheduleExactAlarm")
     fun schedulePrayerAlarmsForToday(context: Context) {
+        try {
+            schedulePrayerAlarmsForTodayInternal(context)
+        } catch (t: Throwable) {
+            Log.e("NotificationScheduler", "Jadwal sholat gagal disiapkan: ${t.message}", t)
+        }
+    }
+
+    private fun schedulePrayerAlarmsForTodayInternal(context: Context) {
         val sharedPrefs = context.getSharedPreferences("mysingghara_prefs", Context.MODE_PRIVATE)
         val latStr = sharedPrefs.getString("user_latitude", null)
         val lngStr = sharedPrefs.getString("user_longitude", null)
@@ -737,13 +763,27 @@ object NotificationScheduler {
         postPrayerReminder(context, name, time, notificationId, withSound = setting == 1)
     }
 
-    @SuppressLint("NotificationPermission")
     fun postPrayerReminder(
         context: Context,
         name: String,
         time: String,
         notificationId: Int = NOTIFICATION_ID_PRAYER + name.hashCode(),
         withSound: Boolean = false
+    ) {
+        try {
+            postPrayerReminderInternal(context, name, time, notificationId, withSound)
+        } catch (t: Throwable) {
+            Log.e("NotificationScheduler", "Gagal menampilkan pengingat sholat: ${t.message}", t)
+        }
+    }
+
+    @SuppressLint("NotificationPermission")
+    private fun postPrayerReminderInternal(
+        context: Context,
+        name: String,
+        time: String,
+        notificationId: Int,
+        withSound: Boolean
     ) {
         createNotificationChannels(context)
 

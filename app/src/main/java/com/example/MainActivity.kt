@@ -247,10 +247,18 @@ class MainActivity : FragmentActivity() {
 
         // Izin sistem baru diminta setelah wizard setup pertama selesai, supaya installer baru
         // tidak langsung terlempar ke pop up izin sebelum melihat halaman sambutan.
-        requestPostSetupPermissions()
+        try {
+            requestPostSetupPermissions()
+        } catch (t: Throwable) {
+            android.util.Log.e("MainActivity", "Permintaan izin awal dilewati", t)
+        }
 
         // Initialize notification channels and schedule daily / sholat alarms
-        NotificationScheduler.scheduleAlarms(this)
+        try {
+            NotificationScheduler.scheduleAlarms(this)
+        } catch (t: Throwable) {
+            android.util.Log.e("MainActivity", "Penjadwalan alarm dilewati", t)
+        }
 
         // Pastikan FirebaseApp terinisialisasi dengan benar
         try {
@@ -574,7 +582,13 @@ class MainActivity : FragmentActivity() {
         super.onResume()
         isAppInForeground = true
         com.example.util.SinggharaFolderManager.ensureFoldersExistAsync(this)
-        viewModel.checkAccountAccessStatus()
+        // Dijalankan setiap resume; exception Firestore ditangani di dalam, tetapi
+        // kegagalan lain tidak boleh menutup aplikasi saat dibuka dari recents.
+        try {
+            viewModel.checkAccountAccessStatus()
+        } catch (t: Throwable) {
+            android.util.Log.e("MainActivity", "Cek status akun dilewati", t)
+        }
         // Kunci aplikasi jika sistem OS / keyguard dalam keadaan terkunci
         val keyguardManager = getSystemService(Context.KEYGUARD_SERVICE) as? KeyguardManager
         if (keyguardManager != null && (keyguardManager.isKeyguardLocked || keyguardManager.isDeviceLocked)) {
@@ -591,32 +605,32 @@ class MainActivity : FragmentActivity() {
         onSuccess: () -> Unit,
         onError: (errCode: Int, errString: String) -> Unit
     ) {
-        val executor = ContextCompat.getMainExecutor(this)
-        val biometricPrompt = BiometricPrompt(this, executor, object : BiometricPrompt.AuthenticationCallback() {
-            override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
-                super.onAuthenticationError(errorCode, errString)
-                onError(errorCode, errString.toString())
-            }
-
-            override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
-                super.onAuthenticationSucceeded(result)
-                onSuccess()
-            }
-
-            override fun onAuthenticationFailed() {
-                super.onAuthenticationFailed()
-                viewModel.showToastPopup("Sidik jari/wajah tidak dikenali. Silakan coba lagi.")
-            }
-        })
-
-        val promptInfo = BiometricPrompt.PromptInfo.Builder()
-            .setTitle("Kunci Aplikasi")
-            .setSubtitle("Gunakan Sidik Jari atau Wajah Anda untuk masuk")
-            .setAllowedAuthenticators(BiometricManager.Authenticators.BIOMETRIC_STRONG or BiometricManager.Authenticators.BIOMETRIC_WEAK)
-            .setNegativeButtonText("Gunakan PIN")
-            .build()
-
         try {
+            val executor = ContextCompat.getMainExecutor(this)
+            val biometricPrompt = BiometricPrompt(this, executor, object : BiometricPrompt.AuthenticationCallback() {
+                override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
+                    super.onAuthenticationError(errorCode, errString)
+                    onError(errorCode, errString.toString())
+                }
+
+                override fun onAuthenticationSucceeded(result: BiometricPrompt.AuthenticationResult) {
+                    super.onAuthenticationSucceeded(result)
+                    onSuccess()
+                }
+
+                override fun onAuthenticationFailed() {
+                    super.onAuthenticationFailed()
+                    viewModel.showToastPopup("Sidik jari/wajah tidak dikenali. Silakan coba lagi.")
+                }
+            })
+
+            val promptInfo = BiometricPrompt.PromptInfo.Builder()
+                .setTitle("Kunci Aplikasi")
+                .setSubtitle("Gunakan Sidik Jari atau Wajah Anda untuk masuk")
+                .setAllowedAuthenticators(BiometricManager.Authenticators.BIOMETRIC_STRONG or BiometricManager.Authenticators.BIOMETRIC_WEAK)
+                .setNegativeButtonText("Gunakan PIN")
+                .build()
+
             biometricPrompt.authenticate(promptInfo)
         } catch (e: Exception) {
             onError(-99, "Gagal meluncurkan biometric: ${e.message}")

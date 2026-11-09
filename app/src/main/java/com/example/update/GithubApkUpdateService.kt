@@ -39,21 +39,41 @@ sealed class GithubUpdateTask {
  */
 class GithubApkUpdateService : Service() {
 
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    // Tanpa handler, satu exception yang lolos dari coroutine langsung mematikan
+    // proses aplikasi (termasuk saat layar mati di tengah unduhan).
+    private val scope = CoroutineScope(
+        SupervisorJob() + Dispatchers.IO + com.example.util.AppCrashGuard.handler
+    )
     private var workJob: Job? = null
     private var lastNotifiedPercent = -1
 
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        createNotificationChannel()
+        try {
+            createNotificationChannel()
+        } catch (t: Throwable) {
+            android.util.Log.e("GithubApkUpdateService", "Channel notifikasi gagal dibuat: ${t.message}", t)
+        }
         if (workJob?.isActive == true) {
             // A second tap must still satisfy the foreground-service contract.
-            startForegroundCompat(buildNotification("Memproses pembaruan...", indeterminate = true))
+            try {
+                startForegroundCompat(buildNotification("Memproses pembaruan...", indeterminate = true))
+            } catch (t: Throwable) {
+                android.util.Log.e("GithubApkUpdateService", "startForeground ditolak: ${t.message}", t)
+            }
             return START_NOT_STICKY
         }
 
-        startForegroundCompat(buildNotification("Memeriksa pembaruan...", indeterminate = true))
+        try {
+            startForegroundCompat(buildNotification("Memeriksa pembaruan...", indeterminate = true))
+        } catch (t: Throwable) {
+            // Android 12+ menolak startForeground dari latar belakang; layanan harus
+            // berhenti sendiri, bukan menjatuhkan aplikasi.
+            android.util.Log.e("GithubApkUpdateService", "startForeground ditolak: ${t.message}", t)
+            stopSelf()
+            return START_NOT_STICKY
+        }
         _state.value = GithubUpdateTask.Checking
 
         workJob = scope.launch { checkAndSave() }
@@ -139,18 +159,26 @@ class GithubApkUpdateService : Service() {
     ) {
         _state.value = state
         // A separate id keeps the result visible after the foreground notification is removed.
-        notifyManager()?.notify(
-            COMPLETION_NOTIFICATION_ID,
-            buildNotification(
-                text = text,
-                title = title,
-                indeterminate = false,
-                ongoing = false,
-                autoCancel = true,
-                installApkPath = installApkPath
+        try {
+            notifyManager()?.notify(
+                COMPLETION_NOTIFICATION_ID,
+                buildNotification(
+                    text = text,
+                    title = title,
+                    indeterminate = false,
+                    ongoing = false,
+                    autoCancel = true,
+                    installApkPath = installApkPath
+                )
             )
-        )
-        stopForegroundCompat()
+        } catch (t: Throwable) {
+            android.util.Log.e("GithubApkUpdateService", "Notifikasi hasil gagal: ${t.message}", t)
+        }
+        try {
+            stopForegroundCompat()
+        } catch (t: Throwable) {
+            android.util.Log.e("GithubApkUpdateService", "stopForeground gagal: ${t.message}", t)
+        }
         stopSelf()
     }
 
@@ -259,7 +287,12 @@ class GithubApkUpdateService : Service() {
 
         fun start(context: Context) {
             val intent = Intent(context, GithubApkUpdateService::class.java).setAction(ACTION_CHECK_AND_SAVE)
-            ContextCompat.startForegroundService(context, intent)
+            try {
+                ContextCompat.startForegroundService(context, intent)
+            } catch (t: Throwable) {
+                // Bisa dilempar saat aplikasi baru saja pindah ke background.
+                android.util.Log.e("GithubApkUpdateService", "Layanan pembaruan tidak dapat dimulai: ${t.message}", t)
+            }
         }
     }
 }

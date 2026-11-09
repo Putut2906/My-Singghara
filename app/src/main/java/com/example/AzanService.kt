@@ -62,7 +62,14 @@ class AzanService : Service() {
             return START_NOT_STICKY
         }
 
-        playAzan(prayerName)
+        try {
+            playAzan(prayerName)
+        } catch (t: Throwable) {
+            // MediaPlayer / berkas azan bisa gagal saat perangkat baru bangun dari idle.
+            Log.e(TAG, "Pemutaran azan gagal: ${t.message}", t)
+            finishPlayback()
+            NotificationScheduler.postPrayerReminder(this, prayerName, prayerTime, notificationId, withSound = false)
+        }
         return START_NOT_STICKY
     }
 

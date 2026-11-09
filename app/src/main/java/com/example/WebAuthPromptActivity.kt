@@ -87,33 +87,43 @@ class WebAuthPromptActivity : ComponentActivity() {
                         timestamp = timestamp,
                         onDismiss = { finish() },
                         onApprove = { tokenOrPin ->
-                            val server = LocalHttpServer.activeInstance ?: MainViewModel.instance?.webServer
-                            val vm = MainViewModel.instance
-                            val ok = if (tokenOrPin != null) {
-                                server?.approveSession(tokenOrPin) ?: false
-                            } else {
-                                server?.approveAllPending() ?: false
-                            }
-                            if (ok) {
-                                vm?.webAccessSecurityState = MainViewModel.WebAccessSecurityState.NONE
-                                NotificationScheduler.cancelWebAccessNotification(applicationContext)
-                                vm?.showToastPopup("Akses Web PC Berhasil Diizinkan!")
-                                finish()
-                            } else {
-                                // Host global ada di window MainActivity yang sedang tidak
-                                // tampil; menuliskannya di sini membuat pesan baru muncul
-                                // entah kapan saat pengguna kembali ke aplikasi.
+                            try {
+                                val server = LocalHttpServer.activeInstance ?: MainViewModel.instance?.webServer
+                                val vm = MainViewModel.instance
+                                val ok = if (tokenOrPin != null) {
+                                    server?.approveSession(tokenOrPin) ?: false
+                                } else {
+                                    server?.approveAllPending() ?: false
+                                }
+                                if (ok) {
+                                    vm?.webAccessSecurityState = MainViewModel.WebAccessSecurityState.NONE
+                                    NotificationScheduler.cancelWebAccessNotification(applicationContext)
+                                    vm?.showToastPopup("Akses Web PC Berhasil Diizinkan!")
+                                    finish()
+                                } else {
+                                    // Host global ada di window MainActivity yang sedang tidak
+                                    // tampil; menuliskannya di sini membuat pesan baru muncul
+                                    // entah kapan saat pengguna kembali ke aplikasi.
+                                    localToastMessage = "Gagal memverifikasi akses"
+                                }
+                            } catch (t: Throwable) {
+                                android.util.Log.e("WebAuthPrompt", "Verifikasi akses gagal", t)
                                 localToastMessage = "Gagal memverifikasi akses"
                             }
                         },
                         onReject = {
-                            val server = LocalHttpServer.activeInstance ?: MainViewModel.instance?.webServer
-                            val vm = MainViewModel.instance
-                            server?.rejectPendingAccess()
-                            vm?.onRejectWebAccess()
-                            NotificationScheduler.cancelWebAccessNotification(applicationContext)
-                            vm?.showToastPopup("Akses Web PC Ditolak")
-                            finish()
+                            try {
+                                val server = LocalHttpServer.activeInstance ?: MainViewModel.instance?.webServer
+                                val vm = MainViewModel.instance
+                                server?.rejectPendingAccess()
+                                vm?.onRejectWebAccess()
+                                NotificationScheduler.cancelWebAccessNotification(applicationContext)
+                                vm?.showToastPopup("Akses Web PC Ditolak")
+                                finish()
+                            } catch (t: Throwable) {
+                                android.util.Log.e("WebAuthPrompt", "Penolakan akses gagal", t)
+                                finish()
+                            }
                         },
                         onShowToast = { msg ->
                             localToastMessage = msg

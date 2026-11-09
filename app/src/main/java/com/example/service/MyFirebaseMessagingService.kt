@@ -23,22 +23,31 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
 
     override fun onNewToken(token: String) {
         super.onNewToken(token)
-        Log.d("FCM_SERVICE", "Refreshed FCM token: $token")
-        val prefs = getSharedPreferences("mysingghara_prefs", Context.MODE_PRIVATE)
-        prefs.edit().putString("fcm_token", token).putString("fcm_real_token", token).apply()
+        // Service ini bisa berjalan saat aplikasi diam; exception mematikan proses.
         try {
+            Log.d("FCM_SERVICE", "Refreshed FCM token: $token")
+            val prefs = getSharedPreferences("mysingghara_prefs", Context.MODE_PRIVATE)
+            prefs.edit().putString("fcm_token", token).putString("fcm_real_token", token).apply()
             com.example.ui.MainViewModel.instance?.apply {
                 fcmToken = token
                 isFcmConnected = true
                 fcmTokenError = null
             }
-        } catch (e: Exception) {
-            Log.e("FCM_SERVICE", "Error updating ViewModel instance on new token", e)
+        } catch (t: Throwable) {
+            Log.e("FCM_SERVICE", "Gagal menyimpan token FCM baru: ${t.message}", t)
         }
     }
 
     override fun onMessageReceived(remoteMessage: RemoteMessage) {
         super.onMessageReceived(remoteMessage)
+        try {
+            handleMessage(remoteMessage)
+        } catch (t: Throwable) {
+            Log.e("FCM_SERVICE", "Gagal memproses pesan FCM: ${t.message}", t)
+        }
+    }
+
+    private fun handleMessage(remoteMessage: RemoteMessage) {
         Log.d("FCM_SERVICE", "From: ${remoteMessage.from}")
 
         val title = remoteMessage.notification?.title
@@ -62,14 +71,21 @@ class MyFirebaseMessagingService : FirebaseMessagingService() {
         )
 
         // Save to Room database
-        val db = AppDatabase.getDatabase(applicationContext)
+        val db = try {
+            AppDatabase.getDatabase(applicationContext)
+        } catch (t: Throwable) {
+            Log.e("FCM_SERVICE", "Database tidak dapat dibuka: ${t.message}", t)
+            null
+        }
         com.example.util.AppCrashGuard.io().launch {
             var savedItem = notificationItem
-            try {
-                val insertedId = db.fcmNotificationDao().insertNotification(notificationItem)
-                savedItem = notificationItem.copy(id = insertedId)
-            } catch (e: Exception) {
-                Log.e("FCM_SERVICE", "Error saving FCM notification to DB", e)
+            if (db != null) {
+                try {
+                    val insertedId = db.fcmNotificationDao().insertNotification(notificationItem)
+                    savedItem = notificationItem.copy(id = insertedId)
+                } catch (e: Exception) {
+                    Log.e("FCM_SERVICE", "Error saving FCM notification to DB", e)
+                }
             }
 
             val isForeground = MainActivity.isAppInForeground

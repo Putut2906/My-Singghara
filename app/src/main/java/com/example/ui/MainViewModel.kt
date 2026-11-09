@@ -185,43 +185,50 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
         // 2. Sinkronkan dengan Cloud Firestore
         viewModelScope.launch {
-            isCheckingAccountStatus = true
-            val validation = adminManager.validateAccountAccess(uid)
-            isCheckingAccountStatus = false
-            when (validation) {
-                is com.example.firebase.AccountAccessValidation.Allowed -> {
-                    isAccountBlocked = false
-                    accountBlockReason = ""
-                    sharedPrefs.edit()
-                        .putBoolean("cached_account_blocked", false)
-                        .putString("cached_account_block_reason", "")
-                        .apply()
-                    onComplete?.invoke(true)
+            try {
+                isCheckingAccountStatus = true
+                val validation = adminManager.validateAccountAccess(uid)
+                when (validation) {
+                    is com.example.firebase.AccountAccessValidation.Allowed -> {
+                        isAccountBlocked = false
+                        accountBlockReason = ""
+                        sharedPrefs.edit()
+                            .putBoolean("cached_account_blocked", false)
+                            .putString("cached_account_block_reason", "")
+                            .apply()
+                        onComplete?.invoke(true)
+                    }
+                    is com.example.firebase.AccountAccessValidation.Deactivated -> {
+                        isAccountBlocked = true
+                        accountBlockReason = validation.reason
+                        sharedPrefs.edit()
+                            .putBoolean("cached_account_blocked", true)
+                            .putString("cached_account_block_reason", validation.reason)
+                            .apply()
+                        onComplete?.invoke(false)
+                    }
+                    is com.example.firebase.AccountAccessValidation.MembershipExpired -> {
+                        isAccountBlocked = true
+                        val sdf = java.text.SimpleDateFormat("dd MMM yyyy, HH:mm", java.util.Locale("id", "ID"))
+                        val dateFormatted = sdf.format(java.util.Date(validation.endDate))
+                        accountBlockReason = "Masa membership Anda (${validation.tier}) telah habis pada $dateFormatted. Akun dinonaktifkan secara otomatis."
+                        accountMembershipEndDate = validation.endDate
+                        accountMembershipTier = validation.tier
+                        sharedPrefs.edit()
+                            .putBoolean("cached_account_blocked", true)
+                            .putString("cached_account_block_reason", accountBlockReason)
+                            .putLong("cached_membership_end_date", validation.endDate)
+                            .putString("cached_membership_tier", validation.tier)
+                            .apply()
+                        onComplete?.invoke(false)
+                    }
                 }
-                is com.example.firebase.AccountAccessValidation.Deactivated -> {
-                    isAccountBlocked = true
-                    accountBlockReason = validation.reason
-                    sharedPrefs.edit()
-                        .putBoolean("cached_account_blocked", true)
-                        .putString("cached_account_block_reason", validation.reason)
-                        .apply()
-                    onComplete?.invoke(false)
-                }
-                is com.example.firebase.AccountAccessValidation.MembershipExpired -> {
-                    isAccountBlocked = true
-                    val sdf = java.text.SimpleDateFormat("dd MMM yyyy, HH:mm", java.util.Locale("id", "ID"))
-                    val dateFormatted = sdf.format(java.util.Date(validation.endDate))
-                    accountBlockReason = "Masa membership Anda (${validation.tier}) telah habis pada $dateFormatted. Akun dinonaktifkan secara otomatis."
-                    accountMembershipEndDate = validation.endDate
-                    accountMembershipTier = validation.tier
-                    sharedPrefs.edit()
-                        .putBoolean("cached_account_blocked", true)
-                        .putString("cached_account_block_reason", accountBlockReason)
-                        .putLong("cached_membership_end_date", validation.endDate)
-                        .putString("cached_membership_tier", validation.tier)
-                        .apply()
-                    onComplete?.invoke(false)
-                }
+            } catch (t: Throwable) {
+                // viewModelScope tanpa handler meneruskan exception ke proses utama,
+                // jadi kegagalan jaringan/parse di sini tidak boleh lolos.
+                android.util.Log.e("MainViewModel", "Cek status akun gagal: ${t.message}", t)
+            } finally {
+                isCheckingAccountStatus = false
             }
         }
     }
@@ -277,45 +284,51 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             adminMessagesListener = firestore.collection("messages")
                 .orderBy("createdAt", com.google.firebase.firestore.Query.Direction.DESCENDING)
                 .addSnapshotListener { snapshot, error ->
-                    if (error != null) {
-                        android.util.Log.w("MainViewModel", "Error snapshot admin messages: ${error.message}")
-                        return@addSnapshotListener
-                    }
-                    if (snapshot != null) {
-                        val list = mutableListOf<com.example.firebase.CloudMessageItem>()
-                        val currentUid = currentFirebaseUser?.uid ?: authManager.currentUser?.uid
-                        for (doc in snapshot.documents) {
-                            val id = doc.id
-                            val title = doc.getString("title") ?: ""
-                            val content = doc.getString("content") ?: ""
-                            val category = doc.getString("category") ?: "PENGUMUMAN"
-                            val priority = doc.getString("priority") ?: "NORMAL"
-                            val target = doc.getString("target") ?: "SEMUA"
-                            val targetName = doc.getString("targetName") ?: "Semua Pengguna"
-                            val authorUid = doc.getString("authorUid") ?: ""
-                            val authorName = doc.getString("authorName") ?: "Admin"
-                            val createdAt = doc.getLong("createdAt") ?: 0L
-
-                            // Tampilkan jika ditujukan untuk SEMUA, cocok dengan UID akun ini, atau jika akun adalah Admin
-                            if (target == "SEMUA" || (currentUid != null && target == currentUid) || currentUid == com.example.firebase.FirebaseAccountAdminManager.ADMIN_UID) {
-                                list.add(
-                                    com.example.firebase.CloudMessageItem(
-                                        id = id,
-                                        title = title,
-                                        content = content,
-                                        category = category,
-                                        priority = priority,
-                                        target = target,
-                                        targetName = targetName,
-                                        authorUid = authorUid,
-                                        authorName = authorName,
-                                        createdAt = createdAt
-                                    )
-                                )
-                            }
+                    // Callback Firestore berjalan di main thread; exception di sini
+                    // langsung mematikan proses ketika aplikasi sedang diam.
+                    try {
+                        if (error != null) {
+                            android.util.Log.w("MainViewModel", "Error snapshot admin messages: ${error.message}")
+                            return@addSnapshotListener
                         }
-                        _adminMessages.value = list
-                        calculateUnreadAdminMessages()
+                        if (snapshot != null) {
+                            val list = mutableListOf<com.example.firebase.CloudMessageItem>()
+                            val currentUid = currentFirebaseUser?.uid ?: authManager.currentUser?.uid
+                            for (doc in snapshot.documents) {
+                                val id = doc.id
+                                val title = doc.getString("title") ?: ""
+                                val content = doc.getString("content") ?: ""
+                                val category = doc.getString("category") ?: "PENGUMUMAN"
+                                val priority = doc.getString("priority") ?: "NORMAL"
+                                val target = doc.getString("target") ?: "SEMUA"
+                                val targetName = doc.getString("targetName") ?: "Semua Pengguna"
+                                val authorUid = doc.getString("authorUid") ?: ""
+                                val authorName = doc.getString("authorName") ?: "Admin"
+                                val createdAt = doc.getLong("createdAt") ?: 0L
+
+                                // Tampilkan jika ditujukan untuk SEMUA, cocok dengan UID akun ini, atau jika akun adalah Admin
+                                if (target == "SEMUA" || (currentUid != null && target == currentUid) || currentUid == com.example.firebase.FirebaseAccountAdminManager.ADMIN_UID) {
+                                    list.add(
+                                        com.example.firebase.CloudMessageItem(
+                                            id = id,
+                                            title = title,
+                                            content = content,
+                                            category = category,
+                                            priority = priority,
+                                            target = target,
+                                            targetName = targetName,
+                                            authorUid = authorUid,
+                                            authorName = authorName,
+                                            createdAt = createdAt
+                                        )
+                                    )
+                                }
+                            }
+                            _adminMessages.value = list
+                            calculateUnreadAdminMessages()
+                        }
+                    } catch (t: Throwable) {
+                        android.util.Log.e("MainViewModel", "Gagal memproses pesan admin: ${t.message}", t)
                     }
                 }
         } catch (e: Exception) {
@@ -2191,21 +2204,35 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             networkCallback = object : android.net.ConnectivityManager.NetworkCallback() {
                 override fun onAvailable(network: android.net.Network) {
                     super.onAvailable(network)
-                    isNetworkAvailable = true
-                    fetchWeather()
-                    syncFcmTokenToFirestore()
-                    setupAdminMessagesListener()
-                    setupOtpRequestsListener()
+                    // Callback ini berjalan di thread sistem tanpa try/catch; exception
+                    // di sini mematikan proses saat pengguna tidak sedang memakai aplikasi.
+                    try {
+                        isNetworkAvailable = true
+                        fetchWeather()
+                        syncFcmTokenToFirestore()
+                        setupAdminMessagesListener()
+                        setupOtpRequestsListener()
+                    } catch (t: Throwable) {
+                        android.util.Log.e("MainViewModel", "onAvailable gagal: ${t.message}", t)
+                    }
                 }
 
                 override fun onLost(network: android.net.Network) {
                     super.onLost(network)
-                    isNetworkAvailable = checkInitialNetworkState()
+                    try {
+                        isNetworkAvailable = checkInitialNetworkState()
+                    } catch (t: Throwable) {
+                        android.util.Log.e("MainViewModel", "onLost gagal: ${t.message}", t)
+                    }
                 }
 
                 override fun onCapabilitiesChanged(network: android.net.Network, networkCapabilities: android.net.NetworkCapabilities) {
                     super.onCapabilitiesChanged(network, networkCapabilities)
-                    isNetworkAvailable = networkCapabilities.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET)
+                    try {
+                        isNetworkAvailable = networkCapabilities.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET)
+                    } catch (t: Throwable) {
+                        android.util.Log.e("MainViewModel", "onCapabilitiesChanged gagal: ${t.message}", t)
+                    }
                 }
             }
             networkCallback?.let { callback ->
@@ -2303,30 +2330,34 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     private fun startClock() {
         viewModelScope.launch {
             while (true) {
-                val calendar = Calendar.getInstance()
-                // Set offset based on selected timezone
-                val hourOffset = when (activeTimeZone) {
-                    "WITA" -> 1
-                    "WIT" -> 2
-                    else -> 0 // WIB is default
+                try {
+                    val calendar = Calendar.getInstance()
+                    // Set offset based on selected timezone
+                    val hourOffset = when (activeTimeZone) {
+                        "WITA" -> 1
+                        "WIT" -> 2
+                        else -> 0 // WIB is default
+                    }
+
+                    // standard formatted time
+                    val hour = calendar.get(Calendar.HOUR_OF_DAY) + hourOffset
+                    val minute = calendar.get(Calendar.MINUTE)
+                    val second = calendar.get(Calendar.SECOND)
+
+                    val formattedTime = String.format("%02d:%02d:%02d", hour % 24, minute, second)
+                    _currentTime.value = formattedTime
+
+                    val year = calendar.get(Calendar.YEAR)
+                    val monthName = calendar.getDisplayName(Calendar.MONTH, Calendar.LONG, Locale("id", "ID"))
+                    val day = calendar.get(Calendar.DAY_OF_MONTH)
+                    _currentDate.value = "$day $monthName $year"
+
+                    val dayOfWeekName = calendar.getDisplayName(Calendar.DAY_OF_WEEK, Calendar.LONG, Locale("id", "ID"))
+                    _currentDay.value = dayOfWeekName ?: ""
+                } catch (t: Throwable) {
+                    // Satu tick gagal tidak boleh mematikan aplikasi yang sedang diam.
+                    android.util.Log.e("MainViewModel", "Tick jam gagal: ${t.message}", t)
                 }
-                
-                // standard formatted time
-                val hour = calendar.get(Calendar.HOUR_OF_DAY) + hourOffset
-                val minute = calendar.get(Calendar.MINUTE)
-                val second = calendar.get(Calendar.SECOND)
-                
-                val formattedTime = String.format("%02d:%02d:%02d", hour % 24, minute, second)
-                _currentTime.value = formattedTime
-
-                val year = calendar.get(Calendar.YEAR)
-                val monthName = calendar.getDisplayName(Calendar.MONTH, Calendar.LONG, Locale("id", "ID"))
-                val day = calendar.get(Calendar.DAY_OF_MONTH)
-                _currentDate.value = "$day $monthName $year"
-
-                val dayOfWeekName = calendar.getDisplayName(Calendar.DAY_OF_WEEK, Calendar.LONG, Locale("id", "ID"))
-                _currentDay.value = dayOfWeekName ?: ""
-
                 delay(1000)
             }
         }
@@ -2566,6 +2597,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     init {
         instance = this
         com.example.util.SinggharaFolderManager.ensureFoldersExistAsync(application)
+        // init{} berjalan sebelum frame pertama. Satu exception di langkah mana pun
+        // membuat aplikasi langsung tertutup, termasuk saat dibuka ulang dari recents.
+        fun startStep(label: String, block: () -> Unit) {
+            try {
+                block()
+            } catch (t: Throwable) {
+                android.util.Log.e("MainViewModel", "Init $label gagal: ${t.message}", t)
+            }
+        }
         // FirebaseAuth.getInstance() melempar IllegalStateException kalau default
         // FirebaseApp tidak sempat terinisialisasi. init{} berjalan sebelum frame
         // pertama, jadi exception di sini = aplikasi langsung tertutup.
@@ -2576,23 +2616,27 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
         if (initUser != null) {
             currentFirebaseUser = initUser
-            syncUserProfileFromFirebase(initUser)
+            startStep("profil") { syncUserProfileFromFirebase(initUser) }
         }
         try {
             authManager.addAuthStateListener { fbAuth ->
                 val u = fbAuth.currentUser
                 if (u != null) {
-                    currentFirebaseUser = u
-                    syncUserProfileFromFirebase(u)
+                    try {
+                        currentFirebaseUser = u
+                        syncUserProfileFromFirebase(u)
+                    } catch (t: Throwable) {
+                        android.util.Log.e("MainViewModel", "Listener auth gagal: ${t.message}", t)
+                    }
                 }
             }
         } catch (_: Exception) {}
-        loadPrayerSoundSettings()
-        fetchFcmToken()
-        syncFcmTokenToFirestore()
-        setupAdminMessagesListener()
-        setupOtpRequestsListener()
-        checkAccountAccessStatus()
+        startStep("suara azan") { loadPrayerSoundSettings() }
+        startStep("token FCM") { fetchFcmToken() }
+        startStep("sinkron FCM") { syncFcmTokenToFirestore() }
+        startStep("pesan admin") { setupAdminMessagesListener() }
+        startStep("permintaan OTP") { setupOtpRequestsListener() }
+        startStep("status akun") { checkAccountAccessStatus() }
         
         // Initialize Recent Apps List
         val savedRecentStr = sharedPrefs.getString("recent_app_ids", null)
@@ -2617,9 +2661,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
         }
 
-        startClock()
-        loadRetrofitHolidays()
-        checkAndCleanupExpiredAnggota()
+        startStep("jam") { startClock() }
+        startStep("hari libur") { loadRetrofitHolidays() }
+        startStep("pembersihan anggota") { checkAndCleanupExpiredAnggota() }
         
         // Load cached Kemenag schedule if date matches today
         val cachedDate = sharedPrefs.getString("kemenag_cache_date", null)
@@ -2646,15 +2690,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         
         // Trigger Aladhan live API for today on initialization
         val formatStr = String.format("%02d-%02d-%04d", today.get(Calendar.DAY_OF_MONTH), today.get(Calendar.MONTH) + 1, today.get(Calendar.YEAR))
-        loadLiveAladhanHijri(formatStr)
+        startStep("kalender hijriah") { loadLiveAladhanHijri(formatStr) }
 
-        if (com.example.util.MediaPermission.hasAudioAccess(application)) {
-            scanDeviceMusic(application)
+        startStep("pindai musik") {
+            if (com.example.util.MediaPermission.hasAudioAccess(application)) {
+                scanDeviceMusic(application)
+            }
         }
-        
-        fetchKemenagPrayerSchedule(application)
-        fetchWeather()
-        setupNetworkMonitoring()
+
+        startStep("jadwal kemenag") { fetchKemenagPrayerSchedule(application) }
+        startStep("cuaca") { fetchWeather() }
+        startStep("pemantau jaringan") { setupNetworkMonitoring() }
     }
 
     fun toggleFavorite(track: MusicTrack) {
@@ -3099,10 +3145,16 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     private fun startMusicService(context: Context) {
         val intent = Intent(context, com.example.MusicService::class.java)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            context.startForegroundService(intent)
-        } else {
-            context.startService(intent)
+        // Android 12+ melempar ForegroundServiceStartNotAllowedException bila service
+        // dinyalakan saat aplikasi sudah di background (mis. lanjut putar dari notifikasi).
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                context.startForegroundService(intent)
+            } else {
+                context.startService(intent)
+            }
+        } catch (t: Throwable) {
+            android.util.Log.e("MainViewModel", "Layanan musik tidak dapat dimulai: ${t.message}", t)
         }
     }
 

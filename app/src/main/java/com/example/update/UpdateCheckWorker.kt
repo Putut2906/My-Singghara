@@ -35,24 +35,30 @@ class UpdateCheckWorker(
             }
         }
 
-        if (!GitHubUpdateManager.loadConfig(ctx).autoCheckOnStartup) return Result.success()
+        // Worker berjalan periodik saat aplikasi diam; kegagalan jaringan atau
+        // notifikasi cukup membuat percobaan ini dilewati, bukan menghentikan proses.
+        try {
+            if (!GitHubUpdateManager.loadConfig(ctx).autoCheckOnStartup) return Result.success()
 
-        var result: UpdateCheckState = UpdateCheckState.Error("")
-        for (attempt in 0 until 3) {
-            if (isStopped) return Result.failure()
-            result = GitHubUpdateManager.checkForUpdate(ctx)
-            if (result !is UpdateCheckState.Error) break
-            delay(3_000L * (attempt + 1))
-        }
+            var result: UpdateCheckState = UpdateCheckState.Error("")
+            for (attempt in 0 until 3) {
+                if (isStopped) return Result.failure()
+                result = GitHubUpdateManager.checkForUpdate(ctx)
+                if (result !is UpdateCheckState.Error) break
+                delay(3_000L * (attempt + 1))
+            }
 
-        if (result is UpdateCheckState.UpdateAvailable &&
-            GitHubUpdateManager.isRemoteVersionNewer(BuildConfig.VERSION_NAME, result.release.tagName)
-        ) {
-            NotificationScheduler.showUpdateAvailableNotification(
-                context = ctx,
-                versionLabel = "v${result.newVersion}",
-                source = "GitHub"
-            )
+            if (result is UpdateCheckState.UpdateAvailable &&
+                GitHubUpdateManager.isRemoteVersionNewer(BuildConfig.VERSION_NAME, result.release.tagName)
+            ) {
+                NotificationScheduler.showUpdateAvailableNotification(
+                    context = ctx,
+                    versionLabel = "v${result.newVersion}",
+                    source = "GitHub"
+                )
+            }
+        } catch (t: Throwable) {
+            android.util.Log.e("UpdateCheckWorker", "Cek pembaruan latar belakang gagal: ${t.message}", t)
         }
         return Result.success()
     }

@@ -12,11 +12,17 @@ import java.io.File
 class ApkInstallReceiver : BroadcastReceiver() {
 
     override fun onReceive(context: Context, intent: Intent) {
-        val apkPath = intent.getStringExtra(EXTRA_APK_PATH) ?: return
-        val apkFile = File(apkPath)
-        if (!apkFile.exists()) return
-        if (GitHubUpdateManager.installApk(context, apkFile)) {
-            PendingUpdateStore.clear(context)
+        // Konteks perangkat bisa saja sudah mencabut izin pemasangan; exception yang
+        // lolos dari sini mematikan seluruh proses aplikasi.
+        try {
+            val apkPath = intent.getStringExtra(EXTRA_APK_PATH) ?: return
+            val apkFile = File(apkPath)
+            if (!apkFile.exists()) return
+            if (GitHubUpdateManager.installApk(context, apkFile)) {
+                PendingUpdateStore.clear(context)
+            }
+        } catch (t: Throwable) {
+            android.util.Log.e("ApkInstallReceiver", "Pemasangan APK gagal dibuka: ${t.message}", t)
         }
     }
 

@@ -178,24 +178,32 @@ class MusicService : Service() {
 
     private val musicReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
-            when (intent.action) {
-                "com.example.music.PREVIOUS" -> playPrevious()
-                "com.example.music.PLAY_PAUSE" -> togglePlayPause()
-                "com.example.music.NEXT" -> playNext()
-                "com.example.music.SHUFFLE" -> {
-                    isMusicShuffle = !isMusicShuffle
-                    MainViewModel.instance?.isMusicShuffle = isMusicShuffle
-                    updateMusicNotification()
+            // Tombol notifikasi/media bisa ditekan saat layar mati. Exception di sini
+            // mematikan seluruh proses, jadi seluruh aksi dibungkus.
+            try {
+                when (intent.action) {
+                    "com.example.music.PREVIOUS" -> playPrevious()
+                    "com.example.music.PLAY_PAUSE" -> togglePlayPause()
+                    "com.example.music.NEXT" -> playNext()
+                    "com.example.music.SHUFFLE" -> {
+                        isMusicShuffle = !isMusicShuffle
+                        MainViewModel.instance?.isMusicShuffle = isMusicShuffle
+                        updateMusicNotification()
+                    }
+                    "com.example.music.STOP" -> stopPlaybackAndDismiss()
                 }
-                "com.example.music.STOP" -> stopPlaybackAndDismiss()
+            } catch (t: Throwable) {
+                android.util.Log.e("MusicService", "Aksi kontrol musik gagal: ${t.message}", t)
             }
         }
     }
 
     private val audioBecomingNoisyReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context, intent: Intent) {
-            val action = intent.action
-            when (action) {
+            // Bluetooth putus / headset dicabut sering terjadi saat aplikasi diam.
+            try {
+                val action = intent.action
+                when (action) {
                 android.media.AudioManager.ACTION_AUDIO_BECOMING_NOISY -> {
                     if (isMusicPlaying) {
                         pauseMusic()
@@ -254,6 +262,9 @@ class MusicService : Service() {
                         }
                     }
                 }
+                }
+            } catch (t: Throwable) {
+                android.util.Log.e("MusicService", "Callback audio/Bluetooth gagal: ${t.message}", t)
             }
         }
     }
@@ -270,12 +281,16 @@ class MusicService : Service() {
             addAction("com.example.music.SHUFFLE")
             addAction("com.example.music.STOP")
         }
-        androidx.core.content.ContextCompat.registerReceiver(
-            this,
-            musicReceiver,
-            filter,
-            androidx.core.content.ContextCompat.RECEIVER_NOT_EXPORTED
-        )
+        try {
+            androidx.core.content.ContextCompat.registerReceiver(
+                this,
+                musicReceiver,
+                filter,
+                androidx.core.content.ContextCompat.RECEIVER_NOT_EXPORTED
+            )
+        } catch (t: Throwable) {
+            android.util.Log.e("MusicService", "Receiver kontrol gagal didaftarkan: ${t.message}", t)
+        }
 
         val noisyFilter = IntentFilter().apply {
             addAction(android.media.AudioManager.ACTION_AUDIO_BECOMING_NOISY)
@@ -283,12 +298,16 @@ class MusicService : Service() {
             addAction(android.bluetooth.BluetoothA2dp.ACTION_CONNECTION_STATE_CHANGED)
             addAction(android.bluetooth.BluetoothAdapter.ACTION_STATE_CHANGED)
         }
-        androidx.core.content.ContextCompat.registerReceiver(
-            this,
-            audioBecomingNoisyReceiver,
-            noisyFilter,
-            androidx.core.content.ContextCompat.RECEIVER_EXPORTED
-        )
+        try {
+            androidx.core.content.ContextCompat.registerReceiver(
+                this,
+                audioBecomingNoisyReceiver,
+                noisyFilter,
+                androidx.core.content.ContextCompat.RECEIVER_EXPORTED
+            )
+        } catch (t: Throwable) {
+            android.util.Log.e("MusicService", "Receiver audio gagal didaftarkan: ${t.message}", t)
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -315,6 +334,16 @@ class MusicService : Service() {
     }
 
     private fun startForegroundNotification() {
+        try {
+            startForegroundNotificationInternal()
+        } catch (t: Throwable) {
+            // onStartCommand tidak boleh melempar: proses aplikasi ikut mati.
+            android.util.Log.e("MusicService", "Notifikasi awal pemutar gagal: ${t.message}", t)
+            stopSelf()
+        }
+    }
+
+    private fun startForegroundNotificationInternal() {
         val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         val channelId = "music_playback_channel"
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -356,8 +385,11 @@ class MusicService : Service() {
             )
         } catch (e: Exception) {
             // Android 12+ menolak startForeground saat aplikasi di latar belakang
-            // (ForegroundServiceStartNotAllowedException). Tidak boleh menjatuhkan app.
+            // (ForegroundServiceStartNotAllowedException). Tidak boleh menjatuhkan app;
+            // service juga harus berhenti agar sistem tidak membunuh proses karena
+            // startForegroundService() tidak pernah mendapat startForeground().
             android.util.Log.w("MusicService", "startForeground ditolak: ${e.message}")
+            stopSelf()
         }
     }
 
@@ -760,6 +792,16 @@ class MusicService : Service() {
     }
 
     fun updateMusicNotification() {
+        // Dipanggil tiap detik oleh pelacak progres dan oleh callback Bluetooth;
+        // kegagalan membangun RemoteViews tidak boleh mematikan proses.
+        try {
+            updateMusicNotificationInternal()
+        } catch (t: Throwable) {
+            android.util.Log.e("MusicService", "Notifikasi musik gagal diperbarui: ${t.message}", t)
+        }
+    }
+
+    private fun updateMusicNotificationInternal() {
         val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         val channelId = "music_playback_channel"
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
