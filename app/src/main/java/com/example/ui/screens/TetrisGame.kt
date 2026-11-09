@@ -747,16 +747,19 @@ fun TetrisGame(
             dc < 0 -> 2
             else -> 3
         }
-        if (dirBaru != tankPlayerDir) {
-            // Belok: putar sprite di tempat (kotak 3x3 tetap), cek tabrakan dulu.
-            if (tankBodyBlocked(tankCellsAt(tankPlayerPos.first, tankPlayerPos.second, dirBaru), ignorePlayer = true, skipEnemy = -1)) return
-            tankPlayerDir = dirBaru
-            return
-        }
+        // Tekan arah langsung maju satu sel ke arah itu (sekaligus menghadapnya),
+        // supaya tank tidak hanya berputar di tempat. Bila terhalang tepi/musuh,
+        // baru putar di tempat menghadap arah input agar tetap bisa membidik.
         val nr = tankPlayerPos.first + dr
         val nc = tankPlayerPos.second + dc
-        if (tankBodyBlocked(tankCellsAt(nr, nc, tankPlayerDir), ignorePlayer = true, skipEnemy = -1)) return
-        tankPlayerPos = Pair(nr, nc)
+        if (!tankBodyBlocked(tankCellsAt(nr, nc, dirBaru), ignorePlayer = true, skipEnemy = -1)) {
+            tankPlayerDir = dirBaru
+            tankPlayerPos = Pair(nr, nc)
+        } else if (dirBaru != tankPlayerDir &&
+            !tankBodyBlocked(tankCellsAt(tankPlayerPos.first, tankPlayerPos.second, dirBaru), ignorePlayer = true, skipEnemy = -1)
+        ) {
+            tankPlayerDir = dirBaru
+        }
     }
 
     // Sel tempat peluru muncul: tepat di depan ujung laras.
