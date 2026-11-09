@@ -128,14 +128,6 @@ private val TANK_LEVEL_LAYOUTS: List<List<String>> = listOf(
     )
 )
 
-// Bata pelindung markas: dua lapis di sisi atas agar markas tidak hancur oleh dua tembakan cepat.
-private val TANK_BASE_SHIELD: List<Pair<Int, Int>> = listOf(
-    Pair(16, 3), Pair(16, 4), Pair(16, 5), Pair(16, 6),
-    Pair(17, 3), Pair(17, 4), Pair(17, 5), Pair(17, 6),
-    Pair(18, 3), Pair(19, 3),
-    Pair(18, 6), Pair(19, 6)
-)
-
 fun androidx.compose.ui.graphics.drawscope.DrawScope.drawPyramidBlock(
     color: Color,
     topLeft: Offset,
@@ -703,12 +695,9 @@ fun TetrisGame(
     val tankBricks = remember { mutableStateListOf<Pair<Int, Int>>() }
     var tankTicks by remember { mutableStateOf(0) }
     var tankRemainingEnemies by remember { mutableStateOf(0) }
-    var tankBaseAlive by remember { mutableStateOf(true) }
-    var tankBaseLost by remember { mutableStateOf(false) }
 
-    // Markas 2x2 di tengah bawah; pemain mulai tepat di sebelah kiri pelindung markas.
-    val tankBaseCells = listOf(Pair(18, 4), Pair(18, 5), Pair(19, 4), Pair(19, 5))
-    val tankSpawnPos = Pair(18, 0)
+    // Duel tank murni: tidak ada markas, pemain mulai di tengah baris paling bawah.
+    val tankSpawnPos = Pair(18, 4)
     val tankEnemySpawns = listOf(Pair(0, 1), Pair(0, 6))
 
     // Jenis musuh: 3 = normal, 4 = cepat, 5/6/7 = tank berat dengan sisa HP 3/2/1.
@@ -726,7 +715,6 @@ fun TetrisGame(
                 if (baris[c] == '#') tankBricks.add(Pair(r, c))
             }
         }
-        tankBricks.addAll(TANK_BASE_SHIELD)
     }
 
     fun tankCellBlocked(row: Int, col: Int, ignorePlayer: Boolean, skipEnemy: Int): Boolean {
@@ -734,7 +722,6 @@ fun TetrisGame(
         for (cell in cells) {
             if (cell.first !in 0 until rowsCount || cell.second !in 0 until colsCount) return true
             if (tankBricks.contains(cell)) return true
-            if (tankBaseAlive && tankBaseCells.contains(cell)) return true
         }
         if (!ignorePlayer) {
             val selPemain = tankCellsAt(tankPlayerPos.first, tankPlayerPos.second)
@@ -835,8 +822,6 @@ fun TetrisGame(
         tankPlayerBullets.clear()
         tankEnemyBullets.clear()
         tankTicks = 0
-        tankBaseAlive = true
-        tankBaseLost = false
         tankPlayerPos = tankSpawnPos
         tankPlayerDir = 0
         tankSpawnEnemy()
@@ -1451,14 +1436,6 @@ fun TetrisGame(
                     playBeep(ToneGenerator.TONE_PROP_NACK)
                     continue
                 }
-                if (tankBaseAlive && tankBaseCells.contains(sel)) {
-                    tankBaseAlive = false
-                    tankBaseLost = true
-                    isGameOver = true
-                    playBeep(ToneGenerator.TONE_CDMA_ABBR_ALERT)
-                    triggerVibration(300)
-                    continue
-                }
                 if (tankCellsAt(tankPlayerPos.first, tankPlayerPos.second).contains(sel)) {
                     pemainKena = true
                     continue
@@ -1675,14 +1652,6 @@ fun TetrisGame(
                         result[brick.first][brick.second] = 6
                     }
                 }
-                // Markas 2x2 di tengah bawah.
-                if (tankBaseAlive) {
-                    for (cell in tankBaseCells) {
-                        if (cell.first in 0 until rowsCount && cell.second in 0 until colsCount) {
-                            result[cell.first][cell.second] = 1
-                        }
-                    }
-                }
                 // Tank musuh: normal, cepat, dan berat.
                 for (enemy in tankEnemies) {
                     val tipe = when (enemy.third) {
@@ -1695,7 +1664,7 @@ fun TetrisGame(
                             result[cell.first][cell.second] = tipe
                         }
                     }
-                    // Laras musuh menghadap ke bawah (ke arah markas).
+                    // Laras musuh menghadap ke bawah (ke arah pemain).
                     val larasMusuh = Pair(enemy.first + 2, enemy.second + 1)
                     if (larasMusuh.first in 0 until rowsCount && larasMusuh.second in 0 until colsCount &&
                         result[larasMusuh.first][larasMusuh.second] == 0
@@ -2392,7 +2361,7 @@ fun TetrisGame(
                                                     modifier = Modifier.padding(8.dp)
                                                 ) {
                                                     Text(
-                                                        text = if (gameType == 6 && tankBaseLost) "MARKAS HANCUR" else "GAME OVER",
+                                                        text = "GAME OVER",
                                                         color = accentPinkColor,
                                                         fontSize = 15.sp,
                                                         fontWeight = FontWeight.Black,
