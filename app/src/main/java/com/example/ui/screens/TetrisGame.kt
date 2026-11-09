@@ -1652,7 +1652,8 @@ fun TetrisGame(
                 result[bRow][bCol] = 3
             }
             6 -> { // Tank Battle (duel)
-                // Tank musuh: badan 3x2 tanpa sel tengah atas.
+                // Tank musuh: badan 3x2 tanpa sel tengah atas, plus laras 1 sel
+                // yang mengikuti arah bidikan ke pemain.
                 for (enemy in tankEnemies) {
                     val tipe = when (enemy.third) {
                         3 -> 3
@@ -1663,6 +1664,24 @@ fun TetrisGame(
                         if (cell.first in 0 until rowsCount && cell.second in 0 until colsCount) {
                             result[cell.first][cell.second] = tipe
                         }
+                    }
+                    val bedaBaris = tankPlayerPos.first - enemy.first
+                    val bedaKolom = tankPlayerPos.second - enemy.second
+                    val arahBidik = if (abs(bedaBaris) >= abs(bedaKolom)) {
+                        if (bedaBaris < 0) 0 else 1
+                    } else {
+                        if (bedaKolom < 0) 2 else 3
+                    }
+                    val larasMusuh = when (arahBidik) {
+                        0 -> Pair(enemy.first - 1, enemy.second + 1)
+                        1 -> Pair(enemy.first + 2, enemy.second + 1)
+                        2 -> Pair(enemy.first + 1, enemy.second - 1)
+                        else -> Pair(enemy.first + 1, enemy.second + 3)
+                    }
+                    if (larasMusuh.first in 0 until rowsCount && larasMusuh.second in 0 until colsCount &&
+                        result[larasMusuh.first][larasMusuh.second] == 0
+                    ) {
+                        result[larasMusuh.first][larasMusuh.second] = tipe
                     }
                 }
                 // Tank pemain.
