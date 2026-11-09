@@ -136,21 +136,27 @@ object ReceiptScannerHelper {
             if (uri.scheme == "file") {
                 val path = uri.path ?: return null
                 @Suppress("DEPRECATION")
-                RegionSource(android.graphics.BitmapRegionDecoder.newInstance(path, false), null)
+                val decoder = android.graphics.BitmapRegionDecoder.newInstance(path, false) ?: return null
+                RegionSource(decoder, null)
             } else {
                 // BitmapRegionDecoder butuh stream yang bisa di-reset; provider
                 // content:// tidak selalu memberi stream seekable.
                 val raw = context.contentResolver.openInputStream(uri) ?: return null
                 val stream = java.io.BufferedInputStream(raw, 64 * 1024)
-                try {
+                val decoder = try {
                     @Suppress("DEPRECATION")
-                    RegionSource(android.graphics.BitmapRegionDecoder.newInstance(stream, false), stream)
+                    android.graphics.BitmapRegionDecoder.newInstance(stream, false)
                 } catch (e: Exception) {
+                    null
+                }
+                if (decoder == null) {
                     try {
                         stream.close()
                     } catch (_: Exception) {
                     }
                     null
+                } else {
+                    RegionSource(decoder, stream)
                 }
             }
         } catch (e: Exception) {
