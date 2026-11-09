@@ -55,6 +55,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.delay
 import kotlin.random.Random
+import kotlin.math.abs
 
 // Tetromino representation
 data class Tetromino(
@@ -106,26 +107,6 @@ val MODERN_BLOCK_COLORS = listOf(
     Color(0xFFFFE600), // Bright Yellow
     Color(0xFFFF5E00), // Active Orange
     Color(0xFF00FF66)  // Mint Sparkle
-)
-
-// Peta Tank Battle 10 kolom x 20 baris (18 baris atas); '#' = bata penghalang yang bisa dihancurkan.
-// Dinding disusun per pita dengan lorong minimal 3 sel agar tank 3x2 tetap bisa bermanuver.
-private val TANK_LEVEL_LAYOUTS: List<List<String>> = listOf(
-    listOf(
-        "..........", "..........", "..........", "##......##", "..........", "..........",
-        "..........", "....##....", "..........", "..........", "..........", ".##....##.",
-        "..........", "..........", "..........", "...##.....", "..........", ".........."
-    ),
-    listOf(
-        "..........", "..........", "..........", "....##....", "..........", "..........",
-        "..........", "##......##", "..........", "..........", "..........", ".....##...",
-        "..........", "..........", "..........", "......##..", "..........", ".........."
-    ),
-    listOf(
-        "..........", "..........", "..........", "...##.....", "..........", "..........",
-        "..........", "##......##", "..........", "..........", "..........", ".##....##.",
-        "..........", "..........", "..........", "......##..", "..........", ".........."
-    )
 )
 
 fun androidx.compose.ui.graphics.drawscope.DrawScope.drawPyramidBlock(
@@ -687,41 +668,36 @@ fun TetrisGame(
     // ----------------------------------------
     // 6. TANK BATTLE (BATTLE CITY STYLE) STATES
     // ----------------------------------------
-    var tankPlayerPos by remember { mutableStateOf(Pair(18, 0)) } // pojok kiri-atas tank 3x2
+    var tankPlayerPos by remember { mutableStateOf(Pair(18, 4)) } // pojok kiri-atas tank 3x2
     var tankPlayerDir by remember { mutableStateOf(0) } // 0 atas, 1 bawah, 2 kiri, 3 kanan
     val tankPlayerBullets = remember { mutableStateListOf<Triple<Int, Int, Int>>() } // (baris, kolom, arah)
-    val tankEnemyBullets = remember { mutableStateListOf<Pair<Int, Int>>() }
+    val tankEnemyBullets = remember { mutableStateListOf<Triple<Int, Int, Int>>() } // (baris, kolom, arah)
     val tankEnemies = remember { mutableStateListOf<Triple<Int, Int, Int>>() } // (baris, kolom, jenis)
-    val tankBricks = remember { mutableStateListOf<Pair<Int, Int>>() }
     var tankTicks by remember { mutableStateOf(0) }
     var tankRemainingEnemies by remember { mutableStateOf(0) }
+    // Perlindungan singkat setelah respawn agar tidak langsung dihabisi musuh yang menempel.
+    var tankSpawnGuard by remember { mutableStateOf(0) }
 
-    // Duel tank murni: tidak ada markas, pemain mulai di tengah baris paling bawah.
+    // Area terbuka tanpa balok 1x1; pemain mulai di tengah baris paling bawah.
     val tankSpawnPos = Pair(18, 4)
     val tankEnemySpawns = listOf(Pair(0, 1), Pair(0, 6))
 
     // Jenis musuh: 3 = normal, 4 = cepat, 5/6/7 = tank berat dengan sisa HP 3/2/1.
-    // Sprite tank mengikuti LCD asli: badan 3x2 sel + satu sel laras.
+    // Tank pemain: badan 3x2 penuh. Tank musuh: 3x2 dengan sel tengah atas dihilangkan
+    // agar siluetnya tidak sama dengan pemain.
     fun tankCellsAt(row: Int, col: Int): List<Pair<Int, Int>> = listOf(
         Pair(row, col), Pair(row, col + 1), Pair(row, col + 2),
         Pair(row + 1, col), Pair(row + 1, col + 1), Pair(row + 1, col + 2)
     )
 
-    fun tankLoadWalls(index: Int) {
-        val layout = TANK_LEVEL_LAYOUTS[index % TANK_LEVEL_LAYOUTS.size]
-        tankBricks.clear()
-        for ((r, baris) in layout.withIndex()) {
-            for (c in baris.indices) {
-                if (baris[c] == '#') tankBricks.add(Pair(r, c))
-            }
-        }
-    }
+    fun tankEnemyCellsAt(row: Int, col: Int): List<Pair<Int, Int>> = listOf(
+        Pair(row, col), Pair(row, col + 2),
+        Pair(row + 1, col), Pair(row + 1, col + 1), Pair(row + 1, col + 2)
+    )
 
-    fun tankCellBlocked(row: Int, col: Int, ignorePlayer: Boolean, skipEnemy: Int): Boolean {
-        val cells = tankCellsAt(row, col)
+    fun tankBodyBlocked(cells: List<Pair<Int, Int>>, ignorePlayer: Boolean, skipEnemy: Int): Boolean {
         for (cell in cells) {
             if (cell.first !in 0 until rowsCount || cell.second !in 0 until colsCount) return true
-            if (tankBricks.contains(cell)) return true
         }
         if (!ignorePlayer) {
             val selPemain = tankCellsAt(tankPlayerPos.first, tankPlayerPos.second)
@@ -729,7 +705,7 @@ fun TetrisGame(
         }
         for ((i, e) in tankEnemies.withIndex()) {
             if (i == skipEnemy) continue
-            val selMusuh = tankCellsAt(e.first, e.second)
+            val selMusuh = tankEnemyCellsAt(e.first, e.second)
             if (cells.any { selMusuh.contains(it) }) return true
         }
         return false
@@ -746,7 +722,7 @@ fun TetrisGame(
         }
         val nr = tankPlayerPos.first + dr
         val nc = tankPlayerPos.second + dc
-        if (tankCellBlocked(nr, nc, ignorePlayer = true, skipEnemy = -1)) return
+        if (tankBodyBlocked(tankCellsAt(nr, nc), ignorePlayer = true, skipEnemy = -1)) return
         tankPlayerPos = Pair(nr, nc)
     }
 
@@ -763,15 +739,13 @@ fun TetrisGame(
         val sel = tankMuzzleCell(tankPlayerPos.first, tankPlayerPos.second, tankPlayerDir)
         if (sel.first !in 0 until rowsCount || sel.second !in 0 until colsCount) return
         playBeep(ToneGenerator.TONE_DTMF_1)
-        // Tembakan jarak dekat langsung menghancurkan bata di depan laras.
-        if (tankBricks.remove(sel)) return
         tankPlayerBullets.add(Triple(sel.first, sel.second, tankPlayerDir))
     }
 
     fun tankSpawnEnemy() {
         if (tankRemainingEnemies <= 0) return
         for (spawn in tankEnemySpawns) {
-            if (tankCellBlocked(spawn.first, spawn.second, ignorePlayer = false, skipEnemy = -1)) continue
+            if (tankBodyBlocked(tankEnemyCellsAt(spawn.first, spawn.second), ignorePlayer = false, skipEnemy = -1)) continue
             val roll = Random.nextInt(100)
             val jenis = when {
                 level >= 3 && roll < 18 -> 5 // tank berat
@@ -812,16 +786,43 @@ fun TetrisGame(
         } else {
             tankPlayerPos = tankSpawnPos
             tankPlayerDir = 0
+            tankSpawnGuard = 40
         }
     }
 
-    fun tankStartStage(stageLevel: Int) {
-        tankLoadWalls(stageLevel - 1)
+    // Musuh membidik tank pemain sesuai selisih baris/kolom terbesar.
+    fun tankEnemyFire(enemy: Triple<Int, Int, Int>) {
+        if (isGameOver || tankSpawnGuard > 0 || tankEnemyBullets.size >= 8) return
+        val dr = tankPlayerPos.first - enemy.first
+        val dc = tankPlayerPos.second - enemy.second
+        val arah = if (abs(dr) >= abs(dc)) {
+            if (dr < 0) 0 else 1
+        } else {
+            if (dc < 0) 2 else 3
+        }
+        val laras = when (arah) {
+            0 -> Pair(enemy.first - 1, enemy.second + 1)
+            1 -> Pair(enemy.first + 2, enemy.second + 1)
+            2 -> Pair(enemy.first + 1, enemy.second - 1)
+            else -> Pair(enemy.first + 1, enemy.second + 3)
+        }
+        // Laras menempel di badan pemain: tembakan jarak dekat langsung mengenai.
+        if (tankCellsAt(tankPlayerPos.first, tankPlayerPos.second).contains(laras)) {
+            tankHitPlayer()
+            return
+        }
+        if (laras.first !in 0 until rowsCount || laras.second !in 0 until colsCount) return
+        tankEnemyBullets.add(Triple(laras.first, laras.second, arah))
+        playBeep(ToneGenerator.TONE_PROP_BEEP2)
+    }
+
+    fun tankStartStage() {
         tankRemainingEnemies = 20
         tankEnemies.clear()
         tankPlayerBullets.clear()
         tankEnemyBullets.clear()
         tankTicks = 0
+        tankSpawnGuard = 40
         tankPlayerPos = tankSpawnPos
         tankPlayerDir = 0
         tankSpawnEnemy()
@@ -895,7 +896,7 @@ fun TetrisGame(
                 }
             }
             6 -> { // Tank Battle
-                tankStartStage(1)
+                tankStartStage()
             }
         }
     }
@@ -1385,6 +1386,7 @@ fun TetrisGame(
     fun updateTank() {
         if (isGameOver || isPaused) return
         tankTicks++
+        if (tankSpawnGuard > 0) tankSpawnGuard--
 
         // Peluru pemain melaju 1 sel tiap 2 tick sesuai arah laras.
         if (tankTicks % 2 == 0) {
@@ -1402,16 +1404,14 @@ fun TetrisGame(
                 }
                 if (nr !in 0 until rowsCount || nc !in 0 until colsCount) continue
                 val sel = Pair(nr, nc)
-                if (tankBricks.remove(sel)) {
-                    playBeep(ToneGenerator.TONE_PROP_NACK)
-                    continue
-                }
-                if (tankEnemyBullets.remove(sel)) {
+                val idxPeluruMusuh = tankEnemyBullets.indexOfFirst { it.first == sel.first && it.second == sel.second }
+                if (idxPeluruMusuh >= 0) {
+                    tankEnemyBullets.removeAt(idxPeluruMusuh)
                     playBeep(ToneGenerator.TONE_PROP_NACK)
                     // Mulai level 3 tembakan pemain menembus peluru musuh.
                     if (level < 3) continue
                 }
-                val idx = tankEnemies.indexOfFirst { tankCellsAt(it.first, it.second).contains(sel) }
+                val idx = tankEnemies.indexOfFirst { tankEnemyCellsAt(it.first, it.second).contains(sel) }
                 if (idx >= 0) {
                     tankDamageEnemy(idx)
                     continue
@@ -1422,20 +1422,25 @@ fun TetrisGame(
             tankPlayerBullets.addAll(sisa)
         }
 
-        // Peluru musuh turun 1 sel; mulai level 4 lajunya makin agresif.
+        // Peluru musuh melaju sesuai arah bidikan; mulai level 4 lajunya makin agresif.
         val jedaLuruMusuh = if (level >= 4) 2 else 3
         if (tankTicks % jedaLuruMusuh == 0) {
-            val sisa = mutableListOf<Pair<Int, Int>>()
+            val sisa = mutableListOf<Triple<Int, Int, Int>>()
             var pemainKena = false
             for (b in tankEnemyBullets) {
                 if (isGameOver || pemainKena) break
-                val nr = b.first + 1
-                if (nr >= rowsCount) continue
-                val sel = Pair(nr, b.second)
-                if (tankBricks.remove(sel)) {
-                    playBeep(ToneGenerator.TONE_PROP_NACK)
-                    continue
+                val nr = when (b.third) {
+                    0 -> b.first - 1
+                    1 -> b.first + 1
+                    else -> b.first
                 }
+                val nc = when (b.third) {
+                    2 -> b.second - 1
+                    3 -> b.second + 1
+                    else -> b.second
+                }
+                if (nr !in 0 until rowsCount || nc !in 0 until colsCount) continue
+                val sel = Pair(nr, nc)
                 if (tankCellsAt(tankPlayerPos.first, tankPlayerPos.second).contains(sel)) {
                     pemainKena = true
                     continue
@@ -1446,7 +1451,7 @@ fun TetrisGame(
                     playBeep(ToneGenerator.TONE_PROP_NACK)
                     continue
                 }
-                sisa.add(sel)
+                sisa.add(Triple(nr, nc, b.third))
             }
             tankEnemyBullets.clear()
             when {
@@ -1455,7 +1460,7 @@ fun TetrisGame(
             }
         }
 
-        // Tank musuh bergerak: normal lambat, cepat lincah, berat sangat lambat.
+        // Musuh memburu pemain: normal lambat, cepat lincah, berat sangat lambat.
         val snapshot = tankEnemies.toList()
         for ((index, enemy) in snapshot.withIndex()) {
             if (isGameOver) break
@@ -1465,16 +1470,24 @@ fun TetrisGame(
                 else -> 8
             }
             if (tankTicks % jeda != 0) continue
-            val horiz = if (Random.nextBoolean()) 1 else -1
-            val arah = if (Random.nextInt(100) < 70) {
-                listOf(Pair(1, 0), Pair(0, horiz), Pair(0, -horiz))
+            val dr = (tankPlayerPos.first - enemy.first).coerceIn(-1, 1)
+            val dc = (tankPlayerPos.second - enemy.second).coerceIn(-1, 1)
+            val arah = mutableListOf<Pair<Int, Int>>()
+            // Kejar sumbu dengan selisih terbesar lebih dulu, sisanya cadangan.
+            if (abs(tankPlayerPos.first - enemy.first) >= abs(tankPlayerPos.second - enemy.second)) {
+                if (dr != 0) arah.add(Pair(dr, 0))
+                if (dc != 0) arah.add(Pair(0, dc))
             } else {
-                listOf(Pair(0, horiz), Pair(1, 0), Pair(0, -horiz))
+                if (dc != 0) arah.add(Pair(0, dc))
+                if (dr != 0) arah.add(Pair(dr, 0))
             }
-            for ((dr, dc) in arah) {
-                val nr = enemy.first + dr
-                val nc = enemy.second + dc
-                if (!tankCellBlocked(nr, nc, ignorePlayer = false, skipEnemy = index)) {
+            arah.add(Pair(dr, 0))
+            arah.add(Pair(0, dc))
+            for ((mdr, mdc) in arah) {
+                if (mdr == 0 && mdc == 0) continue
+                val nr = enemy.first + mdr
+                val nc = enemy.second + mdc
+                if (!tankBodyBlocked(tankEnemyCellsAt(nr, nc), ignorePlayer = false, skipEnemy = index)) {
                     if (index < tankEnemies.size && tankEnemies[index] == enemy) {
                         tankEnemies[index] = Triple(nr, nc, enemy.third)
                     }
@@ -1483,24 +1496,18 @@ fun TetrisGame(
             }
         }
 
-        // Musuh menembak secara berkala dari laras bawah tank.
-        if (tankTicks % 40 == 0 && tankEnemies.isNotEmpty() && tankEnemyBullets.size < 6) {
-            val penembak = tankEnemies[Random.nextInt(tankEnemies.size)]
-            if (penembak.first + 2 < rowsCount) {
-                tankEnemyBullets.add(Pair(penembak.first + 2, penembak.second + 1))
+        // Musuh membidik dan menembak tank pemain secara berkala.
+        if (tankTicks % 40 == 0 && tankEnemies.isNotEmpty()) {
+            val penembak = tankEnemies.minByOrNull {
+                abs(it.first - tankPlayerPos.first) + abs(it.second - tankPlayerPos.second)
             }
-            playBeep(ToneGenerator.TONE_PROP_BEEP2)
+            if (penembak != null) tankEnemyFire(penembak)
         }
 
         // Tank cepat menembak lebih sering.
-        if (tankTicks % 20 == 0 && tankTicks % 40 != 0 && tankEnemyBullets.size < 6) {
+        if (tankTicks % 20 == 0 && tankTicks % 40 != 0) {
             val cepat = tankEnemies.filter { it.third == 4 }
-            if (cepat.isNotEmpty()) {
-                val penembak = cepat[Random.nextInt(cepat.size)]
-                if (penembak.first + 2 < rowsCount) {
-                    tankEnemyBullets.add(Pair(penembak.first + 2, penembak.second + 1))
-                }
-            }
+            if (cepat.isNotEmpty()) tankEnemyFire(cepat[Random.nextInt(cepat.size)])
         }
 
         // Tambah musuh baru selama stok tahap masih ada.
@@ -1511,7 +1518,6 @@ fun TetrisGame(
         // Tahap baru setelah semua musuh hancur.
         if (!isGameOver && tankEnemies.isEmpty() && tankRemainingEnemies <= 0) {
             level++
-            tankLoadWalls(level - 1)
             tankRemainingEnemies = 20
             tankTicks = 0
             tankPlayerBullets.clear()
@@ -1645,31 +1651,18 @@ fun TetrisGame(
                 val bRow = ballY.toInt().coerceIn(0, 19)
                 result[bRow][bCol] = 3
             }
-            6 -> { // Tank Battle (Battle City)
-                // Dinding bata yang bisa dihancurkan.
-                for (brick in tankBricks) {
-                    if (brick.first in 0 until rowsCount && brick.second in 0 until colsCount) {
-                        result[brick.first][brick.second] = 6
-                    }
-                }
-                // Tank musuh: normal, cepat, dan berat.
+            6 -> { // Tank Battle (duel)
+                // Tank musuh: badan 3x2 tanpa sel tengah atas.
                 for (enemy in tankEnemies) {
                     val tipe = when (enemy.third) {
                         3 -> 3
                         4 -> 4
                         else -> 5
                     }
-                    for (cell in tankCellsAt(enemy.first, enemy.second)) {
+                    for (cell in tankEnemyCellsAt(enemy.first, enemy.second)) {
                         if (cell.first in 0 until rowsCount && cell.second in 0 until colsCount) {
                             result[cell.first][cell.second] = tipe
                         }
-                    }
-                    // Laras musuh menghadap ke bawah (ke arah pemain).
-                    val larasMusuh = Pair(enemy.first + 2, enemy.second + 1)
-                    if (larasMusuh.first in 0 until rowsCount && larasMusuh.second in 0 until colsCount &&
-                        result[larasMusuh.first][larasMusuh.second] == 0
-                    ) {
-                        result[larasMusuh.first][larasMusuh.second] = tipe
                     }
                 }
                 // Tank pemain.
