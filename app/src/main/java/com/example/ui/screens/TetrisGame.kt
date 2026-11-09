@@ -668,7 +668,7 @@ fun TetrisGame(
     // ----------------------------------------
     // 6. TANK BATTLE (BATTLE CITY STYLE) STATES
     // ----------------------------------------
-    var tankPlayerPos by remember { mutableStateOf(Pair(18, 4)) } // pojok kiri-atas tank 3x2
+    var tankPlayerPos by remember { mutableStateOf(Pair(9, 4)) } // pojok kiri-atas tank 3x2
     var tankPlayerDir by remember { mutableStateOf(0) } // 0 atas, 1 bawah, 2 kiri, 3 kanan
     val tankPlayerBullets = remember { mutableStateListOf<Triple<Int, Int, Int>>() } // (baris, kolom, arah)
     val tankEnemyBullets = remember { mutableStateListOf<Triple<Int, Int, Int>>() } // (baris, kolom, arah)
@@ -678,8 +678,8 @@ fun TetrisGame(
     // Perlindungan singkat setelah respawn agar tidak langsung dihabisi musuh yang menempel.
     var tankSpawnGuard by remember { mutableStateOf(0) }
 
-    // Area terbuka tanpa balok 1x1; pemain mulai di tengah baris paling bawah.
-    val tankSpawnPos = Pair(18, 4)
+    // Area terbuka tanpa balok 1x1; pemain mulai di tengah lapangan.
+    val tankSpawnPos = Pair(9, 4)
     val tankEnemySpawns = listOf(Pair(0, 1), Pair(0, 6))
 
     // Jenis musuh: 3 = normal, 4 = cepat, 5/6/7 = tank berat dengan sisa HP 3/2/1.
@@ -695,20 +695,43 @@ fun TetrisGame(
         Pair(row + 1, col), Pair(row + 1, col + 1), Pair(row + 1, col + 2)
     )
 
+    // Tank lain harus berjarak minimal 1 sel agar siluet tidak menempel/menyatu.
+    fun tankTouches(cells: List<Pair<Int, Int>>, other: List<Pair<Int, Int>>): Boolean =
+        cells.any { c -> other.any { o -> abs(c.first - o.first) <= 1 && abs(c.second - o.second) <= 1 } }
+
+    fun tankCellTouches(cell: Pair<Int, Int>, body: List<Pair<Int, Int>>): Boolean =
+        body.any { abs(cell.first - it.first) <= 1 && abs(cell.second - it.second) <= 1 }
+
     fun tankBodyBlocked(cells: List<Pair<Int, Int>>, ignorePlayer: Boolean, skipEnemy: Int): Boolean {
         for (cell in cells) {
             if (cell.first !in 0 until rowsCount || cell.second !in 0 until colsCount) return true
         }
         if (!ignorePlayer) {
             val selPemain = tankCellsAt(tankPlayerPos.first, tankPlayerPos.second)
-            if (cells.any { selPemain.contains(it) }) return true
+            if (tankTouches(cells, selPemain)) return true
         }
         for ((i, e) in tankEnemies.withIndex()) {
             if (i == skipEnemy) continue
             val selMusuh = tankEnemyCellsAt(e.first, e.second)
-            if (cells.any { selMusuh.contains(it) }) return true
+            if (tankTouches(cells, selMusuh)) return true
         }
         return false
+    }
+
+    // Cari posisi spawn terdekat dari titik tengah yang tidak menempel tank lain.
+    fun tankSafeSpawn(): Pair<Int, Int> {
+        for (d in 0..maxOf(rowsCount, colsCount)) {
+            for (r in (tankSpawnPos.first - d)..(tankSpawnPos.first + d)) {
+                for (c in (tankSpawnPos.second - d)..(tankSpawnPos.second + d)) {
+                    if (maxOf(abs(r - tankSpawnPos.first), abs(c - tankSpawnPos.second)) != d) continue
+                    if (r !in 0..(rowsCount - 2) || c !in 0..(colsCount - 3)) continue
+                    if (!tankBodyBlocked(tankCellsAt(r, c), ignorePlayer = true, skipEnemy = -1)) {
+                        return Pair(r, c)
+                    }
+                }
+            }
+        }
+        return tankSpawnPos
     }
 
     fun tankMovePlayer(dr: Int, dc: Int) {
@@ -784,7 +807,7 @@ fun TetrisGame(
         if (lives <= 0) {
             isGameOver = true
         } else {
-            tankPlayerPos = tankSpawnPos
+            tankPlayerPos = tankSafeSpawn()
             tankPlayerDir = 0
             tankSpawnGuard = 40
         }
@@ -823,7 +846,7 @@ fun TetrisGame(
         tankEnemyBullets.clear()
         tankTicks = 0
         tankSpawnGuard = 40
-        tankPlayerPos = tankSpawnPos
+        tankPlayerPos = tankSafeSpawn()
         tankPlayerDir = 0
         tankSpawnEnemy()
         tankSpawnEnemy()
@@ -1653,8 +1676,9 @@ fun TetrisGame(
             }
             6 -> { // Tank Battle (duel)
                 // Tank musuh: badan 3x2 tanpa sel tengah atas, plus laras 1 sel
-                // yang mengikuti arah bidikan ke pemain.
-                for (enemy in tankEnemies) {
+                // yang mengikuti arah bidikan ke pemain. Laras tidak digambar
+                // bila akan menempel tank pemain/musuh lain.
+                for ((eIdx, enemy) in tankEnemies.withIndex()) {
                     val tipe = when (enemy.third) {
                         3 -> 3
                         4 -> 4
@@ -1678,7 +1702,15 @@ fun TetrisGame(
                         2 -> Pair(enemy.first + 1, enemy.second - 1)
                         else -> Pair(enemy.first + 1, enemy.second + 3)
                     }
-                    if (larasMusuh.first in 0 until rowsCount && larasMusuh.second in 0 until colsCount &&
+                    val dekatPemain = tankCellTouches(
+                        larasMusuh,
+                        tankCellsAt(tankPlayerPos.first, tankPlayerPos.second)
+                    )
+                    val dekatMusuhLain = tankEnemies.withIndex().any { (i, other) ->
+                        i != eIdx && tankCellTouches(larasMusuh, tankEnemyCellsAt(other.first, other.second))
+                    }
+                    if (!dekatPemain && !dekatMusuhLain &&
+                        larasMusuh.first in 0 until rowsCount && larasMusuh.second in 0 until colsCount &&
                         result[larasMusuh.first][larasMusuh.second] == 0
                     ) {
                         result[larasMusuh.first][larasMusuh.second] = tipe
@@ -1690,9 +1722,13 @@ fun TetrisGame(
                         result[cell.first][cell.second] = 2
                     }
                 }
-                // Laras sebagai penanda arah tembakan.
+                // Laras sebagai penanda arah tembakan; disembunyikan bila menempel musuh.
                 val laras = tankMuzzleCell(tankPlayerPos.first, tankPlayerPos.second, tankPlayerDir)
-                if (laras.first in 0 until rowsCount && laras.second in 0 until colsCount &&
+                val larasDekatMusuh = tankEnemies.any {
+                    tankCellTouches(laras, tankEnemyCellsAt(it.first, it.second))
+                }
+                if (!larasDekatMusuh &&
+                    laras.first in 0 until rowsCount && laras.second in 0 until colsCount &&
                     result[laras.first][laras.second] == 0
                 ) {
                     result[laras.first][laras.second] = 2
