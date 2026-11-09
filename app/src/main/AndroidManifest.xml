@@ -62,9 +62,19 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+        </activity>
 
-            <!-- Share Sheet: terima bukti transaksi e-wallet/bank yang dibagikan
-                 dari aplikasi lain (GoPay, DANA, OVO, ShopeePay, m-banking, dll.). -->
+        <!-- Share Sheet: bukti transaksi e-wallet/bank (GoPay, DANA, OVO, ShopeePay,
+             m-banking) langsung dipindai dan dicatat oleh aktivitas transparan ini,
+             sehingga aplikasi tidak perlu terbuka. Bila nominal tidak terbaca,
+             ShareSaveActivity meneruskan berkas ke MainActivity untuk diisi manual. -->
+        <activity
+            android:name=".ShareSaveActivity"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:launchMode="singleTop"
+            android:taskAffinity=""
+            android:theme="@style/Theme.MySingghara.ShareTransparent">
             <intent-filter>
                 <action android:name="android.intent.action.SEND" />
                 <category android:name="android.intent.category.DEFAULT" />

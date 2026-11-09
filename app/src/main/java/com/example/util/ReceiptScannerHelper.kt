@@ -27,12 +27,136 @@ data class ParsedReceiptData(
 
 object ReceiptScannerHelper {
 
+    // Tangkapan layar riwayat transaksi bisa sangat panjang (mis. 1080 x 20000).
+    // Dekode penuh butuh >80 MB per bitmap dan membuat aplikasi ditutup paksa.
+    private const val MAX_DECODE_DIMENSION = 1600
+
+    // Riwayat transaksi GoPay dibagikan sebagai tangkapan layar memanjang. Bila
+    // diperkecil berdasarkan sisi terpanjang, lebarnya tinggal ~86 px dan teks
+    // tidak terbaca. Karena itu gambar dipindai per potongan pada lebar aslinya.
+    private const val MAX_OCR_TILE_HEIGHT = 1600
+    private const val TILE_OVERLAP = 200
+    private const val MAX_OCR_WIDTH = 1440
+    private const val MAX_OCR_TILES = 24
+
     suspend fun parseReceiptImage(context: Context, imageUri: Uri): ParsedReceiptData {
-        val bitmap = loadBitmapFromUri(context, imageUri)
-        return if (bitmap != null) {
-            parseReceiptBitmap(bitmap)
-        } else {
-            fallbackData("Gambar tidak dapat dimuat", todayDate())
+        return try {
+            val text = scanImageText(context, imageUri)
+            if (text.isNullOrBlank()) {
+                fallbackData("Gambar tidak dapat dimuat", todayDate())
+            } else {
+                extractReceiptData(text)
+            }
+        } catch (e: OutOfMemoryError) {
+            fallbackData("Pindai Bukti Transaksi", todayDate())
+        } catch (e: Exception) {
+            if (e is kotlinx.coroutines.CancellationException) throw e
+            fallbackData("Pindai Bukti Transaksi", todayDate())
+        }
+    }
+
+    private suspend fun scanImageText(context: Context, uri: Uri): String? {
+        val source = openRegionDecoder(context, uri)
+        if (source == null) {
+            // HEIF/WebP tidak selalu bisa dipotong; pakai dekode tunggal yang sudah dibatasi.
+            val bitmap = loadBitmapFromUri(context, uri) ?: return null
+            return try {
+                recognizeText(bitmap)
+            } finally {
+                if (!bitmap.isRecycled) bitmap.recycle()
+            }
+        }
+        return try {
+            scanTiles(source.decoder)
+        } finally {
+            source.close()
+        }
+    }
+
+    private suspend fun scanTiles(region: android.graphics.BitmapRegionDecoder): String? {
+        val width = region.width
+        val height = region.height
+        if (width <= 0 || height <= 0) return null
+
+        var sample = 1
+        while (width / sample > MAX_OCR_WIDTH) sample *= 2
+
+        val sourceTile = MAX_OCR_TILE_HEIGHT * sample
+        val step = (sourceTile - TILE_OVERLAP * sample).coerceAtLeast(sample)
+        val text = StringBuilder()
+        var y = 0
+        var tiles = 0
+        while (y < height && tiles < MAX_OCR_TILES) {
+            val bottom = (y + sourceTile).coerceAtMost(height)
+            val rect = android.graphics.Rect(0, y, width, bottom)
+            val options = BitmapFactory.Options().apply { inSampleSize = sample }
+            val tile = region.decodeRegion(rect, options)
+            if (tile != null) {
+                try {
+                    val partial = recognizeText(tile)
+                    if (partial.isNotBlank()) {
+                        if (text.isNotEmpty()) text.append('\n')
+                        text.append(partial)
+                    }
+                } finally {
+                    if (!tile.isRecycled) tile.recycle()
+                }
+            }
+            if (bottom >= height) break
+            y += step
+            tiles++
+        }
+        return text.toString()
+    }
+
+    private suspend fun recognizeText(bitmap: Bitmap): String {
+        val image = InputImage.fromBitmap(bitmap, 0)
+        val recognizer = TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
+        return recognizer.process(image).await().text
+    }
+
+    private class RegionSource(
+        val decoder: android.graphics.BitmapRegionDecoder,
+        private val stream: java.io.InputStream?
+    ) {
+        fun close() {
+            try {
+                decoder.recycle()
+            } catch (_: Exception) {
+            }
+            try {
+                stream?.close()
+            } catch (_: Exception) {
+            }
+        }
+    }
+
+    private fun openRegionDecoder(context: Context, uri: Uri): RegionSource? {
+        return try {
+            if (uri.scheme == "file") {
+                val path = uri.path ?: return null
+                @Suppress("DEPRECATION")
+                RegionSource(android.graphics.BitmapRegionDecoder.newInstance(path, false), null)
+            } else {
+                // BitmapRegionDecoder butuh stream yang bisa di-reset; provider
+                // content:// tidak selalu memberi stream seekable.
+                val raw = context.contentResolver.openInputStream(uri) ?: return null
+                val stream = java.io.BufferedInputStream(raw, 64 * 1024)
+                try {
+                    @Suppress("DEPRECATION")
+                    RegionSource(android.graphics.BitmapRegionDecoder.newInstance(stream, false), stream)
+                } catch (e: Exception) {
+                    try {
+                        stream.close()
+                    } catch (_: Exception) {
+                    }
+                    null
+                }
+            }
+        } catch (e: Exception) {
+            null
+        } catch (e: OutOfMemoryError) {
+            null
         }
     }
 
@@ -44,6 +168,10 @@ object ReceiptScannerHelper {
             val text = visionText.text
             extractReceiptData(text)
         } catch (e: Exception) {
+            fallbackData("Pindai Bukti Transaksi", todayDate())
+        } catch (e: OutOfMemoryError) {
+            // Bukti terkirim tetap harus menyelamatkan aplikasi: biarkan pengguna
+            // melengkapi nominal secara manual alih-alih proses ditutup Android.
             fallbackData("Pindai Bukti Transaksi", todayDate())
         }
     }
@@ -302,17 +430,28 @@ object ReceiptScannerHelper {
         // yang tidak bisa dibaca lewat ContentResolver/ImageDecoder.
         if (uri.scheme == "file") {
             return try {
-                BitmapFactory.decodeFile(uri.path)
+                decodeFileScaled(uri.path)
             } catch (_: Exception) {
+                null
+            } catch (_: OutOfMemoryError) {
                 null
             }
         }
         return try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
                 val source = ImageDecoder.createSource(context.contentResolver, uri)
-                ImageDecoder.decodeBitmap(source) { decoder, _, _ ->
+                ImageDecoder.decodeBitmap(source) { decoder, info, _ ->
                     decoder.allocator = ImageDecoder.ALLOCATOR_SOFTWARE
-                    decoder.isMutableRequired = true
+                    val width = info.size.width
+                    val height = info.size.height
+                    val longest = maxOf(width, height)
+                    if (longest > MAX_DECODE_DIMENSION) {
+                        val scale = MAX_DECODE_DIMENSION.toFloat() / longest
+                        decoder.setTargetSize(
+                            (width * scale).toInt().coerceAtLeast(1),
+                            (height * scale).toInt().coerceAtLeast(1)
+                        )
+                    }
                 }
             } else {
                 @Suppress("DEPRECATION")
@@ -325,7 +464,22 @@ object ReceiptScannerHelper {
                 }
             } catch (_: Exception) {
                 null
+            } catch (_: OutOfMemoryError) {
+                null
             }
+        } catch (_: OutOfMemoryError) {
+            null
         }
+    }
+
+    private fun decodeFileScaled(path: String?): Bitmap? {
+        if (path.isNullOrBlank()) return null
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeFile(path, bounds)
+        val longest = maxOf(bounds.outWidth, bounds.outHeight)
+        var sampleSize = 1
+        while (longest / sampleSize > MAX_DECODE_DIMENSION) sampleSize *= 2
+        val options = BitmapFactory.Options().apply { inSampleSize = sampleSize }
+        return BitmapFactory.decodeFile(path, options)
     }
 }

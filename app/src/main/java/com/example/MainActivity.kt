@@ -457,7 +457,13 @@ class MainActivity : FragmentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        handleIntent(intent)
+        // Intent dari aplikasi lain (Share Sheet) tidak boleh menjatuhkan activity
+        // bila berisi extras yang tidak sesuai harapan.
+        try {
+            handleIntent(intent)
+        } catch (t: Throwable) {
+            android.util.Log.e("MainActivity", "Error handling new intent", t)
+        }
     }
 
     private fun handleIntent(intent: Intent) {
