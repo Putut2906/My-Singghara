@@ -326,7 +326,7 @@ fun GameScreen(viewModel: MainViewModel) {
                             )
                             Spacer(modifier = Modifier.height(2.dp))
                             Text(
-                                text = "Koleksi: Tetris, Shooter, Racing, Snake, Breakout",
+                                text = "Koleksi: Tetris, Shooter, Racing, Snake, Breakout, Tank",
                                 fontSize = 11.sp,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )

@@ -108,6 +108,34 @@ val MODERN_BLOCK_COLORS = listOf(
     Color(0xFF00FF66)  // Mint Sparkle
 )
 
+// Peta Tank Battle 10 kolom x 20 baris (18 baris atas); '#' = bata penghalang yang bisa dihancurkan.
+// Dinding disusun per pita dengan lorong minimal 3 sel agar tank 3x2 tetap bisa bermanuver.
+private val TANK_LEVEL_LAYOUTS: List<List<String>> = listOf(
+    listOf(
+        "..........", "..........", "..........", "##......##", "..........", "..........",
+        "..........", "....##....", "..........", "..........", "..........", ".##....##.",
+        "..........", "..........", "..........", "...##.....", "..........", ".........."
+    ),
+    listOf(
+        "..........", "..........", "..........", "....##....", "..........", "..........",
+        "..........", "##......##", "..........", "..........", "..........", ".....##...",
+        "..........", "..........", "..........", "......##..", "..........", ".........."
+    ),
+    listOf(
+        "..........", "..........", "..........", "...##.....", "..........", "..........",
+        "..........", "##......##", "..........", "..........", "..........", ".##....##.",
+        "..........", "..........", "..........", "......##..", "..........", ".........."
+    )
+)
+
+// Bata pelindung markas: dua lapis di sisi atas agar markas tidak hancur oleh dua tembakan cepat.
+private val TANK_BASE_SHIELD: List<Pair<Int, Int>> = listOf(
+    Pair(16, 3), Pair(16, 4), Pair(16, 5), Pair(16, 6),
+    Pair(17, 3), Pair(17, 4), Pair(17, 5), Pair(17, 6),
+    Pair(18, 3), Pair(19, 3),
+    Pair(18, 6), Pair(19, 6)
+)
+
 fun androidx.compose.ui.graphics.drawscope.DrawScope.drawPyramidBlock(
     color: Color,
     topLeft: Offset,
@@ -278,8 +306,8 @@ fun TetrisGame(
     val prefs = remember { context.getSharedPreferences("mysingghara_prefs", Context.MODE_PRIVATE) }
     
     // Core game selection models
-    var gameType by remember { mutableStateOf(0) } // 0: Lobby Menu, 1: Tetris, 2: Shooter, 3: Racing, 4: Snake, 5: Breakout
-    var selectedGameId by remember { mutableStateOf(1) } // 1 to 5 inside Lobby Menu
+    var gameType by remember { mutableStateOf(0) } // 0: Lobby, 1: Tetris, 2: Shooter, 3: Racing, 4: Snake, 5: Breakout, 6: Tank Battle
+    var selectedGameId by remember { mutableStateOf(1) } // 1 to 6 inside Lobby Menu
 
     // Real high score values
     var tetrisHighScore by remember { mutableStateOf(prefs.getInt("tetris_high_score", 0)) }
@@ -287,6 +315,7 @@ fun TetrisGame(
     var racingHighScore by remember { mutableStateOf(prefs.getInt("brick_racing_high_score", 0)) }
     var snakeHighScore by remember { mutableStateOf(prefs.getInt("brick_snake_high_score", 0)) }
     var breakoutHighScore by remember { mutableStateOf(prefs.getInt("brick_breakout_high_score", 0)) }
+    var tankHighScore by remember { mutableStateOf(prefs.getInt("brick_tank_high_score", 0)) }
 
     // Gamepad OTG/Bluetooth support states
     var isGamepadConnectedState by remember { mutableStateOf(false) }
@@ -405,6 +434,7 @@ fun TetrisGame(
             load(ToneGenerator.TONE_DTMF_1, R.raw.mr_9999_11)
             load(ToneGenerator.TONE_CDMA_ABBR_ALERT, R.raw.mr_9999_04)
             load(ToneGenerator.TONE_PROP_BEEP, R.raw.mr_9999_01)
+            load(ToneGenerator.TONE_PROP_BEEP2, R.raw.mr_9999_07)
             load(ToneGenerator.TONE_PROP_NACK, R.raw.mr_9999_13)
             load(ToneGenerator.TONE_DTMF_S, R.raw.mr_9999_02)
             load(ToneGenerator.TONE_DTMF_B, R.raw.mr_9999_03)
@@ -663,6 +693,157 @@ fun TetrisGame(
     val breakoutBricks = remember { mutableStateListOf<Pair<Int, Int>>() }
 
     // ----------------------------------------
+    // 6. TANK BATTLE (BATTLE CITY STYLE) STATES
+    // ----------------------------------------
+    var tankPlayerPos by remember { mutableStateOf(Pair(18, 0)) } // pojok kiri-atas tank 3x2
+    var tankPlayerDir by remember { mutableStateOf(0) } // 0 atas, 1 bawah, 2 kiri, 3 kanan
+    val tankPlayerBullets = remember { mutableStateListOf<Triple<Int, Int, Int>>() } // (baris, kolom, arah)
+    val tankEnemyBullets = remember { mutableStateListOf<Pair<Int, Int>>() }
+    val tankEnemies = remember { mutableStateListOf<Triple<Int, Int, Int>>() } // (baris, kolom, jenis)
+    val tankBricks = remember { mutableStateListOf<Pair<Int, Int>>() }
+    var tankTicks by remember { mutableStateOf(0) }
+    var tankRemainingEnemies by remember { mutableStateOf(0) }
+    var tankBaseAlive by remember { mutableStateOf(true) }
+    var tankBaseLost by remember { mutableStateOf(false) }
+
+    // Markas 2x2 di tengah bawah; pemain mulai tepat di sebelah kiri pelindung markas.
+    val tankBaseCells = listOf(Pair(18, 4), Pair(18, 5), Pair(19, 4), Pair(19, 5))
+    val tankSpawnPos = Pair(18, 0)
+    val tankEnemySpawns = listOf(Pair(0, 1), Pair(0, 6))
+
+    // Jenis musuh: 3 = normal, 4 = cepat, 5/6/7 = tank berat dengan sisa HP 3/2/1.
+    // Sprite tank mengikuti LCD asli: badan 3x2 sel + satu sel laras.
+    fun tankCellsAt(row: Int, col: Int): List<Pair<Int, Int>> = listOf(
+        Pair(row, col), Pair(row, col + 1), Pair(row, col + 2),
+        Pair(row + 1, col), Pair(row + 1, col + 1), Pair(row + 1, col + 2)
+    )
+
+    fun tankLoadWalls(index: Int) {
+        val layout = TANK_LEVEL_LAYOUTS[index % TANK_LEVEL_LAYOUTS.size]
+        tankBricks.clear()
+        for ((r, baris) in layout.withIndex()) {
+            for (c in baris.indices) {
+                if (baris[c] == '#') tankBricks.add(Pair(r, c))
+            }
+        }
+        tankBricks.addAll(TANK_BASE_SHIELD)
+    }
+
+    fun tankCellBlocked(row: Int, col: Int, ignorePlayer: Boolean, skipEnemy: Int): Boolean {
+        val cells = tankCellsAt(row, col)
+        for (cell in cells) {
+            if (cell.first !in 0 until rowsCount || cell.second !in 0 until colsCount) return true
+            if (tankBricks.contains(cell)) return true
+            if (tankBaseAlive && tankBaseCells.contains(cell)) return true
+        }
+        if (!ignorePlayer) {
+            val selPemain = tankCellsAt(tankPlayerPos.first, tankPlayerPos.second)
+            if (cells.any { selPemain.contains(it) }) return true
+        }
+        for ((i, e) in tankEnemies.withIndex()) {
+            if (i == skipEnemy) continue
+            val selMusuh = tankCellsAt(e.first, e.second)
+            if (cells.any { selMusuh.contains(it) }) return true
+        }
+        return false
+    }
+
+    fun tankMovePlayer(dr: Int, dc: Int) {
+        if (isGameOver || isPaused) return
+        // Arah laras mengikuti arah gerak terakhir, seperti Battle City.
+        tankPlayerDir = when {
+            dr < 0 -> 0
+            dr > 0 -> 1
+            dc < 0 -> 2
+            else -> 3
+        }
+        val nr = tankPlayerPos.first + dr
+        val nc = tankPlayerPos.second + dc
+        if (tankCellBlocked(nr, nc, ignorePlayer = true, skipEnemy = -1)) return
+        tankPlayerPos = Pair(nr, nc)
+    }
+
+    fun tankMuzzleCell(row: Int, col: Int, dir: Int): Pair<Int, Int> = when (dir) {
+        0 -> Pair(row - 1, col + 1)
+        1 -> Pair(row + 2, col + 1)
+        2 -> Pair(row, col - 1)
+        else -> Pair(row, col + 3)
+    }
+
+    fun fireTank() {
+        if (isGameOver || isPaused) return
+        if (tankPlayerBullets.size >= 2) return
+        val sel = tankMuzzleCell(tankPlayerPos.first, tankPlayerPos.second, tankPlayerDir)
+        if (sel.first !in 0 until rowsCount || sel.second !in 0 until colsCount) return
+        playBeep(ToneGenerator.TONE_DTMF_1)
+        // Tembakan jarak dekat langsung menghancurkan bata di depan laras.
+        if (tankBricks.remove(sel)) return
+        tankPlayerBullets.add(Triple(sel.first, sel.second, tankPlayerDir))
+    }
+
+    fun tankSpawnEnemy() {
+        if (tankRemainingEnemies <= 0) return
+        for (spawn in tankEnemySpawns) {
+            if (tankCellBlocked(spawn.first, spawn.second, ignorePlayer = false, skipEnemy = -1)) continue
+            val roll = Random.nextInt(100)
+            val jenis = when {
+                level >= 3 && roll < 18 -> 5 // tank berat
+                level >= 2 && roll < 45 -> 4 // tank cepat
+                else -> 3 // tank biasa
+            }
+            tankEnemies.add(Triple(spawn.first, spawn.second, jenis))
+            tankRemainingEnemies--
+            playBeep(ToneGenerator.TONE_PROP_BEEP)
+            return
+        }
+    }
+
+    fun tankDamageEnemy(index: Int) {
+        val e = tankEnemies[index]
+        when (e.third) {
+            5 -> tankEnemies[index] = Triple(e.first, e.second, 6)
+            6 -> tankEnemies[index] = Triple(e.first, e.second, 7)
+            else -> tankEnemies.removeAt(index)
+        }
+        score += 25
+        if (score > tankHighScore) {
+            tankHighScore = score
+            prefs.edit().putInt("brick_tank_high_score", score).apply()
+        }
+        playBeep(ToneGenerator.TONE_PROP_ACK)
+        triggerVibration(40)
+    }
+
+    fun tankHitPlayer() {
+        lives--
+        tankEnemyBullets.clear()
+        tankPlayerBullets.clear()
+        playBeep(ToneGenerator.TONE_CDMA_PIP)
+        triggerVibration(250)
+        if (lives <= 0) {
+            isGameOver = true
+        } else {
+            tankPlayerPos = tankSpawnPos
+            tankPlayerDir = 0
+        }
+    }
+
+    fun tankStartStage(stageLevel: Int) {
+        tankLoadWalls(stageLevel - 1)
+        tankRemainingEnemies = 20
+        tankEnemies.clear()
+        tankPlayerBullets.clear()
+        tankEnemyBullets.clear()
+        tankTicks = 0
+        tankBaseAlive = true
+        tankBaseLost = false
+        tankPlayerPos = tankSpawnPos
+        tankPlayerDir = 0
+        tankSpawnEnemy()
+        tankSpawnEnemy()
+    }
+
+    // ----------------------------------------
     // DYNAMIC RESET AND START SYSTEM
     // ----------------------------------------
     fun resetAndStartGame(type: Int) {
@@ -727,6 +908,9 @@ fun TetrisGame(
                         breakoutBricks.add(Pair(r, c))
                     }
                 }
+            }
+            6 -> { // Tank Battle
+                tankStartStage(1)
             }
         }
     }
@@ -1211,6 +1395,156 @@ fun TetrisGame(
     }
 
     // ----------------------------------------
+    // 6. TANK BATTLE UPDATE MECHANICS
+    // ----------------------------------------
+    fun updateTank() {
+        if (isGameOver || isPaused) return
+        tankTicks++
+
+        // Peluru pemain melaju 1 sel tiap 2 tick sesuai arah laras.
+        if (tankTicks % 2 == 0) {
+            val sisa = mutableListOf<Triple<Int, Int, Int>>()
+            for (b in tankPlayerBullets) {
+                val nr = when (b.third) {
+                    0 -> b.first - 1
+                    1 -> b.first + 1
+                    else -> b.first
+                }
+                val nc = when (b.third) {
+                    2 -> b.second - 1
+                    3 -> b.second + 1
+                    else -> b.second
+                }
+                if (nr !in 0 until rowsCount || nc !in 0 until colsCount) continue
+                val sel = Pair(nr, nc)
+                if (tankBricks.remove(sel)) {
+                    playBeep(ToneGenerator.TONE_PROP_NACK)
+                    continue
+                }
+                if (tankEnemyBullets.remove(sel)) {
+                    playBeep(ToneGenerator.TONE_PROP_NACK)
+                    // Mulai level 3 tembakan pemain menembus peluru musuh.
+                    if (level < 3) continue
+                }
+                val idx = tankEnemies.indexOfFirst { tankCellsAt(it.first, it.second).contains(sel) }
+                if (idx >= 0) {
+                    tankDamageEnemy(idx)
+                    continue
+                }
+                sisa.add(Triple(nr, nc, b.third))
+            }
+            tankPlayerBullets.clear()
+            tankPlayerBullets.addAll(sisa)
+        }
+
+        // Peluru musuh turun 1 sel; mulai level 4 lajunya makin agresif.
+        val jedaLuruMusuh = if (level >= 4) 2 else 3
+        if (tankTicks % jedaLuruMusuh == 0) {
+            val sisa = mutableListOf<Pair<Int, Int>>()
+            var pemainKena = false
+            for (b in tankEnemyBullets) {
+                if (isGameOver || pemainKena) break
+                val nr = b.first + 1
+                if (nr >= rowsCount) continue
+                val sel = Pair(nr, b.second)
+                if (tankBricks.remove(sel)) {
+                    playBeep(ToneGenerator.TONE_PROP_NACK)
+                    continue
+                }
+                if (tankBaseAlive && tankBaseCells.contains(sel)) {
+                    tankBaseAlive = false
+                    tankBaseLost = true
+                    isGameOver = true
+                    playBeep(ToneGenerator.TONE_CDMA_ABBR_ALERT)
+                    triggerVibration(300)
+                    continue
+                }
+                if (tankCellsAt(tankPlayerPos.first, tankPlayerPos.second).contains(sel)) {
+                    pemainKena = true
+                    continue
+                }
+                val kenaPeluruPemain = tankPlayerBullets.indexOfFirst { it.first == sel.first && it.second == sel.second }
+                if (kenaPeluruPemain >= 0) {
+                    tankPlayerBullets.removeAt(kenaPeluruPemain)
+                    playBeep(ToneGenerator.TONE_PROP_NACK)
+                    continue
+                }
+                sisa.add(sel)
+            }
+            tankEnemyBullets.clear()
+            when {
+                pemainKena -> tankHitPlayer()
+                !isGameOver -> tankEnemyBullets.addAll(sisa)
+            }
+        }
+
+        // Tank musuh bergerak: normal lambat, cepat lincah, berat sangat lambat.
+        val snapshot = tankEnemies.toList()
+        for ((index, enemy) in snapshot.withIndex()) {
+            if (isGameOver) break
+            val jeda = when (enemy.third) {
+                3 -> 6
+                4 -> 3
+                else -> 8
+            }
+            if (tankTicks % jeda != 0) continue
+            val horiz = if (Random.nextBoolean()) 1 else -1
+            val arah = if (Random.nextInt(100) < 70) {
+                listOf(Pair(1, 0), Pair(0, horiz), Pair(0, -horiz))
+            } else {
+                listOf(Pair(0, horiz), Pair(1, 0), Pair(0, -horiz))
+            }
+            for ((dr, dc) in arah) {
+                val nr = enemy.first + dr
+                val nc = enemy.second + dc
+                if (!tankCellBlocked(nr, nc, ignorePlayer = false, skipEnemy = index)) {
+                    if (index < tankEnemies.size && tankEnemies[index] == enemy) {
+                        tankEnemies[index] = Triple(nr, nc, enemy.third)
+                    }
+                    break
+                }
+            }
+        }
+
+        // Musuh menembak secara berkala dari laras bawah tank.
+        if (tankTicks % 40 == 0 && tankEnemies.isNotEmpty() && tankEnemyBullets.size < 6) {
+            val penembak = tankEnemies[Random.nextInt(tankEnemies.size)]
+            if (penembak.first + 2 < rowsCount) {
+                tankEnemyBullets.add(Pair(penembak.first + 2, penembak.second + 1))
+            }
+            playBeep(ToneGenerator.TONE_PROP_BEEP2)
+        }
+
+        // Tank cepat menembak lebih sering.
+        if (tankTicks % 20 == 0 && tankTicks % 40 != 0 && tankEnemyBullets.size < 6) {
+            val cepat = tankEnemies.filter { it.third == 4 }
+            if (cepat.isNotEmpty()) {
+                val penembak = cepat[Random.nextInt(cepat.size)]
+                if (penembak.first + 2 < rowsCount) {
+                    tankEnemyBullets.add(Pair(penembak.first + 2, penembak.second + 1))
+                }
+            }
+        }
+
+        // Tambah musuh baru selama stok tahap masih ada.
+        if (!isGameOver && tankEnemies.size < 4 && tankRemainingEnemies > 0 && tankTicks % 40 == 0) {
+            tankSpawnEnemy()
+        }
+
+        // Tahap baru setelah semua musuh hancur.
+        if (!isGameOver && tankEnemies.isEmpty() && tankRemainingEnemies <= 0) {
+            level++
+            tankLoadWalls(level - 1)
+            tankRemainingEnemies = 20
+            tankTicks = 0
+            tankPlayerBullets.clear()
+            tankEnemyBullets.clear()
+            tankSpawnEnemy()
+            playBeep(ToneGenerator.TONE_PROP_ACK)
+        }
+    }
+
+    // ----------------------------------------
     // RENDER MATRIX COMPU-ENGINE
     // ----------------------------------------
     fun computeRenderGrid(): List<List<Int>> {
@@ -1334,6 +1668,66 @@ fun TetrisGame(
                 val bRow = ballY.toInt().coerceIn(0, 19)
                 result[bRow][bCol] = 3
             }
+            6 -> { // Tank Battle (Battle City)
+                // Dinding bata yang bisa dihancurkan.
+                for (brick in tankBricks) {
+                    if (brick.first in 0 until rowsCount && brick.second in 0 until colsCount) {
+                        result[brick.first][brick.second] = 6
+                    }
+                }
+                // Markas 2x2 di tengah bawah.
+                if (tankBaseAlive) {
+                    for (cell in tankBaseCells) {
+                        if (cell.first in 0 until rowsCount && cell.second in 0 until colsCount) {
+                            result[cell.first][cell.second] = 1
+                        }
+                    }
+                }
+                // Tank musuh: normal, cepat, dan berat.
+                for (enemy in tankEnemies) {
+                    val tipe = when (enemy.third) {
+                        3 -> 3
+                        4 -> 4
+                        else -> 5
+                    }
+                    for (cell in tankCellsAt(enemy.first, enemy.second)) {
+                        if (cell.first in 0 until rowsCount && cell.second in 0 until colsCount) {
+                            result[cell.first][cell.second] = tipe
+                        }
+                    }
+                    // Laras musuh menghadap ke bawah (ke arah markas).
+                    val larasMusuh = Pair(enemy.first + 2, enemy.second + 1)
+                    if (larasMusuh.first in 0 until rowsCount && larasMusuh.second in 0 until colsCount &&
+                        result[larasMusuh.first][larasMusuh.second] == 0
+                    ) {
+                        result[larasMusuh.first][larasMusuh.second] = tipe
+                    }
+                }
+                // Tank pemain.
+                for (cell in tankCellsAt(tankPlayerPos.first, tankPlayerPos.second)) {
+                    if (cell.first in 0 until rowsCount && cell.second in 0 until colsCount) {
+                        result[cell.first][cell.second] = 2
+                    }
+                }
+                // Laras sebagai penanda arah tembakan.
+                val laras = tankMuzzleCell(tankPlayerPos.first, tankPlayerPos.second, tankPlayerDir)
+                if (laras.first in 0 until rowsCount && laras.second in 0 until colsCount &&
+                    result[laras.first][laras.second] == 0
+                ) {
+                    result[laras.first][laras.second] = 2
+                }
+                // Peluru.
+                for (b in tankPlayerBullets) {
+                    if (b.first in 0 until rowsCount && b.second in 0 until colsCount) {
+                        result[b.first][b.second] = 7
+                    }
+                }
+                for (b in tankEnemyBullets) {
+                    if (b.first in 0 until rowsCount && b.second in 0 until colsCount) {
+                        result[b.first][b.second] = 7
+                    }
+                }
+            }
         }
 
         return result
@@ -1368,6 +1762,9 @@ fun TetrisGame(
                 }
                 5 -> { // Breakout
                     updateBreakout()
+                }
+                6 -> { // Tank Battle
+                    updateTank()
                 }
             }
         }
@@ -1407,6 +1804,7 @@ fun TetrisGame(
                                     3 -> racingPlayerLane = (racingPlayerLane - 1).coerceAtLeast(0)
                                     4 -> queueSnakeDirection(0, -1)
                                     5 -> breakoutPaddleCol = (breakoutPaddleCol - 1).coerceAtLeast(1)
+                                    6 -> tankMovePlayer(0, -1)
                                 }
                             }
                             consumed = true
@@ -1420,6 +1818,7 @@ fun TetrisGame(
                                     3 -> racingPlayerLane = (racingPlayerLane + 1).coerceAtMost(2)
                                     4 -> queueSnakeDirection(0, 1)
                                     5 -> breakoutPaddleCol = (breakoutPaddleCol + 1).coerceAtMost(8)
+                                    6 -> tankMovePlayer(0, 1)
                                 }
                             }
                             consumed = true
@@ -1427,12 +1826,13 @@ fun TetrisGame(
                         AndroidKeyEvent.KEYCODE_DPAD_UP -> {
                             triggerVibration(25)
                             if (gameType == 0) {
-                                selectedGameId = if (selectedGameId == 1) 5 else selectedGameId - 1
+                                selectedGameId = if (selectedGameId == 1) 6 else selectedGameId - 1
                                 playBeep(ToneGenerator.TONE_PROP_ACK)
                             } else {
                                 when (gameType) {
                                     1 -> rotateTetrisPiece(true)
                                     4 -> queueSnakeDirection(-1, 0)
+                                    6 -> tankMovePlayer(-1, 0)
                                 }
                             }
                             consumed = true
@@ -1440,12 +1840,13 @@ fun TetrisGame(
                         AndroidKeyEvent.KEYCODE_DPAD_DOWN -> {
                             triggerVibration(25)
                             if (gameType == 0) {
-                                selectedGameId = if (selectedGameId == 5) 1 else selectedGameId + 1
+                                selectedGameId = if (selectedGameId == 6) 1 else selectedGameId + 1
                                 playBeep(ToneGenerator.TONE_PROP_ACK)
                             } else {
                                 when (gameType) {
                                     1 -> moveTetrisDown()
                                     4 -> queueSnakeDirection(1, 0)
+                                    6 -> tankMovePlayer(1, 0)
                                 }
                             }
                             consumed = true
@@ -1463,6 +1864,7 @@ fun TetrisGame(
                                             playBeep(ToneGenerator.TONE_DTMF_1)
                                         }
                                     }
+                                    6 -> fireTank()
                                 }
                             }
                             consumed = true
@@ -1480,6 +1882,7 @@ fun TetrisGame(
                                             playBeep(ToneGenerator.TONE_DTMF_1)
                                         }
                                     }
+                                    6 -> fireTank()
                                 }
                             }
                             consumed = true
@@ -1810,7 +2213,8 @@ fun TetrisGame(
                                             "02. TEMBAK BALOK (SHOOTER)",
                                             "03. BALAPAN MOBIL (RACING)",
                                             "04. GAME ULAR (SNAKE)",
-                                            "05. BREAKOUT (BATU)"
+                                            "05. BREAKOUT (BATU)",
+                                            "06. TANK BATTLE (PERANG TANK)"
                                         ).forEachIndexed { index, title ->
                                             val id = index + 1
                                             val active = (id == selectedGameId)
@@ -1857,7 +2261,8 @@ fun TetrisGame(
                                             2 -> shooterHighScore
                                             3 -> racingHighScore
                                             4 -> snakeHighScore
-                                            else -> breakoutHighScore
+                                            5 -> breakoutHighScore
+                                            else -> tankHighScore
                                         }
                                         Box(
                                             modifier = Modifier
@@ -1987,7 +2392,7 @@ fun TetrisGame(
                                                     modifier = Modifier.padding(8.dp)
                                                 ) {
                                                     Text(
-                                                        text = "GAME OVER",
+                                                        text = if (gameType == 6 && tankBaseLost) "MARKAS HANCUR" else "GAME OVER",
                                                         color = accentPinkColor,
                                                         fontSize = 15.sp,
                                                         fontWeight = FontWeight.Black,
@@ -2059,7 +2464,7 @@ fun TetrisGame(
                                                 fontFamily = FontFamily.Monospace
                                             )
                                             Text(
-                                                text = "L$level",
+                                                text = if (gameType == 6) "CH $level" else "L$level",
                                                 fontSize = 11.sp,
                                                 fontWeight = FontWeight.Bold,
                                                 color = screenPrimaryTextColor,
@@ -2068,7 +2473,7 @@ fun TetrisGame(
                                         }
 
                                         // Lives display (irrelevant for tetris, snake)
-                                        if (gameType == 2 || gameType == 3 || gameType == 5) {
+                                        if (gameType == 2 || gameType == 3 || gameType == 5 || gameType == 6) {
                                             Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                                 Text(
                                                     text = "LIVES",
@@ -2146,6 +2551,37 @@ fun TetrisGame(
                                                     }
                                                 }
                                             }
+
+                                        }
+
+                                        // Sisa musuh & waktu berjalan, seperti panel kanan Brick Game asli.
+                                        if (gameType == 6) {
+                                            val sisaMusuh = tankEnemies.size + tankRemainingEnemies
+                                            val menit = tankTicks / 1200
+                                            val detik = (tankTicks / 20) % 60
+                                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                                Text(
+                                                    text = "ENEMY",
+                                                    fontSize = 7.sp,
+                                                    fontWeight = FontWeight.ExtraBold,
+                                                    color = screenSecondaryTextColor,
+                                                    fontFamily = FontFamily.Monospace
+                                                )
+                                                Text(
+                                                    text = "$sisaMusuh",
+                                                    fontSize = 10.sp,
+                                                    fontWeight = FontWeight.Black,
+                                                    color = accentPinkColor,
+                                                    fontFamily = FontFamily.Monospace
+                                                )
+                                                Text(
+                                                    text = menit.toString().padStart(2, '0') + ":" + detik.toString().padStart(2, '0'),
+                                                    fontSize = 8.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = accentCyanColor,
+                                                    fontFamily = FontFamily.Monospace
+                                                )
+                                            }
                                         }
 
                                         // SCORE
@@ -2180,7 +2616,8 @@ fun TetrisGame(
                                                 2 -> shooterHighScore
                                                 3 -> racingHighScore
                                                 4 -> snakeHighScore
-                                                else -> breakoutHighScore
+                                                5 -> breakoutHighScore
+                                                else -> tankHighScore
                                             }
                                             Text(
                                                 text = "$currentHi",
@@ -2270,12 +2707,13 @@ fun TetrisGame(
                                     ) {
                                         triggerVibration(25)
                                         if (gameType == 0) {
-                                            selectedGameId = if (selectedGameId == 1) 5 else selectedGameId - 1
+                                            selectedGameId = if (selectedGameId == 1) 6 else selectedGameId - 1
                                             playBeep(ToneGenerator.TONE_PROP_ACK)
                                         } else {
                                             when (gameType) {
                                                 1 -> rotateTetrisPiece(true)
                                                 4 -> queueSnakeDirection(-1, 0)
+                                                6 -> tankMovePlayer(-1, 0)
                                             }
                                         }
                                     },
@@ -2302,12 +2740,13 @@ fun TetrisGame(
                                     ) {
                                         triggerVibration(25)
                                         if (gameType == 0) {
-                                            selectedGameId = if (selectedGameId == 5) 1 else selectedGameId + 1
+                                            selectedGameId = if (selectedGameId == 6) 1 else selectedGameId + 1
                                             playBeep(ToneGenerator.TONE_PROP_ACK)
                                         } else {
                                             when (gameType) {
                                                 1 -> moveTetrisDown()
                                                 4 -> queueSnakeDirection(1, 0)
+                                                6 -> tankMovePlayer(1, 0)
                                             }
                                         }
                                     },
@@ -2340,6 +2779,7 @@ fun TetrisGame(
                                                 3 -> racingPlayerLane = (racingPlayerLane - 1).coerceAtLeast(0)
                                                 4 -> queueSnakeDirection(0, -1)
                                                 5 -> breakoutPaddleCol = (breakoutPaddleCol - 1).coerceAtLeast(1)
+                                                6 -> tankMovePlayer(0, -1)
                                             }
                                         }
                                     },
@@ -2367,6 +2807,7 @@ fun TetrisGame(
                                                 3 -> racingPlayerLane = (racingPlayerLane + 1).coerceAtMost(2)
                                                 4 -> queueSnakeDirection(0, 1)
                                                 5 -> breakoutPaddleCol = (breakoutPaddleCol + 1).coerceAtMost(8)
+                                                6 -> tankMovePlayer(0, 1)
                                             }
                                         }
                                     },
@@ -2427,6 +2868,7 @@ fun TetrisGame(
                                                             playBeep(ToneGenerator.TONE_DTMF_1)
                                                         }
                                                     }
+                                                    6 -> fireTank()
                                                 }
                                             }
                                         }
@@ -2459,6 +2901,7 @@ fun TetrisGame(
                                                             playBeep(ToneGenerator.TONE_DTMF_1)
                                                         }
                                                     }
+                                                    6 -> fireTank()
                                                 }
                                             }
                                         }
