@@ -1600,6 +1600,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     val savingTransactions: StateFlow<List<SavingTransaction>> = repository.allSavingTransactions
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
+    val catatanKeuangan: StateFlow<List<CatatanKeuanganItem>> = repository.allCatatanKeuangan
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
     val agendaItems: StateFlow<List<AgendaItem>> = repository.allAgendas
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
@@ -2539,6 +2542,43 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun deleteSavingTransaction(trx: SavingTransaction) {
         viewModelScope.launch {
             repository.deleteSavingTransaction(trx)
+        }
+    }
+
+    // CRUD - Note Keuangan (transaksi m-banking & e-wallet)
+    fun addCatatanKeuangan(item: CatatanKeuanganItem) {
+        viewModelScope.launch {
+            try {
+                repository.insertCatatanKeuangan(item)
+                showToastPopup("Catatan keuangan disimpan")
+            } catch (t: Throwable) {
+                android.util.Log.e("MainViewModel", "Gagal menyimpan catatan keuangan: ${t.message}", t)
+                showToastPopup("Catatan keuangan gagal disimpan")
+            }
+        }
+    }
+
+    fun updateCatatanKeuangan(item: CatatanKeuanganItem) {
+        viewModelScope.launch {
+            try {
+                repository.updateCatatanKeuangan(item)
+                showToastPopup("Catatan keuangan diperbarui")
+            } catch (t: Throwable) {
+                android.util.Log.e("MainViewModel", "Gagal memperbarui catatan keuangan: ${t.message}", t)
+                showToastPopup("Catatan keuangan gagal diperbarui")
+            }
+        }
+    }
+
+    fun deleteCatatanKeuangan(item: CatatanKeuanganItem) {
+        viewModelScope.launch {
+            try {
+                repository.deleteCatatanKeuangan(item)
+                showToastPopup("Catatan keuangan dihapus")
+            } catch (t: Throwable) {
+                android.util.Log.e("MainViewModel", "Gagal menghapus catatan keuangan: ${t.message}", t)
+                showToastPopup("Catatan keuangan gagal dihapus")
+            }
         }
     }
 

@@ -248,4 +248,15 @@ data class ArisanPemenangRiwayat(
     val catatan: String = ""
 )
 
+@Entity(tableName = "catatan_keuangan")
+data class CatatanKeuanganItem(
+    @PrimaryKey(autoGenerate = true) val id: Int = 0,
+    val tanggal: String, // YYYY-MM-DD
+    val keterangan: String,
+    val kategori: String,
+    val sumberDana: String,
+    val jenis: String, // "masuk" atau "keluar"
+    val jumlah: Double
+)
+
 

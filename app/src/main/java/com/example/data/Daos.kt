@@ -360,5 +360,23 @@ interface ArisanDao {
     suspend fun deleteAllPemenang()
 }
 
+@Dao
+interface CatatanKeuanganDao {
+    @Query("SELECT * FROM catatan_keuangan ORDER BY tanggal DESC, id DESC")
+    fun getAllFlow(): Flow<List<CatatanKeuanganItem>>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insert(item: CatatanKeuanganItem): Long
+
+    @Update
+    suspend fun update(item: CatatanKeuanganItem)
+
+    @Delete
+    suspend fun delete(item: CatatanKeuanganItem)
+
+    @Query("DELETE FROM catatan_keuangan")
+    suspend fun deleteAll()
+}
+
 
 

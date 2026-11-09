@@ -65,6 +65,8 @@ import androidx.compose.material.icons.filled.NearMe
 import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AccountBalance
+import androidx.compose.material.icons.filled.EditNote
+import androidx.compose.material.icons.outlined.EditNote
 import androidx.compose.material.icons.filled.TrendingUp
 import androidx.compose.material.icons.filled.Face
 import androidx.compose.material.icons.filled.Star
@@ -2301,6 +2303,33 @@ fun MainAppContent(viewModel: MainViewModel, desktopMode: Boolean = false) {
                                     )
                                 )
 
+                                // Sub-item: Note Keuangan
+                                val isNoteKeuanganSelected = viewModel.currentRoute == "note_keuangan"
+                                NavigationDrawerItem(
+                                    icon = {
+                                        Icon(
+                                            imageVector = if (isNoteKeuanganSelected) Icons.Default.EditNote else Icons.Outlined.EditNote,
+                                            contentDescription = "Note Keuangan"
+                                        )
+                                    },
+                                    label = { Text(text = "Note Keuangan", fontWeight = FontWeight.Medium, fontSize = 13.sp) },
+                                    selected = isNoteKeuanganSelected,
+                                    onClick = {
+                                        viewModel.currentRoute = "note_keuangan"
+                                        scope.launch { drawerState.close() }
+                                    },
+                                    shape = RoundedCornerShape(8.dp),
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 2.dp),
+                                    colors = NavigationDrawerItemDefaults.colors(
+                                        selectedContainerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.8f),
+                                        selectedTextColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                                        selectedIconColor = MaterialTheme.colorScheme.primary,
+                                        unselectedContainerColor = Color.Transparent,
+                                        unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                                    )
+                                )
+
                             }
                         }
                     }
@@ -3830,6 +3859,7 @@ fun MainAppContent(viewModel: MainViewModel, desktopMode: Boolean = false) {
                         "tabungan" -> TabunganScreen(viewModel = viewModel)
                         "semua_catatan_tabungan" -> SemuaCatatanTabunganScreen(viewModel = viewModel)
                         "catatan" -> CatatanScreen(viewModel = viewModel)
+                        "note_keuangan" -> NoteKeuanganScreen(viewModel = viewModel)
                         "immersive_file_viewer" -> ImmersiveFileViewerScreen(viewModel = viewModel)
                         "preview_catatan" -> {
                             val rawHtml = viewModel.notePreviewHtml

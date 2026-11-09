@@ -29,6 +29,7 @@ class LocalRepository(private val db: AppDatabase) {
     val belanjaOnlineDao = db.belanjaOnlineDao()
     val fcmNotificationDao = db.fcmNotificationDao()
     val arisanDao = db.arisanDao()
+    val catatanKeuanganDao = db.catatanKeuanganDao()
 
     // Flows
     val allShoppingItems: Flow<List<ShoppingItem>> = shoppingDao.getAllShoppingItems()
@@ -48,6 +49,19 @@ class LocalRepository(private val db: AppDatabase) {
     val allFcmNotifications: Flow<List<FcmNotification>> = fcmNotificationDao.getAllNotifications()
     val unreadFcmCount: Flow<Int> = fcmNotificationDao.getUnreadCount()
     val allArisanKelompok: Flow<List<ArisanKelompok>> = arisanDao.getAllKelompok()
+    val allCatatanKeuangan: Flow<List<CatatanKeuanganItem>> = catatanKeuanganDao.getAllFlow()
+
+    suspend fun insertCatatanKeuangan(item: CatatanKeuanganItem): Long = withContext(Dispatchers.IO) {
+        catatanKeuanganDao.insert(item)
+    }
+
+    suspend fun updateCatatanKeuangan(item: CatatanKeuanganItem) = withContext(Dispatchers.IO) {
+        catatanKeuanganDao.update(item)
+    }
+
+    suspend fun deleteCatatanKeuangan(item: CatatanKeuanganItem) = withContext(Dispatchers.IO) {
+        catatanKeuanganDao.delete(item)
+    }
 
     // Arisan operations
     fun getPesertaByArisan(arisanId: Int): Flow<List<ArisanPeserta>> = arisanDao.getPesertaByArisan(arisanId)

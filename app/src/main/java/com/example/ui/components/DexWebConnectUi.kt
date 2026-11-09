@@ -228,7 +228,8 @@ fun DexWebSidebar(
             listOf(
                 DexNavItem("Tabungan Mandiri", Icons.Default.AccountBalanceWallet, null, currentRoute == "tabungan") { go("tabungan") },
                 DexNavItem("Daftar Belanja", Icons.Default.ShoppingCart, null, currentRoute == "belanja") { go("belanja") },
-                DexNavItem("Catatan Penting", Icons.Default.Edit, null, currentRoute == "catatan") { go("catatan") }
+                DexNavItem("Catatan Penting", Icons.Default.Edit, null, currentRoute == "catatan") { go("catatan") },
+                DexNavItem("Note Keuangan", Icons.Default.EditNote, null, currentRoute == "note_keuangan") { go("note_keuangan") }
             )
         ),
         DexNavGroup(
