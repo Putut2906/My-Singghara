@@ -23,10 +23,12 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AccountBalanceWallet
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ArrowDropDown
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Category
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
@@ -38,8 +40,11 @@ import androidx.compose.material.icons.filled.Restaurant
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.FilterChip
-import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -257,7 +262,19 @@ private fun RingkasanKeuanganCard(totalMasuk: Double, totalKeluar: Double, jumla
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.55f))
     ) {
         Column(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
-            Text("Saldo Tercatat", fontSize = 11.sp, color = MaterialTheme.colorScheme.onPrimaryContainer)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("Saldo Tercatat", fontSize = 11.sp, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                Icon(
+                    imageVector = Icons.Default.AccountBalanceWallet,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(20.dp)
+                )
+            }
             Text(
                 text = rupiah(totalMasuk - totalKeluar),
                 fontSize = 22.sp,
@@ -327,49 +344,77 @@ private fun FilterKeuanganSection(
             shape = RoundedCornerShape(12.dp)
         )
 
-        BarisChip(
-            label = "Jenis",
+        MenuFilter(
+            label = "Jenis Transaksi",
+            nilai = filterJenis,
             pilihan = listOf("Semua", "Masuk", "Keluar"),
-            terpilih = filterJenis,
             onPilih = onFilterJenisChange
         )
-        BarisChip(
-            label = "Sumber",
+        MenuFilter(
+            label = "Sumber Dana",
+            nilai = filterSumber,
             pilihan = listOf("Semua") + sumberTersedia,
-            terpilih = filterSumber,
             onPilih = onFilterSumberChange
         )
-        BarisChip(
+        MenuFilter(
             label = "Kategori",
+            nilai = filterKategori,
             pilihan = listOf("Semua") + CatatanKeuanganHelper.KATEGORI_PENGELUARAN,
-            terpilih = filterKategori,
             onPilih = onFilterKategoriChange
         )
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun BarisChip(
+private fun MenuFilter(
     label: String,
+    nilai: String,
     pilihan: List<String>,
-    terpilih: String,
     onPilih: (String) -> Unit
 ) {
-    Row(
-        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(6.dp)
+    var expanded by remember { mutableStateOf(false) }
+    ExposedDropdownMenuBox(
+        expanded = expanded,
+        onExpandedChange = { expanded = it },
+        modifier = Modifier.fillMaxWidth()
     ) {
-        Text(label, fontSize = 10.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        pilihan.forEach { opsi ->
-            FilterChip(
-                selected = terpilih == opsi,
-                onClick = { onPilih(opsi) },
-                label = { Text(opsi, fontSize = 10.sp) },
-                colors = FilterChipDefaults.filterChipColors(
-                    selectedContainerColor = MaterialTheme.colorScheme.primaryContainer
+        OutlinedTextField(
+            value = nilai,
+            onValueChange = {},
+            readOnly = true,
+            label = { Text(label, fontSize = 11.sp) },
+            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
+            singleLine = true,
+            shape = RoundedCornerShape(12.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .menuAnchor()
+        )
+        ExposedDropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false },
+            modifier = Modifier.heightIn(max = 280.dp)
+        ) {
+            pilihan.forEach { opsi ->
+                DropdownMenuItem(
+                    text = { Text(opsi, fontSize = 13.sp) },
+                    onClick = {
+                        onPilih(opsi)
+                        expanded = false
+                    },
+                    trailingIcon = {
+                        if (opsi.equals(nilai, ignoreCase = true)) {
+                            Icon(
+                                imageVector = Icons.Default.Check,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+                    }
                 )
-            )
+            }
         }
     }
 }
@@ -383,7 +428,7 @@ private fun KartuTransaksi(
     val masuk = item.jenis == "masuk"
     Card(modifier = Modifier.fillMaxWidth().clickable(onClick = onClick)) {
         Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 10.dp),
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(10.dp)
         ) {
