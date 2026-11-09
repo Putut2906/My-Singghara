@@ -1,6 +1,7 @@
 package com.example.ui.screens
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -16,6 +17,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -38,12 +40,11 @@ import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material.icons.filled.Receipt
 import androidx.compose.material.icons.filled.Restaurant
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.SwapVert
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.ExposedDropdownMenuBox
-import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
@@ -326,38 +327,45 @@ private fun FilterKeuanganSection(
     onFilterKategoriChange: (String) -> Unit,
     sumberTersedia: List<String>
 ) {
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
         OutlinedTextField(
             value = search,
             onValueChange = onSearchChange,
-            modifier = Modifier.fillMaxWidth(),
-            placeholder = { Text("Cari keterangan, kategori, sumber dana...", fontSize = 12.sp) },
-            leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(18.dp)) },
+            modifier = Modifier.weight(1f),
+            leadingIcon = { Icon(Icons.Default.Search, contentDescription = "Cari", modifier = Modifier.size(18.dp)) },
             trailingIcon = {
                 if (search.isNotEmpty()) {
-                    IconButton(onClick = { onSearchChange("") }, modifier = Modifier.size(28.dp)) {
-                        Icon(Icons.Default.Close, contentDescription = "Hapus pencarian", modifier = Modifier.size(16.dp))
+                    IconButton(onClick = { onSearchChange("") }, modifier = Modifier.size(24.dp)) {
+                        Icon(Icons.Default.Close, contentDescription = "Hapus pencarian", modifier = Modifier.size(14.dp))
                     }
                 }
             },
             singleLine = true,
-            shape = RoundedCornerShape(12.dp)
+            shape = RoundedCornerShape(12.dp),
+            textStyle = MaterialTheme.typography.bodySmall
         )
 
-        MenuFilter(
-            label = "Jenis Transaksi",
+        DropdownSaring(
+            ikon = Icons.Default.SwapVert,
+            deskripsi = "Filter jenis transaksi",
             nilai = filterJenis,
             pilihan = listOf("Semua", "Masuk", "Keluar"),
             onPilih = onFilterJenisChange
         )
-        MenuFilter(
-            label = "Sumber Dana",
+        DropdownSaring(
+            ikon = Icons.Default.AccountBalanceWallet,
+            deskripsi = "Filter sumber dana",
             nilai = filterSumber,
             pilihan = listOf("Semua") + sumberTersedia,
             onPilih = onFilterSumberChange
         )
-        MenuFilter(
-            label = "Kategori",
+        DropdownSaring(
+            ikon = Icons.Default.Category,
+            deskripsi = "Filter kategori",
             nilai = filterKategori,
             pilihan = listOf("Semua") + CatatanKeuanganHelper.KATEGORI_PENGELUARAN,
             onPilih = onFilterKategoriChange
@@ -365,40 +373,61 @@ private fun FilterKeuanganSection(
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun MenuFilter(
-    label: String,
+private fun DropdownSaring(
+    ikon: ImageVector,
+    deskripsi: String,
     nilai: String,
     pilihan: List<String>,
     onPilih: (String) -> Unit
 ) {
     var expanded by remember { mutableStateOf(false) }
-    ExposedDropdownMenuBox(
-        expanded = expanded,
-        onExpandedChange = { expanded = it },
-        modifier = Modifier.fillMaxWidth()
-    ) {
-        OutlinedTextField(
-            value = nilai,
-            onValueChange = {},
-            readOnly = true,
-            label = { Text(label, fontSize = 11.sp) },
-            trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expanded) },
-            singleLine = true,
-            shape = RoundedCornerShape(12.dp),
-            modifier = Modifier
-                .fillMaxWidth()
-                .menuAnchor()
-        )
-        ExposedDropdownMenu(
-            expanded = expanded,
-            onDismissRequest = { expanded = false },
-            modifier = Modifier.heightIn(max = 280.dp)
+    val aktif = nilai != "Semua"
+    Box {
+        Surface(
+            shape = RoundedCornerShape(10.dp),
+            color = if (aktif) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface,
+            border = BorderStroke(
+                1.dp,
+                if (aktif) MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)
+                else MaterialTheme.colorScheme.outlineVariant
+            ),
+            modifier = Modifier.clickable { expanded = true }
         ) {
+            Row(
+                modifier = Modifier.padding(horizontal = 9.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(3.dp)
+            ) {
+                Icon(
+                    imageVector = ikon,
+                    contentDescription = deskripsi,
+                    tint = if (aktif) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(16.dp)
+                )
+                if (aktif) {
+                    Text(
+                        text = nilai,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.widthIn(max = 64.dp)
+                    )
+                }
+                Icon(
+                    imageVector = Icons.Default.ArrowDropDown,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(16.dp)
+                )
+            }
+        }
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
             pilihan.forEach { opsi ->
                 DropdownMenuItem(
-                    text = { Text(opsi, fontSize = 13.sp) },
+                    text = { Text(opsi, fontSize = 12.sp) },
                     onClick = {
                         onPilih(opsi)
                         expanded = false
@@ -409,7 +438,7 @@ private fun MenuFilter(
                                 imageVector = Icons.Default.Check,
                                 contentDescription = null,
                                 tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(16.dp)
+                                modifier = Modifier.size(14.dp)
                             )
                         }
                     }
