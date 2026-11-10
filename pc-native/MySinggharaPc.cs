@@ -79,6 +79,15 @@ namespace MySinggharaPc
         private bool webViewReady;
         private bool shortcutChecked;
 
+        // Unduhan dikelola native lewat bilah bawah: WebView2 melaporkan navigasi
+        // yang berubah menjadi unduhan sebagai gagal, dan UI unduhan bawaannya
+        // tidak bisa diminta mengecilkan jendela saat "Show in folder" diklik.
+        private Panel downloadShelf;
+        private readonly List<DownloadItem> downloads = new List<DownloadItem>();
+        private bool downloadStarted;
+        private int lastDownloadStartTick;
+        private const int DOWNLOAD_ROW_H = 46;
+
         // Dua sumber layar penuh: preferensi pengguna (Alt+F) dan video HTML5.
         private bool appFullScreen;
         private bool videoFullScreen;
@@ -328,6 +337,11 @@ namespace MySinggharaPc
             chromePanel = BuildChromePanel();
             Controls.Add(chromePanel);
             chromePanel.BringToFront();
+
+            downloadShelf = new Panel();
+            downloadShelf.BackColor = Color.FromArgb(15, 23, 42);
+            downloadShelf.Visible = false;
+            Controls.Add(downloadShelf);
 
             // Timer kecil ini yang menjaga caption buttons tetap tersembunyi sampai
             // kursor benar-benar menyentuh tepi atas jendela.
@@ -581,7 +595,7 @@ namespace MySinggharaPc
 
         private void Relayout()
         {
-            if (topStrip == null || webView == null || connectPanel == null) return;
+            if (topStrip == null || webView == null || connectPanel == null || downloadShelf == null) return;
             int width = ClientSize.Width;
             int height = ClientSize.Height;
             int contentTop = topStrip.Visible ? STRIP_HEIGHT : 0;
@@ -611,7 +625,12 @@ namespace MySinggharaPc
                 chromePanel.BringToFront();
             }
 
-            int contentHeight = Math.Max(1, height - contentTop);
+            int shelfHeight = downloads.Count > 0 ? downloads.Count * DOWNLOAD_ROW_H + 10 : 0;
+            downloadShelf.Visible = downloads.Count > 0;
+            downloadShelf.SetBounds(0, height - shelfHeight, width, shelfHeight);
+            LayoutDownloadRows(width);
+
+            int contentHeight = Math.Max(1, height - contentTop - shelfHeight);
             webView.SetBounds(0, contentTop, width, contentHeight);
             connectPanel.SetBounds(0, contentTop, width, contentHeight);
         }
@@ -919,10 +938,17 @@ namespace MySinggharaPc
                 try { core.Navigate(e.Uri); } catch { }
             };
 
+            core.DownloadStarting += OnDownloadStarting;
+
             webView.NavigationCompleted += delegate(object sender, CoreWebView2NavigationCompletedEventArgs e)
             {
                 if (!e.IsSuccess)
                 {
+                    // Navigasi yang berubah menjadi unduhan dilaporkan gagal oleh
+                    // WebView2 (IsSuccess=false, HttpStatusCode 0); itu bukan
+                    // koneksi putus, jadi halaman transfer tidak boleh direset.
+                    if (e.WebErrorStatus == CoreWebView2WebErrorStatus.OperationCanceled) return;
+                    if (DownloadActiveOrRecent()) return;
                     ShowPanel("Koneksi ke HP terputus.\n" + currentUrl +
                               "\n\nAktifkan lagi Web Connect di HP lalu klik Coba Lagi.");
                     return;
@@ -968,6 +994,272 @@ namespace MySinggharaPc
         private void RaiseChrome()
         {
             if (chromePanel != null) chromePanel.BringToFront();
+        }
+
+        // ------------------------------------------------------------------
+        // Unduhan native: bilah bawah dengan progres, tombol Buka, dan
+        // "Show in folder" yang otomatis mengecilkan jendela aplikasi.
+        // ------------------------------------------------------------------
+
+        private class DownloadItem
+        {
+            public CoreWebView2DownloadOperation Operation;
+            public string FilePath;
+            public Panel Row;
+            public Label NameLabel;
+            public Label StatusLabel;
+            public ProgressBar Progress;
+            public Button OpenButton;
+            public Button FolderButton;
+            public Button CloseButton;
+            public bool Done;
+            public bool Failed;
+        }
+
+        private void OnDownloadStarting(object sender, CoreWebView2DownloadStartingEventArgs e)
+        {
+            CoreWebView2DownloadOperation op = e.DownloadOperation;
+            string name = Path.GetFileName(e.ResultFilePath);
+            if (string.IsNullOrEmpty(name))
+            {
+                Uri parsed;
+                if (Uri.TryCreate(op.Uri, UriKind.Absolute, out parsed))
+                    name = Path.GetFileName(parsed.LocalPath);
+            }
+            if (string.IsNullOrEmpty(name)) name = "berkas";
+            string target = UniqueDownloadPath(name);
+            e.ResultFilePath = target;
+            e.Handled = true;
+            downloadStarted = true;
+            lastDownloadStartTick = Environment.TickCount;
+
+            while (downloads.Count >= 4)
+            {
+                DownloadItem oldest = null;
+                foreach (DownloadItem d in downloads)
+                {
+                    if (d.Done || d.Failed) { oldest = d; break; }
+                }
+                if (oldest == null) break;
+                DismissDownload(oldest);
+            }
+
+            DownloadItem item = BuildDownloadItem(op, name, target);
+            downloads.Add(item);
+            op.BytesReceivedChanged += delegate { UpdateDownloadProgress(item); };
+            op.StateChanged += delegate { OnDownloadStateChanged(item); };
+            Relayout();
+            // NavigationCompleted bisa tiba sebelum DownloadStarting; unduhan yang
+            // mulai adalah bukti koneksi hidup, jadi panel galat harus ditutup.
+            HidePanel();
+            UpdateDownloadProgress(item);
+        }
+
+        private bool DownloadActiveOrRecent()
+        {
+            foreach (DownloadItem item in downloads)
+            {
+                if (!item.Done && !item.Failed) return true;
+            }
+            return downloadStarted && Environment.TickCount - lastDownloadStartTick < 8000;
+        }
+
+        private static string UniqueDownloadPath(string name)
+        {
+            string dir = Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads");
+            Directory.CreateDirectory(dir);
+            string candidate = Path.Combine(dir, name);
+            if (!File.Exists(candidate)) return candidate;
+            string stem = Path.GetFileNameWithoutExtension(name);
+            string ext = Path.GetExtension(name);
+            for (int i = 1; i < 1000; i++)
+            {
+                candidate = Path.Combine(dir, stem + " (" + i + ")" + ext);
+                if (!File.Exists(candidate)) return candidate;
+            }
+            return Path.Combine(dir, stem + "_" + DateTime.Now.Ticks + ext);
+        }
+
+        private DownloadItem BuildDownloadItem(CoreWebView2DownloadOperation op, string name, string target)
+        {
+            DownloadItem item = new DownloadItem();
+            item.Operation = op;
+            item.FilePath = target;
+
+            item.Row = new Panel();
+            item.Row.BackColor = Color.FromArgb(30, 41, 59);
+
+            item.NameLabel = new Label();
+            item.NameLabel.Text = name;
+            item.NameLabel.Font = new Font("Segoe UI", 9.5f, FontStyle.Bold);
+            item.NameLabel.ForeColor = Color.FromArgb(226, 232, 240);
+            item.NameLabel.BackColor = Color.Transparent;
+            item.NameLabel.TextAlign = ContentAlignment.MiddleLeft;
+            item.NameLabel.AutoEllipsis = true;
+            item.Row.Controls.Add(item.NameLabel);
+
+            item.StatusLabel = new Label();
+            item.StatusLabel.Text = "Menyiapkan...";
+            item.StatusLabel.Font = new Font("Segoe UI", 8.5f);
+            item.StatusLabel.ForeColor = Color.FromArgb(148, 163, 184);
+            item.StatusLabel.BackColor = Color.Transparent;
+            item.StatusLabel.TextAlign = ContentAlignment.MiddleRight;
+            item.Row.Controls.Add(item.StatusLabel);
+
+            item.Progress = new ProgressBar();
+            item.Progress.Minimum = 0;
+            item.Progress.Maximum = 100;
+            item.Progress.Value = 0;
+            item.Row.Controls.Add(item.Progress);
+
+            item.OpenButton = BuildDownloadButton("Buka", 58);
+            item.OpenButton.Visible = false;
+            item.OpenButton.Click += delegate { OpenDownload(item); };
+            item.Row.Controls.Add(item.OpenButton);
+
+            item.FolderButton = BuildDownloadButton("Show in folder", 108);
+            item.FolderButton.Visible = false;
+            item.FolderButton.Click += delegate { ShowDownloadInFolder(item); };
+            item.Row.Controls.Add(item.FolderButton);
+
+            item.CloseButton = BuildDownloadButton("x", 28);
+            item.CloseButton.Click += delegate { DismissDownload(item); };
+            item.Row.Controls.Add(item.CloseButton);
+
+            downloadShelf.Controls.Add(item.Row);
+            return item;
+        }
+
+        private Button BuildDownloadButton(string text, int width)
+        {
+            Button button = new Button();
+            button.Text = text;
+            button.Font = new Font("Segoe UI", 8.5f, FontStyle.Bold);
+            button.FlatStyle = FlatStyle.Flat;
+            button.FlatAppearance.BorderSize = 1;
+            button.FlatAppearance.BorderColor = Color.FromArgb(71, 85, 105);
+            button.BackColor = Color.FromArgb(51, 65, 85);
+            button.ForeColor = Color.FromArgb(226, 232, 240);
+            button.TabStop = false;
+            button.Size = new Size(width, 26);
+            return button;
+        }
+
+        private void LayoutDownloadRows(int width)
+        {
+            int rowWidth = Math.Max(220, width - 16);
+            for (int i = 0; i < downloads.Count; i++)
+            {
+                DownloadItem item = downloads[i];
+                int rowHeight = DOWNLOAD_ROW_H - 6;
+                item.Row.SetBounds(8, 5 + i * DOWNLOAD_ROW_H, rowWidth, rowHeight);
+                int midY = (rowHeight - 26) / 2;
+
+                int right = rowWidth - 8;
+                item.CloseButton.SetBounds(right - 28, midY, 28, 26);
+                right -= 28 + 6;
+                if (item.Done)
+                {
+                    item.FolderButton.SetBounds(right - 108, midY, 108, 26);
+                    right -= 108 + 6;
+                    item.OpenButton.SetBounds(right - 58, midY, 58, 26);
+                    right -= 58 + 6;
+                }
+                item.StatusLabel.SetBounds(right - 190, 0, 190, rowHeight);
+                right -= 190 + 8;
+                item.Progress.SetBounds(right - 130, (rowHeight - 14) / 2, 130, 14);
+                right -= 130 + 8;
+                item.NameLabel.SetBounds(10, 0, Math.Max(60, right - 18), rowHeight);
+            }
+        }
+
+        private void UpdateDownloadProgress(DownloadItem item)
+        {
+            if (!downloads.Contains(item) || item.Done || item.Failed) return;
+            long received = item.Operation.BytesReceived;
+            ulong? totalBytes = item.Operation.TotalBytesToReceive;
+            if (totalBytes.HasValue && totalBytes.Value > 0)
+            {
+                long total = (long)totalBytes.Value;
+                int pct = (int)Math.Max(0, Math.Min(100, received * 100 / total));
+                item.Progress.Value = pct;
+                item.StatusLabel.Text = pct + "%  ·  " + FormatBytes(received) + " / " + FormatBytes(total);
+            }
+            else
+            {
+                item.StatusLabel.Text = FormatBytes(received);
+            }
+        }
+
+        private void OnDownloadStateChanged(DownloadItem item)
+        {
+            if (!downloads.Contains(item)) return;
+            if (item.Operation.State == CoreWebView2DownloadState.Completed)
+            {
+                item.Done = true;
+                item.Progress.Visible = false;
+                item.StatusLabel.Text = "Selesai  ·  " + FormatBytes(item.Operation.BytesReceived);
+                item.OpenButton.Visible = true;
+                item.FolderButton.Visible = true;
+                Relayout();
+            }
+            else if (item.Operation.State == CoreWebView2DownloadState.Interrupted)
+            {
+                item.Failed = true;
+                item.Progress.Visible = false;
+                item.StatusLabel.Text = "Gagal  ·  " + item.Operation.InterruptReason;
+                Relayout();
+            }
+        }
+
+        private void OpenDownload(DownloadItem item)
+        {
+            try
+            {
+                ProcessStartInfo info = new ProcessStartInfo(item.FilePath);
+                info.UseShellExecute = true;
+                Process.Start(info);
+            }
+            catch (Exception ex)
+            {
+                ShowModeToast("Berkas tidak bisa dibuka: " + ex.Message);
+            }
+        }
+
+        private void ShowDownloadInFolder(DownloadItem item)
+        {
+            try
+            {
+                Process.Start("explorer.exe", "/select,\"" + item.FilePath + "\"");
+                WindowState = FormWindowState.Minimized;
+            }
+            catch (Exception ex)
+            {
+                ShowModeToast("Folder tidak bisa dibuka: " + ex.Message);
+            }
+        }
+
+        private void DismissDownload(DownloadItem item)
+        {
+            downloads.Remove(item);
+            downloadShelf.Controls.Remove(item.Row);
+            if (!item.Done && !item.Failed)
+            {
+                try { item.Operation.Cancel(); } catch { }
+            }
+            item.Row.Dispose();
+            Relayout();
+        }
+
+        private static string FormatBytes(long bytes)
+        {
+            if (bytes < 1024) return bytes + " B";
+            double kb = bytes / 1024.0;
+            if (kb < 1024) return kb.ToString("0.#") + " KB";
+            double mb = kb / 1024.0;
+            if (mb < 1024) return mb.ToString("0.#") + " MB";
+            return (mb / 1024.0).ToString("0.#") + " GB";
         }
 
         // ------------------------------------------------------------------
