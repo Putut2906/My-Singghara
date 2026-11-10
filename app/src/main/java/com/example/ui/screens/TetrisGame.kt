@@ -702,18 +702,25 @@ fun TetrisGame(
         }
     }
 
-    // Sprite musuh "U + laras": kotak 3x3 minus dua sudut depan DAN sel tengah
-    // (6 sel, tengah berlubang seperti mulut U) supaya mudah dibedakan dari pemain.
+    // Sprite musuh "n + laras": kotak 3x3 minus dua sudut depan DAN sel tengah
+    // belakang (6 sel; lengkung n tertutup di sisi laras, mulut terbuka di
+    // belakang) supaya mudah dibedakan dari pemain.
     fun tankEnemyCellsAt(row: Int, col: Int, dir: Int): List<Pair<Int, Int>> {
         val all = (0..2).flatMap { dr -> (0..2).map { dc -> Pair(row + dr, col + dc) } }
         return all.filter { (r, c) ->
-            if (r == row + 1 && c == col + 1) return@filter false // mulut U (tengah berlubang)
-            when (dir) {
-                0 -> !(r == row && c != col + 1)
-                1 -> !(r == row + 2 && c != col + 1)
-                2 -> !(c == col && r != row + 1)
-                else -> !(c == col + 2 && r != row + 1)
+            val sudutDepan = when (dir) {
+                0 -> r == row && c != col + 1
+                1 -> r == row + 2 && c != col + 1
+                2 -> c == col && r != row + 1
+                else -> c == col + 2 && r != row + 1
             }
+            val mulutBelakang = when (dir) {
+                0 -> r == row + 2 && c == col + 1
+                1 -> r == row && c == col + 1
+                2 -> c == col + 2 && r == row + 1
+                else -> c == col && r == row + 1
+            }
+            !sudutDepan && !mulutBelakang
         }
     }
 
@@ -1520,14 +1527,16 @@ fun TetrisGame(
 
         // Musuh memburu pemain: normal lambat, cepat lincah, berat sangat lambat.
         // Badan musuh ikut berputar mengikuti arah gerak, sama seperti pemain.
+        // Jeda sengaja longgar (1 tick = 50 ms) agar musuh tidak terlalu cepat:
+        // normal 600 ms/sel, cepat 400 ms/sel, berat 800 ms/sel.
         val snapshot = tankEnemies.toList()
         for ((index, enemy) in snapshot.withIndex()) {
             if (isGameOver) break
             if (index >= tankEnemies.size || tankEnemies[index] != enemy) continue
             val jeda = when (enemy.jenis) {
-                3 -> 6
-                4 -> 3
-                else -> 8
+                3 -> 12
+                4 -> 8
+                else -> 16
             }
             if (tankTicks % jeda != 0) continue
             val dr = (tankPlayerPos.first - enemy.row).coerceIn(-1, 1)
@@ -1723,8 +1732,8 @@ fun TetrisGame(
                 result[bRow][bCol] = 3
             }
             6 -> { // Tank Battle (duel)
-                // Pemain: sprite klasik 7 sel; musuh: "U + laras" 6 sel (tengah
-                // berlubang). Keduanya berputar sesuai arah, beda warna per jenis.
+                // Pemain: sprite klasik 7 sel; musuh: "n + laras" 6 sel (mulut
+                // terbuka di belakang). Keduanya berputar sesuai arah, beda warna per jenis.
                 for (enemy in tankEnemies) {
                     val tipe = when (enemy.jenis) {
                         3 -> 3
