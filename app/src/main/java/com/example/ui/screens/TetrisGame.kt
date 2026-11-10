@@ -890,7 +890,8 @@ fun TetrisGame(
         tankSpawnGuard = 40
         tankPlayerPos = tankSafeSpawn()
         tankPlayerDir = 0
-        tankSpawnEnemy()
+        // Hanya 1 musuh di awal stage; berikutnya menyusul satu per satu
+        // lewat jeda spawn, tidak muncul bersamaan.
         tankSpawnEnemy()
     }
 
@@ -1592,9 +1593,10 @@ fun TetrisGame(
             if (cepat.isNotEmpty()) tankEnemyFire(cepat[Random.nextInt(cepat.size)].index)
         }
 
-        // Tambah musuh baru selama stok tahap masih ada. Level 1 spawn tiap
-        // 80 tick (4 detik); tiap level jeda turun 4 tick, minimum 40 tick.
-        val jedaSpawn = (80 - (level - 1) * 4).coerceAtLeast(40)
+        // Tambah musuh baru satu per satu selama stok tahap masih ada. Level 1
+        // spawn tiap 160 tick (8 detik); tiap level jeda turun 8 tick, minimum
+        // 40 tick (2 detik).
+        val jedaSpawn = (160 - (level - 1) * 8).coerceAtLeast(40)
         if (!isGameOver && tankEnemies.size < 4 && tankRemainingEnemies > 0 && tankTicks % jedaSpawn == 0) {
             tankSpawnEnemy()
         }
