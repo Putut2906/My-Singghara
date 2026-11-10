@@ -667,6 +667,9 @@ fun TetrisGame(
     var ballVx by remember { mutableStateOf(0.35f) }
     var ballVy by remember { mutableStateOf(-0.45f) }
     val breakoutBricks = remember { mutableStateListOf<Pair<Int, Int>>() }
+    // Cooldown suara balok: rentetan kena balok berdekatan cukup berbunyi sekali.
+    var breakoutTicks by remember { mutableStateOf(0) }
+    var breakoutBrickSoundTick by remember { mutableStateOf(-100) }
 
     // ----------------------------------------
     // 6. TANK BATTLE (BATTLE CITY STYLE) STATES
@@ -953,6 +956,8 @@ fun TetrisGame(
                 ballY = 15.0f
                 ballVx = 0.35f
                 ballVy = -0.45f
+                breakoutTicks = 0
+                breakoutBrickSoundTick = -100
                 breakoutBricks.clear()
                 // Spawn blocks rows
                 for (r in 1..4) {
@@ -1351,27 +1356,33 @@ fun TetrisGame(
     // ----------------------------------------
     fun updateBreakout() {
         if (isGameOver || isPaused) return
+        breakoutTicks++
 
         val prevY = ballY
         ballX += ballVx
         ballY += ballVy
 
+        // Maksimal 1 suara tabrakan per tick: dinding/atap mengalah bila tick
+        // yang sama juga mengenai balok atau paddle (penyebab suara "double").
+        var bunyiDinding = false
+        var bunyiUtama = false
+
         // Left / Right boundaries bounce
         if (ballX <= 0f) {
             ballX = 0f
             ballVx = Math.abs(ballVx)
-            playBeep(ToneGenerator.TONE_PROP_ACK)
+            bunyiDinding = true
         } else if (ballX >= 9f) {
             ballX = 9f
             ballVx = -Math.abs(ballVx)
-            playBeep(ToneGenerator.TONE_PROP_ACK)
+            bunyiDinding = true
         }
 
         // Roof bounce
         if (ballY <= 0f) {
             ballY = 0f
             ballVy = Math.abs(ballVy)
-            playBeep(ToneGenerator.TONE_PROP_ACK)
+            bunyiDinding = true
         }
 
         // Paddle strike reflection (paddle is rendered on row 19). Deteksi
@@ -1389,6 +1400,7 @@ fun TetrisGame(
                 ballVx = (ballVx + offset * 0.22f).coerceIn(-0.65f, 0.65f)
 
                 playBeep(ToneGenerator.TONE_PROP_BEEP)
+                bunyiUtama = true
                 triggerVibration(45)
             }
         }
@@ -1408,7 +1420,14 @@ fun TetrisGame(
                     prefs.edit().putInt("brick_breakout_high_score", score).apply()
                 }
 
-                playBeep(ToneGenerator.TONE_DTMF_0)
+                // Cooldown 4 tick (200 ms): bola bisa mengenai beberapa balok
+                // beruntun dalam 1-2 tick; cukup satu bunyi per rentetan agar
+                // tidak terdengar double. Balok tetap hancur dan skor tetap.
+                if (breakoutTicks - breakoutBrickSoundTick >= 4) {
+                    playBeep(ToneGenerator.TONE_DTMF_0)
+                    breakoutBrickSoundTick = breakoutTicks
+                }
+                bunyiUtama = true
                 triggerVibration(30)
 
                 if (breakoutBricks.isEmpty()) {
@@ -1426,6 +1445,8 @@ fun TetrisGame(
                 }
             }
         }
+
+        if (bunyiDinding && !bunyiUtama) playBeep(ToneGenerator.TONE_PROP_ACK)
 
         // Ball fell past the paddle: always cost a life, then respawn or end
         if (ballY >= 20f) {
