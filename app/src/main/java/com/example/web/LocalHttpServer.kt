@@ -22,8 +22,11 @@ import java.util.Date
 import java.util.Locale
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
@@ -84,6 +87,20 @@ class LocalHttpServer(
 
     private val connectedDevices = java.util.concurrent.ConcurrentHashMap<String, ConnectedDevice>()
     private val verifiedTokens = java.util.Collections.synchronizedSet(mutableSetOf<String>())
+
+    // Identitas perangkat yang sesinya sudah dilepas (idle atau logout).
+    // Reconnect dengan token yang sama memakai kembali entri dan PIN lama,
+    // bukan menambah daftar perangkat baru dengan PIN berbeda.
+    private data class RememberedDevice(
+        val pinCode: String,
+        val deviceName: String,
+        val ip: String,
+        val userAgent: String,
+        val wasVerified: Boolean,
+        val at: Long
+    )
+    private val rememberedDevices = java.util.concurrent.ConcurrentHashMap<String, RememberedDevice>()
+    private var sessionSweepJob: Job? = null
     @Volatile var latestPinCode: String = generateNewPin()
     @Volatile var latestToken: String = generateNewToken()
     @Volatile var isAccessRejected: Boolean = false
@@ -96,6 +113,7 @@ class LocalHttpServer(
     var onBackupRestored: (() -> Unit)? = null
 
     fun getConnectedDevices(): List<ConnectedDevice> {
+        pruneStaleDevices()
         return connectedDevices.values.toList().sortedByDescending { it.lastActiveAt }
     }
 
@@ -103,6 +121,48 @@ class LocalHttpServer(
         val list = getConnectedDevices()
         scope.launch(Dispatchers.Main) {
             onDevicesChanged?.invoke(list)
+        }
+    }
+
+    // Halaman PC mengirim heartbeat tiap 2 detik; jendela yang ditutup berhenti
+    // mengirim, jadi sesi idle dilepas agar daftar tidak menumpuk entri mati.
+    // Timeout 90 detik tetap aman untuk tab tersembunyi yang timer-nya dibatasi
+    // browser menjadi sekali per menit.
+    private fun pruneStaleDevices(): Boolean {
+        val now = System.currentTimeMillis()
+        var removed = false
+        val iterator = connectedDevices.values.iterator()
+        while (iterator.hasNext()) {
+            val dev = iterator.next()
+            if (now - dev.lastActiveAt > SESSION_IDLE_TIMEOUT_MS) {
+                iterator.remove()
+                forgetSession(dev, dev.isVerified && !dev.isRejected && !dev.isLoggedOut)
+                removed = true
+            }
+        }
+        if (removed && !connectedDevices.containsKey(latestToken)) {
+            connectedDevices.values.maxByOrNull { it.lastActiveAt }?.let {
+                latestToken = it.id
+                latestPinCode = it.pinCode
+            }
+        }
+        return removed
+    }
+
+    private fun forgetSession(dev: ConnectedDevice, wasVerified: Boolean) {
+        verifiedTokens.remove(dev.id)
+        rememberedDevices[dev.id] = RememberedDevice(
+            pinCode = dev.pinCode,
+            deviceName = dev.deviceName,
+            ip = dev.ip,
+            userAgent = dev.userAgent,
+            wasVerified = wasVerified,
+            at = System.currentTimeMillis()
+        )
+        if (rememberedDevices.size > 64) {
+            rememberedDevices.entries.minByOrNull { it.value.at }?.let {
+                rememberedDevices.remove(it.key)
+            }
         }
     }
 
@@ -271,6 +331,13 @@ class LocalHttpServer(
                     bind(java.net.InetSocketAddress(port))
                 }
                 isRunning = true
+                sessionSweepJob = scope.launch {
+                    while (isActive) {
+                        delay(15_000L)
+                        if (!isRunning) break
+                        if (pruneStaleDevices()) notifyDevicesChanged()
+                    }
+                }
                 val ip = getIpAddress(context)
                 val url = "http://$ip:$port"
                 withContext(Dispatchers.Main) {
@@ -298,6 +365,8 @@ class LocalHttpServer(
 
     fun stop() {
         isRunning = false
+        sessionSweepJob?.cancel()
+        sessionSweepJob = null
         if (activeInstance == this) activeInstance = null
         try {
             serverSocket?.close()
@@ -314,6 +383,7 @@ class LocalHttpServer(
 
         // Batas aman untuk body (mis. berkas cadangan JSON yang memuat foto/audio base64).
         private const val MAX_REQUEST_BODY_BYTES = 128 * 1024 * 1024
+        private const val SESSION_IDLE_TIMEOUT_MS = 90_000L
 
         fun parseDeviceName(userAgent: String, clientIp: String): String {
             val ua = userAgent.lowercase()
@@ -834,21 +904,24 @@ class LocalHttpServer(
                 }
             }
         } else {
+            val remembered = if (reqToken.isNotEmpty()) rememberedDevices.remove(reqToken) else null
             val devToken = if (reqToken.isNotEmpty()) reqToken else generateNewToken()
-            val devPin = generateNewPin()
-            val devName = parseDeviceName(userAgent, clientIp)
+            val devPin = remembered?.pinCode ?: generateNewPin()
+            val devName = if (userAgent.isNotEmpty()) parseDeviceName(userAgent, clientIp)
+                else (remembered?.deviceName ?: parseDeviceName(userAgent, clientIp))
             val newDev = ConnectedDevice(
                 id = devToken,
                 ip = clientIp,
-                userAgent = userAgent,
+                userAgent = if (userAgent.isNotEmpty()) userAgent else (remembered?.userAgent ?: ""),
                 deviceName = devName,
                 pinCode = devPin,
-                isVerified = false,
+                isVerified = remembered?.wasVerified == true && !isAccessRejected,
                 isRejected = isAccessRejected,
                 connectedAt = System.currentTimeMillis(),
                 lastActiveAt = System.currentTimeMillis()
             )
             connectedDevices[devToken] = newDev
+            if (newDev.isVerified) verifiedTokens.add(devToken)
             latestToken = devToken
             latestPinCode = devPin
             notifyDevicesChanged()
@@ -861,10 +934,8 @@ class LocalHttpServer(
 
             if (action == "logout" || action == "revoke") {
                 lastLogoutTime = System.currentTimeMillis()
-                device.isVerified = false
-                device.isRejected = false
-                device.isLoggedOut = true
-                verifiedTokens.remove(device.id)
+                connectedDevices.remove(device.id)
+                forgetSession(device, false)
                 notifyDevicesChanged()
                 response.put("success", true)
                 response.put("authenticated", false)
@@ -880,7 +951,6 @@ class LocalHttpServer(
                 device.isVerified = false
                 device.isLoggedOut = false
                 isAccessRejected = false
-                device.pinCode = generateNewPin()
                 latestToken = device.id
                 latestPinCode = device.pinCode
                 notifyDevicesChanged()
@@ -11704,7 +11774,7 @@ class LocalHttpServer(
                 onConfirm: async () => {
                     let authData = null;
                     try {
-                        const token = sessionStorage.getItem('singghara_auth_token') || activeAuthToken || '';
+                        const token = localStorage.getItem('singghara_auth_token') || activeAuthToken || '';
                         const res = await fetch('/api/auth', {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
@@ -11722,7 +11792,7 @@ class LocalHttpServer(
         // ==========================================
         // WEB CONNECT AUTH & SECURITY ENGINE
         // ==========================================
-        let activeAuthToken = sessionStorage.getItem('singghara_auth_token') || '';
+        let activeAuthToken = localStorage.getItem('singghara_auth_token') || '';
         let authPollInterval = null;
         let qrCodeInstance = null;
         let isWebAuthenticated = false;
@@ -11752,8 +11822,8 @@ class LocalHttpServer(
 
         function showLoggedOutScreen(isRejected = false, customMessage = '') {
             isWebAuthenticated = false;
-            sessionStorage.removeItem('singghara_auth_token');
-            activeAuthToken = '';
+            // Token identitas sengaja disimpan: "Hubungkan Kembali" memakai
+            // kembali entri perangkat dan PIN yang sama di smartphone.
 
             const overlay = document.getElementById('authOverlay');
             const pendingView = document.getElementById('authPendingView');
@@ -11851,13 +11921,14 @@ class LocalHttpServer(
             try {
                 const urlParams = new URLSearchParams(window.location.search);
                 const queryToken = urlParams.get('token') || '';
-                const tokenToCheck = activeAuthToken || queryToken || sessionStorage.getItem('singghara_auth_token') || '';
+                const tokenToCheck = activeAuthToken || queryToken || localStorage.getItem('singghara_auth_token') || '';
                 const res = await fetch('/api/auth?token=' + encodeURIComponent(tokenToCheck));
                 if (!res.ok) return;
                 const data = await res.json();
 
-                if (data.token && !activeAuthToken) {
+                if (data.token) {
                     activeAuthToken = data.token;
+                    localStorage.setItem('singghara_auth_token', activeAuthToken);
                 }
 
                 const overlay = document.getElementById('authOverlay');
@@ -11872,7 +11943,7 @@ class LocalHttpServer(
                 if (data.authenticated === true) {
                     isWebAuthenticated = true;
                     activeAuthToken = data.token || tokenToCheck || activeAuthToken;
-                    sessionStorage.setItem('singghara_auth_token', activeAuthToken);
+                    localStorage.setItem('singghara_auth_token', activeAuthToken);
 
                     if (overlay) {
                         overlay.classList.add('hidden');
@@ -11962,7 +12033,7 @@ class LocalHttpServer(
             }
 
             try {
-                const token = activeAuthToken || sessionStorage.getItem('singghara_auth_token') || '';
+                const token = activeAuthToken || localStorage.getItem('singghara_auth_token') || '';
                 const res = await fetch('/api/auth', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -11971,7 +12042,7 @@ class LocalHttpServer(
                 const data = await res.json();
                 if (data.authenticated === true || data.success === true) {
                     activeAuthToken = data.token || token;
-                    sessionStorage.setItem('singghara_auth_token', activeAuthToken);
+                    localStorage.setItem('singghara_auth_token', activeAuthToken);
                     checkAuthStatus(true);
                 } else {
                     if (errorEl) {
@@ -11999,9 +12070,13 @@ class LocalHttpServer(
                 const res = await fetch('/api/auth', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ action: 'request_retry' })
+                    body: JSON.stringify({ action: 'request_retry', token: activeAuthToken || localStorage.getItem('singghara_auth_token') || '' })
                 });
                 const data = await res.json();
+                if (data.token) {
+                    activeAuthToken = data.token;
+                    localStorage.setItem('singghara_auth_token', activeAuthToken);
+                }
                 const pendingView = document.getElementById('authPendingView');
                 const rejectedView = document.getElementById('authRejectedView');
                 if (pendingView) pendingView.classList.remove('d-none');
