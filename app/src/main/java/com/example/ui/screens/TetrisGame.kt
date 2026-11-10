@@ -1527,16 +1527,18 @@ fun TetrisGame(
 
         // Musuh memburu pemain: normal lambat, cepat lincah, berat sangat lambat.
         // Badan musuh ikut berputar mengikuti arah gerak, sama seperti pemain.
-        // Jeda sengaja longgar (1 tick = 50 ms) agar musuh tidak terlalu cepat:
-        // normal 600 ms/sel, cepat 400 ms/sel, berat 800 ms/sel.
+        // Level 1 sangat santai (1 tick = 50 ms): normal 1200 ms/sel, cepat
+        // 800 ms/sel, berat 1600 ms/sel. Tiap level jeda turun 2 tick sehingga
+        // musuh makin cepat, dengan batas bawah 8/5/12 tick.
+        val potonganLevel = (level - 1) * 2
         val snapshot = tankEnemies.toList()
         for ((index, enemy) in snapshot.withIndex()) {
             if (isGameOver) break
             if (index >= tankEnemies.size || tankEnemies[index] != enemy) continue
             val jeda = when (enemy.jenis) {
-                3 -> 12
-                4 -> 8
-                else -> 16
+                3 -> (24 - potonganLevel).coerceAtLeast(8)
+                4 -> (16 - potonganLevel).coerceAtLeast(5)
+                else -> (32 - potonganLevel).coerceAtLeast(12)
             }
             if (tankTicks % jeda != 0) continue
             val dr = (tankPlayerPos.first - enemy.row).coerceIn(-1, 1)
@@ -1590,8 +1592,10 @@ fun TetrisGame(
             if (cepat.isNotEmpty()) tankEnemyFire(cepat[Random.nextInt(cepat.size)].index)
         }
 
-        // Tambah musuh baru selama stok tahap masih ada.
-        if (!isGameOver && tankEnemies.size < 4 && tankRemainingEnemies > 0 && tankTicks % 40 == 0) {
+        // Tambah musuh baru selama stok tahap masih ada. Level 1 spawn tiap
+        // 80 tick (4 detik); tiap level jeda turun 4 tick, minimum 40 tick.
+        val jedaSpawn = (80 - (level - 1) * 4).coerceAtLeast(40)
+        if (!isGameOver && tankEnemies.size < 4 && tankRemainingEnemies > 0 && tankTicks % jedaSpawn == 0) {
             tankSpawnEnemy()
         }
 
