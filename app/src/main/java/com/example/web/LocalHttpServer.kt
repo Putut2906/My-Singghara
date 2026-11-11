@@ -408,7 +408,7 @@ class LocalHttpServer(
             return if (clientIp == "127.0.0.1" || clientIp == "localhost") {
                 "Browser Lokal (HP)"
             } else {
-                "$os Ã¢â‚¬Â¢ $browser"
+                "$os • $browser"
             }
         }
 
@@ -10687,6 +10687,30 @@ class LocalHttpServer(
             </div>
         </div>
     </div>
+    <!-- POP-UP HITUNGAN MUNDUR SAAT AKSES DIPUTUSKAN & DIKUNCI -->
+    <div id="disconnectCountdownModal" style="display:none;position:fixed;top:0;left:0;width:100vw;height:100vh;z-index:2147483000;background:rgba(2,6,23,0.72);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);align-items:center;justify-content:center;padding:20px;">
+        <div style="max-width:420px;width:100%;background:var(--card-bg,#ffffff);color:var(--text-main,#1e293b);border-radius:20px;padding:28px 24px;box-shadow:0 24px 60px rgba(0,0,0,0.35);border:1px solid var(--border-color,#e2e8f0);text-align:center;">
+            <div style="width:66px;height:66px;border-radius:50%;background:rgba(239,68,68,0.12);display:flex;align-items:center;justify-content:center;margin:0 auto 14px;">
+                <i class="bi bi-shield-lock-fill" style="font-size:1.9rem;color:#ef4444;"></i>
+            </div>
+            <h4 style="font-weight:800;margin-bottom:6px;color:#ef4444;">Akses Diputuskan &amp; Dikunci</h4>
+            <p id="disconnectCountdownDesc" style="font-size:13px;line-height:1.55;color:var(--text-sub,#64748b);margin-bottom:16px;">Sesi Web Connect telah diputuskan dan dikunci oleh pemilik smartphone.</p>
+            <div id="disconnectCountdownTimerWrap" style="margin:12px 0 4px;">
+                <div style="font-size:12px;font-weight:600;color:var(--text-sub,#64748b);margin-bottom:8px;">Pilihan tindakan muncul dalam</div>
+                <div id="disconnectCountdownNumber" style="font-size:2.8rem;font-weight:800;line-height:1;color:#0F766E;">10</div>
+                <div style="font-size:12px;color:var(--text-sub,#64748b);margin-top:6px;">detik</div>
+            </div>
+            <div id="disconnectChoiceWrap" style="display:none;margin-top:18px;">
+                <p style="font-size:13px;font-weight:600;margin-bottom:12px;color:var(--text-main,#1e293b);">Tutup tab browser &amp; aplikasi My Singghara PC?</p>
+                <div style="display:flex;gap:10px;justify-content:center;">
+                    <button type="button" onclick="confirmDisconnectNo()" class="btn btn-outline-secondary rounded-pill px-4 py-2 fw-bold" style="flex:1;">Tidak</button>
+                    <button type="button" onclick="confirmDisconnectYes()" class="btn rounded-pill px-4 py-2 fw-bold text-white" style="flex:1;background:#ef4444;border-color:#ef4444;">Ya</button>
+                </div>
+                <small style="display:block;margin-top:12px;font-size:11px;color:var(--text-sub,#64748b);line-height:1.45;">Ya: tab browser &amp; PC menutup otomatis dan perangkat hilang dari daftar. Tidak: minta izin akses kembali ke smartphone.</small>
+            </div>
+        </div>
+    </div>
+
     <!-- HEADER NAVBAR -->
     <nav class="navbar navbar-main sticky-top">
         <div class="container-fluid px-3 py-1 d-flex align-items-center justify-content-between">
@@ -11820,11 +11844,104 @@ class LocalHttpServer(
             }
         }
 
+        let disconnectCountdownTimer = null;
+        let disconnectPopupShown = false;
+
+        // Dipanggil saat pemilik HP menekan "Kunci & Putuskan": tampilkan hitungan
+        // mundur 10 detik, lalu pilihan Ya (tutup browser + PC) / Tidak (minta izin lagi).
+        function showDisconnectCountdown(customMessage) {
+            if (disconnectPopupShown) return;
+            disconnectPopupShown = true;
+            isWebAuthenticated = false;
+            const overlay = document.getElementById('authOverlay');
+            if (overlay) {
+                overlay.classList.add('d-none');
+                overlay.classList.add('hidden');
+            }
+            const modal = document.getElementById('disconnectCountdownModal');
+            if (!modal) return;
+            const desc = document.getElementById('disconnectCountdownDesc');
+            if (desc) desc.textContent = customMessage || 'Sesi Web Connect telah diputuskan dan dikunci oleh pemilik smartphone.';
+            const numEl = document.getElementById('disconnectCountdownNumber');
+            const timerWrap = document.getElementById('disconnectCountdownTimerWrap');
+            const choiceWrap = document.getElementById('disconnectChoiceWrap');
+            if (choiceWrap) choiceWrap.style.display = 'none';
+            if (timerWrap) timerWrap.style.display = '';
+            let remaining = 10;
+            if (numEl) numEl.textContent = String(remaining);
+            modal.style.display = 'flex';
+            if (disconnectCountdownTimer) clearInterval(disconnectCountdownTimer);
+            disconnectCountdownTimer = setInterval(function() {
+                remaining -= 1;
+                if (numEl) numEl.textContent = String(remaining > 0 ? remaining : 0);
+                if (remaining <= 0) {
+                    clearInterval(disconnectCountdownTimer);
+                    disconnectCountdownTimer = null;
+                    if (timerWrap) timerWrap.style.display = 'none';
+                    if (choiceWrap) choiceWrap.style.display = '';
+                }
+            }, 1000);
+        }
+
+        async function confirmDisconnectYes() {
+            if (disconnectCountdownTimer) {
+                clearInterval(disconnectCountdownTimer);
+                disconnectCountdownTimer = null;
+            }
+            // Hapus perangkat ini dari daftar perangkat di smartphone.
+            try {
+                await fetch('/api/auth', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'logout', token: activeAuthToken || localStorage.getItem('singghara_auth_token') || '' })
+                });
+            } catch (e) {}
+            try { localStorage.removeItem('singghara_auth_token'); } catch (e) {}
+            // Tutup aplikasi My Singghara PC bila berjalan di dalam WebView2 native.
+            try {
+                if (window.chrome && window.chrome.webview && typeof window.chrome.webview.postMessage === 'function') {
+                    window.chrome.webview.postMessage('singghara:close');
+                }
+            } catch (e) {}
+            // Tutup tab browser (tab yang dibuka lewat script / browser biasa).
+            try { window.close(); } catch (e) {}
+            const modal = document.getElementById('disconnectCountdownModal');
+            if (modal) {
+                modal.innerHTML = '<div style="max-width:420px;width:100%;background:var(--card-bg,#ffffff);color:var(--text-main,#1e293b);border-radius:18px;padding:26px 24px;text-align:center;border:1px solid var(--border-color,#e2e8f0);"><div style="font-size:1.8rem;color:#0F766E;margin-bottom:10px;"><i class="bi bi-check2-circle"></i></div><h5 style="font-weight:800;margin-bottom:6px;">Sesi Ditutup</h5><p style="font-size:13px;color:var(--text-sub,#64748b);margin:0;">Browser dan aplikasi PC telah ditutup. Jika tab masih terbuka, Anda dapat menutupnya secara manual.</p></div>';
+            }
+        }
+
+        async function confirmDisconnectNo() {
+            if (disconnectCountdownTimer) {
+                clearInterval(disconnectCountdownTimer);
+                disconnectCountdownTimer = null;
+            }
+            disconnectPopupShown = false;
+            const modal = document.getElementById('disconnectCountdownModal');
+            if (modal) modal.style.display = 'none';
+            const overlay = document.getElementById('authOverlay');
+            if (overlay) {
+                overlay.classList.remove('d-none');
+                overlay.classList.remove('hidden');
+            }
+            // Minta izin akses kembali ke smartphone (browser & aplikasi PC memakai alur yang sama).
+            await requestConnectAgain();
+        }
+
         function showLoggedOutScreen(isRejected = false, customMessage = '') {
             isWebAuthenticated = false;
+            if (authPollInterval) {
+                clearInterval(authPollInterval);
+                authPollInterval = null;
+            }
+            // Akses dikunci & diputuskan oleh pemilik HP: ganti halaman statis
+            // "Akses Ditolak" dengan pop-up hitungan mundur + pilihan Ya/Tidak.
+            if (isRejected) {
+                showDisconnectCountdown(customMessage);
+                return;
+            }
             // Token identitas sengaja disimpan: "Hubungkan Kembali" memakai
             // kembali entri perangkat dan PIN yang sama di smartphone.
-
             const overlay = document.getElementById('authOverlay');
             const pendingView = document.getElementById('authPendingView');
             const rejectedView = document.getElementById('authRejectedView');
@@ -11849,71 +11966,29 @@ class LocalHttpServer(
             const outBoxHeader = document.getElementById('authLoggedOutBoxHeader');
             const outBoxDesc = document.getElementById('authLoggedOutBoxDesc');
 
-            if (isRejected) {
-                if (badgeText) badgeText.textContent = 'Akses Ditolak';
-                if (badgeIcon) badgeIcon.className = 'bi bi-shield-x me-1 text-danger';
-                if (badgeStatus) badgeStatus.style.background = 'rgba(239, 68, 68, 0.15)';
-
-                if (outIconBadge) {
-                    outIconBadge.classList.add('is-rejected');
-                }
-                if (outIcon) {
-                    outIcon.className = 'bi bi-shield-x';
-                }
-                if (outBadge) {
-                    outBadge.style.background = 'rgba(239, 68, 68, 0.15)';
-                    outBadge.style.color = '#ef4444';
-                    outBadge.innerHTML = '<i class="bi bi-shield-x me-1"></i> Akses Ditolak';
-                }
-                if (outTitle) {
-                    outTitle.textContent = 'Akses Web Connect Ditolak';
-                    outTitle.style.color = '#ef4444';
-                }
-                if (outDesc) {
-                    outDesc.textContent = customMessage || 'Permintaan akses Singghara Web PC telah ditolak oleh pemilik smartphone. Halaman ini aman dan tidak meminta verifikasi.';
-                }
-                if (outBoxHeader) {
-                    outBoxHeader.style.color = '#ef4444';
-                    outBoxHeader.innerHTML = '<i class="bi bi-shield-lock-fill"></i> Proteksi Keamanan Aktif';
-                }
-                if (outBoxDesc) {
-                    outBoxDesc.textContent = 'Akses ke data dan sistem diblokir demi menjaga privasi. Halaman ini tidak lagi meminta verifikasi atau kode PIN. Tekan "Hubungkan Kembali" jika ingin mengajukan izin ulang.';
-                }
-            } else {
-                if (badgeText) badgeText.textContent = 'Sesi Berakhir';
-                if (badgeIcon) badgeIcon.className = 'bi bi-box-arrow-right me-1 text-secondary';
-                if (badgeStatus) badgeStatus.style.background = 'rgba(15, 118, 110, 0.15)';
-
-                if (outIconBadge) {
-                    outIconBadge.classList.remove('is-rejected');
-                }
-                if (outIcon) {
-                    outIcon.className = 'bi bi-box-arrow-right';
-                }
-                if (outBadge) {
-                    outBadge.style.background = 'rgba(15, 118, 110, 0.15)';
-                    outBadge.style.color = '#0F766E';
-                    outBadge.innerHTML = '<i class="bi bi-check2-circle me-1"></i> Sesi Telah Berakhir';
-                }
-                if (outTitle) {
-                    outTitle.textContent = 'Anda Telah Keluar dari Web Connect';
-                    outTitle.style.color = '';
-                }
-                if (outDesc) {
-                    outDesc.textContent = customMessage || 'Sesi akses komputer (PC) telah diakhiri. Sambungan antara browser ini dan smartphone My Singghara telah ditutup dengan aman.';
-                }
-                if (outBoxHeader) {
-                    outBoxHeader.style.color = '#0F766E';
-                    outBoxHeader.innerHTML = '<i class="bi bi-shield-check"></i> Privasi & Keamanan Terlindungi';
-                }
-                if (outBoxDesc) {
-                    outBoxDesc.textContent = 'Sistem tidak meminta verifikasi ulang secara otomatis. Anda dapat menutup tab browser ini atau menghubungkan kembali sewaktu-waktu jika ingin melanjutkan pekerjaan.';
-                }
+            if (badgeText) badgeText.textContent = 'Sesi Berakhir';
+            if (badgeIcon) badgeIcon.className = 'bi bi-box-arrow-right me-1 text-secondary';
+            if (badgeStatus) badgeStatus.style.background = 'rgba(15, 118, 110, 0.15)';
+            if (outIconBadge) outIconBadge.classList.remove('is-rejected');
+            if (outIcon) outIcon.className = 'bi bi-box-arrow-right';
+            if (outBadge) {
+                outBadge.style.background = 'rgba(15, 118, 110, 0.15)';
+                outBadge.style.color = '#0F766E';
+                outBadge.innerHTML = '<i class="bi bi-check2-circle me-1"></i> Sesi Telah Berakhir';
             }
-
-            if (authPollInterval) {
-                clearInterval(authPollInterval);
-                authPollInterval = null;
+            if (outTitle) {
+                outTitle.textContent = 'Anda Telah Keluar dari Web Connect';
+                outTitle.style.color = '';
+            }
+            if (outDesc) {
+                outDesc.textContent = customMessage || 'Sesi akses komputer (PC) telah diakhiri. Sambungan antara browser ini dan smartphone My Singghara telah ditutup dengan aman.';
+            }
+            if (outBoxHeader) {
+                outBoxHeader.style.color = '#0F766E';
+                outBoxHeader.innerHTML = '<i class="bi bi-shield-check"></i> Privasi & Keamanan Terlindungi';
+            }
+            if (outBoxDesc) {
+                outBoxDesc.textContent = 'Sistem tidak meminta verifikasi ulang secara otomatis. Anda dapat menutup tab browser ini atau menghubungkan kembali sewaktu-waktu jika ingin melanjutkan pekerjaan.';
             }
         }
 

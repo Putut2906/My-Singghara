@@ -915,6 +915,7 @@ namespace MySinggharaPc
             core.Settings.AreDefaultContextMenusEnabled = true;
             core.Settings.IsStatusBarEnabled = false;
             core.Settings.AreBrowserAcceleratorKeysEnabled = false;
+            core.Settings.IsWebMessageEnabled = true;
 
             // Scrollbar hanya muncul ketika kursor berada di area scrollbar.
             try { core.AddScriptToExecuteOnDocumentCreatedAsync(HOVER_SCROLLBAR_SCRIPT); }
@@ -939,6 +940,20 @@ namespace MySinggharaPc
             };
 
             core.DownloadStarting += OnDownloadStarting;
+
+            // Jembatan web -> native: halaman Web Connect mengirim "singghara:close"
+            // saat pengguna memilih "Ya" pada pop-up putusan sesi, agar aplikasi PC
+            // ikut menutup otomatis bersama tab browser.
+            core.WebMessageReceived += delegate(object sender, CoreWebView2WebMessageReceivedEventArgs e)
+            {
+                string message = null;
+                try { message = e.TryGetWebMessageAsString(); } catch { message = null; }
+                if (string.IsNullOrEmpty(message)) return;
+                if (message == "singghara:close")
+                {
+                    try { BeginInvoke((Action)delegate { Close(); }); } catch { }
+                }
+            };
 
             webView.NavigationCompleted += delegate(object sender, CoreWebView2NavigationCompletedEventArgs e)
             {
