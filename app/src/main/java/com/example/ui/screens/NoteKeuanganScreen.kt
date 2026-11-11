@@ -1,7 +1,10 @@
 package com.example.ui.screens
 
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -42,6 +45,10 @@ import androidx.compose.material.icons.filled.Receipt
 import androidx.compose.material.icons.filled.Restaurant
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.SwapVert
+import androidx.compose.material.icons.filled.TrendingDown
+import androidx.compose.material.icons.filled.TrendingUp
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.DropdownMenu
@@ -65,11 +72,19 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
+import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -78,6 +93,8 @@ import com.example.data.CatatanKeuanganItem
 import com.example.ui.MainViewModel
 import com.example.ui.components.CustomDatePickerDialog
 import com.example.util.CatatanKeuanganHelper
+import kotlin.math.atan2
+import kotlin.math.sqrt
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -130,8 +147,6 @@ fun NoteKeuanganScreen(viewModel: MainViewModel) {
         }
     }
 
-    val totalMasuk = remember(tersaring) { tersaring.filter { it.jenis == "masuk" }.sumOf { it.jumlah } }
-    val totalKeluar = remember(tersaring) { tersaring.filter { it.jenis == "keluar" }.sumOf { it.jumlah } }
     val kelompokTanggal = remember(tersaring) {
         tersaring.groupBy { it.tanggal }.toSortedMap(compareByDescending { it })
     }
@@ -143,7 +158,7 @@ fun NoteKeuanganScreen(viewModel: MainViewModel) {
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             item {
-                RingkasanKeuanganCard(totalMasuk, totalKeluar, tersaring.size)
+                RingkasanKeuanganCard(tersaring)
             }
             item {
                 FilterKeuanganSection(
@@ -258,7 +273,27 @@ fun NoteKeuanganScreen(viewModel: MainViewModel) {
 }
 
 @Composable
-private fun RingkasanKeuanganCard(totalMasuk: Double, totalKeluar: Double, jumlahCatatan: Int) {
+private fun RingkasanKeuanganCard(items: List<CatatanKeuanganItem>) {
+    val totalMasuk = remember(items) { items.filter { it.jenis == "masuk" }.sumOf { it.jumlah } }
+    val totalKeluar = remember(items) { items.filter { it.jenis == "keluar" }.sumOf { it.jumlah } }
+    val countMasuk = remember(items) { items.count { it.jenis == "masuk" } }
+    val countKeluar = remember(items) { items.count { it.jenis == "keluar" } }
+    val perKategori = remember(items) { items.groupingBy { it.kategori }.eachCount() }
+    val saldo = totalMasuk - totalKeluar
+    val jumlahCatatan = items.size
+
+    var selectedCategory by remember { mutableStateOf("saldo") }
+    var showDetailPopup by remember { mutableStateOf(false) }
+
+    val warnaSaldo = MaterialTheme.colorScheme.primary
+    val warnaCatatan = Color(0xFF64748B)
+
+    val valSaldo = saldo.coerceAtLeast(0.0)
+    val sum = valSaldo + totalMasuk + totalKeluar
+    val angleSaldo = if (sum > 0) (valSaldo / sum * 360f).toFloat() else 120f
+    val angleMasuk = if (sum > 0) (totalMasuk / sum * 360f).toFloat() else 120f
+    val angleKeluar = if (sum > 0) (totalKeluar / sum * 360f).toFloat() else 120f
+
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.55f))
@@ -269,20 +304,198 @@ private fun RingkasanKeuanganCard(totalMasuk: Double, totalKeluar: Double, jumla
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text("Saldo Tercatat", fontSize = 11.sp, color = MaterialTheme.colorScheme.onPrimaryContainer)
-                Icon(
-                    imageVector = Icons.Default.AccountBalanceWallet,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(20.dp)
-                )
+                Column(modifier = Modifier.weight(1f)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("Saldo Tercatat", fontSize = 11.sp, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                        Icon(
+                            imageVector = Icons.Default.AccountBalanceWallet,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+                    Text(
+                        text = rupiah(saldo),
+                        fontSize = 22.sp,
+                        fontWeight = FontWeight.Black,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+
+                Spacer(modifier = Modifier.width(8.dp))
+
+                Box(modifier = Modifier.size(125.dp), contentAlignment = Alignment.Center) {
+                    val strokeWidthSaldo = if (selectedCategory == "saldo") 14.dp else 10.dp
+                    val strokeWidthMasuk = if (selectedCategory == "masuk") 14.dp else 10.dp
+                    val strokeWidthKeluar = if (selectedCategory == "keluar") 14.dp else 10.dp
+
+                    Canvas(
+                        modifier = Modifier
+                            .size(105.dp)
+                            .pointerInput(angleSaldo, angleMasuk, angleKeluar) {
+                                detectTapGestures { offset ->
+                                    val dx = offset.x - size.width / 2f
+                                    val dy = offset.y - size.height / 2f
+                                    val distance = sqrt(dx * dx + dy * dy)
+
+                                    val outerRadius = size.width / 2f
+                                    val innerRadius = outerRadius - 20.dp.toPx()
+
+                                    if (distance in innerRadius..outerRadius) {
+                                        var angle = Math.toDegrees(atan2(dy.toDouble(), dx.toDouble())).toFloat()
+                                        angle = (angle + 90f + 360f) % 360f
+
+                                        if (angleSaldo > 0f && angle in 0f..angleSaldo) {
+                                            selectedCategory = "saldo"
+                                            showDetailPopup = true
+                                        } else if (angleMasuk > 0f && angle in angleSaldo..(angleSaldo + angleMasuk)) {
+                                            selectedCategory = "masuk"
+                                            showDetailPopup = true
+                                        } else if (angleKeluar > 0f) {
+                                            selectedCategory = "keluar"
+                                            showDetailPopup = true
+                                        }
+                                    }
+                                }
+                            }
+                    ) {
+                        if (angleSaldo > 0f) {
+                            drawArc(
+                                color = warnaSaldo,
+                                startAngle = -90f,
+                                sweepAngle = angleSaldo,
+                                useCenter = false,
+                                style = Stroke(width = strokeWidthSaldo.toPx(), cap = StrokeCap.Round)
+                            )
+                        }
+                        if (angleMasuk > 0f) {
+                            drawArc(
+                                color = WARNA_MASUK,
+                                startAngle = -90f + angleSaldo,
+                                sweepAngle = angleMasuk,
+                                useCenter = false,
+                                style = Stroke(width = strokeWidthMasuk.toPx(), cap = StrokeCap.Round)
+                            )
+                        }
+                        if (angleKeluar > 0f) {
+                            drawArc(
+                                color = WARNA_KELUAR,
+                                startAngle = -90f + angleSaldo + angleMasuk,
+                                sweepAngle = angleKeluar,
+                                useCenter = false,
+                                style = Stroke(width = strokeWidthKeluar.toPx(), cap = StrokeCap.Round)
+                            )
+                        }
+
+                        if (selectedCategory != "catatan") {
+                            val nominalValue = when (selectedCategory) {
+                                "masuk" -> totalMasuk
+                                "keluar" -> totalKeluar
+                                else -> saldo
+                            }
+                            val labelValue = when (selectedCategory) {
+                                "masuk" -> "Masuk"
+                                "keluar" -> "Keluar"
+                                else -> "Saldo"
+                            }
+                            val curvedText = "$labelValue ${rupiah(nominalValue)}"
+
+                            val textStartAngle = when (selectedCategory) {
+                                "masuk" -> -90f + angleSaldo
+                                "keluar" -> -90f + angleSaldo + angleMasuk
+                                else -> -90f
+                            }
+                            val textSweepAngle = when (selectedCategory) {
+                                "masuk" -> angleMasuk.coerceAtLeast(40f)
+                                "keluar" -> angleKeluar.coerceAtLeast(40f)
+                                else -> angleSaldo.coerceAtLeast(40f)
+                            }
+                            val textColor = when (selectedCategory) {
+                                "masuk" -> Color(0xFF166534)
+                                "keluar" -> Color(0xFF991B1B)
+                                else -> warnaSaldo
+                            }
+
+                            val textMargin = 6.dp.toPx()
+                            val arcRect = android.graphics.RectF(
+                                textMargin,
+                                textMargin,
+                                size.width - textMargin,
+                                size.height - textMargin
+                            )
+                            val textArcPath = android.graphics.Path().apply {
+                                addArc(arcRect, textStartAngle, textSweepAngle)
+                            }
+
+                            val pathMeasure = android.graphics.PathMeasure(textArcPath, false)
+                            val pathLength = pathMeasure.length
+
+                            if (pathLength > 0f) {
+                                val textPaint = android.graphics.Paint().apply {
+                                    isAntiAlias = true
+                                    color = textColor.toArgb()
+                                    textSize = 8.5.sp.toPx()
+                                    typeface = android.graphics.Typeface.create(android.graphics.Typeface.DEFAULT, android.graphics.Typeface.BOLD)
+                                    textAlign = android.graphics.Paint.Align.CENTER
+                                }
+
+                                drawIntoCanvas { canvas ->
+                                    canvas.nativeCanvas.drawTextOnPath(
+                                        curvedText,
+                                        textArcPath,
+                                        pathLength / 2f,
+                                        -2.dp.toPx(),
+                                        textPaint
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        val centerTitle = when (selectedCategory) {
+                            "masuk" -> "Masuk"
+                            "keluar" -> "Keluar"
+                            "catatan" -> "Catatan"
+                            else -> "Saldo"
+                        }
+                        val centerValue = when (selectedCategory) {
+                            "masuk" -> rupiah(totalMasuk)
+                            "keluar" -> rupiah(totalKeluar)
+                            "catatan" -> "$jumlahCatatan"
+                            else -> rupiah(saldo)
+                        }
+                        val centerColor = when (selectedCategory) {
+                            "masuk" -> WARNA_MASUK
+                            "keluar" -> WARNA_KELUAR
+                            "catatan" -> warnaCatatan
+                            else -> warnaSaldo
+                        }
+
+                        Text(
+                            text = centerTitle,
+                            fontSize = 9.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer
+                        )
+                        Spacer(modifier = Modifier.height(1.dp))
+                        Text(
+                            text = centerValue,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Black,
+                            color = centerColor,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.padding(horizontal = 4.dp)
+                        )
+                    }
+                }
             }
-            Text(
-                text = rupiah(totalMasuk - totalKeluar),
-                fontSize = 22.sp,
-                fontWeight = FontWeight.Black,
-                color = MaterialTheme.colorScheme.primary
-            )
+
             Spacer(modifier = Modifier.height(10.dp))
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 StatKecil(
@@ -303,6 +516,203 @@ private fun RingkasanKeuanganCard(totalMasuk: Double, totalKeluar: Double, jumla
                     warna = MaterialTheme.colorScheme.onPrimaryContainer,
                     modifier = Modifier.weight(1f)
                 )
+            }
+
+            Spacer(modifier = Modifier.height(12.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                LegendChip(
+                    label = "Saldo",
+                    color = warnaSaldo,
+                    isSelected = selectedCategory == "saldo",
+                    onClick = {
+                        selectedCategory = "saldo"
+                        showDetailPopup = true
+                    }
+                )
+                LegendChip(
+                    label = "Masuk",
+                    color = WARNA_MASUK,
+                    isSelected = selectedCategory == "masuk",
+                    onClick = {
+                        selectedCategory = "masuk"
+                        showDetailPopup = true
+                    }
+                )
+                LegendChip(
+                    label = "Keluar",
+                    color = WARNA_KELUAR,
+                    isSelected = selectedCategory == "keluar",
+                    onClick = {
+                        selectedCategory = "keluar"
+                        showDetailPopup = true
+                    }
+                )
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                LegendChip(
+                    label = "Catatan",
+                    color = warnaCatatan,
+                    isSelected = selectedCategory == "catatan",
+                    onClick = {
+                        selectedCategory = "catatan"
+                        showDetailPopup = true
+                    }
+                )
+            }
+        }
+    }
+
+    if (showDetailPopup) {
+        Dialog(onDismissRequest = { showDetailPopup = false }) {
+            Surface(
+                shape = RoundedCornerShape(24.dp),
+                color = MaterialTheme.colorScheme.surface,
+                tonalElevation = 6.dp,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+            ) {
+                Column(
+                    modifier = Modifier
+                        .padding(24.dp)
+                        .heightIn(max = 560.dp)
+                        .verticalScroll(rememberScrollState()),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    val icon = when (selectedCategory) {
+                        "masuk" -> Icons.Default.TrendingUp
+                        "keluar" -> Icons.Default.TrendingDown
+                        "catatan" -> Icons.Default.Receipt
+                        else -> Icons.Default.AccountBalanceWallet
+                    }
+                    val themeColor = when (selectedCategory) {
+                        "masuk" -> WARNA_MASUK
+                        "keluar" -> WARNA_KELUAR
+                        "catatan" -> warnaCatatan
+                        else -> warnaSaldo
+                    }
+                    val title = when (selectedCategory) {
+                        "masuk" -> "Total Masuk"
+                        "keluar" -> "Total Keluar"
+                        "catatan" -> "Jumlah Catatan"
+                        else -> "Saldo Tercatat"
+                    }
+                    val amountText = when (selectedCategory) {
+                        "masuk" -> rupiah(totalMasuk)
+                        "keluar" -> rupiah(totalKeluar)
+                        "catatan" -> "$jumlahCatatan catatan"
+                        else -> rupiah(saldo)
+                    }
+                    val description = when (selectedCategory) {
+                        "masuk" -> "Seluruh dana masuk yang berhasil dicatatkan. Terdiri dari akumulasi sebanyak $countMasuk transaksi uang masuk."
+                        "keluar" -> "Seluruh pengeluaran yang pernah dicatatkan. Terdiri dari akumulasi sebanyak $countKeluar transaksi uang keluar."
+                        "catatan" -> "Total $jumlahCatatan catatan yang tampil (mengikuti filter aktif): $countMasuk masuk dan $countKeluar keluar, tersebar di ${perKategori.size} kategori."
+                        else -> "Selisih total masuk dikurangi total keluar dari $jumlahCatatan catatan yang tampil." +
+                            if (saldo < 0) " Saldo negatif karena pengeluaran lebih besar daripada pemasukan." else ""
+                    }
+
+                    Box(
+                        modifier = Modifier
+                            .size(64.dp)
+                            .clip(CircleShape)
+                            .background(themeColor.copy(alpha = 0.12f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = icon,
+                            contentDescription = null,
+                            tint = themeColor,
+                            modifier = Modifier.size(32.dp)
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    Text(
+                        text = title,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+
+                    Spacer(modifier = Modifier.height(4.dp))
+
+                    Text(
+                        text = amountText,
+                        fontSize = 24.sp,
+                        fontWeight = FontWeight.Black,
+                        color = themeColor,
+                        textAlign = TextAlign.Center
+                    )
+
+                    Spacer(modifier = Modifier.height(16.dp))
+
+                    Text(
+                        text = description,
+                        fontSize = 13.sp,
+                        color = MaterialTheme.colorScheme.onSurface,
+                        textAlign = TextAlign.Center,
+                        lineHeight = 18.sp,
+                        modifier = Modifier.padding(horizontal = 8.dp)
+                    )
+
+                    if (selectedCategory == "catatan" && perKategori.isNotEmpty()) {
+                        Spacer(modifier = Modifier.height(16.dp))
+                        val maxCount = perKategori.values.maxOrNull() ?: 1
+                        Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            perKategori.entries.sortedByDescending { it.value }.take(5).forEach { (kategori, count) ->
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    Text(
+                                        text = kategori,
+                                        fontSize = 10.sp,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                        modifier = Modifier.width(96.dp)
+                                    )
+                                    Box(
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .height(8.dp)
+                                            .clip(RoundedCornerShape(4.dp))
+                                            .background(MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
+                                    ) {
+                                        Box(
+                                            modifier = Modifier
+                                                .fillMaxWidth(count.toFloat() / maxCount)
+                                                .fillMaxHeight()
+                                                .clip(RoundedCornerShape(4.dp))
+                                                .background(themeColor)
+                                        )
+                                    }
+                                    Text("$count", fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                }
+                            }
+                        }
+                    }
+
+                    Spacer(modifier = Modifier.height(24.dp))
+
+                    Button(
+                        onClick = { showDetailPopup = false },
+                        colors = ButtonDefaults.buttonColors(containerColor = themeColor),
+                        shape = RoundedCornerShape(12.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("Tutup", color = Color.White, fontWeight = FontWeight.Bold)
+                    }
+                }
             }
         }
     }
