@@ -4,6 +4,7 @@ import android.content.Context
 import com.example.data.AgendaItem
 import com.example.data.AnggotaItem
 import com.example.data.BelanjaPasarItem
+import com.example.data.CatatanKeuanganItem
 import com.example.data.FcmNotification
 import com.example.data.JadwalKegiatan
 import com.example.data.LocalRepository
@@ -692,6 +693,9 @@ class LocalHttpServer(
                     }
                     path.startsWith("/api/savings") -> {
                         handleSavingsRoute(method, queryParams, body, output)
+                    }
+                    path.startsWith("/api/catatan-keuangan") || path.startsWith("/api/note_keuangan") -> {
+                        handleCatatanKeuanganRoute(method, queryParams, body, output)
                     }
                     path.startsWith("/api/dashboard") -> {
                         handleDashboardRoute(method, queryParams, body, output)
@@ -2458,6 +2462,82 @@ class LocalHttpServer(
                 }
                 sendJsonResponse(output, JSONObject().put("success", false).toString(), 400)
             }
+        }
+    }
+
+    private suspend fun handleCatatanKeuanganRoute(method: String, queryParams: Map<String, String>, body: String, output: OutputStream) {
+        fun itemDari(json: JSONObject, id: Int): CatatanKeuanganItem = CatatanKeuanganItem(
+            id = id,
+            tanggal = json.optString("tanggal", java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).format(java.util.Date())),
+            keterangan = json.optString("keterangan", "").trim(),
+            kategori = json.optString("kategori", "Lainnya").trim().ifBlank { "Lainnya" },
+            sumberDana = json.optString("sumberDana", "").trim(),
+            jenis = if (json.optString("jenis", "keluar").equals("masuk", ignoreCase = true)) "masuk" else "keluar",
+            jumlah = json.optDouble("jumlah", 0.0)
+        )
+
+        when (method) {
+            "GET" -> {
+                val daftar = repository.allCatatanKeuangan.first()
+                val arr = JSONArray()
+                daftar.forEach { item ->
+                    arr.put(JSONObject().apply {
+                        put("id", item.id)
+                        put("tanggal", item.tanggal)
+                        put("keterangan", item.keterangan)
+                        put("kategori", item.kategori)
+                        put("sumberDana", item.sumberDana)
+                        put("jenis", item.jenis)
+                        put("jumlah", item.jumlah)
+                    })
+                }
+                sendJsonResponse(output, JSONObject().put("success", true).put("items", arr).toString())
+            }
+            "POST" -> {
+                try {
+                    val item = itemDari(JSONObject(body), 0)
+                    if (item.keterangan.isBlank() || item.sumberDana.isBlank() || item.jumlah <= 0.0) {
+                        sendJsonResponse(output, JSONObject().put("success", false)
+                            .put("message", "Keterangan, sumber dana, dan jumlah wajib diisi").toString(), 400)
+                        return
+                    }
+                    repository.insertCatatanKeuangan(item)
+                    sendJsonResponse(output, JSONObject().put("success", true).toString())
+                } catch (e: Exception) {
+                    sendJsonResponse(output, JSONObject().put("success", false)
+                        .put("message", "Data catatan tidak valid").toString(), 400)
+                }
+            }
+            "PUT" -> {
+                try {
+                    val json = JSONObject(body)
+                    val id = json.optInt("id", -1)
+                    val item = itemDari(json, id)
+                    if (id <= 0 || item.keterangan.isBlank() || item.sumberDana.isBlank() || item.jumlah <= 0.0) {
+                        sendJsonResponse(output, JSONObject().put("success", false)
+                            .put("message", "Data catatan tidak valid").toString(), 400)
+                        return
+                    }
+                    repository.updateCatatanKeuangan(item)
+                    sendJsonResponse(output, JSONObject().put("success", true).toString())
+                } catch (e: Exception) {
+                    sendJsonResponse(output, JSONObject().put("success", false)
+                        .put("message", "Data catatan tidak valid").toString(), 400)
+                }
+            }
+            "DELETE" -> {
+                val idStr = queryParams["id"] ?: if (body.isNotEmpty()) JSONObject(body).optString("id") else null
+                val id = idStr?.toIntOrNull()
+                val target = id?.let { angka -> repository.allCatatanKeuangan.first().find { it.id == angka } }
+                if (target != null) {
+                    repository.deleteCatatanKeuangan(target)
+                    sendJsonResponse(output, JSONObject().put("success", true).toString())
+                } else {
+                    sendJsonResponse(output, JSONObject().put("success", false)
+                        .put("message", "Catatan tidak ditemukan").toString(), 400)
+                }
+            }
+            else -> sendJsonResponse(output, JSONObject().put("success", false).toString(), 405)
         }
     }
 
@@ -9264,6 +9344,557 @@ class LocalHttpServer(
         }
 
         /* ==================================================== */
+        /* --- NOTE KEUANGAN (PARITAS HALAMAN APLIKASI) --- */
+        /* ==================================================== */
+        .nk-page {
+            position: relative;
+            padding-bottom: 72px;
+        }
+        .nk-card {
+            background: #ffffff;
+            border: 1px solid rgba(0, 0, 0, 0.08);
+            border-radius: 16px;
+            box-shadow: 0 4px 14px rgba(0, 0, 0, 0.07);
+        }
+        .nk-summary {
+            padding: 16px;
+        }
+        .nk-label {
+            font-size: 11px;
+            color: var(--text-sub);
+        }
+        .nk-saldo {
+            font-size: 22px;
+            font-weight: 900;
+            color: var(--brand-green);
+            line-height: 1.25;
+        }
+        .nk-print-btn {
+            width: 26px;
+            height: 26px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            border: none;
+            background: transparent;
+            color: var(--brand-green);
+            font-size: 14px;
+            border-radius: 50%;
+            cursor: pointer;
+        }
+        .nk-print-btn:hover {
+            background: var(--sidebar-hover, rgba(0, 0, 0, 0.05));
+        }
+        .nk-donut {
+            position: relative;
+            width: 140px;
+            height: 140px;
+            flex-shrink: 0;
+            margin: 0 auto;
+        }
+        .nk-donut svg {
+            width: 100%;
+            height: 100%;
+            display: block;
+        }
+        .nk-donut-center {
+            position: absolute;
+            inset: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            padding: 0 20px;
+            pointer-events: none;
+        }
+        .nk-donut-title {
+            font-size: 9px;
+            font-weight: 700;
+            color: var(--text-sub);
+        }
+        .nk-donut-value {
+            font-size: 11px;
+            font-weight: 900;
+            line-height: 1.1;
+            word-break: break-word;
+        }
+        .nk-stat-mini span {
+            display: block;
+            font-size: 10px;
+            color: var(--text-sub);
+        }
+        .nk-stat-mini b {
+            font-size: 12px;
+            font-weight: 700;
+            display: block;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .nk-stat-catatan {
+            color: var(--text-main);
+        }
+        .nk-search {
+            position: relative;
+            min-width: 220px;
+            height: 56px;
+        }
+        .nk-search > i.bi-search {
+            position: absolute;
+            left: 12px;
+            top: 50%;
+            transform: translateY(-50%);
+            color: var(--text-sub);
+            font-size: 15px;
+        }
+        .nk-search input {
+            width: 100%;
+            height: 56px;
+            border-radius: 12px;
+            border: 1px solid var(--border-color);
+            background: var(--card-bg);
+            color: var(--text-main);
+            font-size: 12px;
+            padding: 0 34px 0 38px;
+            outline: none;
+        }
+        .nk-search input:focus {
+            border-color: var(--primary-color);
+            box-shadow: 0 0 0 2px rgba(54, 116, 181, 0.15);
+        }
+        .nk-clear {
+            position: absolute;
+            right: 8px;
+            top: 50%;
+            transform: translateY(-50%);
+            border: none;
+            background: transparent;
+            color: var(--text-sub);
+            font-size: 12px;
+            padding: 4px;
+        }
+        .nk-filter-dd {
+            position: relative;
+        }
+        .nk-filter-btn {
+            height: 56px;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 0 10px;
+            border-radius: 12px;
+            border: 1px solid var(--border-color);
+            background: var(--card-bg);
+            color: var(--text-sub);
+            font-size: 12px;
+            cursor: pointer;
+        }
+        .nk-filter-btn.active {
+            background: rgba(54, 116, 181, 0.12);
+            border-color: rgba(54, 116, 181, 0.5);
+            color: var(--primary-color);
+        }
+        .nk-filter-value {
+            max-width: 64px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            font-size: 10px;
+            font-weight: 600;
+        }
+        .nk-filter-menu {
+            position: absolute;
+            z-index: 1050;
+            top: 60px;
+            left: 0;
+            min-width: 170px;
+            max-height: 280px;
+            overflow-y: auto;
+            background: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 10px;
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.16);
+            padding: 4px;
+        }
+        .nk-filter-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            width: 100%;
+            border: none;
+            background: transparent;
+            color: var(--text-main);
+            font-size: 12px;
+            padding: 8px 10px;
+            border-radius: 6px;
+            text-align: left;
+        }
+        .nk-filter-item:hover {
+            background: var(--bg-hover, rgba(0, 0, 0, 0.05));
+        }
+        .nk-filter-item.active {
+            color: var(--primary-color);
+            font-weight: 700;
+        }
+        .nk-table-card {
+            overflow: hidden;
+        }
+        .nk-table-scroll {
+            overflow-x: auto;
+            -webkit-overflow-scrolling: touch;
+        }
+        table.nk-table {
+            width: 100%;
+            min-width: 820px;
+            border-collapse: collapse;
+            font-size: 11px;
+            margin: 0;
+        }
+        table.nk-table th {
+            background: rgba(54, 116, 181, 0.12);
+            color: var(--primary-color);
+            font-size: 10px;
+            font-weight: 700;
+            padding: 12px 10px;
+            border: 0.5px solid rgba(0, 0, 0, 0.07);
+            white-space: nowrap;
+            text-align: left;
+        }
+        table.nk-table td {
+            padding: 0;
+            border: 0.5px solid rgba(0, 0, 0, 0.07);
+            color: var(--text-main);
+            vertical-align: middle;
+        }
+        .nk-cell {
+            padding: 10px;
+        }
+        .nk-cell-tanggal {
+            font-size: 10px;
+        }
+        .nk-cell-ket {
+            font-size: 11px;
+            font-weight: 700;
+            max-width: 168px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+        }
+        .nk-cell-sub {
+            font-size: 10px;
+            color: var(--text-sub);
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .nk-badge-jenis {
+            display: inline-block;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 10px;
+            font-weight: 700;
+        }
+        .nk-badge-masuk {
+            color: #16A34A;
+            background: rgba(22, 163, 74, 0.1);
+        }
+        .nk-badge-keluar {
+            color: #DC2626;
+            background: rgba(220, 38, 38, 0.1);
+        }
+        .nk-amount-masuk {
+            color: #16A34A;
+            font-weight: 700;
+            font-size: 10px;
+            white-space: nowrap;
+        }
+        .nk-amount-keluar {
+            color: #DC2626;
+            font-weight: 700;
+            font-size: 10px;
+            white-space: nowrap;
+        }
+        .nk-actions {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 2px;
+        }
+        .nk-action-btn {
+            width: 28px;
+            height: 28px;
+            border: none;
+            background: transparent;
+            border-radius: 6px;
+            padding: 0;
+            font-size: 14px;
+        }
+        .nk-action-btn.edit {
+            color: var(--primary-color);
+        }
+        .nk-action-btn.delete {
+            color: #DC2626;
+        }
+        .nk-action-btn:hover {
+            background: var(--bg-hover, rgba(0, 0, 0, 0.05));
+        }
+        .nk-pagination {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
+            margin-top: 10px;
+        }
+        .nk-page-btn {
+            border: none;
+            background: transparent;
+            color: var(--primary-color);
+            font-size: 12px;
+            font-weight: 600;
+            padding: 6px 8px;
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+        }
+        .nk-page-btn:disabled {
+            color: var(--text-sub);
+            opacity: 0.5;
+        }
+        .nk-page-info {
+            font-size: 12px;
+            font-weight: 700;
+            color: var(--primary-color);
+        }
+        .nk-empty {
+            padding: 20px;
+            text-align: center;
+        }
+        .nk-empty-title {
+            font-size: 13px;
+            font-weight: 700;
+            color: var(--text-main);
+            margin-top: 8px;
+        }
+        .nk-empty-text {
+            font-size: 11px;
+            color: var(--text-sub);
+        }
+        .nk-fab {
+            position: fixed;
+            right: 24px;
+            bottom: 24px;
+            width: 56px;
+            height: 56px;
+            border: none;
+            border-radius: 16px;
+            background: var(--brand-green);
+            color: #ffffff;
+            font-size: 22px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 6px 18px rgba(54, 116, 181, 0.35);
+            z-index: 1030;
+        }
+        .nk-fab:hover {
+            filter: brightness(1.06);
+        }
+        .nk-modal-content {
+            background: var(--card-bg);
+            color: var(--text-main);
+            border: 1px solid var(--border-color);
+            border-radius: 20px;
+            padding: 18px;
+        }
+        .nk-form-modal {
+            padding: 20px;
+        }
+        .nk-form-title {
+            font-size: 16px;
+            font-weight: 700;
+            margin-bottom: 10px;
+        }
+        .nk-form-label {
+            display: block;
+            font-size: 11px;
+            font-weight: 600;
+            color: var(--text-sub);
+            margin: 6px 0 4px;
+        }
+        .nk-input {
+            background: var(--card-bg);
+            border: 1px solid var(--border-color);
+            color: var(--text-main);
+            border-radius: 10px;
+            font-size: 13px;
+            min-height: 42px;
+        }
+        .nk-input:focus {
+            background: var(--card-bg);
+            color: var(--text-main);
+            border-color: var(--primary-color);
+            box-shadow: 0 0 0 2px rgba(54, 116, 181, 0.15);
+        }
+        .nk-chips {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px;
+        }
+        .nk-form-chip {
+            border: 1px solid var(--border-color);
+            background: transparent;
+            color: var(--text-sub);
+            border-radius: 8px;
+            padding: 6px 12px;
+            font-size: 11px;
+            font-weight: 600;
+        }
+        .nk-form-chip.selected {
+            background: rgba(54, 116, 181, 0.14);
+            border-color: rgba(54, 116, 181, 0.55);
+            color: var(--primary-color);
+        }
+        .nk-auto-hint {
+            font-size: 9px;
+            margin-top: 4px;
+        }
+        .nk-sumber-field {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            min-height: 42px;
+            border: 1px solid var(--border-color);
+            border-radius: 10px;
+            background: var(--card-bg);
+            color: var(--text-main);
+            padding: 0 12px;
+            font-size: 13px;
+            cursor: pointer;
+        }
+        .nk-sumber-field:hover {
+            border-color: var(--primary-color);
+        }
+        .nk-detail-icon {
+            width: 64px;
+            height: 64px;
+            border-radius: 50%;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 28px;
+            margin: 4px auto 12px;
+        }
+        .nk-detail-title {
+            font-size: 14px;
+            font-weight: 700;
+            color: var(--text-sub);
+        }
+        .nk-detail-amount {
+            font-size: 24px;
+            font-weight: 900;
+            margin: 4px 0 10px;
+        }
+        .nk-detail-desc {
+            font-size: 13px;
+            line-height: 1.45;
+            color: var(--text-main);
+        }
+        .nk-delete-text {
+            font-size: 13px;
+            color: var(--text-main);
+        }
+        .nk-picker-backdrop {
+            position: fixed;
+            inset: 0;
+            z-index: 1090;
+            background: rgba(0, 0, 0, 0.45);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 16px;
+        }
+        .nk-picker-card {
+            width: 100%;
+            max-width: 380px;
+            max-height: 80vh;
+            overflow-y: auto;
+            background: var(--card-bg);
+            color: var(--text-main);
+            border: 1px solid var(--border-color);
+            border-radius: 18px;
+            padding: 16px;
+            box-shadow: 0 16px 40px rgba(0, 0, 0, 0.28);
+        }
+        .nk-picker-title {
+            font-size: 15px;
+            font-weight: 700;
+            margin-bottom: 8px;
+        }
+        .nk-picker-list {
+            max-height: 280px;
+            overflow-y: auto;
+        }
+        .nk-picker-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            width: 100%;
+            border: none;
+            background: transparent;
+            color: var(--text-main);
+            font-size: 13px;
+            padding: 9px 4px;
+            border-radius: 8px;
+            text-align: left;
+        }
+        .nk-picker-item:hover {
+            background: var(--bg-hover, rgba(0, 0, 0, 0.05));
+        }
+        body.dark .nk-card,
+        [data-theme="dark"] .nk-card {
+            background: var(--card-bg) !important;
+            border-color: var(--border-color) !important;
+            box-shadow: none;
+        }
+        body.dark table.nk-table th,
+        [data-theme="dark"] table.nk-table th {
+            background: rgba(56, 189, 248, 0.15);
+            color: #7dd3fc;
+            border-color: var(--border-color);
+        }
+        body.dark table.nk-table td,
+        [data-theme="dark"] table.nk-table td {
+            border-color: var(--border-color);
+        }
+        body.dark .nk-filter-btn.active,
+        [data-theme="dark"] .nk-filter-btn.active {
+            background: rgba(56, 189, 248, 0.16);
+            border-color: rgba(56, 189, 248, 0.55);
+            color: #38bdf8;
+        }
+        body.dark .nk-form-chip.selected,
+        [data-theme="dark"] .nk-form-chip.selected {
+            background: rgba(56, 189, 248, 0.16);
+            border-color: rgba(56, 189, 248, 0.55);
+            color: #38bdf8;
+        }
+        @media (max-width: 575.98px) {
+            .nk-search {
+                min-width: 100%;
+            }
+            .nk-donut {
+                width: 125px;
+                height: 125px;
+            }
+            .nk-filter-btn {
+                height: 44px;
+            }
+        }
+
+        /* ==================================================== */
         /* --- SHARE SCREEN (GOOGLE DRIVE CLOUD SYNC) --- */
         /* ==================================================== */
         @keyframes floatOffline {
@@ -10929,6 +11560,10 @@ class LocalHttpServer(
                             <i class="bi bi-wallet2 fs-5"></i>
                             <span class="nav-text">Catatan Tabungan</span>
                         </div>
+                        <div class="nav-link-item" onclick="switchTab('note_keuangan', this)" data-title="Note Keuangan">
+                            <i class="bi bi-pencil-square fs-5"></i>
+                            <span class="nav-text">Note Keuangan</span>
+                        </div>
                     </div>
                 </div>
 
@@ -12407,6 +13042,7 @@ class LocalHttpServer(
             else if (currentTab === 'manajemen_keuangan' || currentTab === 'kasir') loadKasir();
             else if (currentTab === 'shopping' || currentTab === 'daftar_belanja') loadShopping();
             else if (currentTab === 'savings' || currentTab === 'catatan_tabungan' || currentTab === 'tabungan') loadSavings();
+            else if (currentTab === 'note_keuangan') loadNoteKeuangan();
             else if (currentTab === 'agenda') loadAgenda();
             else if (currentTab === 'jadwal' || currentTab === 'jadwal_harian') loadJadwal();
             else if (currentTab === 'share') loadShare();
@@ -12544,6 +13180,7 @@ class LocalHttpServer(
                 { id: 'kasir', title: "Kasir", desc: "Sistem kasir Point of Sale (POS) cepat dengan pemindai barcode kamera, manajemen stok, dan struk belanja.", icon: "bi-shop", color: "#00897B", badge: "Point of Sale" },
                 { id: 'shopping', title: "Daftar Belanja", desc: "Daftar belanja kebutuhan harian dan pencatatan riwayat transaksi belanja.", icon: "bi-cart3", color: "#3949AB", badge: "Manajemen Belanja" },
                 { id: 'savings', title: "Catatan Tabungan", desc: "Tracking target tabungan, impian finansial, dan riwayat setoran/penarikan dana.", icon: "bi-wallet2", color: "#1E88E5", badge: "Tabungan" },
+                { id: 'note_keuangan', title: "Note Keuangan", desc: "Catat transaksi m-banking/e-wallet dengan kategori otomatis, filter, grafik saldo, tabel, dan cetak laporan.", icon: "bi-pencil-square", color: "#0EA5E9", badge: "Manajemen Mandiri" },
                 { id: 'notes', title: "Catatan", desc: "Catatan harian, ide penting, dan dokumen teks pribadi.", icon: "bi-journal-text", color: "#43A047", badge: "Produktivitas" },
                 { id: 'jadwal', title: "Jadwal Harian", desc: "Agenda aktivitas, pengingat jadwal, dan rutinitas harian terstruktur.", icon: "bi-clock-history", color: "#FB8C00", badge: "Perencana Waktu" },
                 { id: 'share', title: "Share Cloud", desc: "Berbagi dan sinkronisasi file cloud terpusat via Google Drive terintegrasi.", icon: "bi-share", color: "#3674B5", badge: "Cloud Share" },
@@ -13576,6 +14213,7 @@ class LocalHttpServer(
         ${ArisanWebScript.getScript(dol)}
         ${RekapBelanjaPasarWebScript.getScript(dol)}
         ${ManajemenKeuanganWebScript.getScript(dol)}
+        ${NoteKeuanganWebScript.getScript(dol)}
         ${NoteWebScript.getScript(dol)}
         ${ShareWebScript.getScript(dol)}
         ${TransferFileWebScript.getScript(dol)}
