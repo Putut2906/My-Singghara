@@ -37,9 +37,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
@@ -529,6 +531,9 @@ fun PemutarMusikScreen(viewModel: MainViewModel, onOpenDrawer: () -> Unit) {
                             }
                         } else {
                             val groupedByFolder = viewModel.musicPlaylist.groupBy { it.folder ?: it.artist }
+                            // Di mode terang kartu diberi latar solid + bayangan agar tidak
+                            // menyatu dengan latar; mode gelap tetap memakai tint tipis.
+                            val isLightTheme = MaterialTheme.colorScheme.surface.luminance() > 0.5f
 
                             if (selectedFolder == null) {
                                 // Render folder list view as requested
@@ -537,14 +542,23 @@ fun PemutarMusikScreen(viewModel: MainViewModel, onOpenDrawer: () -> Unit) {
                                         Card(
                                             shape = RoundedCornerShape(12.dp),
                                             colors = CardDefaults.cardColors(
-                                                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.12f)
+                                                containerColor = if (isLightTheme) {
+                                                    MaterialTheme.colorScheme.surface
+                                                } else {
+                                                    MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.12f)
+                                                }
+                                            ),
+                                            elevation = CardDefaults.cardElevation(
+                                                defaultElevation = if (isLightTheme) 3.dp else 0.dp
                                             ),
                                             modifier = Modifier
                                                 .fillMaxWidth()
                                                 .clickable { if (canHandleItemClick()) selectedFolder = folderName }
                                                 .border(
                                                     width = 1.dp,
-                                                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.15f),
+                                                    color = MaterialTheme.colorScheme.outlineVariant.copy(
+                                                        alpha = if (isLightTheme) 0.35f else 0.15f
+                                                    ),
                                                     shape = RoundedCornerShape(12.dp)
                                                 )
                                         ) {
@@ -1911,13 +1925,26 @@ fun PemutarMusikScreen(viewModel: MainViewModel, onOpenDrawer: () -> Unit) {
                             ) {
                                 itemsIndexed(currentFolderTracks) { _, track ->
                                     val isPlaying = activeTrack != null && activeTrack.uriStr == track.uriStr
+                                    val isLightTheme = MaterialTheme.colorScheme.surface.luminance() > 0.5f
+                                    val queueShape = RoundedCornerShape(10.dp)
                                     Row(
                                         modifier = Modifier
                                             .fillMaxWidth()
-                                            .clip(RoundedCornerShape(10.dp))
+                                            .shadow(
+                                                elevation = if (isLightTheme) 2.dp else 0.dp,
+                                                shape = queueShape
+                                            )
+                                            .clip(queueShape)
                                             .background(
-                                                if (isPlaying) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f)
-                                                else Color.Transparent
+                                                when {
+                                                    isPlaying -> if (isLightTheme) {
+                                                        MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
+                                                    } else {
+                                                        MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f)
+                                                    }
+                                                    isLightTheme -> MaterialTheme.colorScheme.surface
+                                                    else -> Color.Transparent
+                                                }
                                             )
                                             .clickable {
                                                 val globalIndex = viewModel.musicPlaylist.indexOfFirst { it.uriStr == track.uriStr }
@@ -2380,13 +2407,25 @@ fun TrackListItem(
     onPlayClick: () -> Unit,
     onFavoriteClick: () -> Unit
 ) {
-    val itemBgColor = if (isActive) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f)
-    else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.12f)
+    val isLightTheme = MaterialTheme.colorScheme.surface.luminance() > 0.5f
+    val itemShape = RoundedCornerShape(12.dp)
+    val itemBgColor = when {
+        isActive -> if (isLightTheme) {
+            MaterialTheme.colorScheme.primary.copy(alpha = 0.10f)
+        } else {
+            MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f)
+        }
+        isLightTheme -> MaterialTheme.colorScheme.surface
+        else -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.12f)
+    }
 
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
+            // Kartu lagu diberi bayangan hanya di mode terang agar tetap kontras
+            // dengan latar; mode gelap tetap rata tanpa bayangan.
+            .shadow(elevation = if (isLightTheme) 2.dp else 0.dp, shape = itemShape)
+            .clip(itemShape)
             .background(itemBgColor)
             .clickable { onPlayClick() }
             .padding(horizontal = 12.dp, vertical = 10.dp),

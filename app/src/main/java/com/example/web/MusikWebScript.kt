@@ -2478,14 +2478,24 @@ object MusikWebScript {
                         padding: 12px 14px;
                         background: var(--surface-subtle);
                         border: 1px solid var(--border-color);
+                        box-shadow: 0 2px 10px rgba(15, 23, 42, 0.08);
                         display: flex;
                         align-items: center;
                         justify-content: space-between;
                         cursor: pointer;
-                        transition: background 0.15s ease, border-color 0.15s ease;
+                        transition: background 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+                    }
+                    body.dark .music-card-item,
+                    [data-theme="dark"] .music-card-item {
+                        box-shadow: none;
                     }
                     .music-card-item:hover {
                         background: var(--surface-hover);
+                        box-shadow: 0 4px 14px rgba(15, 23, 42, 0.12);
+                    }
+                    body.dark .music-card-item:hover,
+                    [data-theme="dark"] .music-card-item:hover {
+                        box-shadow: none;
                     }
                     .music-card-item.active-playing {
                         background: var(--badge-bg);
