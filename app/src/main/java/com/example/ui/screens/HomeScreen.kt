@@ -315,14 +315,14 @@ private fun WeekdayDateLabel(viewModel: MainViewModel) {
 private fun Modifier.homeCardShadow(
     isLight: Boolean,
     shape: Shape,
-    elevation: Dp = 8.dp
+    elevation: Dp = 16.dp
 ): Modifier = if (isLight) {
     shadow(
         elevation = elevation,
         shape = shape,
         clip = false,
-        ambientColor = Color(0x0D0F172A),
-        spotColor = Color(0x1F0F172A)
+        ambientColor = Color(0x1A0F172A),
+        spotColor = Color(0x3E0F172A)
     )
 } else {
     this
