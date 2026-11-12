@@ -126,7 +126,8 @@ class GithubApkUpdateService : Service() {
                 context = this,
                 downloadUrl = asset.browserDownloadUrl,
                 fileName = asset.name,
-                token = config.token
+                token = config.token,
+                expectedSize = asset.size
             ) { progress, _, _ ->
                 _state.value = GithubUpdateTask.Downloading(releaseLabel, progress)
                 updateProgressNotification(releaseLabel, progress)

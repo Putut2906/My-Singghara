@@ -31,12 +31,9 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.example.BuildConfig
-import com.example.update.ApkSignatureChecker
 import com.example.update.DownloadState
 import com.example.update.DriveApkItem
-import com.example.update.GoogleDriveUpdateManager
-import kotlinx.coroutines.launch
-import java.io.File
+import com.example.update.UpdateDownloadCenter
 
 @Composable
 fun DriveUpdateAvailableDialog(
@@ -46,54 +43,28 @@ fun DriveUpdateAvailableDialog(
     onDismiss: () -> Unit
 ) {
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
-    var downloadState by remember { mutableStateOf<DownloadState>(DownloadState.Idle) }
-    var signatureConflict by remember { mutableStateOf(false) }
-
-    fun startDownloadAndInstall() {
-        scope.launch {
-            try {
-                downloadState = DownloadState.Downloading(0f, 0L, latestApk.size)
-                val downloadedFile = GoogleDriveUpdateManager.downloadDriveApk(
-                    context = context,
-                    fileItem = latestApk
-                ) { progress, downloaded, total ->
-                    downloadState = DownloadState.Downloading(progress, downloaded, total)
-                }
-
-                val verdict = ApkSignatureChecker.prepareForInstall(
-                    context = context,
-                    apkFile = downloadedFile,
-                    displayName = ApkSignatureChecker.normalizeFileName(latestApk.name)
-                )
-                if (verdict is ApkSignatureChecker.InstallVerdict.Conflict) {
-                    signatureConflict = true
-                    val savedInfo = verdict.savedFileName?.let { "APK sudah disimpan di folder Download: $it. " }.orEmpty()
-                    downloadState = DownloadState.Failed(
-                        savedInfo + "APK memakai kunci tanda tangan berbeda dari aplikasi terpasang, jadi Android menolaknya sebagai pembaruan. Hapus aplikasi lama, lalu pasang APK tersebut dari folder Download."
-                    )
-                    return@launch
-                }
-
-                downloadState = DownloadState.Installing(downloadedFile)
-                val success = GoogleDriveUpdateManager.installApk(context, downloadedFile, latestApk)
-                if (success) {
-                    downloadState = DownloadState.Completed
-                    onDismiss()
-                } else {
-                    downloadState = DownloadState.Failed("Gagal membuka installer APK. Pastikan izin instalasi aplikasi tidak dikenal telah diizinkan.")
-                }
-            } catch (e: Exception) {
-                e.printStackTrace()
-                downloadState = DownloadState.Failed(e.localizedMessage ?: "Gagal mengunduh file APK dari Google Drive.")
-            }
-        }
+    val session = UpdateDownloadCenter.drive
+    val downloadKey = remember(latestApk.id, latestApk.name, latestApk.size) {
+        "drive:${latestApk.id}|${latestApk.size}|${latestApk.name}"
     }
+    // Sesi unduh hidup di scope aplikasi, jadi saat aplikasi terkunci dialog boleh
+    // hilang dari komposisi tanpa membatalkan unduhan atau mengulangnya dari awal.
+    LaunchedEffect(downloadKey) { session.prepare(downloadKey) }
+    val downloadState by session.state.collectAsState()
+    val downloadedApk by session.downloadedApk.collectAsState()
+    val signatureConflict by session.signatureConflict.collectAsState()
 
     // Auto-start download if requested by user preference
     LaunchedEffect(Unit) {
         if (autoStartDownload) {
-            startDownloadAndInstall()
+            session.startDriveDownload(context, latestApk)
+        }
+    }
+
+    LaunchedEffect(downloadState) {
+        if (downloadState is DownloadState.Completed) {
+            session.reset()
+            onDismiss()
         }
     }
 
@@ -360,11 +331,16 @@ fun DriveUpdateAvailableDialog(
 
                 // Action Buttons
                 val isDownloading = downloadState is DownloadState.Downloading || downloadState is DownloadState.Installing
+                val readyToInstall = downloadedApk?.exists() == true
 
                 Button(
                     onClick = {
                         if (!isDownloading) {
-                            startDownloadAndInstall()
+                            if (readyToInstall) {
+                                session.installDownloaded(context, latestApk)
+                            } else {
+                                session.startDriveDownload(context, latestApk)
+                            }
                         }
                     },
                     enabled = !isDownloading,
@@ -375,16 +351,21 @@ fun DriveUpdateAvailableDialog(
                     )
                 ) {
                     Icon(
-                        imageVector = if (downloadState is DownloadState.Failed) Icons.Default.Refresh else Icons.Default.Download,
+                        imageVector = when {
+                            readyToInstall -> Icons.Default.CheckCircle
+                            downloadState is DownloadState.Failed -> Icons.Default.Refresh
+                            else -> Icons.Default.Download
+                        },
                         contentDescription = null,
                         modifier = Modifier.size(18.dp)
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = when (downloadState) {
-                            is DownloadState.Downloading -> "Sedang Mengunduh..."
-                            is DownloadState.Installing -> "Membuka Paket..."
-                            is DownloadState.Failed -> "Coba Lagi"
+                        text = when {
+                            readyToInstall -> "Pasang Pembaruan"
+                            downloadState is DownloadState.Downloading -> "Sedang Mengunduh..."
+                            downloadState is DownloadState.Installing -> "Membuka Paket..."
+                            downloadState is DownloadState.Failed -> "Coba Lagi"
                             else -> "Unduh & Pasang Pembaruan"
                         },
                         fontWeight = FontWeight.Bold,

@@ -363,6 +363,7 @@ object GitHubUpdateManager {
         downloadUrl: String,
         fileName: String,
         token: String = "",
+        expectedSize: Long = 0L,
         onProgress: (progressPercent: Float, downloadedBytes: Long, totalBytes: Long) -> Unit
     ): File = withContext(Dispatchers.IO) {
         val downloadDir = File(context.cacheDir, "apk_updates")
@@ -373,6 +374,13 @@ object GitHubUpdateManager {
         val targetFile = File(downloadDir, fileName.ifBlank { "MySingghara-update.apk" })
         if (targetFile.exists() && targetFile.length() <= 0L) {
             targetFile.delete()
+        }
+
+        // Unduhan yang selesai saat aplikasi terkunci sudah utuh di cache; pakai
+        // langsung agar pengguna tidak mengunduh ulang dari awal.
+        if (expectedSize > 0L && targetFile.length() == expectedSize) {
+            onProgress(1f, expectedSize, expectedSize)
+            return@withContext targetFile
         }
 
         var lastError: Exception? = null

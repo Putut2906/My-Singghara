@@ -30,13 +30,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
-import com.example.update.ApkSignatureChecker
 import com.example.update.DownloadState
 import com.example.update.GitHubAsset
 import com.example.update.GitHubReleaseResponse
-import com.example.update.GitHubUpdateManager
-import kotlinx.coroutines.launch
-import java.io.File
+import com.example.update.UpdateDownloadCenter
 
 @Composable
 fun AppUpdateAvailableDialog(
@@ -48,10 +45,23 @@ fun AppUpdateAvailableDialog(
     onDismiss: () -> Unit
 ) {
     val context = LocalContext.current
-    val scope = rememberCoroutineScope()
-    var downloadState by remember { mutableStateOf<DownloadState>(DownloadState.Idle) }
-    var signatureConflict by remember { mutableStateOf(false) }
-    var downloadedApk by remember { mutableStateOf<File?>(null) }
+    val session = UpdateDownloadCenter.github
+    val downloadKey = remember(apkAsset.browserDownloadUrl, apkAsset.size, apkAsset.name) {
+        "github:${apkAsset.browserDownloadUrl}|${apkAsset.size}|${apkAsset.name}"
+    }
+    // Sesi unduh hidup di scope aplikasi, jadi saat aplikasi terkunci dialog boleh
+    // hilang dari komposisi tanpa membatalkan unduhan atau menghapus progres.
+    LaunchedEffect(downloadKey) { session.prepare(downloadKey) }
+    val downloadState by session.state.collectAsState()
+    val downloadedApk by session.downloadedApk.collectAsState()
+    val signatureConflict by session.signatureConflict.collectAsState()
+
+    LaunchedEffect(downloadState) {
+        if (downloadState is DownloadState.Completed) {
+            session.reset()
+            onDismiss()
+        }
+    }
 
     Dialog(
         onDismissRequest = {
@@ -329,52 +339,11 @@ fun AppUpdateAvailableDialog(
 
                     Button(
                         onClick = {
-                            val readyFile = downloadedApk?.takeIf { it.exists() }
                             if (!isDownloading) {
-                                scope.launch {
-                                    if (readyFile != null) {
-                                        downloadState = DownloadState.Installing(readyFile)
-                                        val success = GitHubUpdateManager.installApk(context, readyFile)
-                                        if (success) {
-                                            downloadState = DownloadState.Completed
-                                            onDismiss()
-                                        } else {
-                                            downloadState = DownloadState.Failed("Gagal membuka installer APK. Pastikan izin instalasi aplikasi tidak dikenal diizinkan.")
-                                        }
-                                        return@launch
-                                    }
-                                    try {
-                                        downloadState = DownloadState.Downloading(0f, 0L, apkAsset.size)
-                                        val downloadedFile = GitHubUpdateManager.downloadApk(
-                                            context = context,
-                                            downloadUrl = apkAsset.browserDownloadUrl,
-                                            fileName = apkAsset.name.ifBlank { "MySingghara-v$newVersion.apk" },
-                                            token = token
-                                        ) { progress, downloaded, total ->
-                                            downloadState = DownloadState.Downloading(progress, downloaded, total)
-                                        }
-
-                                        val verdict = ApkSignatureChecker.prepareForInstall(
-                                            context = context,
-                                            apkFile = downloadedFile,
-                                            displayName = ApkSignatureChecker.normalizeFileName(apkAsset.name.ifBlank { "MySingghara-v$newVersion.apk" })
-                                        )
-                                        if (verdict is ApkSignatureChecker.InstallVerdict.Conflict) {
-                                            signatureConflict = true
-                                            val savedInfo = verdict.savedFileName?.let { "APK sudah disimpan di folder Download: $it. " }.orEmpty()
-                                            downloadState = DownloadState.Failed(
-                                                savedInfo + "APK memakai kunci tanda tangan berbeda dari aplikasi terpasang, jadi Android menolaknya sebagai pembaruan. Hapus aplikasi lama, lalu pasang APK tersebut dari folder Download."
-                                            )
-                                            return@launch
-                                        }
-
-                                        // Unduhan berhenti di 100%: pemasang baru dibuka saat tombol ditekan lagi.
-                                        downloadedApk = downloadedFile
-                                        downloadState = DownloadState.Idle
-                                    } catch (e: Exception) {
-                                        e.printStackTrace()
-                                        downloadState = DownloadState.Failed(e.localizedMessage ?: "Gagal mengunduh file APK.")
-                                    }
+                                if (downloadedApk?.exists() == true) {
+                                    session.installDownloaded(context)
+                                } else {
+                                    session.startGithubDownload(context, apkAsset, token)
                                 }
                             }
                         },
