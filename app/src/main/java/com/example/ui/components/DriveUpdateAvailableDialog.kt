@@ -288,14 +288,12 @@ fun DriveUpdateAvailableDialog(
                                     )
                                 }
                                 Spacer(modifier = Modifier.height(6.dp))
-                                LinearProgressIndicator(
-                                    progress = { state.progressPercent },
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .height(8.dp)
-                                        .clip(RoundedCornerShape(4.dp)),
-                                    color = Color(0xFF0F766E),
-                                    trackColor = MaterialTheme.colorScheme.surfaceVariant
+                                ZigZagSnakeProgress(
+                                    progress = state.progressPercent,
+                                    modifier = Modifier.fillMaxWidth(),
+                                    height = 42.dp,
+                                    strokeWidth = 8.dp,
+                                    color = Color(0xFF0F766E)
                                 )
                                 Spacer(modifier = Modifier.height(4.dp))
                                 Text(

@@ -239,12 +239,11 @@ fun AppUpdateAvailableDialog(
                                 Text("Mengunduh APK...", fontSize = 12.sp, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.primary)
                                 Text(state.progressText, fontSize = 12.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
                             }
-                            LinearProgressIndicator(
-                                progress = { state.progressPercent },
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(8.dp)
-                                    .clip(RoundedCornerShape(4.dp))
+                            ZigZagSnakeProgress(
+                                progress = state.progressPercent,
+                                modifier = Modifier.fillMaxWidth(),
+                                height = 42.dp,
+                                strokeWidth = 8.dp
                             )
                             Text(
                                 text = state.downloadedText,

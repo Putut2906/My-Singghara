@@ -963,27 +963,30 @@ fun MainAppContent(viewModel: MainViewModel, desktopMode: Boolean = false) {
         onDispose { updateLifecycleOwner.lifecycle.removeObserver(observer) }
     }
 
-    startupDriveUpdateResult?.let { updateData ->
-        if (viewModel.currentRoute != "tentang_aplikasi") {
-            DriveUpdateAvailableDialog(
-                latestApk = updateData.latestApk,
-                currentVersion = updateData.currentAppVersion,
-                autoStartDownload = GoogleDriveUpdateManager.isAutoInstallLatest(context),
-                onDismiss = { startupDriveUpdateResult = null }
+    // Pop up pembaruan hanya boleh tampil setelah kunci PIN terbuka.
+    if (viewModel.isAppUnlocked) {
+        startupDriveUpdateResult?.let { updateData ->
+            if (viewModel.currentRoute != "tentang_aplikasi") {
+                DriveUpdateAvailableDialog(
+                    latestApk = updateData.latestApk,
+                    currentVersion = updateData.currentAppVersion,
+                    autoStartDownload = GoogleDriveUpdateManager.isAutoInstallLatest(context),
+                    onDismiss = { startupDriveUpdateResult = null }
+                )
+            }
+        }
+
+        startupUpdateResult?.let { updateData ->
+            val cfg = remember(context) { GitHubUpdateManager.loadConfig(context) }
+            AppUpdateAvailableDialog(
+                currentVersion = updateData.currentVersion,
+                newVersion = updateData.newVersion,
+                release = updateData.release,
+                apkAsset = updateData.apkAsset,
+                token = cfg.token,
+                onDismiss = { startupUpdateResult = null }
             )
         }
-    }
-
-    startupUpdateResult?.let { updateData ->
-        val cfg = remember(context) { GitHubUpdateManager.loadConfig(context) }
-        AppUpdateAvailableDialog(
-            currentVersion = updateData.currentVersion,
-            newVersion = updateData.newVersion,
-            release = updateData.release,
-            apkAsset = updateData.apkAsset,
-            token = cfg.token,
-            onDismiss = { startupUpdateResult = null }
-        )
     }
 
     BackHandler {
