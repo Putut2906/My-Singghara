@@ -823,8 +823,10 @@ fun MarketShoppingItemCard(
                 MaterialTheme.colorScheme.surface
             }
         ),
-        elevation = lightCardElevation(),
-        elevation = CardDefaults.cardElevation(defaultElevation = if (item.sudahDibeli) 0.dp else 1.dp),
+        elevation = lightCardElevation(
+            lightElevation = 8.dp,
+            darkElevation = if (item.sudahDibeli) 0.dp else 1.dp
+        ),
         border = androidx.compose.foundation.BorderStroke(
             1.dp,
             if (item.sudahDibeli) MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f) else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)
