@@ -3053,11 +3053,11 @@ private fun AddEditMemberDialog(
     onSave: (nama: String, hubungan: String, wa: String, slot: Int, catatan: String) -> Unit
 ) {
     val context = LocalContext.current
-    var nama by remember { mutableStateOf(member?.nama ?: "") }
-    var hubungan by remember { mutableStateOf(member?.hubunganKeluarga ?: "Saudara Kandung") }
-    var wa by remember { mutableStateOf(member?.nomorWa ?: "") }
-    var slotStr by remember { mutableStateOf(member?.jumlahSlot?.toString() ?: "1") }
-    var catatan by remember { mutableStateOf(member?.catatan ?: "") }
+    var nama by remember(member) { mutableStateOf(member?.nama ?: "") }
+    var hubungan by remember(member) { mutableStateOf(member?.hubunganKeluarga ?: "Saudara Kandung") }
+    var wa by remember(member) { mutableStateOf(member?.nomorWa ?: "") }
+    var slotStr by remember(member) { mutableStateOf(member?.jumlahSlot?.toString() ?: "1") }
+    var catatan by remember(member) { mutableStateOf(member?.catatan ?: "") }
 
     val hubunganOptions = listOf(
         "Kepala Keluarga / Tuan Rumah",

@@ -81,7 +81,8 @@ object CatatanKeuanganHelper {
         if (tanggal.isBlank()) return ""
         return try {
             val masuk = SimpleDateFormat("yyyy-MM-dd", Locale.US).parse(tanggal)
-            SimpleDateFormat("EEEE, d MMMM yyyy", Locale("id", "ID")).format(masuk!!)
+                ?: return tanggal
+            SimpleDateFormat("EEEE, d MMMM yyyy", Locale("id", "ID")).format(masuk)
         } catch (e: Exception) {
             tanggal
         }

@@ -5310,12 +5310,14 @@ fun MyKasirScreen(viewModel: MainViewModel) {
                         colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
                         onClick = {
                             val idx = pendingDeleteIndex!!
+                            var removed = false
                             when (pendingDeleteType) {
                                 "stok" -> {
                                     val mutable = listStock.toMutableList()
                                     if (idx in mutable.indices) {
                                         mutable.removeAt(idx)
                                         saveStock(mutable)
+                                        removed = true
                                     }
                                 }
                                 "kasir" -> {
@@ -5323,10 +5325,14 @@ fun MyKasirScreen(viewModel: MainViewModel) {
                                     if (idx in mutable.indices) {
                                         mutable.removeAt(idx)
                                         saveCashier(mutable)
+                                        removed = true
                                     }
                                 }
                             }
-                            viewModel.showToastPopup("Data berhasil dihapus!")
+                            viewModel.showToastPopup(
+                                if (removed) "Data berhasil dihapus!"
+                                else "Data tidak ditemukan. Muat ulang daftar lalu coba lagi."
+                            )
                             pendingDeleteType = null
                             pendingDeleteIndex = null
                         }

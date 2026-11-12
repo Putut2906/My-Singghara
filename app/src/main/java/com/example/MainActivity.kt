@@ -977,15 +977,17 @@ fun MainAppContent(viewModel: MainViewModel, desktopMode: Boolean = false) {
         }
 
         startupUpdateResult?.let { updateData ->
-            val cfg = remember(context) { GitHubUpdateManager.loadConfig(context) }
-            AppUpdateAvailableDialog(
-                currentVersion = updateData.currentVersion,
-                newVersion = updateData.newVersion,
-                release = updateData.release,
-                apkAsset = updateData.apkAsset,
-                token = cfg.token,
-                onDismiss = { startupUpdateResult = null }
-            )
+            if (viewModel.currentRoute != "tentang_aplikasi") {
+                val cfg = remember(context) { GitHubUpdateManager.loadConfig(context) }
+                AppUpdateAvailableDialog(
+                    currentVersion = updateData.currentVersion,
+                    newVersion = updateData.newVersion,
+                    release = updateData.release,
+                    apkAsset = updateData.apkAsset,
+                    token = cfg.token,
+                    onDismiss = { startupUpdateResult = null }
+                )
+            }
         }
     }
 

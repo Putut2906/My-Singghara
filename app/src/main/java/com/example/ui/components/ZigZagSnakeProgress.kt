@@ -105,7 +105,7 @@ fun ZigZagSnakeProgress(
             )
         )
 
-        val clamped = progress.coerceIn(0f, 1f)
+        val clamped = if (progress.isFinite()) progress.coerceIn(0f, 1f) else 0f
         if (clamped <= 0f) return@Canvas
 
         val segLens = FloatArray(points.size - 1)
