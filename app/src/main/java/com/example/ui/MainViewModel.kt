@@ -3180,13 +3180,20 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 val activeTrack = if (currentTrackIndex in musicPlaylist.indices) {
                     musicPlaylist[currentTrackIndex]
                 } else null
-                if (activeTrack != null && tracks.none { it.uriStr == activeTrack.uriStr }) {
-                    tracks.add(0, activeTrack)
+                val merged = tracks.toMutableList()
+                if (activeTrack != null && merged.none { musicLibraryKey(it) == musicLibraryKey(activeTrack) }) {
+                    merged.add(0, activeTrack)
                 }
+                // MediaStore kadang mengembalikan baris ganda untuk satu berkas (path
+                // alias / indeks ulang). Duplikat itu membuat tombol Next terasa
+                // mengulang lagu yang sama, jadi dibuang sebelum masuk pustaka.
+                val dedupedTracks = merged.distinctBy { musicLibraryKey(it) }
                 musicPlaylist.clear()
-                musicPlaylist.addAll(tracks)
+                musicPlaylist.addAll(dedupedTracks)
                 if (activeTrack != null) {
-                    val newIndex = tracks.indexOfFirst { it.uriStr == activeTrack.uriStr }
+                    val newIndex = dedupedTracks.indexOfFirst { it.uriStr == activeTrack.uriStr }
+                        .takeIf { it >= 0 }
+                        ?: dedupedTracks.indexOfFirst { musicLibraryKey(it) == musicLibraryKey(activeTrack) }
                     if (newIndex >= 0) currentTrackIndex = newIndex
                 }
                 isMusicLoading = false
@@ -3196,6 +3203,14 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 }
             }
         }
+    }
+
+    /** Kunci identitas berkas untuk membuang baris ganda hasil pemindaian. */
+    private fun musicLibraryKey(track: MusicTrack): String {
+        val folder = (track.folder ?: track.artist).trim().lowercase(Locale.ROOT)
+        val title = track.title.trim().lowercase(Locale.ROOT)
+        // Durasi 0L berarti belum diketahui (pemindaian folder); URI jadi pembeda.
+        return if (track.durationMs > 0L) "$folder|$title|${track.durationMs}" else track.uriStr
     }
 
     private fun android.database.Cursor.textAt(index: Int): String? =

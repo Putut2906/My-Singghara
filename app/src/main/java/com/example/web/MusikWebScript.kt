@@ -333,8 +333,15 @@ object MusikWebScript {
                 .map((t, idx) => ({ idx, title: t.title.toLowerCase() }))
                 .sort((a, b) => a.title.localeCompare(b.title));
             const currentSortedPos = sortedIndices.findIndex(item => item.idx === window.currentMusicIndex);
-            const nextSortedPos = (currentSortedPos + 1) % sortedIndices.length;
-            playTrackByIndex(sortedIndices[nextSortedPos].idx);
+            const current = window.musicPlaylist[window.currentMusicIndex];
+            // Lewati salinan berkas yang sama bila pustaka memuat duplikat.
+            let targetIdx = sortedIndices[(currentSortedPos + 1) % sortedIndices.length].idx;
+            for (let step = 1; step <= sortedIndices.length; step++) {
+                const candidate = sortedIndices[(currentSortedPos + step) % sortedIndices.length].idx;
+                targetIdx = candidate;
+                if (!isSameWebAudio(window.musicPlaylist[candidate], current)) break;
+            }
+            playTrackByIndex(targetIdx);
         }
 
         function updatePlayPauseStateInUI(isPlaying) {
@@ -1117,15 +1124,26 @@ object MusikWebScript {
                         addedAt: (item.dateAddedSec || 0) * 1000
                     };
                 });
+                // Server bisa mengirim baris ganda untuk satu berkas; duplikat membuat
+                // Next terasa memutar ulang lagu yang sama.
+                const seenPhoneAudio = new Set();
+                const uniquePhoneTracks = phoneTracks.filter(function (t) {
+                    const key = String(t.title || '').toLowerCase().trim() + '|' +
+                        String(t.folder || t.artist || '').toLowerCase().trim() + '|' +
+                        (Number(t.sizeBytes) || 0) + '|' + (Number(t.durationMs) || 0);
+                    if (seenPhoneAudio.has(key)) return false;
+                    seenPhoneAudio.add(key);
+                    return true;
+                });
                 window.musicPlaylist = window.musicPlaylist
                     .filter(function (t) { return t.origin !== 'phone'; })
-                    .concat(phoneTracks);
+                    .concat(uniquePhoneTracks);
                 window.musicPhoneTracksLoaded = true;
                 if (playingId) {
                     const restoredIndex = window.musicPlaylist.findIndex(function (t) { return t.id === playingId; });
                     if (restoredIndex >= 0) window.currentMusicIndex = restoredIndex;
                 }
-                if (showToast) showCustomToast(phoneTracks.length + ' lagu dari HP berhasil dimuat.');
+                if (showToast) showCustomToast(uniquePhoneTracks.length + ' lagu dari HP berhasil dimuat.');
             } catch (err) {
                 window.musicPhoneError = 'Layanan media HP tidak terjangkau: ' + err.message;
                 if (showToast) showCustomToast('Gagal memuat musik dari HP.');
@@ -2105,20 +2123,51 @@ object MusikWebScript {
                 window.musicPlayerAudio.currentTime = 0;
                 return;
             }
-            let prevIdx = window.currentMusicIndex - 1;
-            if (prevIdx < 0) prevIdx = window.musicPlaylist.length - 1;
+            const current = window.musicPlaylist[window.currentMusicIndex];
+            const total = window.musicPlaylist.length;
+            let prevIdx = window.currentMusicIndex;
+            for (let step = 1; step <= total; step++) {
+                const idx = (window.currentMusicIndex - step + total * 2) % total;
+                prevIdx = idx;
+                if (!isSameWebAudio(window.musicPlaylist[idx], current)) break;
+            }
             playTrackByIndex(prevIdx);
+        }
+
+        // Satu berkas bisa tampil lebih dari sekali di pustaka HP (baris ganda
+        // MediaStore). Next/Previous harus melompatinya, bukan memutar ulang lagu.
+        function isSameWebAudio(a, b) {
+            if (!a || !b) return false;
+            if (a === b) return true;
+            if (a.url && b.url && a.url === b.url) return true;
+            const titleA = String(a.title || '').toLowerCase().trim();
+            const titleB = String(b.title || '').toLowerCase().trim();
+            if (!titleA || titleA !== titleB) return false;
+            const folderA = String(a.folder || a.artist || '').toLowerCase().trim();
+            const folderB = String(b.folder || b.artist || '').toLowerCase().trim();
+            if (folderA !== folderB) return false;
+            const sizeA = Number(a.sizeBytes) || 0;
+            const sizeB = Number(b.sizeBytes) || 0;
+            return sizeA === 0 || sizeB === 0 || sizeA === sizeB;
         }
 
         function nextMusicTrack(manualClick = true) {
             if (window.musicPlaylist.length === 0) return;
-            let nextIdx;
-            if (window.isMusicShuffle && window.musicPlaylist.length > 1) {
-                do {
-                    nextIdx = Math.floor(Math.random() * window.musicPlaylist.length);
-                } while (nextIdx === window.currentMusicIndex);
+            const current = window.musicPlaylist[window.currentMusicIndex];
+            const total = window.musicPlaylist.length;
+            let nextIdx = window.currentMusicIndex;
+            if (window.isMusicShuffle && total > 1) {
+                for (let attempt = 0; attempt < total; attempt++) {
+                    const candidate = Math.floor(Math.random() * total);
+                    nextIdx = candidate;
+                    if (!isSameWebAudio(window.musicPlaylist[candidate], current)) break;
+                }
             } else {
-                nextIdx = (window.currentMusicIndex + 1) % window.musicPlaylist.length;
+                for (let step = 1; step <= total; step++) {
+                    const candidate = (window.currentMusicIndex + step) % total;
+                    nextIdx = candidate;
+                    if (!isSameWebAudio(window.musicPlaylist[candidate], current)) break;
+                }
             }
             playTrackByIndex(nextIdx);
         }

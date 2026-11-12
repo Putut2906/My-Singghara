@@ -75,7 +75,17 @@ class MusicService : Service() {
             } else {
                 musicPlaylist.indices.toList()
             }
-            val remaining = candidates.filter { it != currentTrackIndex }.toMutableList()
+            // Satu berkas bisa muncul lebih dari sekali di pustaka (baris ganda
+            // MediaStore). Acak tidak perlu memilih salinan lagu yang sama.
+            val currentTrack = musicPlaylist.getOrNull(currentTrackIndex)
+            val seenAudio = HashSet<String>()
+            val remaining = candidates.filter { idx ->
+                val track = musicPlaylist[idx]
+                if (idx == currentTrackIndex) return@filter false
+                if (currentTrack != null && isSameAudio(track, currentTrack)) return@filter false
+                if (!seenAudio.add(audioIdentity(track))) return@filter false
+                true
+            }.toMutableList()
             remaining.shuffle()
             shuffleRemainingIndices.addAll(remaining)
         }
@@ -83,6 +93,27 @@ class MusicService : Service() {
         /** Kunci grup yang sama dengan tab Folder: folder asal, atau artis bila kosong. */
         fun folderKeyOf(track: MusicTrack): String =
             track.folder?.takeIf { it.isNotBlank() } ?: track.artist
+
+        /**
+         * Identitas berkas audio. Satu lagu bisa masuk pustaka lebih dari sekali
+         * (baris ganda MediaStore, path alias, atau gabungan pemindaian folder),
+         * dan duplikat itulah yang membuat Next terasa memutar ulang lagu yang sama.
+         */
+        fun audioIdentity(track: MusicTrack): String {
+            val folder = folderKeyOf(track).trim().lowercase(java.util.Locale.ROOT)
+            val title = track.title.trim().lowercase(java.util.Locale.ROOT)
+            // Durasi 0L berarti belum diketahui (hasil pemindaian folder); URI dipakai
+            // sebagai pembeda agar dua berkas berbeda tidak dianggap sama.
+            return if (track.durationMs > 0L) "$folder|$title|${track.durationMs}" else track.uriStr
+        }
+
+        fun isSameAudio(a: MusicTrack, b: MusicTrack): Boolean {
+            if (a.uriStr == b.uriStr) return true
+            val sameName = a.title.trim().equals(b.title.trim(), ignoreCase = true) &&
+                folderKeyOf(a).trim().equals(folderKeyOf(b).trim(), ignoreCase = true)
+            if (!sameName) return false
+            return a.durationMs <= 0L || b.durationMs <= 0L || a.durationMs == b.durationMs
+        }
     }
 
     private var mediaPlayer: android.media.MediaPlayer? = null
@@ -532,8 +563,38 @@ class MusicService : Service() {
         return musicPlaylist.indices.filter { folderKeyOf(musicPlaylist[it]) == key }
     }
 
+    /** Indeks berikutnya/sebelumnya yang audionya berbeda; null bila semuanya lagu yang sama. */
+    private fun distinctStepIndex(indices: List<Int>, step: Int): Int? {
+        if (indices.isEmpty()) return null
+        val current = musicPlaylist.getOrNull(currentTrackIndex)
+        val start = indices.indexOf(currentTrackIndex)
+        if (start == -1) {
+            return indices.firstOrNull { current == null || !isSameAudio(musicPlaylist[it], current) }
+                ?: indices.first()
+        }
+        for (offset in 1..indices.size) {
+            val idx = indices[Math.floorMod(start + step * offset, indices.size)]
+            if (current == null || !isSameAudio(musicPlaylist[idx], current)) return idx
+        }
+        return null
+    }
+
+    /** Kandidat setelah posisi saat ini tanpa memutar balik (mode A-Z / pengulangan mati). */
+    private fun orderedNextIndex(indices: List<Int>): Int? {
+        if (indices.isEmpty()) return null
+        val current = musicPlaylist.getOrNull(currentTrackIndex)
+        val start = indices.indexOf(currentTrackIndex)
+        if (start == -1) return indices.firstOrNull()
+        for (pos in start + 1 until indices.size) {
+            val idx = indices[pos]
+            if (current == null || !isSameAudio(musicPlaylist[idx], current)) return idx
+        }
+        return null
+    }
+
     fun playNext() {
         if (musicPlaylist.isEmpty()) return
+        val current = musicPlaylist.getOrNull(currentTrackIndex)
         val folderCandidates = getSameFolderTrackIndices()
         // Folder berisi satu trek tetap harus bisa Next: pakai seluruh antrean.
         val candidates = if (folderCandidates.size > 1) {
@@ -543,38 +604,49 @@ class MusicService : Service() {
         }
         if (candidates.isEmpty()) return
 
-        if (candidates.size == 1) {
-            playTrack(candidates[0])
-            return
-        }
-
         if (isMusicShuffle) {
             shuffleRemainingIndices.retainAll(candidates.toSet())
-            if (shuffleRemainingIndices.isEmpty()) {
-                val remaining = candidates.filter { it != currentTrackIndex }.toMutableList()
-                if (remaining.isEmpty()) remaining.addAll(candidates)
-                remaining.shuffle()
-                shuffleRemainingIndices.clear()
-                shuffleRemainingIndices.addAll(remaining)
+            // Antrean acak juga bisa memuat salinan lagu yang sedang diputar; buang.
+            var nextIndex = -1
+            while (shuffleRemainingIndices.isNotEmpty()) {
+                val idx = shuffleRemainingIndices.removeAt(0)
+                if (current == null || !isSameAudio(musicPlaylist[idx], current)) {
+                    nextIndex = idx
+                    break
+                }
             }
-            val nextIndex = shuffleRemainingIndices.removeAt(0)
+            if (nextIndex == -1) {
+                val remaining = candidates.filter { idx ->
+                    idx != currentTrackIndex &&
+                        (current == null || !isSameAudio(musicPlaylist[idx], current))
+                }.toMutableList()
+                if (remaining.isNotEmpty()) {
+                    remaining.shuffle()
+                    shuffleRemainingIndices.clear()
+                    shuffleRemainingIndices.addAll(remaining)
+                    nextIndex = shuffleRemainingIndices.removeAt(0)
+                }
+            }
+            if (nextIndex == -1) {
+                // Semua kandidat adalah salinan lagu ini: putar ulang daripada tombol diam.
+                playTrack(if (currentTrackIndex in musicPlaylist.indices) currentTrackIndex else candidates.first())
+                return
+            }
             if (currentTrackIndex in candidates) {
                 shuffleHistoryIndices.add(currentTrackIndex)
             }
             playTrack(nextIndex)
         } else {
-            val currentPosInFolder = candidates.indexOf(currentTrackIndex)
-            if (currentPosInFolder != -1) {
-                val nextPosInFolder = (currentPosInFolder + 1) % candidates.size
-                playTrack(candidates[nextPosInFolder])
-            } else {
-                playTrack(candidates[0])
-            }
+            val nextIndex = distinctStepIndex(candidates, 1)
+                ?: distinctStepIndex(musicPlaylist.indices.toList(), 1)
+            // Seluruh pustaka berisi lagu yang sama: ulangi trek itu daripada diam.
+            playTrack(nextIndex ?: candidates.first())
         }
     }
 
     fun playPrevious() {
         if (musicPlaylist.isEmpty()) return
+        val current = musicPlaylist.getOrNull(currentTrackIndex)
         val folderCandidates = getSameFolderTrackIndices()
         // Sama seperti Next: folder satu trek memakai seluruh antrean.
         val candidates = if (folderCandidates.size > 1) {
@@ -584,38 +656,30 @@ class MusicService : Service() {
         }
         if (candidates.isEmpty()) return
 
-        if (candidates.size == 1) {
-            playTrack(candidates[0])
-            return
-        }
-
         if (isMusicShuffle) {
             shuffleHistoryIndices.retainAll(candidates.toSet())
-            if (shuffleHistoryIndices.isNotEmpty()) {
-                val prevIndex = shuffleHistoryIndices.removeAt(shuffleHistoryIndices.lastIndex)
+            var prevIndex = -1
+            while (shuffleHistoryIndices.isNotEmpty()) {
+                val idx = shuffleHistoryIndices.removeAt(shuffleHistoryIndices.lastIndex)
+                if (current == null || !isSameAudio(musicPlaylist[idx], current)) {
+                    prevIndex = idx
+                    break
+                }
+            }
+            if (prevIndex != -1) {
                 if (currentTrackIndex in candidates) {
                     shuffleRemainingIndices.add(0, currentTrackIndex)
                 }
                 playTrack(prevIndex)
             } else {
-                val currentPosInFolder = candidates.indexOf(currentTrackIndex)
-                if (currentPosInFolder != -1) {
-                    var prevPosInFolder = currentPosInFolder - 1
-                    if (prevPosInFolder < 0) prevPosInFolder = candidates.lastIndex
-                    playTrack(candidates[prevPosInFolder])
-                } else {
-                    playTrack(candidates[0])
-                }
+                val target = distinctStepIndex(candidates, -1)
+                    ?: distinctStepIndex(musicPlaylist.indices.toList(), -1)
+                playTrack(target ?: candidates.first())
             }
         } else {
-            val currentPosInFolder = candidates.indexOf(currentTrackIndex)
-            if (currentPosInFolder != -1) {
-                var prevPosInFolder = currentPosInFolder - 1
-                if (prevPosInFolder < 0) prevPosInFolder = candidates.lastIndex
-                playTrack(candidates[prevPosInFolder])
-            } else {
-                playTrack(candidates[0])
-            }
+            val target = distinctStepIndex(candidates, -1)
+                ?: distinctStepIndex(musicPlaylist.indices.toList(), -1)
+            playTrack(target ?: candidates.first())
         }
     }
 
@@ -630,12 +694,8 @@ class MusicService : Service() {
             "AZ" -> {
                 val indices = getSameFolderTrackIndices()
                 if (indices.isNotEmpty()) {
-                    val currentPosInFolder = indices.indexOf(currentTrackIndex)
-                    if (currentPosInFolder != -1 && currentPosInFolder < indices.lastIndex) {
-                        playTrack(indices[currentPosInFolder + 1])
-                    } else {
-                        stopPlaybackState()
-                    }
+                    val next = orderedNextIndex(indices)
+                    if (next != null) playTrack(next) else stopPlaybackState()
                 } else {
                     if (currentTrackIndex < musicPlaylist.lastIndex) {
                         playNext()
@@ -647,12 +707,8 @@ class MusicService : Service() {
             else -> { // "NONE"
                 val indices = getSameFolderTrackIndices()
                 if (indices.isNotEmpty()) {
-                    val currentPosInFolder = indices.indexOf(currentTrackIndex)
-                    if (currentPosInFolder != -1 && currentPosInFolder < indices.lastIndex) {
-                        playTrack(indices[currentPosInFolder + 1])
-                    } else {
-                        stopPlaybackState()
-                    }
+                    val next = orderedNextIndex(indices)
+                    if (next != null) playTrack(next) else stopPlaybackState()
                 } else {
                     if (currentTrackIndex < musicPlaylist.lastIndex) {
                         playNext()
