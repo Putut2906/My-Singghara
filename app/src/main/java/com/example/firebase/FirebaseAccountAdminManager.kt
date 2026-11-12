@@ -1388,6 +1388,23 @@ service cloud.firestore {
       allow read: if isAuthenticated();
       allow write: if isAdmin();
     }
+
+    // 6. KATA SANDI AKUN EMAIL (account_credentials):
+    // - Menyimpan kata sandi login email milik pengguna agar dapat dipulihkan
+    //   setelah aplikasi dihapus data / clear data.
+    // - HANYA PEMILIK AKUN yang dapat membaca, membuat, mengubah, dan menghapus.
+    match /account_credentials/{userId} {
+      allow read, delete: if isAuthenticated() && request.auth.uid == userId;
+      allow create: if isAuthenticated() && request.auth.uid == userId &&
+        request.resource.data.uid == request.auth.uid &&
+        request.resource.data.email is string &&
+        request.resource.data.password is string &&
+        request.resource.data.password.size() >= 6;
+      allow update: if isAuthenticated() && request.auth.uid == userId &&
+        request.resource.data.uid == request.auth.uid &&
+        request.resource.data.password is string &&
+        request.resource.data.password.size() >= 6;
+    }
   }
 }
         """.trimIndent()

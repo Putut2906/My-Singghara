@@ -66,6 +66,21 @@ service cloud.firestore {
       allow read: if request.auth != null;
       allow write: if isAdmin();
     }
+
+    // Kata sandi akun email agar dapat dipulihkan setelah hapus data / clear data.
+    // Hanya pemilik akun yang boleh membaca & menulis.
+    match /account_credentials/{userId} {
+      allow read, delete: if request.auth != null && request.auth.uid == userId;
+      allow create: if request.auth != null && request.auth.uid == userId &&
+        request.resource.data.uid == request.auth.uid &&
+        request.resource.data.email is string &&
+        request.resource.data.password is string &&
+        request.resource.data.password.size() >= 6;
+      allow update: if request.auth != null && request.auth.uid == userId &&
+        request.resource.data.uid == request.auth.uid &&
+        request.resource.data.password is string &&
+        request.resource.data.password.size() >= 6;
+    }
   }
 }"""
 

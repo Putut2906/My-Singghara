@@ -98,6 +98,9 @@ class FirebaseAuthManager {
                 user.updateProfile(profileUpdates).await()
             }
 
+            // Simpan kata sandi akun ke Firestore agar tetap ada setelah data aplikasi dihapus
+            syncAccountPasswordToCloud(user.uid, cleanEmail, password)
+
             Result.success(user)
         } catch (e: Exception) {
             Result.failure(Exception(formatAuthError(e)))
@@ -131,6 +134,8 @@ class FirebaseAuthManager {
                     return@withContext Result.failure(Exception("MEMBERSHIP_HABIS: Masa membership akun Anda (${validation.tier}) telah habis pada $dateStr. Akun dinonaktifkan secara otomatis. Silakan hubungi Administrator untuk memperpanjang membership."))
                 }
                 is AccountAccessValidation.Allowed -> {
+                    if (context != null) saveUserCredentials(context, cleanEmail, password)
+                    syncAccountPasswordToCloud(user.uid, cleanEmail, password)
                     Result.success(user)
                 }
             }
@@ -150,6 +155,7 @@ class FirebaseAuthManager {
                         if (retryUser != null) {
                             val validation = FirebaseAccountAdminManager.getInstance().validateAccountAccess(retryUser.uid)
                             if (validation is AccountAccessValidation.Allowed) {
+                                syncAccountPasswordToCloud(retryUser.uid, cleanEmail, savedPwd)
                                 return@withContext Result.success(retryUser)
                             }
                         }
@@ -184,7 +190,7 @@ class FirebaseAuthManager {
         val displayName = account.displayName?.trim() ?: email
         val photoUri = account.photoUrl
         val idToken = account.idToken
-        val savedPassword = if (context != null) getSavedPasswordForEmail(context, email) else ""
+        var savedPassword = if (context != null) getSavedPasswordForEmail(context, email) else ""
 
         // Catat akun Google ini di memori lokal perangkat
         recordGoogleAccount(context, email)
@@ -206,6 +212,12 @@ class FirebaseAuthManager {
                         user.updateProfile(profileUpdates).await()
                     } catch (_: Exception) {}
 
+                    // Pulihkan kata sandi akun dari Firestore bila data lokal sudah terhapus
+                    // (hapus data / clear data / perangkat baru) agar tidak memakai kata sandi baru.
+                    if (savedPassword.isBlank()) {
+                        savedPassword = restoreAccountPasswordFromCloud(user, context)
+                    }
+
                     // Tautkan provider password (savedPassword atau bridging password otomatis)
                     // agar pengguna bisa login baik dengan Google maupun dengan Email & Password
                     val bridgePassword = VipMembershipCardGenerator.buildDeterministicPassword(email)
@@ -217,16 +229,21 @@ class FirebaseAuthManager {
                         if (context != null) {
                             saveUserCredentials(context, email, pwdToLink)
                         }
+                        syncAccountPasswordToCloud(user.uid, email, pwdToLink)
                     } catch (_: Exception) {
                         // Akun sudah memiliki kata sandi (mis. diatur di perangkat lain).
-                        // Verifikasi kata sandi deterministik agar QR Login Cepat tetap valid.
-                        if (savedPassword.isNotBlank()) {
-                            if (context != null) saveUserCredentials(context, email, savedPassword)
-                        } else {
-                            try {
-                                auth.signInWithEmailAndPassword(email, bridgePassword).await()
-                                if (context != null) saveUserCredentials(context, email, bridgePassword)
-                            } catch (_: Exception) {}
+                        // Verifikasi kata sandi tersimpan/deterministik agar QR Login Cepat tetap valid.
+                        try {
+                            auth.signInWithEmailAndPassword(email, pwdToLink).await()
+                            syncAccountPasswordToCloud(user.uid, email, pwdToLink)
+                        } catch (_: Exception) {
+                            if (pwdToLink != bridgePassword) {
+                                try {
+                                    auth.signInWithEmailAndPassword(email, bridgePassword).await()
+                                    if (context != null) saveUserCredentials(context, email, bridgePassword)
+                                    syncAccountPasswordToCloud(user.uid, email, bridgePassword)
+                                } catch (_: Exception) {}
+                            }
                         }
                     }
 
@@ -335,6 +352,7 @@ class FirebaseAuthManager {
                 if (context != null) {
                     saveUserCredentials(context, email, bridgePassword)
                 }
+                syncAccountPasswordToCloud(user.uid, email, bridgePassword)
 
                 // Proteksi status akun & membership
                 val validation = FirebaseAccountAdminManager.getInstance().validateAccountAccess(user.uid)
@@ -388,6 +406,7 @@ class FirebaseAuthManager {
                         if (context != null) {
                             saveUserCredentials(context, email, bridgePassword)
                         }
+                        syncAccountPasswordToCloud(newUser.uid, email, bridgePassword)
 
                         return@withContext Result.success(newUser)
                     }
@@ -445,6 +464,7 @@ class FirebaseAuthManager {
             if (context != null) {
                 saveUserCredentials(context, email, password)
             }
+            syncAccountPasswordToCloud(user.uid, email, password)
 
             Result.success(user)
         } catch (e: Exception) {
@@ -486,6 +506,7 @@ class FirebaseAuthManager {
                         if (context != null) {
                             saveUserCredentials(context, email, newPasswordForEmail)
                         }
+                        syncAccountPasswordToCloud(user.uid, email, newPasswordForEmail)
                     }
                     return@withContext Result.success(user)
                 }
@@ -511,6 +532,7 @@ class FirebaseAuthManager {
                     if (context != null) {
                         saveUserCredentials(context, email, pwdToUse)
                     }
+                    syncAccountPasswordToCloud(user.uid, email, pwdToUse)
                     return@withContext Result.success(user)
                 }
             } catch (e: Exception) {
@@ -635,6 +657,7 @@ class FirebaseAuthManager {
                             recordGoogleAccount(context, cleanEmail)
                         }
                     }
+                    syncAccountPasswordToCloud(user.uid, cleanEmail, pwd)
 
                     // Proteksi status akun & membership
                     val validation = FirebaseAccountAdminManager.getInstance().validateAccountAccess(user.uid)
@@ -833,27 +856,82 @@ class FirebaseAuthManager {
     }
 
     /**
+     * Menyimpan kata sandi akun email ke Firestore `account_credentials/{uid}`.
+     * Data ini dipakai untuk memulihkan kata sandi setelah aplikasi dihapus data / clear data
+     * atau saat login di perangkat baru, sehingga pengguna tidak perlu membuat kata sandi lagi.
+     */
+    suspend fun syncAccountPasswordToCloud(uid: String, email: String, password: String) {
+        if (uid.isBlank() || password.isBlank()) return
+        try {
+            val cleanEmail = VipMembershipCardGenerator.extractCleanEmail(email) ?: email.trim()
+            val firestore = com.google.firebase.firestore.FirebaseFirestore.getInstance()
+            firestore.collection("account_credentials").document(uid).set(
+                mapOf(
+                    "uid" to uid,
+                    "email" to cleanEmail,
+                    "password" to password,
+                    "updatedAt" to System.currentTimeMillis()
+                ),
+                com.google.firebase.firestore.SetOptions.merge()
+            ).await()
+        } catch (_: Exception) {}
+    }
+
+    /**
+     * Memulihkan kata sandi akun dari Firestore ke preferensi lokal setelah login.
+     * Mengembalikan kata sandi yang tersimpan, atau string kosong bila belum ada.
+     */
+    suspend fun restoreAccountPasswordFromCloud(user: FirebaseUser?, context: Context?): String =
+        withContext(Dispatchers.IO) {
+            if (user == null) return@withContext ""
+            val email = (user.email ?: "").trim()
+            if (email.isBlank()) return@withContext ""
+            try {
+                val firestore = com.google.firebase.firestore.FirebaseFirestore.getInstance()
+                val snapshot = firestore.collection("account_credentials").document(user.uid).get().await()
+                val password = snapshot.getString("password")?.trim() ?: ""
+                if (password.isNotBlank() && context != null) {
+                    saveUserCredentials(context, email, password)
+                }
+                password
+            } catch (_: Exception) {
+                ""
+            }
+        }
+
+    /**
      * Memeriksa apakah sebuah alamat email terdaftar menggunakan Akun Google
      */
     suspend fun checkIsGoogleAccount(email: String, context: Context?): Boolean = withContext(Dispatchers.IO) {
         val cleanEmail = VipMembershipCardGenerator.extractCleanEmail(email)?.lowercase() ?: email.trim().lowercase()
         if (cleanEmail.isBlank()) return@withContext false
 
-        // 1. Periksa SharedPreferences lokal pada perangkat
-        if (isGoogleAccountSaved(context, cleanEmail)) return@withContext true
-
-        // 2. Periksa via Firebase Auth fetchSignInMethods
+        // 1. Periksa provider resmi Firebase Auth lebih dulu.
+        //    Jika akun sudah memiliki provider kata sandi, jangan dianggap akun Google murni
+        //    agar pengguna tidak diminta membuat kata sandi lagi setiap login
+        //    (termasuk setelah aplikasi dihapus data / clear data).
         try {
             val methods = auth.fetchSignInMethodsForEmail(cleanEmail).await().signInMethods
-            if (methods != null && methods.contains("google.com")) return@withContext true
+            if (methods != null) {
+                if (methods.contains("password")) return@withContext false
+                if (methods.contains("google.com")) return@withContext true
+            }
         } catch (_: Exception) {}
 
-        // 3. Domain Google resmi (@gmail.com atau @googlemail.com)
+        // 2. Kata sandi akun tersimpan di perangkat (termasuk hasil pemulihan dari Firestore)
+        if (context != null && getSavedPasswordForEmail(context, cleanEmail).isNotBlank()) {
+            return@withContext false
+        }
+
+        // 3. Periksa SharedPreferences lokal pada perangkat
+        if (isGoogleAccountSaved(context, cleanEmail)) return@withContext true
+
+        // 4. Domain Google resmi (@gmail.com atau @googlemail.com)
         if (cleanEmail.endsWith("@gmail.com") || cleanEmail.endsWith("@googlemail.com")) {
             return@withContext true
         }
 
-        // 4. Periksa koleksi Firestore 'users'
+        // 5. Periksa koleksi Firestore 'users'
         try {
             val firestore = com.google.firebase.firestore.FirebaseFirestore.getInstance()
             val snap = firestore.collection("users")
@@ -863,12 +941,13 @@ class FirebaseAuthManager {
                 .await()
             if (!snap.isEmpty) {
                 val doc = snap.documents.first()
+                if (doc.getBoolean("hasPassword") == true) return@withContext false
                 val provider = doc.getString("providerId") ?: ""
                 if (provider.contains("google", ignoreCase = true)) return@withContext true
             }
         } catch (_: Exception) {}
 
-        // 5. Periksa koleksi Firestore 'tokens'
+        // 6. Periksa koleksi Firestore 'tokens'
         try {
             val firestore = com.google.firebase.firestore.FirebaseFirestore.getInstance()
             val snap = firestore.collection("tokens")
@@ -953,6 +1032,9 @@ class FirebaseAuthManager {
             ).await()
         } catch (_: Exception) {}
 
+        // 5. Simpan kata sandi ke Firestore agar tetap tersedia setelah hapus data / clear data
+        syncAccountPasswordToCloud(user.uid, cleanEmail, newPassword)
+
         Result.success("Kata sandi berhasil disimpan! Anda sekarang dapat masuk menggunakan Google maupun Email & Kata Sandi.")
     }
 
@@ -972,6 +1054,7 @@ class FirebaseAuthManager {
                 if (context != null) {
                     saveUserCredentials(context, cleanEmail, newPassword)
                 }
+                syncAccountPasswordToCloud(user.uid, cleanEmail, newPassword)
                 return@withContext Result.success("Kata sandi berhasil diperbarui!")
             } catch (e: Exception) {
                 return@withContext Result.failure(Exception(formatAuthError(e)))
@@ -989,6 +1072,7 @@ class FirebaseAuthManager {
                     if (context != null) {
                         saveUserCredentials(context, cleanEmail, newPassword)
                     }
+                    syncAccountPasswordToCloud(loggedUser.uid, cleanEmail, newPassword)
                     return@withContext Result.success("Kata sandi baru berhasil disimpan! Anda sekarang dapat masuk dengan email dan kata sandi baru.")
                 }
             } catch (_: Exception) {}
@@ -1029,7 +1113,7 @@ class FirebaseAuthManager {
             msg.contains("wrong-password", ignoreCase = true) ||
             msg.contains("no user record", ignoreCase = true) ||
             msg.contains("user-not-found", ignoreCase = true) ->
-                "Email atau kata sandi tidak cocok. Jika Anda mendaftar dengan Akun Google, silakan masuk menggunakan tombol 'Google' di bawah atau buat kata sandi akun via OTP."
+                "Email atau kata sandi tidak cocok. Jika akun Anda terdaftar melalui Google, silakan masuk menggunakan tombol 'Google' di bawah."
             msg.contains("Password should be at least 6 characters", ignoreCase = true) -> 
                 "Kata sandi minimal harus 6 karakter."
             msg.contains("network error", ignoreCase = true) || msg.contains("network-request-failed", ignoreCase = true) -> 
@@ -1063,17 +1147,27 @@ class FirebaseAuthManager {
                 val googleEmail = user.email ?: ""
                 if (googleEmail.isNotBlank()) {
                     val bridgePassword = VipMembershipCardGenerator.buildDeterministicPassword(googleEmail)
+                    // Pulihkan kata sandi dari Firestore bila data lokal sudah terhapus
                     val savedPwd = getSavedPasswordForEmail(activity, googleEmail)
+                        .ifBlank { restoreAccountPasswordFromCloud(user, activity) }
                     val pwdToLink = if (savedPwd.isNotBlank()) savedPwd else bridgePassword
                     try {
                         user.linkWithCredential(EmailAuthProvider.getCredential(googleEmail, pwdToLink)).await()
                         saveUserCredentials(activity, googleEmail, pwdToLink)
+                        syncAccountPasswordToCloud(user.uid, googleEmail, pwdToLink)
                     } catch (_: Exception) {
-                        if (savedPwd.isBlank()) {
-                            try {
-                                auth.signInWithEmailAndPassword(googleEmail, bridgePassword).await()
-                                saveUserCredentials(activity, googleEmail, bridgePassword)
-                            } catch (_: Exception) {}
+                        try {
+                            auth.signInWithEmailAndPassword(googleEmail, pwdToLink).await()
+                            saveUserCredentials(activity, googleEmail, pwdToLink)
+                            syncAccountPasswordToCloud(user.uid, googleEmail, pwdToLink)
+                        } catch (_: Exception) {
+                            if (pwdToLink != bridgePassword) {
+                                try {
+                                    auth.signInWithEmailAndPassword(googleEmail, bridgePassword).await()
+                                    saveUserCredentials(activity, googleEmail, bridgePassword)
+                                    syncAccountPasswordToCloud(user.uid, googleEmail, bridgePassword)
+                                } catch (_: Exception) {}
+                            }
                         }
                     }
                 }

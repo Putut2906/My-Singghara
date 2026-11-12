@@ -278,6 +278,8 @@ fun ProfilScreen(
                         .padding(vertical = 12.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
+                    val currentFirebaseUser = viewModel.currentFirebaseUser
+
                     // Avatar with Settings Icon at Top Right Corner
                     Box(
                         contentAlignment = Alignment.TopEnd
@@ -290,9 +292,14 @@ fun ProfilScreen(
                             size = 88.dp,
                             textSize = 28.sp,
                             isLoggedIn = viewModel.currentFirebaseUser != null,
-                            contentDescription = "Foto Profil (Klik untuk Detail Membership)",
+                            contentDescription = if (currentFirebaseUser != null) "Foto Profil (Klik untuk Detail Membership)" else "Foto Profil",
                             onClick = {
-                                showMembershipDialogInProfile = true
+                                if (viewModel.currentFirebaseUser != null) {
+                                    showMembershipDialogInProfile = true
+                                } else {
+                                    authDialogModeInProfile = AuthMode.LOGIN
+                                    showAuthDialogInProfile = true
+                                }
                             }
                         )
 
@@ -351,47 +358,49 @@ fun ProfilScreen(
                         textAlign = TextAlign.Center,
                         maxLines = 1,
                         overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
-                        modifier = Modifier.clickable {
-                            showMembershipDialogInProfile = true
-                        }
+                        modifier = if (viewModel.currentFirebaseUser != null) {
+                            Modifier.clickable { showMembershipDialogInProfile = true }
+                        } else Modifier
                     )
 
                     // Badge Kartu Membership VIP Interaktif (Klik Untuk Melihat Pop Up Kartu)
-                    Surface(
-                        shape = RoundedCornerShape(20.dp),
-                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                        border = BorderStroke(1.dp, Color(0xFFFFD700).copy(alpha = 0.6f)),
-                        modifier = Modifier
-                            .padding(top = 6.dp)
-                            .clickable { showMembershipDialogInProfile = true }
-                    ) {
-                        Row(
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    // Hanya tampil setelah pengguna login
+                    if (currentFirebaseUser != null) {
+                        Surface(
+                            shape = RoundedCornerShape(20.dp),
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                            border = BorderStroke(1.dp, Color(0xFFFFD700).copy(alpha = 0.6f)),
+                            modifier = Modifier
+                                .padding(top = 6.dp)
+                                .clickable { showMembershipDialogInProfile = true }
                         ) {
-                            Icon(
-                                imageVector = Icons.Default.Star,
-                                contentDescription = null,
-                                tint = Color(0xFFFFD700),
-                                modifier = Modifier.size(14.dp)
-                            )
-                            Text(
-                                text = "Kartu Membership VIP (Klik Detail)",
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onSurface
-                            )
-                            Icon(
-                                imageVector = Icons.Default.ChevronRight,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(14.dp)
-                            )
+                            Row(
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Star,
+                                    contentDescription = null,
+                                    tint = Color(0xFFFFD700),
+                                    modifier = Modifier.size(14.dp)
+                                )
+                                Text(
+                                    text = "Kartu Membership VIP (Klik Detail)",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                                Icon(
+                                    imageVector = Icons.Default.ChevronRight,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(14.dp)
+                                )
+                            }
                         }
                     }
 
-                    val currentFirebaseUser = viewModel.currentFirebaseUser
                     if (currentFirebaseUser != null) {
                         // Info Akun saat pengguna telah login
                         Spacer(modifier = Modifier.height(6.dp))
@@ -3048,7 +3057,8 @@ function doPost(e) {
         }
 
         // POPUP DETAIL MEMBERSHIP VIP (Muncul Saat Klik Profil User)
-        if (showMembershipDialogInProfile || viewModel.showMembershipDetailDialog) {
+        // Hanya dapat dibuka ketika pengguna sudah login
+        if ((showMembershipDialogInProfile || viewModel.showMembershipDetailDialog) && viewModel.currentFirebaseUser != null) {
             val currentFbUser = viewModel.currentFirebaseUser
             val isUserAdmin = currentFbUser?.let { viewModel.adminManager.isAdmin(it.uid) } ?: false
             val currentCloudUser = remember(currentFbUser, viewModel.accountMembershipTier, viewModel.accountMembershipEndDate) {

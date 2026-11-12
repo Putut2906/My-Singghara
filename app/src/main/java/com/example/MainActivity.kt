@@ -1668,7 +1668,11 @@ fun MainAppContent(viewModel: MainViewModel, desktopMode: Boolean = false) {
                                 isLoggedIn = viewModel.currentFirebaseUser != null,
                                 contentDescription = "Foto Profil",
                                 onClick = {
-                                    viewModel.openMembershipDetail()
+                                    if (viewModel.currentFirebaseUser != null) {
+                                        viewModel.openMembershipDetail()
+                                    } else {
+                                        viewModel.currentRoute = "profil"
+                                    }
                                     scope.launch { drawerState.close() }
                                 }
                             )
@@ -1685,7 +1689,11 @@ fun MainAppContent(viewModel: MainViewModel, desktopMode: Boolean = false) {
                                 maxLines = 1,
                                 overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
                                 modifier = Modifier.clickable {
-                                    viewModel.openMembershipDetail()
+                                    if (viewModel.currentFirebaseUser != null) {
+                                        viewModel.openMembershipDetail()
+                                    } else {
+                                        viewModel.currentRoute = "profil"
+                                    }
                                     scope.launch { drawerState.close() }
                                 }
                             )

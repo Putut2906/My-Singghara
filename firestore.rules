@@ -56,5 +56,22 @@ service cloud.firestore {
       // Hanya Admin terdaftar yang boleh mengubah konfigurasi
       allow write: if isAdmin();
     }
+
+    // 6. Koleksi 'account_credentials' untuk menyimpan kata sandi login email akun
+    // agar kata sandi dapat dipulihkan setelah aplikasi dihapus data / clear data,
+    // sehingga pengguna tidak perlu membuat kata sandi akun lagi.
+    // Dokumen hanya boleh dibaca & ditulis oleh pemilik akun (request.auth.uid == userId).
+    match /account_credentials/{userId} {
+      allow read, delete: if request.auth != null && request.auth.uid == userId;
+      allow create: if request.auth != null && request.auth.uid == userId &&
+        request.resource.data.uid == request.auth.uid &&
+        request.resource.data.email is string &&
+        request.resource.data.password is string &&
+        request.resource.data.password.size() >= 6;
+      allow update: if request.auth != null && request.auth.uid == userId &&
+        request.resource.data.uid == request.auth.uid &&
+        request.resource.data.password is string &&
+        request.resource.data.password.size() >= 6;
+    }
   }
 }

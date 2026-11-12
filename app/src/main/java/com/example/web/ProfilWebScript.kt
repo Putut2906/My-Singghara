@@ -156,12 +156,14 @@ object ProfilWebScript {
                             ${dol}{escapeHtml(profName)}
                         </h4>
 
-                        <!-- BADGE KARTU MEMBERSHIP VIP INTERAKTIF -->
+                        <!-- BADGE KARTU MEMBERSHIP VIP INTERAKTIF (HANYA TAMPIL SETELAH LOGIN) -->
+                        ${dol}{isLoggedIn ? `
                         <div class="d-inline-flex align-items-center gap-2 px-3 py-1 mt-1 rounded-pill shadow-sm" role="button" onclick="openMembershipVipModal()" title="Klik untuk melihat Detail Kartu Membership VIP" style="background: rgba(255, 215, 0, 0.12); border: 1px solid rgba(255, 215, 0, 0.65); cursor: pointer; transition: all 0.2s ease;">
                             <i class="bi bi-star-fill" style="color: #FFD700; font-size: 13px;"></i>
                             <span class="fw-bold text-main" style="font-size: 12px; letter-spacing: 0.3px;">Kartu Membership VIP (Klik Detail)</span>
                             <i class="bi bi-chevron-right text-primary" style="font-size: 12px;"></i>
                         </div>
+                        ` : ''}
 
                         <!-- INFO AKUN (JIKA LOGIN) -->
                         ${dol}{isLoggedIn ? `
@@ -402,6 +404,14 @@ object ProfilWebScript {
         // =========================================================================
         function openMembershipVipModal() {
             const pData = window.profileData || {};
+            // Kartu membership hanya untuk pengguna yang sudah login
+            const isWebLoggedIn = !!(pData.isLoggedIn || pData.currentUid || pData.userEmail);
+            if (!isWebLoggedIn) {
+                if (typeof showCustomToast === 'function') {
+                    showCustomToast('Silakan login terlebih dahulu untuk melihat kartu membership.', 2500);
+                }
+                return;
+            }
             const profName = pData.profileName || 'Pengguna Setia';
             const userEmail = pData.userEmail || (pData.currentUid ? 'Akun Terhubung' : 'Guest (Lokal)');
             const uid = pData.currentUid || 'VIP-MEMBER-USER';

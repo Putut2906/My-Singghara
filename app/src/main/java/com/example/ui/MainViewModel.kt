@@ -121,6 +121,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     var showMembershipDetailDialog by mutableStateOf(false)
 
     fun openMembershipDetail(user: com.example.firebase.CloudUserItem? = null) {
+        // Kartu membership hanya untuk pengguna yang sudah login
+        if (user == null && currentFirebaseUser == null) return
         selectedMembershipUser = user
         showMembershipDetailDialog = true
     }
@@ -700,6 +702,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun refreshAuthUser() {
         currentFirebaseUser = authManager.currentUser
+        currentFirebaseUser?.let { user ->
+            viewModelScope.launch {
+                try {
+                    authManager.restoreAccountPasswordFromCloud(user, getApplication())
+                } catch (_: Exception) {}
+            }
+        }
         syncUserProfileFromFirebase(currentFirebaseUser)
         syncFcmTokenToFirestore()
         setupAdminMessagesListener()
@@ -2671,6 +2680,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     viewModelScope.launch {
                         try {
                             adminManager.syncAdminUidsFromCloud()
+                        } catch (_: Exception) {}
+                        // Pulihkan kata sandi akun dari Firestore setelah login agar tidak
+                        // perlu membuat kata sandi lagi ketika data aplikasi sudah dihapus.
+                        try {
+                            authManager.restoreAccountPasswordFromCloud(u, getApplication())
                         } catch (_: Exception) {}
                     }
                 }
