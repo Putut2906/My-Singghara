@@ -319,8 +319,7 @@ fun VipMembershipCard(
     val effectivePassword = remember(userPassword, userEmail) {
         (if (userPassword.isNotBlank()) userPassword
         else FirebaseAuthManager.getSavedPasswordForEmail(context, userEmail)).ifBlank {
-            val googleId = userEmail.hashCode().toString()
-            "GAuth#${googleId.take(10)}_${userEmail.take(6).replace(Regex("[^a-zA-Z0-9]"), "x")}!9"
+            VipMembershipCardGenerator.buildDeterministicPassword(userEmail)
         }
     }
 

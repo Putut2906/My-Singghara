@@ -208,8 +208,7 @@ class FirebaseAuthManager {
 
                     // Tautkan provider password (savedPassword atau bridging password otomatis)
                     // agar pengguna bisa login baik dengan Google maupun dengan Email & Password
-                    val googleId = account.id ?: email.hashCode().toString()
-                    val bridgePassword = "GAuth#${googleId.take(10)}_${email.take(6).replace(Regex("[^a-zA-Z0-9]"), "x")}!9"
+                    val bridgePassword = VipMembershipCardGenerator.buildDeterministicPassword(email)
                     val pwdToLink = if (savedPassword.isNotBlank()) savedPassword else bridgePassword
 
                     try {
@@ -219,8 +218,15 @@ class FirebaseAuthManager {
                             saveUserCredentials(context, email, pwdToLink)
                         }
                     } catch (_: Exception) {
-                        if (context != null && savedPassword.isNotBlank()) {
-                            saveUserCredentials(context, email, savedPassword)
+                        // Akun sudah memiliki kata sandi (mis. diatur di perangkat lain).
+                        // Verifikasi kata sandi deterministik agar QR Login Cepat tetap valid.
+                        if (savedPassword.isNotBlank()) {
+                            if (context != null) saveUserCredentials(context, email, savedPassword)
+                        } else {
+                            try {
+                                auth.signInWithEmailAndPassword(email, bridgePassword).await()
+                                if (context != null) saveUserCredentials(context, email, bridgePassword)
+                            } catch (_: Exception) {}
                         }
                     }
 
@@ -287,9 +293,8 @@ class FirebaseAuthManager {
             }
         }
 
-        // 2. Bridging Deterministik Aman berbasis Google Account ID & Email
-        val googleId = account.id ?: email.hashCode().toString()
-        val bridgePassword = "GAuth#${googleId.take(10)}_${email.take(6).replace(Regex("[^a-zA-Z0-9]"), "x")}!9"
+        // 2. Bridging Deterministik Aman berbasis Email (harus sama dengan QR Login Cepat)
+        val bridgePassword = VipMembershipCardGenerator.buildDeterministicPassword(email)
 
         // Coba masuk terlebih dahulu menggunakan kata sandi tersimpan (jika user pernah daftar via email)
         if (savedPassword.isNotBlank()) {
@@ -489,10 +494,7 @@ class FirebaseAuthManager {
 
         // Jika Google credential tidak bisa login langsung, set password baru via reset
         val pwdToUse = if (newPasswordForEmail.isNotBlank()) newPasswordForEmail
-        else {
-            val googleId = account.id ?: email.hashCode().toString()
-            "GAuth#${googleId.take(10)}_${email.take(6).replace(Regex("[^a-zA-Z0-9]"), "x")}!9"
-        }
+        else VipMembershipCardGenerator.buildDeterministicPassword(email)
 
         val updateResult = confirmPasswordReset(email, pwdToUse)
         if (updateResult.isSuccess) {
@@ -618,8 +620,7 @@ class FirebaseAuthManager {
         if (savedPwd.isNotBlank() && !candidates.contains(savedPwd)) candidates.add(savedPwd)
 
         // Tambahkan deterministic bridge password untuk akun pendaftar Google
-        val googleId = cleanEmail.hashCode().toString()
-        val bridgePwd = "GAuth#${googleId.take(10)}_${cleanEmail.take(6).replace(Regex("[^a-zA-Z0-9]"), "x")}!9"
+        val bridgePwd = VipMembershipCardGenerator.buildDeterministicPassword(cleanEmail)
         if (!candidates.contains(bridgePwd)) candidates.add(bridgePwd)
 
         var lastError: Exception? = null
@@ -1057,6 +1058,26 @@ class FirebaseAuthManager {
                 val user = authResult.user
                     ?: return@withContext Result.failure(Exception("Akun Google tidak dapat dibaca. Silakan coba kembali."))
 
+                // Alur browser tidak menautkan provider password; lakukan di sini agar
+                // QR Login Cepat pada kartu membership memiliki kata sandi yang valid.
+                val googleEmail = user.email ?: ""
+                if (googleEmail.isNotBlank()) {
+                    val bridgePassword = VipMembershipCardGenerator.buildDeterministicPassword(googleEmail)
+                    val savedPwd = getSavedPasswordForEmail(activity, googleEmail)
+                    val pwdToLink = if (savedPwd.isNotBlank()) savedPwd else bridgePassword
+                    try {
+                        user.linkWithCredential(EmailAuthProvider.getCredential(googleEmail, pwdToLink)).await()
+                        saveUserCredentials(activity, googleEmail, pwdToLink)
+                    } catch (_: Exception) {
+                        if (savedPwd.isBlank()) {
+                            try {
+                                auth.signInWithEmailAndPassword(googleEmail, bridgePassword).await()
+                                saveUserCredentials(activity, googleEmail, bridgePassword)
+                            } catch (_: Exception) {}
+                        }
+                    }
+                }
+
                 val validation = FirebaseAccountAdminManager.getInstance().validateAccountAccess(user.uid)
                 when (validation) {
                     is AccountAccessValidation.Deactivated -> {
@@ -1128,7 +1149,16 @@ class FirebaseAuthManager {
                 val cleanEmail = VipMembershipCardGenerator.extractCleanEmail(email) ?: email.trim()
                 val prefs = context.getSharedPreferences("auth_credentials_prefs", Context.MODE_PRIVATE)
                 val direct = prefs.getString("pwd_${cleanEmail.lowercase()}", "") ?: ""
-                if (direct.isNotBlank()) direct else prefs.getString("saved_password", "") ?: ""
+                if (direct.isNotBlank()) {
+                    direct
+                } else {
+                    val savedEmail = prefs.getString("saved_email", "") ?: ""
+                    if (savedEmail.equals(cleanEmail, ignoreCase = true)) {
+                        prefs.getString("saved_password", "") ?: ""
+                    } else {
+                        ""
+                    }
+                }
             } catch (e: Exception) {
                 ""
             }

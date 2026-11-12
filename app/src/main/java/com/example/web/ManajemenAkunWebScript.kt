@@ -1601,26 +1601,41 @@ object ManajemenAkunWebScript {
             if (qrContainer) {
                 qrContainer.innerHTML = '';
                 if (typeof QRCode !== 'undefined') {
-                    try {
-                        const qrPayload = JSON.stringify({
-                            action: 'quick_login',
-                            email: (user.email || '').trim(),
-                            uid: user.uid || '',
-                            role: isAdmin ? 'admin' : 'member'
-                        });
-                        new QRCode(qrContainer, {
-                            text: qrPayload,
-                            width: 110,
-                            height: 110,
-                            colorDark: '#0f172a',
-                            colorLight: '#ffffff',
-                            correctLevel: QRCode.CorrectLevel.M
-                        });
-                    } catch(e) {
-                        qrContainer.innerHTML = `<i class="bi bi-qr-code fs-1 text-dark"></i>`;
+                    const emailQr = (user.email || '').trim();
+                    const fallbackPayload = JSON.stringify({
+                        action: 'quick_login',
+                        email: emailQr,
+                        uid: user.uid || '',
+                        role: isAdmin ? 'admin' : 'member'
+                    });
+                    const renderQr = function (payload) {
+                        qrContainer.innerHTML = '';
+                        try {
+                            new QRCode(qrContainer, {
+                                text: payload,
+                                width: 110,
+                                height: 110,
+                                colorDark: '#0f172a',
+                                colorLight: '#ffffff',
+                                correctLevel: QRCode.CorrectLevel.M
+                            });
+                        } catch (e) {
+                            qrContainer.innerHTML = '<i class="bi bi-qr-code fs-1 text-dark"></i>';
+                        }
+                    };
+                    if (!emailQr) {
+                        renderQr(fallbackPayload);
+                    } else {
+                        // Payload dari server memuat kata sandi akun agar Login Cepat via scan berhasil
+                        fetch('/api/vip-card-qr?email=' + encodeURIComponent(emailQr))
+                            .then(function (res) { return res.ok ? res.json() : null; })
+                            .then(function (data) {
+                                renderQr(data && data.success && data.payload ? data.payload : fallbackPayload);
+                            })
+                            .catch(function () { renderQr(fallbackPayload); });
                     }
                 } else {
-                    qrContainer.innerHTML = `<i class="bi bi-qr-code fs-1 text-dark"></i>`;
+                    qrContainer.innerHTML = '<i class="bi bi-qr-code fs-1 text-dark"></i>';
                 }
             }
 

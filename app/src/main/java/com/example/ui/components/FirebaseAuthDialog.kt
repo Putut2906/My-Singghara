@@ -93,18 +93,6 @@ fun FirebaseAuthDialog(
     var showGoogleAccountEmailNotice by remember { mutableStateOf(false) }
     var googleRegisteredEmail by remember { mutableStateOf("") }
 
-    // Dialog Pembuatan Kata Sandi Setelah Daftar/Login Google
-    var showSetPasswordAfterGoogleDialog by remember { mutableStateOf(false) }
-    var pendingGoogleUser by remember { mutableStateOf<com.google.firebase.auth.FirebaseUser?>(null) }
-    var pendingGoogleUserName by remember { mutableStateOf("") }
-    var pendingGoogleUserEmail by remember { mutableStateOf("") }
-    var googleAccountPasswordInput by remember { mutableStateOf("") }
-    var googleAccountPasswordConfirm by remember { mutableStateOf("") }
-    var googleAccountPasswordVisible by remember { mutableStateOf(false) }
-    var googleAccountPasswordConfirmVisible by remember { mutableStateOf(false) }
-    var googleAccountPasswordLoading by remember { mutableStateOf(false) }
-    var googleAccountPasswordError by remember { mutableStateOf<String?>(null) }
-
     // Generated OTP info
     var generatedOtp by remember { mutableStateOf("") }
     var otpTargetEmailOrPhone by remember { mutableStateOf("") }
@@ -120,27 +108,14 @@ fun FirebaseAuthDialog(
     ) {
         viewModel.refreshAuthUser()
         val cleanAccEmail = VipMembershipCardGenerator.extractCleanEmail(user.email ?: fallbackEmail) ?: fallbackEmail.trim()
-        val savedPwd = FirebaseAuthManager.getSavedPasswordForEmail(context, cleanAccEmail)
 
-        // Jika pengguna belum memiliki kata sandi tersimpan, tawarkan pembuatan kata sandi akun
-        // agar bisa login langsung dengan email & kata sandi
-        if (savedPwd.isBlank()) {
-            pendingGoogleUser = user
-            pendingGoogleUserName = user.displayName ?: fallbackName
-            pendingGoogleUserEmail = cleanAccEmail
-            googleAccountPasswordInput = ""
-            googleAccountPasswordConfirm = ""
-            googleAccountPasswordError = null
-            showSetPasswordAfterGoogleDialog = true
-        } else {
-            viewModel.showAuthSuccessPopup(
-                isRegister = (currentMode == AuthMode.REGISTER),
-                userName = user.displayName ?: fallbackName,
-                userEmail = cleanAccEmail,
-                photoUrl = photoUrl ?: user.photoUrl?.toString()
-            )
-            onDismissRequest()
-        }
+        viewModel.showAuthSuccessPopup(
+            isRegister = (currentMode == AuthMode.REGISTER),
+            userName = user.displayName ?: fallbackName,
+            userEmail = cleanAccEmail,
+            photoUrl = photoUrl ?: user.photoUrl?.toString()
+        )
+        onDismissRequest()
     }
 
     fun startBrowserGoogleSignIn() {
@@ -1616,207 +1591,6 @@ fun FirebaseAuthDialog(
 
                     TextButton(onClick = { showGoogleAccountEmailNotice = false }) {
                         Text("Tutup", fontSize = 12.sp)
-                    }
-                }
-            }
-        }
-    }
-
-    if (showSetPasswordAfterGoogleDialog && pendingGoogleUser != null) {
-        Dialog(
-            onDismissRequest = {
-                showSetPasswordAfterGoogleDialog = false
-                viewModel.showAuthSuccessPopup(
-                    isRegister = (currentMode == AuthMode.REGISTER),
-                    userName = pendingGoogleUserName,
-                    userEmail = pendingGoogleUserEmail
-                )
-                pendingGoogleUser = null
-                onDismissRequest()
-            },
-            properties = DialogProperties(usePlatformDefaultWidth = false)
-        ) {
-            Surface(
-                modifier = Modifier
-                    .fillMaxWidth(0.92f)
-                    .wrapContentHeight()
-                    .padding(vertical = 16.dp),
-                shape = RoundedCornerShape(20.dp),
-                color = MaterialTheme.colorScheme.surface,
-                tonalElevation = 6.dp
-            ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(20.dp)
-                        .verticalScroll(rememberScrollState()),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(54.dp)
-                            .background(Color(0xFF0F766E).copy(alpha = 0.15f), CircleShape),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Key,
-                            contentDescription = null,
-                            tint = Color(0xFF0F766E),
-                            modifier = Modifier.size(28.dp)
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.height(12.dp))
-
-                    Text(
-                        text = "Buat Kata Sandi Akun",
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 18.sp,
-                        color = MaterialTheme.colorScheme.onSurface
-                    )
-
-                    Spacer(modifier = Modifier.height(6.dp))
-
-                    Text(
-                        text = "Halo, $pendingGoogleUserName!\nAkun Google Anda ($pendingGoogleUserEmail) berhasil masuk.\n\nBuat kata sandi akun sekarang agar Anda juga bisa masuk langsung menggunakan Email & Kata Sandi kapan saja di perangkat apa pun:",
-                        fontSize = 12.sp,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        textAlign = TextAlign.Center
-                    )
-
-                    Spacer(modifier = Modifier.height(16.dp))
-
-                    if (!googleAccountPasswordError.isNullOrBlank()) {
-                        Surface(
-                            shape = RoundedCornerShape(8.dp),
-                            color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.8f),
-                            modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp)
-                        ) {
-                            Text(
-                                text = googleAccountPasswordError!!,
-                                color = MaterialTheme.colorScheme.onErrorContainer,
-                                fontSize = 11.5.sp,
-                                modifier = Modifier.padding(10.dp),
-                                textAlign = TextAlign.Center
-                            )
-                        }
-                    }
-
-                    // Field Kata Sandi Baru
-                    OutlinedTextField(
-                        value = googleAccountPasswordInput,
-                        onValueChange = { googleAccountPasswordInput = it; googleAccountPasswordError = null },
-                        label = { Text("Kata Sandi Baru (min. 6 karakter)", fontSize = 12.sp) },
-                        leadingIcon = { Icon(Icons.Default.Lock, null, modifier = Modifier.size(18.dp)) },
-                        trailingIcon = {
-                            IconButton(onClick = { googleAccountPasswordVisible = !googleAccountPasswordVisible }) {
-                                Icon(
-                                    imageVector = if (googleAccountPasswordVisible) Icons.Default.Visibility else Icons.Default.VisibilityOff,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(18.dp)
-                                )
-                            }
-                        },
-                        visualTransformation = if (googleAccountPasswordVisible) VisualTransformation.None else PasswordVisualTransformation(),
-                        singleLine = true,
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(12.dp)
-                    )
-
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    // Field Konfirmasi Kata Sandi
-                    OutlinedTextField(
-                        value = googleAccountPasswordConfirm,
-                        onValueChange = { googleAccountPasswordConfirm = it; googleAccountPasswordError = null },
-                        label = { Text("Konfirmasi Kata Sandi", fontSize = 12.sp) },
-                        leadingIcon = { Icon(Icons.Default.Lock, null, modifier = Modifier.size(18.dp)) },
-                        trailingIcon = {
-                            IconButton(onClick = { googleAccountPasswordConfirmVisible = !googleAccountPasswordConfirmVisible }) {
-                                Icon(
-                                    imageVector = if (googleAccountPasswordConfirmVisible) Icons.Default.Visibility else Icons.Default.VisibilityOff,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(18.dp)
-                                )
-                            }
-                        },
-                        visualTransformation = if (googleAccountPasswordConfirmVisible) VisualTransformation.None else PasswordVisualTransformation(),
-                        singleLine = true,
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-                        modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(12.dp)
-                    )
-
-                    Spacer(modifier = Modifier.height(16.dp))
-
-                    // Tombol Simpan Kata Sandi & Lanjutkan
-                    Button(
-                        onClick = {
-                            if (googleAccountPasswordInput.length < 6) {
-                                googleAccountPasswordError = "Kata sandi minimal harus 6 karakter."
-                                viewModel.showToastPopup("Mohon isi Kata Sandi Baru minimal 6 karakter!")
-                                return@Button
-                            }
-                            if (googleAccountPasswordInput != googleAccountPasswordConfirm) {
-                                googleAccountPasswordError = "Konfirmasi kata sandi tidak cocok."
-                                viewModel.showToastPopup("Konfirmasi Kata Sandi tidak cocok!")
-                                return@Button
-                            }
-
-                            googleAccountPasswordLoading = true
-                            googleAccountPasswordError = null
-                            scope.launch {
-                                val setRes = viewModel.authManager.setUserPasswordForGoogleAccount(
-                                    user = pendingGoogleUser!!,
-                                    newPassword = googleAccountPasswordInput,
-                                    context = context
-                                )
-                                googleAccountPasswordLoading = false
-                                setRes.onSuccess { msg ->
-                                    viewModel.showToastPopup("Kata sandi tersimpan! Anda sekarang bisa masuk dengan email & kata sandi.")
-                                    viewModel.refreshAuthUser()
-                                    viewModel.showAuthSuccessPopup(
-                                        isRegister = (currentMode == AuthMode.REGISTER),
-                                        userName = pendingGoogleUserName,
-                                        userEmail = pendingGoogleUserEmail
-                                    )
-                                    showSetPasswordAfterGoogleDialog = false
-                                    pendingGoogleUser = null
-                                    onDismissRequest()
-                                }.onFailure { err ->
-                                    googleAccountPasswordError = err.message ?: "Gagal menyimpan kata sandi."
-                                }
-                            }
-                        },
-                        enabled = !googleAccountPasswordLoading,
-                        shape = RoundedCornerShape(12.dp),
-                        modifier = Modifier.fillMaxWidth().height(46.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0F766E))
-                    ) {
-                        if (googleAccountPasswordLoading) {
-                            CircularProgressIndicator(color = Color.White, modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
-                        } else {
-                            Text("Simpan Kata Sandi & Selesai", fontWeight = FontWeight.Bold, fontSize = 13.5.sp)
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(8.dp))
-
-                    // Tombol Lewati
-                    TextButton(
-                        onClick = {
-                            showSetPasswordAfterGoogleDialog = false
-                            viewModel.showAuthSuccessPopup(
-                                isRegister = (currentMode == AuthMode.REGISTER),
-                                userName = pendingGoogleUserName,
-                                userEmail = pendingGoogleUserEmail
-                            )
-                            pendingGoogleUser = null
-                            onDismissRequest()
-                        }
-                    ) {
-                        Text("Lewati (Nanti Saja)", fontSize = 12.sp)
                     }
                 }
             }

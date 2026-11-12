@@ -38,6 +38,7 @@ import com.example.ht.HandyTalkyManager
 import com.example.media.PhoneMediaScanner
 import com.example.telegram.TelegramAiEngine
 import com.example.telegram.TelegramBotManager
+import com.example.utils.VipMembershipCardGenerator
 import com.google.firebase.auth.FirebaseAuth
 import java.io.FileInputStream
 import java.io.OutputStream
@@ -696,6 +697,9 @@ class LocalHttpServer(
                     }
                     path.startsWith("/api/catatan-keuangan") || path.startsWith("/api/note_keuangan") -> {
                         handleCatatanKeuanganRoute(method, queryParams, body, output)
+                    }
+                    path.startsWith("/api/vip-card-qr") -> {
+                        handleVipCardQrRoute(queryParams, output)
                     }
                     path.startsWith("/api/dashboard") -> {
                         handleDashboardRoute(method, queryParams, body, output)
@@ -2538,6 +2542,26 @@ class LocalHttpServer(
                 }
             }
             else -> sendJsonResponse(output, JSONObject().put("success", false).toString(), 405)
+        }
+    }
+
+    private fun handleVipCardQrRoute(queryParams: Map<String, String>, output: OutputStream) {
+        val email = (queryParams["email"] ?: "").trim()
+        if (email.isBlank()) {
+            sendJsonResponse(output, JSONObject().put("success", false)
+                .put("message", "Email wajib diisi").toString(), 400)
+            return
+        }
+        try {
+            // Payload QR harus memakai kata sandi yang benar-benar terpasang pada akun,
+            // bukan sekadar email+uid, agar Login Cepat dari scan kartu berhasil.
+            val saved = FirebaseAuthManager.getSavedPasswordForEmail(context, email)
+            val password = saved.ifBlank { VipMembershipCardGenerator.buildDeterministicPassword(email) }
+            val payload = VipMembershipCardGenerator.buildQuickLoginPayload(email, password)
+            sendJsonResponse(output, JSONObject().put("success", true).put("payload", payload).toString())
+        } catch (e: Exception) {
+            sendJsonResponse(output, JSONObject().put("success", false)
+                .put("message", "Gagal membuat QR login cepat").toString(), 500)
         }
     }
 

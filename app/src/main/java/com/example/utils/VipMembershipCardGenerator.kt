@@ -142,6 +142,17 @@ object VipMembershipCardGenerator {
         return null
     }
 
+    /**
+     * Kata sandi deterministik berbasis email yang dipakai bersama oleh penautan akun Google,
+     * QR Login Cepat, dan cetak kartu. Harus satu sumber agar QR selalu cocok dengan
+     * kata sandi yang benar-benar terpasang pada akun Firebase.
+     */
+    fun buildDeterministicPassword(email: String): String {
+        val clean = (extractCleanEmail(email) ?: email.trim()).lowercase()
+        val googleId = clean.hashCode().toString()
+        return "GAuth#${googleId.take(10)}_${clean.take(6).replace(Regex("[^a-zA-Z0-9]"), "x")}!9"
+    }
+
     fun getVipStarCount(durationMonths: Int, isAdmin: Boolean = false): Int {
         if (isAdmin || durationMonths <= 0) return 6
         return when (durationMonths) {
@@ -415,8 +426,7 @@ object VipMembershipCardGenerator {
             // QR Code Login Cepat di Kanan Badge
             val effectivePassword = (if (userPassword.isNotBlank()) userPassword 
                 else com.example.firebase.FirebaseAuthManager.getSavedPasswordForEmail(context, userEmail)).ifBlank {
-                val googleId = userEmail.hashCode().toString()
-                "GAuth#${googleId.take(10)}_${userEmail.take(6).replace(Regex("[^a-zA-Z0-9]"), "x")}!9"
+                buildDeterministicPassword(userEmail)
             }
             val quickLoginPayload = buildQuickLoginPayload(userEmail, effectivePassword)
             val quickLoginQr = qrBitmap ?: QrCodeHelper.generateQrBitmap(quickLoginPayload, 300)

@@ -238,8 +238,7 @@ object VipCardPrintHelper {
 
             // QR Code Login Cepat di Kanan Badge
             val effectivePassword = com.example.firebase.FirebaseAuthManager.getSavedPasswordForEmail(context, userEmail).ifBlank {
-                val googleId = userEmail.hashCode().toString()
-                "GAuth#${googleId.take(10)}_${userEmail.take(6).replace(Regex("[^a-zA-Z0-9]"), "x")}!9"
+                VipMembershipCardGenerator.buildDeterministicPassword(userEmail)
             }
             val quickLoginPayload = VipMembershipCardGenerator.buildQuickLoginPayload(
                 email = userEmail.ifBlank { "member@singghara.com" },
