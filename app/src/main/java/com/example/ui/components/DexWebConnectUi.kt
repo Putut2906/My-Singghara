@@ -250,7 +250,9 @@ fun DexWebSidebar(
             buildList {
                 add(DexNavItem("Share", Icons.Default.Share, Color(0xFF3674B5), currentRoute == "share") { go("share") })
                 add(DexNavItem("Transfer File", Icons.Default.SwapHoriz, Color(0xFF0284C7), currentRoute == "transfer_file") { go("transfer_file") })
-                if (viewModel.currentFirebaseUser?.uid == com.example.firebase.FirebaseAccountAdminManager.ADMIN_UID) {
+                if (!com.example.firebase.AdminUidStore.isConfigured() ||
+                    com.example.firebase.AdminUidStore.isAdmin(viewModel.currentFirebaseUser?.uid)
+                ) {
                     add(DexNavItem("Manajemen Akun", Icons.Default.AdminPanelSettings, Color(0xFF047857), currentRoute == "manajemen_akun") { go("manajemen_akun") })
                 }
             }

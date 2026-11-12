@@ -16,6 +16,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -27,12 +28,18 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
+import com.example.firebase.AdminUidStore
 
-const val RECOMMENDED_FIRESTORE_RULES = """rules_version = '2';
+/**
+ * Aturan dibangun otomatis dari daftar UID admin lokal (AdminUidStore).
+ * Saat daftar masih kosong, `isAdmin()` mengembalikan false sehingga tidak ada
+ * akun yang dianggap administrator sampai UID diisi lewat menu Kelola UID Admin.
+ */
+fun buildRecommendedFirestoreRules(): String = """rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     function isAdmin() {
-      return request.auth != null && request.auth.uid == 'UiDpHxawlBQ17mxTUHIXvhxRR3b2';
+      ${AdminUidStore.rulesAdminCondition()}
     }
 
     match /users/{userId}/{allPaths=**} {
@@ -63,6 +70,7 @@ fun FirestoreRulesHelperDialog(
     onFallbackLocalBackup: (() -> Unit)? = null
 ) {
     val context = LocalContext.current
+    val rulesCode = remember { buildRecommendedFirestoreRules() }
 
     Dialog(
         onDismissRequest = onDismissRequest,
@@ -156,7 +164,28 @@ fun FirestoreRulesHelperDialog(
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text("1. Buka Firebase Console proyek mobile-d08aa", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurface)
                     Text("2. Masuk menu Firestore Database -> pilih tab Rules", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurface)
-                    Text("3. Salin aturan di bawah ini, tempel, lalu klik tombol Publish", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurface)
+                    Text("3. Salin aturan di bawah (UID admin terisi otomatis dari menu Kelola UID Admin), tempel, lalu klik Publish", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurface)
+                }
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                val adminUids = remember { AdminUidStore.getAdminUids() }
+                Surface(
+                    shape = RoundedCornerShape(10.dp),
+                    color = if (adminUids.isEmpty()) MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.secondaryContainer,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(
+                        text = if (adminUids.isEmpty()) {
+                            "Belum ada UID admin terdaftar. Saat ini fungsi isAdmin() bernilai false. Tambahkan UID lewat menu titik tiga -> Kelola UID Admin agar aturan terisi otomatis."
+                        } else {
+                            "UID admin terdeteksi (${adminUids.size}): ${adminUids.joinToString(", ")}"
+                        },
+                        fontSize = 11.sp,
+                        color = if (adminUids.isEmpty()) MaterialTheme.colorScheme.onErrorContainer else MaterialTheme.colorScheme.onSecondaryContainer,
+                        lineHeight = 15.sp,
+                        modifier = Modifier.padding(12.dp)
+                    )
                 }
 
                 Spacer(modifier = Modifier.height(10.dp))
@@ -186,7 +215,7 @@ fun FirestoreRulesHelperDialog(
                             OutlinedButton(
                                 onClick = {
                                     val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                                    val clip = ClipData.newPlainText("Firestore Rules", RECOMMENDED_FIRESTORE_RULES)
+                                    val clip = ClipData.newPlainText("Firestore Rules", rulesCode)
                                     clipboard.setPrimaryClip(clip)
                                     android.widget.Toast.makeText(context, "Aturan berhasil disalin ke clipboard!", android.widget.Toast.LENGTH_SHORT).show()
                                 },
@@ -209,7 +238,7 @@ fun FirestoreRulesHelperDialog(
                                 .horizontalScroll(rememberScrollState())
                         ) {
                             Text(
-                                text = RECOMMENDED_FIRESTORE_RULES,
+                                text = rulesCode,
                                 fontSize = 10.5.sp,
                                 fontFamily = FontFamily.Monospace,
                                 color = Color(0xFFE2E8F0),

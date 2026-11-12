@@ -122,7 +122,6 @@ fun TentangAplikasiScreen(
     var pendingSaveAction by remember { mutableStateOf<(() -> Unit)?>(null) }
     var installConflict by remember { mutableStateOf<InstallConflict?>(null) }
     var customApkName by remember { mutableStateOf("MySingghara-v${BuildConfig.VERSION_NAME}.apk") }
-    var showFirestoreRulesDialog by remember { mutableStateOf(false) }
 
     val apkInfo = remember { GitHubUpdateManager.getInstalledApkInfo(context) }
     val apkSizeFormatted = remember(apkInfo) {
@@ -725,13 +724,6 @@ fun TentangAplikasiScreen(
         )
     }
 
-    // Modal Dialog Aturan Firestore Rules Helper (agar tidak lupa aturan keamanan Firebase)
-    if (showFirestoreRulesDialog) {
-        com.example.ui.components.FirestoreRulesHelperDialog(
-            onDismissRequest = { showFirestoreRulesDialog = false }
-        )
-    }
-
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -751,22 +743,6 @@ fun TentangAplikasiScreen(
                 elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
             ) {
                 Box(modifier = Modifier.fillMaxWidth()) {
-                    // Icon Info di pojok kanan atas kartu My Singghara untuk membuka Aturan Rules Firestore
-                    IconButton(
-                        onClick = { showFirestoreRulesDialog = true },
-                        modifier = Modifier
-                            .align(Alignment.TopEnd)
-                            .padding(8.dp)
-                            .size(38.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Info,
-                            contentDescription = "Aturan Rules Firestore",
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(22.dp)
-                        )
-                    }
-
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()

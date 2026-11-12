@@ -184,7 +184,7 @@ sealed class AccountAccessValidation {
 
 /**
  * Model Permintaan Kode OTP untuk Proteksi Ganti/Atur Sandi Email
- * Kode OTP dikirimkan ke Administrator Resmi (UID: UiDpHxawlBQ17mxTUHIXvhxRR3b2)
+ * Kode OTP dikirimkan ke Administrator terdaftar (lihat [AdminUidStore]).
  */
 data class AdminOtpRequest(
     val id: String = java.util.UUID.randomUUID().toString(),
@@ -196,7 +196,7 @@ data class AdminOtpRequest(
     val expiresAt: Long = System.currentTimeMillis() + (15 * 60 * 1000L), // 15 menit
     val status: String = "MENUNGGU", // MENUNGGU, DIGUNAKAN, KADALUARSA
     val actionType: String = "SET_PASSWORD_EMAIL",
-    val adminUid: String = FirebaseAccountAdminManager.ADMIN_UID
+    val adminUid: String = AdminUidStore.primaryAdminUid()
 ) {
     val isExpired: Boolean
         get() = System.currentTimeMillis() > expiresAt
@@ -204,16 +204,11 @@ data class AdminOtpRequest(
 
 /**
  * Manager Manajemen Akun & Pesan Firestore khusus Administrator
- * UID Admin Terdaftar: UiDpHxawlBQ17mxTUHIXvhxRR3b2
+ * Daftar UID admin dikelola lokal lewat [AdminUidStore].
  */
 class FirebaseAccountAdminManager {
 
     companion object {
-        /**
-         * UID Administrator Resmi yang memiliki wewenang penuh
-         */
-        const val ADMIN_UID = "UiDpHxawlBQ17mxTUHIXvhxRR3b2"
-
         @Volatile
         private var instance: FirebaseAccountAdminManager? = null
 
@@ -238,10 +233,11 @@ class FirebaseAccountAdminManager {
     }
 
     /**
-     * Memeriksa apakah pengguna tertentu merupakan Administrator resmi
+     * Memeriksa apakah pengguna tertentu merupakan Administrator terdaftar.
+     * Daftar UID dikelola lokal melalui AdminUidStore (kosong pada instalasi pertama).
      */
     fun isAdmin(uid: String?): Boolean {
-        return uid != null && uid.trim() == ADMIN_UID
+        return AdminUidStore.isAdmin(uid)
     }
 
     /**
@@ -274,7 +270,7 @@ class FirebaseAccountAdminManager {
             val now = System.currentTimeMillis()
             val deviceModel = "${Build.MANUFACTURER} ${Build.MODEL}".trim()
             val osVersion = "Android ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})"
-            val isUserAdmin = (uid == ADMIN_UID)
+            val isUserAdmin = AdminUidStore.isAdmin(uid)
 
             // 1. Simpan ke koleksi 'tokens' (dokumen: tokens/{uid})
             val tokenDocData = hashMapOf(
@@ -329,7 +325,7 @@ class FirebaseAccountAdminManager {
         val currentUid = auth.currentUser?.uid
         if (!isAdmin(currentUid)) {
             return@withContext Result.failure(
-                SecurityException("Akses Ditolak: Hanya Administrator (UID: $ADMIN_UID) yang dapat melihat daftar pengguna.")
+                SecurityException("Akses Ditolak: Hanya Administrator terdaftar (${AdminUidStore.adminUidsLabel()}) yang dapat melihat daftar pengguna.")
             )
         }
 
@@ -361,7 +357,7 @@ class FirebaseAccountAdminManager {
                     val membershipEndDate = doc.getLong("membershipEndDate") ?: 0L
                     val membershipTier = doc.getString("membershipTier") ?: ""
                     var isActive = doc.getBoolean("isActive") ?: !(doc.getBoolean("disabled") ?: false)
-                    val isUserAdmin = doc.getBoolean("isAdmin") ?: (uid == ADMIN_UID)
+                    val isUserAdmin = doc.getBoolean("isAdmin") ?: AdminUidStore.isAdmin(uid)
 
                     // Otomatis nonaktifkan jika masa membership habis dan bukan admin
                     if (!isUserAdmin && membershipEndDate > 0L && now >= membershipEndDate && isActive) {
@@ -428,7 +424,7 @@ class FirebaseAccountAdminManager {
                     val membershipEndDate = doc.getLong("membershipEndDate") ?: existing?.membershipEndDate ?: 0L
                     val membershipTier = doc.getString("membershipTier") ?: existing?.membershipTier ?: ""
                     var isActive = doc.getBoolean("isActive") ?: existing?.isActive ?: !(doc.getBoolean("disabled") ?: false)
-                    val isUserAdmin = doc.getBoolean("isAdmin") ?: (uid == ADMIN_UID)
+                    val isUserAdmin = doc.getBoolean("isAdmin") ?: AdminUidStore.isAdmin(uid)
 
                     // Otomatis nonaktifkan jika masa membership habis dan bukan admin
                     if (!isUserAdmin && membershipEndDate > 0L && now >= membershipEndDate && isActive) {
@@ -486,8 +482,8 @@ class FirebaseAccountAdminManager {
                     updatedAt = nowTime,
                     lastActiveAt = nowTime,
                     isActive = true,
-                    isAdmin = (u.uid == ADMIN_UID),
-                    membershipTier = if (u.uid == ADMIN_UID) "Akses Penuh Admin" else "Bebas"
+                    isAdmin = AdminUidStore.isAdmin(u.uid),
+                    membershipTier = if (AdminUidStore.isAdmin(u.uid)) "Akses Penuh Admin" else "Bebas"
                 )
             }
 
@@ -511,13 +507,13 @@ class FirebaseAccountAdminManager {
         val currentUid = auth.currentUser?.uid
         if (!isAdmin(currentUid)) {
             return@withContext Result.failure(
-                SecurityException("Akses Ditolak: Hanya Administrator (UID: $ADMIN_UID) yang dapat mengubah status akun pengguna.")
+                SecurityException("Akses Ditolak: Hanya Administrator terdaftar (${AdminUidStore.adminUidsLabel()}) yang dapat mengubah status akun pengguna.")
             )
         }
 
-        if (targetUid == ADMIN_UID && !isActive) {
+        if (AdminUidStore.isAdmin(targetUid) && !isActive) {
             return@withContext Result.failure(
-                IllegalArgumentException("Akun Administrator Utama tidak dapat dinonaktifkan.")
+                IllegalArgumentException("Akun Administrator tidak dapat dinonaktifkan.")
             )
         }
 
@@ -564,7 +560,7 @@ class FirebaseAccountAdminManager {
         val currentUid = auth.currentUser?.uid
         if (!isAdmin(currentUid)) {
             return@withContext Result.failure(
-                SecurityException("Akses Ditolak: Hanya Administrator (UID: $ADMIN_UID) yang dapat mengatur masa membership pengguna.")
+                SecurityException("Akses Ditolak: Hanya Administrator terdaftar (${AdminUidStore.adminUidsLabel()}) yang dapat mengatur masa membership pengguna.")
             )
         }
 
@@ -778,7 +774,7 @@ class FirebaseAccountAdminManager {
 
     /**
      * Menulis pesan baru ke koleksi `messages`
-     * ATURAN: HANYA ADMIN (UID: UiDpHxawlBQ17mxTUHIXvhxRR3b2) yang dapat menulis pesan!
+     * ATURAN: HANYA ADMIN (UID terdaftar) yang dapat menulis pesan!
      */
     suspend fun createMessage(
         title: String,
@@ -791,7 +787,7 @@ class FirebaseAccountAdminManager {
         val user = auth.currentUser
         if (user == null || !isAdmin(user.uid)) {
             return@withContext Result.failure(
-                SecurityException("Akses Ditolak: Hanya Administrator (UID: $ADMIN_UID) yang dapat menulis pesan.")
+                SecurityException("Akses Ditolak: Hanya Administrator terdaftar (${AdminUidStore.adminUidsLabel()}) yang dapat menulis pesan.")
             )
         }
 
@@ -843,7 +839,7 @@ class FirebaseAccountAdminManager {
 
     /**
      * Menulis banyak pesan sekaligus (Batch Broadcast) ke koleksi `messages` Firestore
-     * ATURAN: HANYA ADMIN (UID: UiDpHxawlBQ17mxTUHIXvhxRR3b2) yang dapat menulis pesan!
+     * ATURAN: HANYA ADMIN (UID terdaftar) yang dapat menulis pesan!
      */
     suspend fun createBatchMessages(
         drafts: List<CloudMessageDraft>
@@ -851,7 +847,7 @@ class FirebaseAccountAdminManager {
         val user = auth.currentUser
         if (user == null || !isAdmin(user.uid)) {
             return@withContext Result.failure(
-                SecurityException("Akses Ditolak: Hanya Administrator (UID: $ADMIN_UID) yang dapat menulis pesan.")
+                SecurityException("Akses Ditolak: Hanya Administrator terdaftar (${AdminUidStore.adminUidsLabel()}) yang dapat menulis pesan.")
             )
         }
 
@@ -948,13 +944,13 @@ class FirebaseAccountAdminManager {
 
     /**
      * Menghapus pesan secara permanen dari koleksi `messages` Firestore
-     * ATURAN: HANYA ADMIN TERDAFTAR (UID: UiDpHxawlBQ17mxTUHIXvhxRR3b2) yang dapat menghapus pesan permanen!
+     * ATURAN: HANYA ADMIN TERDAFTAR (UID terdaftar) yang dapat menghapus pesan permanen!
      */
     suspend fun deleteMessage(messageId: String): Result<Unit> = withContext(Dispatchers.IO) {
         val user = auth.currentUser
         if (user == null || !isAdmin(user.uid)) {
             return@withContext Result.failure(
-                SecurityException("Akses Ditolak: Hanya Administrator Resmi (UID: $ADMIN_UID) yang dapat menghapus pesan secara permanen.")
+                SecurityException("Akses Ditolak: Hanya Administrator terdaftar (${AdminUidStore.adminUidsLabel()}) yang dapat menghapus pesan secara permanen.")
             )
         }
 
@@ -973,13 +969,13 @@ class FirebaseAccountAdminManager {
 
     /**
      * Menghapus seluruh pesan secara permanen dari koleksi `messages` Firestore sekaligus
-     * ATURAN: HANYA ADMIN TERDAFTAR (UID: UiDpHxawlBQ17mxTUHIXvhxRR3b2) yang dapat menghapus semua pesan!
+     * ATURAN: HANYA ADMIN TERDAFTAR (UID terdaftar) yang dapat menghapus semua pesan!
      */
     suspend fun deleteAllMessagesPermanently(): Result<Int> = withContext(Dispatchers.IO) {
         val user = auth.currentUser
         if (user == null || !isAdmin(user.uid)) {
             return@withContext Result.failure(
-                SecurityException("Akses Ditolak: Hanya Administrator Resmi (UID: $ADMIN_UID) yang dapat menghapus seluruh pesan secara permanen.")
+                SecurityException("Akses Ditolak: Hanya Administrator terdaftar (${AdminUidStore.adminUidsLabel()}) yang dapat menghapus seluruh pesan secara permanen.")
             )
         }
 
@@ -999,7 +995,7 @@ class FirebaseAccountAdminManager {
 
     /**
      * Membuat permintaan kode OTP untuk perubahan sandi email.
-     * Kode 6-digit dikirimkan ke Admin (UID: UiDpHxawlBQ17mxTUHIXvhxRR3b2).
+     * Kode 6-digit dikirimkan ke Admin (UID terdaftar).
      */
     suspend fun createEmailPasswordOtpRequest(
         requesterUid: String,
@@ -1023,7 +1019,7 @@ class FirebaseAccountAdminManager {
                 expiresAt = expiry,
                 status = "MENUNGGU",
                 actionType = "SET_PASSWORD_EMAIL",
-                adminUid = ADMIN_UID
+                adminUid = AdminUidStore.primaryAdminUid()
             )
 
             val docData = hashMapOf(
@@ -1098,7 +1094,7 @@ class FirebaseAccountAdminManager {
                             expiresAt = expiresAt,
                             status = "MENUNGGU",
                             actionType = doc.getString("actionType") ?: "SET_PASSWORD_EMAIL",
-                            adminUid = doc.getString("adminUid") ?: ADMIN_UID
+                            adminUid = doc.getString("adminUid") ?: AdminUidStore.primaryAdminUid()
                         )
                         break
                     }
@@ -1127,7 +1123,7 @@ class FirebaseAccountAdminManager {
     }
 
     /**
-     * Mengambil semua daftar permintaan kode OTP (Khusus Admin UID: UiDpHxawlBQ17mxTUHIXvhxRR3b2).
+     * Mengambil semua daftar permintaan kode OTP (Khusus Admin terdaftar).
      */
     suspend fun getAllOtpRequests(context: Context? = null): Result<List<AdminOtpRequest>> = withContext(Dispatchers.IO) {
         val listMap = mutableMapOf<String, AdminOtpRequest>()
@@ -1155,7 +1151,7 @@ class FirebaseAccountAdminManager {
                     expiresAt = doc.getLong("expiresAt") ?: (System.currentTimeMillis() + 15 * 60 * 1000L),
                     status = doc.getString("status") ?: "MENUNGGU",
                     actionType = doc.getString("actionType") ?: "SET_PASSWORD_EMAIL",
-                    adminUid = doc.getString("adminUid") ?: ADMIN_UID
+                    adminUid = doc.getString("adminUid") ?: AdminUidStore.primaryAdminUid()
                 )
                 listMap[id] = req
             }
@@ -1218,7 +1214,7 @@ class FirebaseAccountAdminManager {
                         expiresAt = obj.optLong("expiresAt", System.currentTimeMillis() + 15 * 60 * 1000L),
                         status = obj.optString("status", "MENUNGGU"),
                         actionType = obj.optString("actionType", "SET_PASSWORD_EMAIL"),
-                        adminUid = obj.optString("adminUid", ADMIN_UID)
+                        adminUid = obj.optString("adminUid", AdminUidStore.primaryAdminUid())
                     )
                 )
             }
@@ -1258,25 +1254,28 @@ class FirebaseAccountAdminManager {
     }
 
     /**
-     * Teks Aturan Rules Firebase Firestore resmi yang membatasi hak akses:
-     * - Hanya Admin (UiDpHxawlBQ17mxTUHIXvhxRR3b2) yang dapat menulis dan menghapus di koleksi messages.
+     * Teks Aturan Rules Firebase Firestore resmi yang dibangun otomatis dari
+     * daftar UID admin lokal (AdminUidStore):
+     * - Hanya UID admin terdaftar yang dapat menulis dan menghapus di koleksi messages.
      * - Koleksi tokens untuk penyimpanan otomatis token FCM.
      * - Koleksi otp_requests untuk proteksi verifikasi sandi email.
      */
     fun getFirestoreSecurityRulesCode(): String {
+        val adminCondition = AdminUidStore.rulesAdminCondition()
+        val adminLabel = AdminUidStore.adminUidsLabel()
         return """
 // =========================================================================
 // ATURAN KEAMANAN FIREBASE FIRESTORE (MY SINGGHARA)
-// UID Administrator Resmi: UiDpHxawlBQ17mxTUHIXvhxRR3b2
+// UID Administrator Terdaftar: $adminLabel
 // =========================================================================
 
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
 
-    // Verifikasi apakah akun adalah Administrator Resmi
+    // Verifikasi apakah akun adalah Administrator Terdaftar
     function isAdmin() {
-      return request.auth != null && request.auth.uid == '$ADMIN_UID';
+      ${adminCondition}
     }
 
     // Verifikasi apakah pengguna telah terautentikasi (login)
@@ -1286,7 +1285,7 @@ service cloud.firestore {
 
     // 1. KOLEKSI PESAN (messages):
     // - Seluruh pengguna yang login dapat membaca pesan.
-    // - HANYA ADMIN ($ADMIN_UID) yang dapat MENULIS & MENGHAPUS pesan!
+    // - HANYA ADMIN TERDAFTAR yang dapat MENULIS & MENGHAPUS pesan!
     match /messages/{messageId} {
       allow read: if isAuthenticated();
       allow create, update, delete: if isAdmin();

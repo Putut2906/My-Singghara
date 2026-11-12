@@ -268,7 +268,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    // Pesan dari Administrator Resmi (UID: UiDpHxawlBQ17mxTUHIXvhxRR3b2)
+    // Pesan dari Administrator Resmi (UID terdaftar)
     private val _adminMessages = MutableStateFlow<List<com.example.firebase.CloudMessageItem>>(emptyList())
     val adminMessages: StateFlow<List<com.example.firebase.CloudMessageItem>> = _adminMessages.asStateFlow()
 
@@ -307,7 +307,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                                 val createdAt = doc.getLong("createdAt") ?: 0L
 
                                 // Tampilkan jika ditujukan untuk SEMUA, cocok dengan UID akun ini, atau jika akun adalah Admin
-                                if (target == "SEMUA" || (currentUid != null && target == currentUid) || currentUid == com.example.firebase.FirebaseAccountAdminManager.ADMIN_UID) {
+                                if (target == "SEMUA" || (currentUid != null && target == currentUid) || com.example.firebase.AdminUidStore.isAdmin(currentUid)) {
                                     list.add(
                                         com.example.firebase.CloudMessageItem(
                                             id = id,
@@ -378,7 +378,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
-    // Permintaan Kode OTP Sandi Email ke Admin Resmi (UID: UiDpHxawlBQ17mxTUHIXvhxRR3b2)
+    // Permintaan Kode OTP Sandi Email ke Admin Resmi (UID terdaftar)
     private val _otpRequests = MutableStateFlow<List<com.example.firebase.AdminOtpRequest>>(emptyList())
     val otpRequests: StateFlow<List<com.example.firebase.AdminOtpRequest>> = _otpRequests.asStateFlow()
 
@@ -413,7 +413,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                                 val expiresAt = doc.getLong("expiresAt") ?: (createdAt + 15 * 60 * 1000L)
                                 val status = doc.getString("status") ?: "MENUNGGU"
                                 val actionType = doc.getString("actionType") ?: "SET_PASSWORD_EMAIL"
-                                val adminUid = doc.getString("adminUid") ?: com.example.firebase.FirebaseAccountAdminManager.ADMIN_UID
+                                val adminUid = doc.getString("adminUid") ?: com.example.firebase.AdminUidStore.primaryAdminUid()
 
                                 list.add(
                                     com.example.firebase.AdminOtpRequest(
@@ -461,7 +461,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                         expiresAt = obj.optLong("expiresAt", System.currentTimeMillis() + 15 * 60 * 1000L),
                         status = obj.optString("status", "MENUNGGU"),
                         actionType = obj.optString("actionType", "SET_PASSWORD_EMAIL"),
-                        adminUid = obj.optString("adminUid", com.example.firebase.FirebaseAccountAdminManager.ADMIN_UID)
+                        adminUid = obj.optString("adminUid", com.example.firebase.AdminUidStore.primaryAdminUid())
                     )
                 )
             }

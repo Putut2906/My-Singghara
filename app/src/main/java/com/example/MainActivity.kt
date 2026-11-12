@@ -2520,7 +2520,8 @@ fun MainAppContent(viewModel: MainViewModel, desktopMode: Boolean = false) {
                                     )
                                 )
 
-                                val isUserAdmin = viewModel.currentFirebaseUser?.uid == com.example.firebase.FirebaseAccountAdminManager.ADMIN_UID
+                                val isUserAdmin = !com.example.firebase.AdminUidStore.isConfigured() ||
+                                    com.example.firebase.AdminUidStore.isAdmin(viewModel.currentFirebaseUser?.uid)
                                 if (isUserAdmin) {
                                     val isManajemenAkunSelected = viewModel.currentRoute == "manajemen_akun"
                                     NavigationDrawerItem(
@@ -2688,7 +2689,8 @@ fun MainAppContent(viewModel: MainViewModel, desktopMode: Boolean = false) {
                                 val unreadFcmCount by viewModel.unreadFcmCount.collectAsState()
                                 val adminMessagesList by viewModel.adminMessages.collectAsState()
                                 val unreadAdminMessagesCount = viewModel.unreadAdminMessagesCount
-                                val isUserAdmin = viewModel.currentFirebaseUser?.uid == com.example.firebase.FirebaseAccountAdminManager.ADMIN_UID
+                                val isUserAdmin = !com.example.firebase.AdminUidStore.isConfigured() ||
+                                    com.example.firebase.AdminUidStore.isAdmin(viewModel.currentFirebaseUser?.uid)
                                 var selectedNotificationTab by remember { mutableIntStateOf(0) }
                                 var showTodayNotificationsDialog by remember { mutableStateOf(false) }
                                 var showAllHolidaysInDialog by remember { mutableStateOf(false) }
@@ -2958,7 +2960,7 @@ fun MainAppContent(viewModel: MainViewModel, desktopMode: Boolean = false) {
 
                                                 if (selectedNotificationTab == 0) {
                                                     // ============================================
-                                                    // DAFTAR PESAN DARI ADMIN (UID: UiDpHxawlBQ17mxTUHIXvhxRR3b2)
+                                                    // DAFTAR PESAN DARI ADMIN (UID terdaftar)
                                                     // ============================================
                                                     Card(
                                                         colors = CardDefaults.cardColors(containerColor = Color(0xFF047857).copy(alpha = 0.09f)),
@@ -2985,7 +2987,7 @@ fun MainAppContent(viewModel: MainViewModel, desktopMode: Boolean = false) {
                                                             }
                                                             Spacer(modifier = Modifier.height(2.dp))
                                                             Text(
-                                                                text = "Dipublikasikan oleh Administrator terdaftar (UID: ${com.example.firebase.FirebaseAccountAdminManager.ADMIN_UID.take(12)}...)",
+                                                                text = "Dipublikasikan oleh Administrator terdaftar",
                                                                 fontSize = 11.sp,
                                                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                                                             )
@@ -3056,7 +3058,7 @@ fun MainAppContent(viewModel: MainViewModel, desktopMode: Boolean = false) {
                                                                     color = MaterialTheme.colorScheme.onSurface
                                                                 )
                                                                 Text(
-                                                                    text = "Pesan pengumuman atau informasi resmi dari akun Admin (UID: ${com.example.firebase.FirebaseAccountAdminManager.ADMIN_UID}) akan tampil di sini.",
+                                                                    text = "Pesan pengumuman atau informasi resmi dari akun Admin akan tampil di sini.",
                                                                     fontSize = 11.sp,
                                                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                                                     textAlign = androidx.compose.ui.text.style.TextAlign.Center

@@ -129,6 +129,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.firebase.AdminUidStore
 import com.example.firebase.CloudMessageDraft
 import com.example.firebase.CloudMessageItem
 import com.example.firebase.CloudUserItem
@@ -147,14 +148,15 @@ import java.util.Locale
 
 /**
  * Layar Manajemen Akun & Pesan (Khusus Online & Khusus Administrator)
- * UID Admin Resmi: UiDpHxawlBQ17mxTUHIXvhxRR3b2
+ * Daftar UID admin dikelola lokal lewat AdminUidStore dan kosong pada instalasi pertama.
  *
  * Fitur:
- * 1. Pengecekan Online: Jika internet terputus, menampilkan animasi bergerak interaktif.
- * 2. Pengecekan Hak Akses Admin: Hanya UID 'UiDpHxawlBQ17mxTUHIXvhxRR3b2' yang dapat masuk.
- * 3. Sub Menu 1: Daftar Pengguna (Menampilkan seluruh akun dan token FCM otomatis).
- * 4. Sub Menu 2: Pesan (Menulis dan menghapus pesan khusus admin ke koleksi messages).
- * 5. Dialog Aturan Keamanan Firestore Rules.
+ * 1. Mode Setup: Saat daftar UID masih kosong, layar ini dapat dibuka untuk mengisi UID admin.
+ * 2. Pengecekan Online: Jika internet terputus, menampilkan animasi bergerak interaktif.
+ * 3. Pengecekan Hak Akses Admin: Hanya UID terdaftar yang dapat masuk setelah daftar terisi.
+ * 4. Sub Menu 1: Daftar Pengguna (Menampilkan seluruh akun dan token FCM otomatis).
+ * 5. Sub Menu 2: Pesan (Menulis dan menghapus pesan khusus admin ke koleksi messages).
+ * 6. Dialog Aturan Keamanan Firestore Rules & Kelola UID Admin.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -171,9 +173,11 @@ fun ManajemenAkunScreen(
     val isOnline = viewModel.isNetworkAvailable
     var isCheckingNetwork by remember { mutableStateOf(false) }
 
-    // Status Admin UID
+    // Status Admin UID (daftar lokal; kosong = mode setup instalasi pertama)
     val currentUser = viewModel.currentFirebaseUser
-    val isCurrentAdmin = remember(currentUser) {
+    var adminUids by remember { mutableStateOf(AdminUidStore.getAdminUids()) }
+    val isAdminSetup = adminUids.isEmpty()
+    val isCurrentAdmin = remember(currentUser, adminUids) {
         adminManager.isAdmin(currentUser?.uid)
     }
 
@@ -197,6 +201,7 @@ fun ManajemenAkunScreen(
     // Dialog States
     var showWriteMessageDialog by remember { mutableStateOf(false) }
     var showRulesDialog by remember { mutableStateOf(false) }
+    var showUidManagerDialog by remember { mutableStateOf(false) }
     var showOtpInboxDialog by remember { mutableStateOf(false) }
     val otpRequestsList by viewModel.otpRequests.collectAsState()
     var messageToDelete by remember { mutableStateOf<CloudMessageItem?>(null) }
@@ -290,11 +295,30 @@ fun ManajemenAkunScreen(
         viewModel.showToastPopup("$label berhasil disalin!")
     }
 
+    // DIALOG KELOLA UID ADMIN (dapat dibuka dari mode setup maupun panel admin)
+    if (showUidManagerDialog) {
+        AdminUidManagerDialog(
+            currentUid = currentUser?.uid,
+            onDismiss = { showUidManagerDialog = false },
+            onUidsChanged = { adminUids = it }
+        )
+    }
+
+    // KASUS 0: BELUM ADA UID ADMIN (Mode Setup) - dapat diakses tanpa internet
+    if (isAdminSetup) {
+        UidAdminSetupState(
+            currentUid = currentUser?.uid,
+            onManageUids = { showUidManagerDialog = true },
+            onBack = onBack
+        )
+        return
+    }
+
     // KASUS 1: INTERNET TERPUTUS (Tampilkan Animasi Bergerak Khusus)
     if (!isOnline) {
         OfflineAnimatedState(
             title = "Koneksi Internet Terputus",
-            description = "Menu Manajemen Akun adalah fitur khusus online. Diperlukan sambungan internet aktif untuk memverifikasi hak Administrator (UID: ${FirebaseAccountAdminManager.ADMIN_UID}) dan menyinkronkan data cloud Firebase.",
+            description = "Menu Manajemen Akun adalah fitur khusus online. Diperlukan sambungan internet aktif untuk memverifikasi hak Administrator (UID: ${AdminUidStore.adminUidsLabel()}) dan menyinkronkan data cloud Firebase.",
             isChecking = isCheckingNetwork,
             onRetry = {
                 scope.launch {
@@ -378,14 +402,14 @@ fun ManajemenAkunScreen(
                                 .padding(12.dp)
                         ) {
                             Text(
-                                text = "UID Admin Resmi Diperlukan:",
+                                text = "UID Admin Terdaftar:",
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.SemiBold,
                                 color = MaterialTheme.colorScheme.primary
                             )
                             SelectionContainer {
                                 Text(
-                                    text = FirebaseAccountAdminManager.ADMIN_UID,
+                                    text = adminUids.joinToString("\n"),
                                     fontSize = 12.sp,
                                     fontFamily = FontFamily.Monospace,
                                     fontWeight = FontWeight.Bold,
@@ -646,6 +670,37 @@ fun ManajemenAkunScreen(
                             },
                             onClick = {
                                 loadAllAdminData()
+                                showOverflowMenu = false
+                            }
+                        )
+                        HorizontalDivider()
+                        DropdownMenuItem(
+                            text = {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text("Kelola UID Admin")
+                                    if (adminUids.isNotEmpty()) {
+                                        Badge(
+                                            containerColor = Color(0xFF047857),
+                                            contentColor = Color.White
+                                        ) {
+                                            Text(adminUids.size.toString(), fontSize = 10.sp)
+                                        }
+                                    }
+                                }
+                            },
+                            leadingIcon = {
+                                Icon(
+                                    Icons.Default.VpnKey,
+                                    contentDescription = null,
+                                    tint = Color(0xFF047857)
+                                )
+                            },
+                            onClick = {
+                                showUidManagerDialog = true
                                 showOverflowMenu = false
                             }
                         )
@@ -955,7 +1010,7 @@ fun ManajemenAkunScreen(
                             )
                             SelectionContainer {
                                 Text(
-                                    text = FirebaseAccountAdminManager.ADMIN_UID,
+                                    text = AdminUidStore.adminUidsLabel(),
                                     color = warnBoxUid,
                                     fontSize = 10.sp,
                                     fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
@@ -971,8 +1026,8 @@ fun ManajemenAkunScreen(
                     onClick = {
                         val id = msg.id
                         messageToDelete = null
-                        if (currentUser?.uid != FirebaseAccountAdminManager.ADMIN_UID) {
-                            viewModel.showToastPopup("Akses Ditolak: Hanya UID ${FirebaseAccountAdminManager.ADMIN_UID} yang berwenang.")
+                        if (!AdminUidStore.isAdmin(currentUser?.uid)) {
+                            viewModel.showToastPopup("Akses Ditolak: Hanya UID ${AdminUidStore.adminUidsLabel()} yang berwenang.")
                             return@Button
                         }
                         scope.launch {
@@ -1044,7 +1099,7 @@ fun ManajemenAkunScreen(
                             )
                             SelectionContainer {
                                 Text(
-                                    text = FirebaseAccountAdminManager.ADMIN_UID,
+                                    text = AdminUidStore.adminUidsLabel(),
                                     color = warnBoxUid,
                                     fontSize = 10.sp,
                                     fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
@@ -1059,8 +1114,8 @@ fun ManajemenAkunScreen(
                 Button(
                     onClick = {
                         showDeleteAllDialog = false
-                        if (currentUser?.uid != FirebaseAccountAdminManager.ADMIN_UID) {
-                            viewModel.showToastPopup("Akses Ditolak: Hanya UID ${FirebaseAccountAdminManager.ADMIN_UID} yang berwenang.")
+                        if (!AdminUidStore.isAdmin(currentUser?.uid)) {
+                            viewModel.showToastPopup("Akses Ditolak: Hanya UID ${AdminUidStore.adminUidsLabel()} yang berwenang.")
                             return@Button
                         }
                         scope.launch {
@@ -2368,7 +2423,7 @@ fun PesanAdminContent(
             ) {
                 Icon(Icons.Default.Shield, null, tint = if (isDark) Color(0xFFFBBF24) else Color(0xFFD97706), modifier = Modifier.size(18.dp))
                 Text(
-                    text = "Aturan Keamanan: Hanya akun Admin (UID: ${FirebaseAccountAdminManager.ADMIN_UID}) yang dapat membuat dan menghapus pesan di koleksi 'messages'.",
+                    text = "Aturan Keamanan: Hanya akun Admin terdaftar (${AdminUidStore.adminUidsLabel()}) yang dapat membuat dan menghapus pesan di koleksi 'messages'.",
                     fontSize = 10.sp,
                     color = if (isDark) Color(0xFFFDE68A) else Color(0xFF92400E),
                     lineHeight = 14.sp
@@ -2707,7 +2762,8 @@ fun FirestoreRulesDialog(
     onCopyRules: () -> Unit
 ) {
     val adminManager = remember { FirebaseAccountAdminManager.getInstance() }
-    val rulesCode = remember { adminManager.getFirestoreSecurityRulesCode() }
+    val adminUids = remember { AdminUidStore.getAdminUids() }
+    val rulesCode = remember(adminUids) { adminManager.getFirestoreSecurityRulesCode() }
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -2727,7 +2783,7 @@ fun FirestoreRulesDialog(
                     .verticalScroll(rememberScrollState())
             ) {
                 Text(
-                    text = "Aturan resmi ini menjamin hanya Administrator (UID: ${FirebaseAccountAdminManager.ADMIN_UID}) yang dapat menulis dan menghapus pesan, serta mengizinkan penyimpanan token FCM otomatis:",
+                    text = "Aturan resmi ini menjamin hanya Administrator terdaftar (${AdminUidStore.adminUidsLabel()}) yang dapat menulis dan menghapus pesan, serta mengizinkan penyimpanan token FCM otomatis:",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -2815,7 +2871,7 @@ fun AdminOtpInboxDialog(
                         color = MaterialTheme.colorScheme.onSurface
                     )
                     Text(
-                        text = "Proteksi Sandi Email (Admin: UiDpHxawlBQ17mxTUHIXvhxRR3b2)",
+                        text = "Proteksi Sandi Email (Admin: ${AdminUidStore.adminUidsLabel()})",
                         fontSize = 10.5.sp,
                         color = Color(0xFF0F766E),
                         fontWeight = FontWeight.Medium
@@ -3083,6 +3139,328 @@ fun AdminOtpInboxDialog(
         confirmButton = {
             TextButton(onClick = onDismiss) {
                 Text("Tutup", fontWeight = FontWeight.SemiBold)
+            }
+        }
+    )
+}
+
+/**
+ * Tampilan mode setup saat daftar UID admin masih kosong (instalasi pertama).
+ * Dapat diakses tanpa internet karena penyimpanan UID bersifat lokal.
+ */
+@Composable
+private fun UidAdminSetupState(
+    currentUid: String?,
+    onManageUids: () -> Unit,
+    onBack: () -> Unit
+) {
+    Scaffold(
+        topBar = {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 8.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                IconButton(onClick = onBack) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Kembali")
+                }
+                Text(
+                    text = "Manajemen Akun",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+        }
+    ) { paddingValues ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(paddingValues)
+                .padding(24.dp)
+                .verticalScroll(rememberScrollState()),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(76.dp)
+                    .clip(CircleShape)
+                    .background(MaterialTheme.colorScheme.primaryContainer),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Default.AdminPanelSettings,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                    modifier = Modifier.size(40.dp)
+                )
+            }
+
+            Text(
+                text = "Belum Ada UID Administrator",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Bold,
+                color = MaterialTheme.colorScheme.onSurface,
+                textAlign = TextAlign.Center
+            )
+
+            Text(
+                text = "Daftar UID admin masih kosong pada instalasi pertama. Tambahkan minimal satu UID agar panel Manajemen Akun aktif dan aturan keamanan Firestore terisi otomatis.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center
+            )
+
+            Surface(
+                shape = RoundedCornerShape(10.dp),
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier.padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    Text(
+                        text = "UID akun Anda saat ini:",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                    SelectionContainer {
+                        Text(
+                            text = currentUid ?: "Belum masuk / Guest",
+                            fontSize = 12.sp,
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.Bold,
+                            color = if (currentUid == null) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface
+                        )
+                    }
+                    Text(
+                        text = "Pastikan UID di atas ikut ditambahkan agar Anda tidak terkunci dari panel admin.",
+                        fontSize = 10.5.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+
+            Button(
+                onClick = onManageUids,
+                shape = RoundedCornerShape(10.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(44.dp)
+            ) {
+                Icon(Icons.Default.VpnKey, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("Kelola UID Admin", fontWeight = FontWeight.SemiBold)
+            }
+
+            OutlinedButton(
+                onClick = onBack,
+                shape = RoundedCornerShape(10.dp),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(42.dp)
+            ) {
+                Text("Kembali")
+            }
+        }
+    }
+}
+
+/**
+ * Dialog untuk menambah / menghapus UID admin. Daftar disimpan lokal dan
+ * aturan Firestore mengikuti daftar ini secara otomatis.
+ */
+@Composable
+private fun AdminUidManagerDialog(
+    currentUid: String?,
+    onDismiss: () -> Unit,
+    onUidsChanged: (List<String>) -> Unit
+) {
+    val context = LocalContext.current
+    var uids by remember { mutableStateOf(AdminUidStore.getAdminUids()) }
+    var input by remember { mutableStateOf("") }
+    var errorMessage by remember { mutableStateOf("") }
+
+    fun commit(newList: List<String>) {
+        uids = AdminUidStore.saveAdminUids(newList)
+        onUidsChanged(uids)
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        icon = {
+            Icon(
+                Icons.Default.VpnKey,
+                contentDescription = null,
+                tint = Color(0xFF047857),
+                modifier = Modifier.size(30.dp)
+            )
+        },
+        title = { Text("Kelola UID Admin", fontWeight = FontWeight.Bold) },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
+            ) {
+                Text(
+                    text = "Aturan firebase rules terisi otomatis dari daftar ini. Tambahkan minimal satu UID (boleh lebih dari dua).",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                if (uids.isEmpty()) {
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = MaterialTheme.colorScheme.errorContainer,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            text = "Belum ada UID terdaftar. Saat ini tidak ada akun yang dianggap administrator.",
+                            fontSize = 11.sp,
+                            color = MaterialTheme.colorScheme.onErrorContainer,
+                            modifier = Modifier.padding(10.dp)
+                        )
+                    }
+                } else {
+                    uids.forEachIndexed { index, uid ->
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(bottom = 6.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(start = 10.dp, top = 6.dp, bottom = 6.dp, end = 2.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
+                                    Text(
+                                        text = "Admin ${index + 1}" + (if (uid == currentUid) " (Anda)" else ""),
+                                        fontSize = 10.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                    Text(
+                                        text = uid,
+                                        fontSize = 11.sp,
+                                        fontFamily = FontFamily.Monospace,
+                                        color = MaterialTheme.colorScheme.onSurface
+                                    )
+                                }
+                                IconButton(onClick = { commit(uids - uid) }) {
+                                    Icon(
+                                        Icons.Default.Delete,
+                                        contentDescription = "Hapus UID",
+                                        tint = MaterialTheme.colorScheme.error,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(6.dp))
+
+                OutlinedTextField(
+                    value = input,
+                    onValueChange = {
+                        input = it
+                        errorMessage = ""
+                    },
+                    label = { Text("UID Firebase baru") },
+                    placeholder = { Text("Contoh: UiDpHxawlBQ17mxTUHIXvhxRR3b2") },
+                    isError = errorMessage.isNotEmpty(),
+                    supportingText = {
+                        if (errorMessage.isNotEmpty()) {
+                            Text(errorMessage, fontSize = 10.5.sp)
+                        }
+                    },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                Spacer(modifier = Modifier.height(6.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    if (currentUid != null && !uids.contains(currentUid)) {
+                        OutlinedButton(
+                            onClick = { commit(uids + currentUid) },
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text("Pakai UID Saya", fontSize = 11.sp)
+                        }
+                    }
+                    Button(
+                        onClick = {
+                            val clean = input.trim()
+                            when {
+                                clean.isEmpty() -> errorMessage = "UID tidak boleh kosong."
+                                clean.any { it.isWhitespace() } -> errorMessage = "UID tidak boleh mengandung spasi."
+                                uids.contains(clean) -> errorMessage = "UID tersebut sudah terdaftar."
+                                else -> {
+                                    commit(uids + clean)
+                                    input = ""
+                                }
+                            }
+                        },
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Text("Tambah UID", fontSize = 11.sp)
+                    }
+                }
+
+                if (currentUid != null && uids.isNotEmpty() && !uids.contains(currentUid)) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = "Perhatian: UID akun Anda belum terdaftar. Anda akan kehilangan akses panel admin setelah keluar dari mode setup.",
+                        fontSize = 10.5.sp,
+                        color = MaterialTheme.colorScheme.error
+                    )
+                }
+
+                Spacer(modifier = Modifier.height(10.dp))
+
+                Text(
+                    text = "Setelah daftar berubah, salin aturan terbaru lewat menu Titik Tiga -> Aturan Rules Firestore, lalu Publish di Firebase Console.",
+                    fontSize = 10.5.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Selesai", fontWeight = FontWeight.SemiBold)
+            }
+        },
+        dismissButton = {
+            TextButton(
+                onClick = {
+                    val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                    clipboard.setPrimaryClip(
+                        ClipData.newPlainText(
+                            "Firestore Rules",
+                            FirebaseAccountAdminManager.getInstance().getFirestoreSecurityRulesCode()
+                        )
+                    )
+                    Toast.makeText(context, "Aturan rules berhasil disalin!", Toast.LENGTH_SHORT).show()
+                }
+            ) {
+                Text("Salin Rules")
             }
         }
     )

@@ -9,6 +9,7 @@ class SinggharaApplication : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        com.example.firebase.AdminUidStore.init(this)
         installCrashLogger()
         initFirebase()
         // WorkManager.getInstance() melempar IllegalStateException bila initializer-nya

@@ -106,7 +106,7 @@ fun ProfilScreen(
     var showAuthDialogInProfile by remember { mutableStateOf(false) }
     var authDialogModeInProfile by remember { mutableStateOf(AuthMode.LOGIN) }
 
-    // Dialog Atur Kata Sandi Email di Profil (Dilindungi OTP ke Admin UiDpHxawlBQ17mxTUHIXvhxRR3b2)
+    // Dialog Atur Kata Sandi Email di Profil (Dilindungi OTP ke Admin terdaftar)
     var showSetPasswordDialogInProfile by remember { mutableStateOf(false) }
     var profilePasswordInput by remember { mutableStateOf("") }
     var profilePasswordConfirm by remember { mutableStateOf("") }
@@ -562,15 +562,21 @@ fun ProfilScreen(
                             onClick = { viewModel.currentRoute = "telegram_ai" }
                         )
 
-                        val isUserAdmin = viewModel.currentFirebaseUser?.uid == com.example.firebase.FirebaseAccountAdminManager.ADMIN_UID
-                        if (isUserAdmin) {
+                        // Tampil saat UID admin belum diatur (mode setup) atau bagi pengguna yang UID-nya terdaftar.
+                        val isAdminSetup = !com.example.firebase.AdminUidStore.isConfigured()
+                        val isUserAdmin = com.example.firebase.AdminUidStore.isAdmin(viewModel.currentFirebaseUser?.uid)
+                        if (isAdminSetup || isUserAdmin) {
                             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
                             val isDark = isSystemInDarkTheme()
                             MenuItem(
                                 icon = Icons.Default.AdminPanelSettings,
                                 iconTint = if (isDark) Color(0xFF34D399) else Color(0xFF047857),
                                 title = "Manajemen Akun (Khusus Admin)",
-                                subtitle = "Panel Admin: Pengguna, Pesan & Token FCM",
+                                subtitle = if (isAdminSetup) {
+                                    "Belum ada UID admin - atur UID di menu titik tiga"
+                                } else {
+                                    "Panel Admin: Pengguna, Pesan & Token FCM"
+                                },
                                 onClick = { viewModel.currentRoute = "manajemen_akun" }
                             )
                         }
@@ -2552,11 +2558,11 @@ function doPost(e) {
             )
         }
 
-        // Dialog Buat / Atur Kata Sandi Email dari Profil (Dilindungi Proteksi OTP ke Admin UiDpHxawlBQ17mxTUHIXvhxRR3b2)
+        // Dialog Buat / Atur Kata Sandi Email dari Profil (Dilindungi Proteksi OTP ke Admin terdaftar)
         val currentUserInProfile = viewModel.currentFirebaseUser
         if (showSetPasswordDialogInProfile && currentUserInProfile != null) {
             val userEmail = currentUserInProfile.email ?: ""
-            val isCurrentUserAdmin = currentUserInProfile.uid == com.example.firebase.FirebaseAccountAdminManager.ADMIN_UID
+            val isCurrentUserAdmin = com.example.firebase.AdminUidStore.isAdmin(currentUserInProfile.uid)
             AlertDialog(
                 onDismissRequest = {
                     if (!profilePasswordLoading && !profileOtpLoading) showSetPasswordDialogInProfile = false
@@ -2586,7 +2592,7 @@ function doPost(e) {
                                 color = MaterialTheme.colorScheme.onSurface
                             )
                             Text(
-                                text = "Proteksi OTP Admin: UiDpHxawlBQ17mxTUHIXvhxRR3b2",
+                                text = "Proteksi OTP Admin: ${com.example.firebase.AdminUidStore.adminUidsLabel()}",
                                 fontSize = 10.5.sp,
                                 color = Color(0xFF0F766E),
                                 fontWeight = FontWeight.Medium
@@ -2632,7 +2638,7 @@ function doPost(e) {
                                         text = if (isProfileOtpVerified) {
                                             "Kode verifikasi telah disetujui. Anda sekarang dapat menetapkan kata sandi baru untuk akun $userEmail."
                                         } else {
-                                            "Untuk keamanan akun $userEmail, pengaturan kata sandi wajib diverifikasi dengan kode OTP yang dikirimkan ke Admin Singghara (UID: UiDpHxawlBQ17mxTUHIXvhxRR3b2)."
+                                            "Untuk keamanan akun $userEmail, pengaturan kata sandi wajib diverifikasi dengan kode OTP yang dikirimkan ke Admin Singghara (UID: ${com.example.firebase.AdminUidStore.adminUidsLabel()})."
                                         },
                                         fontSize = 10.5.sp,
                                         color = if (isProfileOtpVerified) Color(0xFF047857) else Color(0xFF78350F),
@@ -2716,7 +2722,7 @@ function doPost(e) {
                                             Icon(Icons.Default.Send, null, modifier = Modifier.size(14.dp))
                                             Spacer(modifier = Modifier.width(6.dp))
                                             Text(
-                                                text = if (profileOtpSentSuccess) "Kirim Ulang OTP ke Admin" else "Kirim OTP ke Admin (UiDpHxawlBQ17mxTUHIXvhxRR3b2)",
+                                                text = if (profileOtpSentSuccess) "Kirim Ulang OTP ke Admin" else "Kirim OTP ke Admin (${com.example.firebase.AdminUidStore.adminUidsLabel()})",
                                                 fontSize = 11.sp,
                                                 fontWeight = FontWeight.SemiBold
                                             )

@@ -852,7 +852,7 @@ class LocalHttpServer(
             ?: ""
         if (userEmail.equals("singghara.admin@gmail.com", ignoreCase = true) ||
             userEmail.equals("putut.singgihpamungkas@gmail.com", ignoreCase = true)) {
-            return FirebaseAccountAdminManager.ADMIN_UID
+            return com.example.firebase.AdminUidStore.primaryAdminUid()
         }
 
         return ""
@@ -860,7 +860,7 @@ class LocalHttpServer(
 
     private fun isCurrentUserAdmin(): Boolean {
         val uid = getActiveUserUid()
-        return uid.equals(FirebaseAccountAdminManager.ADMIN_UID, ignoreCase = true)
+        return com.example.firebase.AdminUidStore.isAdmin(uid)
     }
 
     private fun getActiveUserEmail(): String {
@@ -1048,7 +1048,7 @@ class LocalHttpServer(
         response.put("profileImageUrl", if (hasCustomImage) "/api/profile/image?t=${System.currentTimeMillis()}" else "")
         response.put("currentUid", currentUid)
         response.put("isAdmin", isRealAdmin)
-        response.put("adminUid", FirebaseAccountAdminManager.ADMIN_UID)
+        response.put("adminUid", com.example.firebase.AdminUidStore.primaryAdminUid())
         sendJsonResponse(output, response.toString())
     }
 
@@ -1111,7 +1111,7 @@ class LocalHttpServer(
         val adminActiveEmail = if (getActiveUserEmail().isNotBlank()) getActiveUserEmail() else "putut.singgihpamungkas@gmail.com"
         val adminActiveName = if (getActiveProfileName().isNotBlank()) getActiveProfileName() else "Administrator My Singghara"
         arr.put(JSONObject().apply {
-            put("uid", FirebaseAccountAdminManager.ADMIN_UID)
+            put("uid", com.example.firebase.AdminUidStore.primaryAdminUid())
             put("email", adminActiveEmail)
             put("displayName", adminActiveName)
             put("photoUrl", "")
@@ -1140,7 +1140,7 @@ class LocalHttpServer(
 
         // 2. Akun Host / Pengguna Saat Ini
         val currentUser = FirebaseAuth.getInstance().currentUser
-        if (currentUser != null && currentUser.uid != FirebaseAccountAdminManager.ADMIN_UID) {
+        if (currentUser != null && !com.example.firebase.AdminUidStore.isAdmin(currentUser.uid)) {
             val cal = java.util.Calendar.getInstance()
             val start = cal.timeInMillis
             cal.add(java.util.Calendar.MONTH, 12)
@@ -1281,7 +1281,7 @@ class LocalHttpServer(
             put("priority", "NORMAL")
             put("target", "SEMUA")
             put("targetName", "Semua Pengguna")
-            put("authorUid", FirebaseAccountAdminManager.ADMIN_UID)
+            put("authorUid", com.example.firebase.AdminUidStore.primaryAdminUid())
             put("authorName", "Administrator My Singghara")
             put("createdAt", now - (2L * 86400000L))
         })
@@ -1293,7 +1293,7 @@ class LocalHttpServer(
             put("priority", "TINGGI")
             put("target", "SEMUA")
             put("targetName", "Semua Pengguna")
-            put("authorUid", FirebaseAccountAdminManager.ADMIN_UID)
+            put("authorUid", com.example.firebase.AdminUidStore.primaryAdminUid())
             put("authorName", "Administrator My Singghara")
             put("createdAt", now - (1L * 86400000L))
         })
@@ -1323,12 +1323,12 @@ class LocalHttpServer(
                 val response = JSONObject().apply {
                     put("status", "success")
                     put("isLoggedIn", currentUid.isNotEmpty())
-                    put("isAdmin", isRealAdmin) // HANYA TRUE JIKA UID = "UiDpHxawlBQ17mxTUHIXvhxRR3b2"
+                    put("isAdmin", isRealAdmin) // true hanya bila UID terdaftar di daftar admin lokal
                     put("currentUid", currentUid)
                     put("currentEmail", currentEmail)
                     put("currentDisplayName", currentDisplayName)
                     put("currentPhotoUrl", currentUser?.photoUrl?.toString() ?: "")
-                    put("adminUid", FirebaseAccountAdminManager.ADMIN_UID)
+                    put("adminUid", com.example.firebase.AdminUidStore.primaryAdminUid())
                     put("adminPhoneNumber", adminPhone)
                     put("isOffline", true)
                 }
@@ -1338,7 +1338,7 @@ class LocalHttpServer(
                 val response = JSONObject().apply {
                     put("status", "error")
                     put("isAdmin", false)
-                    put("message", "Akses ditolak: Halaman manajemen akun tersembunyi kecuali untuk Admin (UID: ${FirebaseAccountAdminManager.ADMIN_UID})")
+                    put("message", "Akses ditolak: Halaman manajemen akun tersembunyi kecuali untuk Admin terdaftar (${com.example.firebase.AdminUidStore.adminUidsLabel()})")
                 }
                 sendJsonResponse(output, response.toString(), 403)
             }
@@ -1483,7 +1483,7 @@ class LocalHttpServer(
                     put("priority", priority)
                     put("target", target)
                     put("targetName", targetName)
-                    put("authorUid", currentUser?.uid ?: FirebaseAccountAdminManager.ADMIN_UID)
+                    put("authorUid", currentUser?.uid ?: com.example.firebase.AdminUidStore.primaryAdminUid())
                     put("authorName", currentUser?.displayName ?: "Administrator My Singghara")
                     put("createdAt", now)
                 }
@@ -1730,7 +1730,7 @@ class LocalHttpServer(
                 } else {
                     val resp = JSONObject().apply {
                         put("status", "success")
-                        put("uid", FirebaseAccountAdminManager.ADMIN_UID)
+                        put("uid", com.example.firebase.AdminUidStore.primaryAdminUid())
                         put("email", email)
                         put("displayName", email.substringBefore('@'))
                         put("isAdmin", true)
@@ -3975,7 +3975,7 @@ class LocalHttpServer(
             put("remotePhotoUrl", if (profileImageUri.startsWith("http")) profileImageUri else "")
             put("currentUid", currentUid)
             put("isAdmin", isRealAdmin)
-            put("adminUid", FirebaseAccountAdminManager.ADMIN_UID)
+            put("adminUid", com.example.firebase.AdminUidStore.primaryAdminUid())
             put("userEmail", userEmail)
             put("isLoggedIn", isLoggedIn)
             put("membershipTier", membershipTier)
@@ -11726,16 +11726,15 @@ class LocalHttpServer(
                 }
             }
 
-            // Sembunyikan atau tampilkan tombol Manajemen Akun khusus Admin UID 'UiDpHxawlBQ17mxTUHIXvhxRR3b2'
-            const targetAdminUid = 'UiDpHxawlBQ17mxTUHIXvhxRR3b2';
-            const isRealAdmin = !!(data && (data.currentUid === targetAdminUid || data.isAdmin === true));
+            // Sembunyikan atau tampilkan tombol Manajemen Akun berdasarkan status admin dari server
+            const isRealAdmin = !!(data && data.isAdmin === true);
             if (!window.adminAuthStatus) {
                 window.adminAuthStatus = {};
             }
             window.adminAuthStatus.isAdmin = isRealAdmin;
-            window.adminAuthStatus.currentUid = isRealAdmin ? targetAdminUid : ((data && data.currentUid) || '');
+            window.adminAuthStatus.currentUid = (data && data.currentUid) || '';
             window.adminAuthStatus.isLoggedIn = !!(data && (data.currentUid || data.profileName));
-            window.adminAuthStatus.adminUid = targetAdminUid;
+            window.adminAuthStatus.adminUid = (data && data.adminUid) || '';
 
             const btnAdmin = document.getElementById('btnProfileManajemenAkun');
             if (btnAdmin) {
@@ -11750,17 +11749,16 @@ class LocalHttpServer(
         }
 
         async function openManajemenAkunFromProfileModal() {
-            const targetAdminUid = 'UiDpHxawlBQ17mxTUHIXvhxRR3b2';
-            let isRealAdmin = window.adminAuthStatus && window.adminAuthStatus.isAdmin && (window.adminAuthStatus.currentUid === targetAdminUid);
+            let isRealAdmin = !!(window.adminAuthStatus && window.adminAuthStatus.isAdmin);
             if (!isRealAdmin && typeof fetchAdminStatus === 'function') {
                 const updated = await fetchAdminStatus();
-                isRealAdmin = updated && updated.isAdmin && (updated.currentUid === targetAdminUid);
+                isRealAdmin = !!(updated && updated.isAdmin);
             }
             if (!isRealAdmin) {
                 if (typeof showAdminToast === 'function') {
-                    showAdminToast('Akses ditolak: Khusus UID Admin UiDpHxawlBQ17mxTUHIXvhxRR3b2', 'bi-shield-slash-fill', '#DC2626');
+                    showAdminToast('Akses ditolak: Khusus akun Administrator terdaftar', 'bi-shield-slash-fill', '#DC2626');
                 } else {
-                    alert('Akses ditolak: Khusus UID Admin UiDpHxawlBQ17mxTUHIXvhxRR3b2');
+                    alert('Akses ditolak: Khusus akun Administrator terdaftar');
                 }
                 return;
             }

@@ -25,7 +25,7 @@ object ManajemenAkunWebScript {
             currentUid: '',
             currentEmail: '',
             currentDisplayName: '',
-            adminUid: 'UiDpHxawlBQ17mxTUHIXvhxRR3b2',
+            adminUid: '',
             adminPhoneNumber: '088806643415'
         };
         window.adminUserToToggle = null;
@@ -127,16 +127,15 @@ object ManajemenAkunWebScript {
                 if (res.ok) {
                     const data = await res.json();
                     if (data && data.status === 'success') {
-                        const targetAdminUid = 'UiDpHxawlBQ17mxTUHIXvhxRR3b2';
                         const cleanUid = ((data.currentUid || '') + '').trim();
-                        const isRealAdmin = (cleanUid === targetAdminUid) || (data.isAdmin === true);
+                        const isRealAdmin = data.isAdmin === true;
                         window.adminAuthStatus = {
                             isLoggedIn: !!data.isLoggedIn,
                             isAdmin: isRealAdmin,
-                            currentUid: isRealAdmin ? targetAdminUid : cleanUid,
+                            currentUid: cleanUid,
                             currentEmail: data.currentEmail || '',
                             currentDisplayName: data.currentDisplayName || '',
-                            adminUid: targetAdminUid,
+                            adminUid: data.adminUid || '',
                             adminPhoneNumber: data.adminPhoneNumber || '088806643415'
                         };
                         window.adminPhoneNumber = data.adminPhoneNumber || window.adminPhoneNumber;
@@ -163,17 +162,13 @@ object ManajemenAkunWebScript {
 
         // --- ENTRY POINT HALAMAN MANAJEMEN AKUN (100% OFFLINE CAPABLE) ---
         async function loadManajemenAkun() {
-            const targetAdminUid = 'UiDpHxawlBQ17mxTUHIXvhxRR3b2';
-
-            // 1. Verifikasi hak akses Admin resmi UID 'UiDpHxawlBQ17mxTUHIXvhxRR3b2'
+            // 1. Verifikasi hak akses Administrator terdaftar
             let authStatus = window.adminAuthStatus;
-            let cleanUid = ((authStatus && authStatus.currentUid) || '').trim();
-            let isAuthorized = authStatus && (authStatus.isAdmin === true || cleanUid === targetAdminUid);
+            let isAuthorized = authStatus && authStatus.isAdmin === true;
 
             if (!isAuthorized) {
                 authStatus = await fetchAdminStatus();
-                cleanUid = ((authStatus && authStatus.currentUid) || '').trim();
-                isAuthorized = authStatus && (authStatus.isAdmin === true || cleanUid === targetAdminUid);
+                isAuthorized = authStatus && authStatus.isAdmin === true;
             }
 
             if (!isAuthorized) {
@@ -430,11 +425,9 @@ object ManajemenAkunWebScript {
             const container = document.getElementById('tab-content') || document.getElementById('main-content');
             if (!container) return;
 
-            const targetAdminUid = 'UiDpHxawlBQ17mxTUHIXvhxRR3b2';
-            const currentUid = (((window.adminAuthStatus && window.adminAuthStatus.currentUid) || '') + '').trim();
             const isAdmin = (window.adminAuthStatus && window.adminAuthStatus.isAdmin) || false;
 
-            if (!isAdmin && currentUid !== targetAdminUid) {
+            if (!isAdmin) {
                 renderAccessDeniedUI(container);
                 return;
             }
@@ -456,10 +449,10 @@ object ManajemenAkunWebScript {
                             <i class="bi bi-lock-fill me-1"></i> Akses Khusus Administrator Resmi
                         </div>
                         <p class="text-secondary small mb-3" style="line-height: 1.6;">
-                            Halaman <strong>Manajemen Akun</strong> dilindungi dan tersembunyi. Halaman ini hanya dapat diakses dan dilihat oleh akun Administrator resmi dengan UID:
+                            Halaman <strong>Manajemen Akun</strong> dilindungi dan tersembunyi. Halaman ini hanya dapat diakses dan dilihat oleh akun Administrator terdaftar dengan UID:
                         </p>
                         <div class="p-2 mb-3 rounded-3 bg-danger-subtle border border-danger border-opacity-25">
-                            <code class="fw-bold text-danger" style="font-size: 13px;">UiDpHxawlBQ17mxTUHIXvhxRR3b2</code>
+                            <code class="fw-bold text-danger" style="font-size: 13px;">${dol}{escapeHtml((window.adminAuthStatus && window.adminAuthStatus.adminUid) || 'Belum diatur')}</code>
                         </div>
                         
                         ${dol}{currentUid ? `
