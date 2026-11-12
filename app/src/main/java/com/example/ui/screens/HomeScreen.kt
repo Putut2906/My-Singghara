@@ -113,14 +113,17 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import coil.compose.AsyncImage
@@ -305,6 +308,26 @@ private fun WeekdayDateLabel(viewModel: MainViewModel) {
     )
 }
 
+/**
+ * Bayangan lembut khusus mode terang: kartu putih di atas latar terang menyatu tanpa
+ * kontras, jadi sudut kartu diberi shadow agar terlihat terpisah dari latar.
+ */
+private fun Modifier.homeCardShadow(
+    isLight: Boolean,
+    shape: Shape,
+    elevation: Dp = 8.dp
+): Modifier = if (isLight) {
+    shadow(
+        elevation = elevation,
+        shape = shape,
+        clip = false,
+        ambientColor = Color(0x0D0F172A),
+        spotColor = Color(0x1F0F172A)
+    )
+} else {
+    this
+}
+
 @Composable
 fun HomeScreen(viewModel: MainViewModel) {
     // Jam diperbarui tiap detik oleh MainViewModel.startClock(). Membacanya di sini
@@ -316,6 +339,7 @@ fun HomeScreen(viewModel: MainViewModel) {
     val weatherState by viewModel.weatherState.collectAsState()
 
     val context = LocalContext.current
+    val isLightTheme = !isSystemInDarkTheme()
 
     var activeGameSection by remember { mutableStateOf<String?>(null) }
 
@@ -1360,7 +1384,8 @@ fun HomeScreen(viewModel: MainViewModel) {
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .testTag("my_aplikasi_card"),
+                    .testTag("my_aplikasi_card")
+                    .homeCardShadow(isLightTheme, RoundedCornerShape(20.dp)),
                 shape = RoundedCornerShape(20.dp),
                 border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
             ) {
@@ -1461,7 +1486,8 @@ fun HomeScreen(viewModel: MainViewModel) {
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .testTag("weather_forecast_card"),
+                    .testTag("weather_forecast_card")
+                    .homeCardShadow(isLightTheme, RoundedCornerShape(20.dp)),
                 shape = RoundedCornerShape(20.dp),
                 border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
             ) {
@@ -1824,6 +1850,7 @@ fun HomeScreen(viewModel: MainViewModel) {
                 modifier = Modifier
                     .fillMaxWidth()
                     .testTag("prayer_schedule_card")
+                    .homeCardShadow(isLightTheme, RoundedCornerShape(20.dp))
                     .clickable { triggerLocationRefresh() },
                 shape = RoundedCornerShape(20.dp),
                 border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
@@ -2023,7 +2050,9 @@ fun HomeScreen(viewModel: MainViewModel) {
         item {
                 Card(
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .homeCardShadow(isLightTheme, RoundedCornerShape(20.dp)),
                     shape = RoundedCornerShape(20.dp),
                     border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
                 ) {
