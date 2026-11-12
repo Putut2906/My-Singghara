@@ -2,8 +2,10 @@ package com.example.ui.screens
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -13,6 +15,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -23,7 +26,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
@@ -31,18 +33,18 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AccountBalanceWallet
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.ArrowDropDown
+import androidx.compose.material.icons.filled.ArrowForward
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Category
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.DirectionsBus
 import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.Movie
+import androidx.compose.material.icons.filled.Print
 import androidx.compose.material.icons.filled.Receipt
-import androidx.compose.material.icons.filled.Restaurant
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.SwapVert
 import androidx.compose.material.icons.filled.TrendingDown
@@ -81,14 +83,21 @@ import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import android.content.Context
+import android.print.PrintAttributes
+import android.print.PrintManager
+import android.webkit.WebView
+import android.webkit.WebViewClient
 import com.example.data.CatatanKeuanganItem
 import com.example.ui.MainViewModel
 import com.example.ui.components.CustomDatePickerDialog
@@ -101,15 +110,6 @@ import java.util.Locale
 
 private val WARNA_MASUK = Color(0xFF16A34A)
 private val WARNA_KELUAR = Color(0xFFDC2626)
-
-private fun kategoriIcon(kategori: String): ImageVector = when (kategori) {
-    CatatanKeuanganHelper.KATEGORI_MAKAN -> Icons.Default.Restaurant
-    CatatanKeuanganHelper.KATEGORI_TRANSPORTASI -> Icons.Default.DirectionsBus
-    CatatanKeuanganHelper.KATEGORI_TAGIHAN -> Icons.Default.Receipt
-    CatatanKeuanganHelper.KATEGORI_BELANJA -> Icons.Default.Movie
-    CatatanKeuanganHelper.KATEGORI_PEMASUKAN -> Icons.Default.CheckCircle
-    else -> Icons.Default.Category
-}
 
 private fun rupiah(nilai: Double) = CatatanKeuanganHelper.formatRupiah(nilai)
 
@@ -147,10 +147,6 @@ fun NoteKeuanganScreen(viewModel: MainViewModel) {
         }
     }
 
-    val kelompokTanggal = remember(tersaring) {
-        tersaring.groupBy { it.tanggal }.toSortedMap(compareByDescending { it })
-    }
-
     Box(modifier = Modifier.fillMaxSize().testTag("note_keuangan_screen")) {
         LazyColumn(
             modifier = Modifier.fillMaxSize(),
@@ -182,39 +178,17 @@ fun NoteKeuanganScreen(viewModel: MainViewModel) {
                     )
                 }
             } else {
-                kelompokTanggal.forEach { (tanggal, daftar) ->
-                    item(key = "tanggal-$tanggal") {
-                        Row(
-                            modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            Text(
-                                text = CatatanKeuanganHelper.formatTanggalPanjang(tanggal),
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                            val masukHari = daftar.filter { it.jenis == "masuk" }.sumOf { it.jumlah }
-                            val keluarHari = daftar.filter { it.jenis == "keluar" }.sumOf { it.jumlah }
-                            Text(
-                                text = "Masuk ${rupiah(masukHari)}  •  Keluar ${rupiah(keluarHari)}",
-                                fontSize = 10.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
-                            )
-                        }
-                    }
-                    items(items = daftar, key = { "trx-${it.id}" }) { item ->
-                        KartuTransaksi(
-                            item = item,
-                            onClick = {
-                                sedangEdit = item
-                                sumberAwalForm = item.sumberDana
-                                tampilForm = true
-                            },
-                            onHapus = { hapusItem = item }
-                        )
-                    }
+                item {
+                    CatatanKeuanganTable(
+                        items = tersaring,
+                        onUbah = { item ->
+                            sedangEdit = item
+                            sumberAwalForm = item.sumberDana
+                            tampilForm = true
+                        },
+                        onHapus = { hapusItem = it },
+                        limit = 5
+                    )
                 }
             }
 
@@ -287,6 +261,8 @@ private fun RingkasanKeuanganCard(items: List<CatatanKeuanganItem>) {
 
     val warnaSaldo = MaterialTheme.colorScheme.primary
     val warnaCatatan = Color(0xFF64748B)
+    val context = LocalContext.current
+    val modeTerang = !isSystemInDarkTheme()
 
     val valSaldo = saldo.coerceAtLeast(0.0)
     val sum = valSaldo + totalMasuk + totalKeluar
@@ -296,7 +272,12 @@ private fun RingkasanKeuanganCard(items: List<CatatanKeuanganItem>) {
 
     Card(
         modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.55f))
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = if (modeTerang) MaterialTheme.colorScheme.surface
+            else MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.55f)
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = if (modeTerang) 5.dp else 0.dp)
     ) {
         Column(modifier = Modifier.fillMaxWidth().padding(16.dp)) {
             Row(
@@ -311,12 +292,17 @@ private fun RingkasanKeuanganCard(items: List<CatatanKeuanganItem>) {
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text("Saldo Tercatat", fontSize = 11.sp, color = MaterialTheme.colorScheme.onPrimaryContainer)
-                        Icon(
-                            imageVector = Icons.Default.AccountBalanceWallet,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.size(20.dp)
-                        )
+                        IconButton(
+                            onClick = { printCatatanKeuangan(context, items) },
+                            modifier = Modifier.size(24.dp).testTag("print_note_keuangan")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Print,
+                                contentDescription = "Cetak Note Keuangan",
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
                     }
                     Text(
                         text = rupiah(saldo),
@@ -515,56 +501,6 @@ private fun RingkasanKeuanganCard(items: List<CatatanKeuanganItem>) {
                     nilai = "$jumlahCatatan",
                     warna = MaterialTheme.colorScheme.onPrimaryContainer,
                     modifier = Modifier.weight(1f)
-                )
-            }
-
-            Spacer(modifier = Modifier.height(12.dp))
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                LegendChip(
-                    label = "Saldo",
-                    color = warnaSaldo,
-                    isSelected = selectedCategory == "saldo",
-                    onClick = {
-                        selectedCategory = "saldo"
-                        showDetailPopup = true
-                    }
-                )
-                LegendChip(
-                    label = "Masuk",
-                    color = WARNA_MASUK,
-                    isSelected = selectedCategory == "masuk",
-                    onClick = {
-                        selectedCategory = "masuk"
-                        showDetailPopup = true
-                    }
-                )
-                LegendChip(
-                    label = "Keluar",
-                    color = WARNA_KELUAR,
-                    isSelected = selectedCategory == "keluar",
-                    onClick = {
-                        selectedCategory = "keluar"
-                        showDetailPopup = true
-                    }
-                )
-            }
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(6.dp, Alignment.CenterHorizontally),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                LegendChip(
-                    label = "Catatan",
-                    color = warnaCatatan,
-                    isSelected = selectedCategory == "catatan",
-                    onClick = {
-                        selectedCategory = "catatan"
-                        showDetailPopup = true
-                    }
                 )
             }
         }
@@ -863,64 +799,156 @@ private fun DropdownSaring(
 }
 
 @Composable
-private fun KartuTransaksi(
-    item: CatatanKeuanganItem,
-    onClick: () -> Unit,
-    onHapus: () -> Unit
+private fun CatatanKeuanganTable(
+    items: List<CatatanKeuanganItem>,
+    onUbah: (CatatanKeuanganItem) -> Unit,
+    onHapus: (CatatanKeuanganItem) -> Unit,
+    limit: Int = 5
 ) {
-    val masuk = item.jenis == "masuk"
-    Card(modifier = Modifier.fillMaxWidth().clickable(onClick = onClick)) {
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp)
+    val modeTerang = !isSystemInDarkTheme()
+    val perHalaman = if (limit <= 0) items.size.coerceAtLeast(1) else limit
+    val totalHalaman = ((items.size + perHalaman - 1) / perHalaman).coerceAtLeast(1)
+    var halamanAktif by remember(items) { mutableStateOf(0) }
+    val halaman = halamanAktif.coerceIn(0, totalHalaman - 1)
+    val baris = items.drop(halaman * perHalaman).take(perHalaman)
+
+    Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(14.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            elevation = CardDefaults.cardElevation(defaultElevation = if (modeTerang) 4.dp else 0.dp),
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f))
         ) {
-            Box(
-                modifier = Modifier
-                    .size(36.dp)
-                    .background(
-                        color = (if (masuk) WARNA_MASUK else MaterialTheme.colorScheme.primary).copy(alpha = 0.12f),
-                        shape = RoundedCornerShape(10.dp)
-                    ),
-                contentAlignment = Alignment.Center
+            Box(modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) {
+                Column {
+                    Row(
+                        modifier = Modifier
+                            .background(MaterialTheme.colorScheme.primaryContainer)
+                            .height(IntrinsicSize.Min),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        HeaderSel("Tanggal", 92.dp)
+                        HeaderSel("Keterangan", 168.dp)
+                        HeaderSel("Jenis", 92.dp, Alignment.Center)
+                        HeaderSel("Kategori", 112.dp)
+                        HeaderSel("Sumber Dana", 104.dp)
+                        HeaderSel("Jumlah", 112.dp, Alignment.CenterEnd)
+                        HeaderSel("Aksi", 84.dp, Alignment.Center)
+                    }
+
+                    baris.forEach { item ->
+                        val masuk = item.jenis == "masuk"
+                        Row(
+                            modifier = Modifier.height(IntrinsicSize.Min),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            BodySel(92.dp) {
+                                Text(item.tanggal, fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurface)
+                            }
+                            BodySel(168.dp) {
+                                Text(
+                                    text = item.keterangan.ifBlank { "-" },
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    maxLines = 2,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                            BodySel(92.dp, Alignment.Center) {
+                                Text(
+                                    text = if (masuk) "Masuk" else "Keluar",
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (masuk) WARNA_MASUK else WARNA_KELUAR,
+                                    modifier = Modifier
+                                        .background(
+                                            (if (masuk) WARNA_MASUK else WARNA_KELUAR).copy(alpha = 0.1f),
+                                            RoundedCornerShape(4.dp)
+                                        )
+                                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                                )
+                            }
+                            BodySel(112.dp) {
+                                Text(
+                                    text = item.kategori,
+                                    fontSize = 10.sp,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                            BodySel(104.dp) {
+                                Text(
+                                    text = item.sumberDana,
+                                    fontSize = 10.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                            BodySel(112.dp, Alignment.CenterEnd) {
+                                Text(
+                                    text = (if (masuk) "+ " else "- ") + rupiah(item.jumlah),
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (masuk) WARNA_MASUK else WARNA_KELUAR
+                                )
+                            }
+                            BodySel(84.dp, Alignment.Center) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    IconButton(onClick = { onUbah(item) }, modifier = Modifier.size(28.dp)) {
+                                        Icon(
+                                            Icons.Default.Edit,
+                                            contentDescription = "Ubah",
+                                            tint = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                    }
+                                    IconButton(onClick = { onHapus(item) }, modifier = Modifier.size(28.dp)) {
+                                        Icon(
+                                            Icons.Default.Delete,
+                                            contentDescription = "Hapus",
+                                            tint = MaterialTheme.colorScheme.error,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        if (items.size > perHalaman) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Icon(
-                    imageVector = kategoriIcon(item.kategori),
-                    contentDescription = null,
-                    tint = if (masuk) WARNA_MASUK else MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(20.dp)
-                )
-            }
-            Column(modifier = Modifier.weight(1f)) {
+                TextButton(
+                    onClick = { if (halaman > 0) halamanAktif = halaman - 1 },
+                    enabled = halaman > 0
+                ) {
+                    Icon(Icons.Default.ArrowBack, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Sebelumnya", fontSize = 12.sp)
+                }
                 Text(
-                    text = item.keterangan,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-                Text(
-                    text = "${item.kategori} • ${item.sumberDana}",
-                    fontSize = 10.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis
-                )
-            }
-            Column(horizontalAlignment = Alignment.End) {
-                Text(
-                    text = (if (masuk) "+ " else "- ") + rupiah(item.jumlah),
-                    fontSize = 13.sp,
+                    text = "Halaman ${halaman + 1} dari $totalHalaman",
+                    fontSize = 12.sp,
                     fontWeight = FontWeight.Bold,
-                    color = if (masuk) WARNA_MASUK else WARNA_KELUAR
+                    color = MaterialTheme.colorScheme.primary
                 )
-                Row {
-                    IconButton(onClick = onClick, modifier = Modifier.size(26.dp)) {
-                        Icon(Icons.Default.Edit, contentDescription = "Ubah", modifier = Modifier.size(15.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                    IconButton(onClick = onHapus, modifier = Modifier.size(26.dp)) {
-                        Icon(Icons.Default.Delete, contentDescription = "Hapus", modifier = Modifier.size(15.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
+                TextButton(
+                    onClick = { if (halaman < totalHalaman - 1) halamanAktif = halaman + 1 },
+                    enabled = halaman < totalHalaman - 1
+                ) {
+                    Text("Selanjutnya", fontSize = 12.sp)
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Icon(Icons.Default.ArrowForward, contentDescription = null, modifier = Modifier.size(16.dp))
                 }
             }
         }
@@ -928,8 +956,47 @@ private fun KartuTransaksi(
 }
 
 @Composable
+private fun HeaderSel(teks: String, lebar: Dp, rata: Alignment = Alignment.CenterStart) {
+    Box(
+        modifier = Modifier
+            .width(lebar)
+            .fillMaxHeight()
+            .border(0.5.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+            .padding(horizontal = 10.dp, vertical = 12.dp),
+        contentAlignment = rata
+    ) {
+        Text(
+            text = teks,
+            fontSize = 10.sp,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.onPrimaryContainer,
+            maxLines = 1
+        )
+    }
+}
+
+@Composable
+private fun BodySel(lebar: Dp, rata: Alignment = Alignment.CenterStart, isi: @Composable () -> Unit) {
+    Box(
+        modifier = Modifier
+            .width(lebar)
+            .fillMaxHeight()
+            .border(0.5.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
+            .padding(horizontal = 10.dp, vertical = 10.dp),
+        contentAlignment = rata
+    ) {
+        isi()
+    }
+}
+
+@Composable
 private fun KartuKosong(judul: String, pesan: String) {
-    Card(modifier = Modifier.fillMaxWidth()) {
+    val modeTerang = !isSystemInDarkTheme()
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(14.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = if (modeTerang) 3.dp else 0.dp)
+    ) {
         Column(modifier = Modifier.fillMaxWidth().padding(20.dp), horizontalAlignment = Alignment.CenterHorizontally) {
             Icon(
                 imageVector = Icons.Default.Category,
@@ -1223,4 +1290,128 @@ private fun PilihSumberDanaDialog(
             }
         }
     }
+}
+
+private fun escapeHtml(teks: String): String = teks
+    .replace("&", "&amp;")
+    .replace("<", "&lt;")
+    .replace(">", "&gt;")
+    .replace("\"", "&quot;")
+
+private fun printCatatanKeuangan(context: Context, items: List<CatatanKeuanganItem>) {
+    val printManager = context.getSystemService(Context.PRINT_SERVICE) as? PrintManager ?: return
+    val jobName = "Note Keuangan - My Singghara"
+
+    val totalMasuk = items.filter { it.jenis == "masuk" }.sumOf { it.jumlah }
+    val totalKeluar = items.filter { it.jenis == "keluar" }.sumOf { it.jumlah }
+    val saldo = totalMasuk - totalKeluar
+
+    val html = StringBuilder()
+    html.append("""
+        <html>
+        <head>
+            <style>
+                body { font-family: sans-serif; padding: 20px; color: #333; }
+                h1 { text-align: center; color: #222; margin-bottom: 5px; font-size: 20px; }
+                .meta-time { text-align: center; color: #666; margin-top: 5px; margin-bottom: 25px; font-size: 11px; }
+                .summary-box {
+                    border: 1px solid #ddd;
+                    border-radius: 6px;
+                    padding: 15px;
+                    background-color: #f9f9f9;
+                    margin-bottom: 20px;
+                    line-height: 1.6;
+                }
+                .summary-box h3 { margin: 0 0 8px 0; color: #007bff; font-size: 14px; border-bottom: 1px solid #ddd; padding-bottom: 6px; }
+                .summary-box p { text-align: left; margin: 4px 0; color: #444; font-size: 12px; }
+                .grid { display: flex; justify-content: space-between; }
+                .grid-col { flex: 1; }
+                table { width: 100%; border-collapse: collapse; margin-top: 15px; font-size: 10px; }
+                th, td { border: 1px solid #ddd; padding: 6px; text-align: left; }
+                th { background-color: #f7f7f7; font-weight: bold; }
+                .text-right { text-align: right; }
+                .text-center { text-align: center; }
+                .total-row { font-weight: bold; background-color: #fafafa; }
+                .badge-masuk { color: green; font-weight: bold; background-color: #e6fced; padding: 2px 6px; border-radius: 4px; display: inline-block; }
+                .badge-keluar { color: red; font-weight: bold; background-color: #ffebe9; padding: 2px 6px; border-radius: 4px; display: inline-block; }
+            </style>
+        </head>
+        <body>
+            <h1>Note Keuangan - My Singghara</h1>
+            <p class="meta-time">Dicetak pada: ${SimpleDateFormat("dd MMM yyyy HH:mm", Locale.getDefault()).format(Date())}</p>
+
+            <div class="summary-box">
+                <h3>Ringkasan Keuangan</h3>
+                <div class="grid">
+                    <div class="grid-col">
+                        <p>Saldo Tercatat: <strong>${rupiah(saldo)}</strong></p>
+                        <p>Jumlah Catatan: <strong>${items.size}</strong></p>
+                    </div>
+                    <div class="grid-col">
+                        <p>Total Uang Masuk: <span style="color: green; font-weight: bold;">${rupiah(totalMasuk)}</span></p>
+                        <p>Total Uang Keluar: <span style="color: red; font-weight: bold;">${rupiah(totalKeluar)}</span></p>
+                    </div>
+                </div>
+            </div>
+
+            <table>
+                <thead>
+                    <tr>
+                        <th style="width: 4%;">#</th>
+                        <th style="width: 12%;">Tanggal</th>
+                        <th style="width: 23%;">Keterangan</th>
+                        <th style="width: 9%;" class="text-center">Jenis</th>
+                        <th style="width: 14%;">Kategori</th>
+                        <th style="width: 14%;">Sumber Dana</th>
+                        <th style="width: 16%;" class="text-right">Jumlah</th>
+                    </tr>
+                </thead>
+                <tbody>
+    """.trimIndent())
+
+    items.forEachIndexed { index, item ->
+        val masuk = item.jenis == "masuk"
+        val badgeClass = if (masuk) "badge-masuk" else "badge-keluar"
+        val warnaNominal = if (masuk) "green" else "red"
+        val tanda = if (masuk) "+" else "-"
+        html.append("""
+            <tr>
+                <td>${index + 1}</td>
+                <td>${escapeHtml(item.tanggal)}</td>
+                <td>${escapeHtml(item.keterangan.ifBlank { "-" })}</td>
+                <td class="text-center"><span class="$badgeClass">${if (masuk) "Masuk" else "Keluar"}</span></td>
+                <td>${escapeHtml(item.kategori)}</td>
+                <td>${escapeHtml(item.sumberDana.ifBlank { "-" })}</td>
+                <td class="text-right" style="font-weight: bold; color: $warnaNominal;">$tanda ${rupiah(item.jumlah)}</td>
+            </tr>
+        """.trimIndent())
+    }
+
+    html.append("""
+                    <tr class="total-row">
+                        <td colspan="6" class="text-right">Total Uang Masuk:</td>
+                        <td class="text-right" style="color: green;">${rupiah(totalMasuk)}</td>
+                    </tr>
+                    <tr class="total-row">
+                        <td colspan="6" class="text-right">Total Uang Keluar:</td>
+                        <td class="text-right" style="color: red;">${rupiah(totalKeluar)}</td>
+                    </tr>
+                    <tr class="total-row" style="background-color: #eef5ff;">
+                        <td colspan="6" class="text-right" style="color: #0056b3;">Saldo Tercatat:</td>
+                        <td class="text-right" style="color: #0056b3;">${rupiah(saldo)}</td>
+                    </tr>
+                </tbody>
+            </table>
+        </body>
+        </html>
+    """.trimIndent())
+
+    val webView = WebView(context)
+    webView.webViewClient = object : WebViewClient() {
+        override fun onPageFinished(view: WebView?, url: String?) {
+            val printAdapter = webView.createPrintDocumentAdapter(jobName)
+            printManager.print(jobName, printAdapter, PrintAttributes.Builder().build())
+        }
+    }
+    webView.loadDataWithBaseURL(null, html.toString(), "text/html", "UTF-8", null)
 }
