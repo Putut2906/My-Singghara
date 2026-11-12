@@ -531,14 +531,14 @@ fun PemutarMusikScreen(viewModel: MainViewModel, onOpenDrawer: () -> Unit) {
                             }
                         } else {
                             val groupedByFolder = viewModel.musicPlaylist.groupBy { it.folder ?: it.artist }
-                            // Di mode terang kartu diberi latar solid + bayangan agar tidak
-                            // menyatu dengan latar; mode gelap tetap memakai tint tipis.
-                            val isLightTheme = MaterialTheme.colorScheme.surface.luminance() > 0.5f
 
                             if (selectedFolder == null) {
                                 // Render folder list view as requested
                                 groupedByFolder.forEach { (folderName, tracksInFolder) ->
                                     item {
+                                        // Di mode terang kartu diberi latar solid + bayangan agar
+                                        // tidak menyatu dengan latar; mode gelap tetap tint tipis.
+                                        val isLightTheme = MaterialTheme.colorScheme.surface.luminance() > 0.5f
                                         Card(
                                             shape = RoundedCornerShape(12.dp),
                                             colors = CardDefaults.cardColors(
