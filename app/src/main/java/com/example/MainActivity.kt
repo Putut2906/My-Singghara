@@ -2520,8 +2520,11 @@ fun MainAppContent(viewModel: MainViewModel, desktopMode: Boolean = false) {
                                     )
                                 )
 
-                                val isUserAdmin = !com.example.firebase.AdminUidStore.isConfigured() ||
-                                    com.example.firebase.AdminUidStore.isAdmin(viewModel.currentFirebaseUser?.uid)
+                                val adminUids by com.example.firebase.AdminUidStore.adminUids.collectAsState()
+                                val isUserAdmin = com.example.firebase.AdminUidStore.isAdminIn(
+                                    adminUids,
+                                    viewModel.currentFirebaseUser?.uid
+                                )
                                 if (isUserAdmin) {
                                     val isManajemenAkunSelected = viewModel.currentRoute == "manajemen_akun"
                                     NavigationDrawerItem(
@@ -2689,8 +2692,11 @@ fun MainAppContent(viewModel: MainViewModel, desktopMode: Boolean = false) {
                                 val unreadFcmCount by viewModel.unreadFcmCount.collectAsState()
                                 val adminMessagesList by viewModel.adminMessages.collectAsState()
                                 val unreadAdminMessagesCount = viewModel.unreadAdminMessagesCount
-                                val isUserAdmin = !com.example.firebase.AdminUidStore.isConfigured() ||
-                                    com.example.firebase.AdminUidStore.isAdmin(viewModel.currentFirebaseUser?.uid)
+                                val adminUids by com.example.firebase.AdminUidStore.adminUids.collectAsState()
+                                val isUserAdmin = com.example.firebase.AdminUidStore.isAdminIn(
+                                    adminUids,
+                                    viewModel.currentFirebaseUser?.uid
+                                )
                                 var selectedNotificationTab by remember { mutableIntStateOf(0) }
                                 var showTodayNotificationsDialog by remember { mutableStateOf(false) }
                                 var showAllHolidaysInDialog by remember { mutableStateOf(false) }

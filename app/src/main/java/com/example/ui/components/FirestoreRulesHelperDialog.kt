@@ -61,6 +61,11 @@ service cloud.firestore {
       allow create: if request.auth != null;
       allow update, delete: if request.auth != null && (resource.data.requesterUid == request.auth.uid || isAdmin());
     }
+
+    match /app_settings/{docId} {
+      allow read: if request.auth != null;
+      allow write: if isAdmin();
+    }
   }
 }"""
 
@@ -177,7 +182,7 @@ fun FirestoreRulesHelperDialog(
                 ) {
                     Text(
                         text = if (adminUids.isEmpty()) {
-                            "Belum ada UID admin terdaftar. Saat ini fungsi isAdmin() bernilai false. Tambahkan UID lewat menu titik tiga -> Kelola UID Admin agar aturan terisi otomatis."
+                            "Belum ada UID admin tersimpan, sehingga fungsi isAdmin() masih false. Deteksi di aplikasi memakai UID admin bawaan (${AdminUidStore.defaultAdminUids().joinToString(", ")}). Simpan UID lewat menu titik tiga -> Kelola UID Admin agar aturan terisi otomatis."
                         } else {
                             "UID admin terdeteksi (${adminUids.size}): ${adminUids.joinToString(", ")}"
                         },

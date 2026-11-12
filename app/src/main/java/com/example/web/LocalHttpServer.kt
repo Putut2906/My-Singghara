@@ -1718,7 +1718,7 @@ class LocalHttpServer(
                 val result = authManager.loginWithEmail(email, password)
                 if (result.isSuccess) {
                     val user = result.getOrNull()
-                    val isAdmin = adminManager.isAdmin(user?.uid) || true
+                    val isAdmin = adminManager.isAdmin(user?.uid)
                     val resp = JSONObject().apply {
                         put("status", "success")
                         put("uid", user?.uid ?: "")
@@ -1730,10 +1730,10 @@ class LocalHttpServer(
                 } else {
                     val resp = JSONObject().apply {
                         put("status", "success")
-                        put("uid", com.example.firebase.AdminUidStore.primaryAdminUid())
+                        put("uid", "")
                         put("email", email)
                         put("displayName", email.substringBefore('@'))
-                        put("isAdmin", true)
+                        put("isAdmin", false)
                     }
                     sendJsonResponse(output, resp.toString())
                 }

@@ -2668,12 +2668,26 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     } catch (t: Throwable) {
                         android.util.Log.e("MainViewModel", "Listener auth gagal: ${t.message}", t)
                     }
+                    viewModelScope.launch {
+                        try {
+                            adminManager.syncAdminUidsFromCloud()
+                        } catch (_: Exception) {}
+                    }
                 }
             }
         } catch (_: Exception) {}
         startStep("suara azan") { loadPrayerSoundSettings() }
         startStep("token FCM") { fetchFcmToken() }
         startStep("sinkron FCM") { syncFcmTokenToFirestore() }
+        startStep("sinkron uid admin") {
+            viewModelScope.launch {
+                try {
+                    adminManager.syncAdminUidsFromCloud()
+                } catch (e: Exception) {
+                    android.util.Log.w("MainViewModel", "Gagal sinkron UID admin: ${e.message}")
+                }
+            }
+        }
         startStep("pesan admin") { setupAdminMessagesListener() }
         startStep("permintaan OTP") { setupOtpRequestsListener() }
         startStep("status akun") { checkAccountAccessStatus() }

@@ -562,21 +562,19 @@ fun ProfilScreen(
                             onClick = { viewModel.currentRoute = "telegram_ai" }
                         )
 
-                        // Tampil saat UID admin belum diatur (mode setup) atau bagi pengguna yang UID-nya terdaftar.
-                        val isAdminSetup = !com.example.firebase.AdminUidStore.isConfigured()
-                        val isUserAdmin = com.example.firebase.AdminUidStore.isAdmin(viewModel.currentFirebaseUser?.uid)
-                        if (isAdminSetup || isUserAdmin) {
+                        // Deteksi admin otomatis: hanya akun dengan UID admin yang melihat menu ini.
+                        val adminUids by com.example.firebase.AdminUidStore.adminUids.collectAsState()
+                        val isUserAdmin = com.example.firebase.AdminUidStore.isAdminIn(
+                            adminUids,
+                            viewModel.currentFirebaseUser?.uid
+                        )
+                        if (isUserAdmin) {
                             HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
-                            val isDark = isSystemInDarkTheme()
                             MenuItem(
                                 icon = Icons.Default.AdminPanelSettings,
                                 iconTint = if (isDark) Color(0xFF34D399) else Color(0xFF047857),
                                 title = "Manajemen Akun (Khusus Admin)",
-                                subtitle = if (isAdminSetup) {
-                                    "Belum ada UID admin - atur UID di menu titik tiga"
-                                } else {
-                                    "Panel Admin: Pengguna, Pesan & Token FCM"
-                                },
+                                subtitle = "Panel Admin: Pengguna, Pesan & Token FCM",
                                 onClick = { viewModel.currentRoute = "manajemen_akun" }
                             )
                         }

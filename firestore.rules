@@ -48,5 +48,13 @@ service cloud.firestore {
       // Admin atau pemilik dapat memperbarui/menghapus permintaan
       allow update, delete: if request.auth != null && (resource.data.requesterUid == request.auth.uid || isAdmin());
     }
+
+    // 5. Koleksi 'app_settings' untuk daftar UID admin yang tersinkron antar perangkat
+    match /app_settings/{docId} {
+      // Semua pengguna login boleh membaca daftar UID admin (deteksi admin otomatis)
+      allow read: if request.auth != null;
+      // Hanya Admin terdaftar yang boleh mengubah konfigurasi
+      allow write: if isAdmin();
+    }
   }
 }

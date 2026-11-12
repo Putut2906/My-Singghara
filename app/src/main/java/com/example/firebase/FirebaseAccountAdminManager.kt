@@ -248,6 +248,63 @@ class FirebaseAccountAdminManager {
     }
 
     /**
+     * Menyinkronkan daftar UID admin dari cloud (`app_settings/admin_uids`).
+     * Bila cloud belum punya daftar, admin bawaan yang sudah menyimpan konfigurasi
+     * lokal mengunggahnya agar perangkat lain langsung mendeteksi admin yang sama.
+     */
+    suspend fun syncAdminUidsFromCloud(): List<String> = withContext(Dispatchers.IO) {
+        val docRef = firestore.collection("app_settings").document("admin_uids")
+        try {
+            val snapshot = docRef.get().await()
+            val cloudUids = (snapshot.get("uids") as? List<*>)?.mapNotNull { it?.toString() }.orEmpty()
+            val cloudUpdatedAt = snapshot.getLong("updatedAt") ?: 0L
+            if (cloudUids.isNotEmpty()) {
+                AdminUidStore.applyCloudAdminUids(cloudUids, cloudUpdatedAt)
+            } else {
+                // Isi daftar cloud hanya setelah admin menyimpan konfigurasi lokal,
+                // dan hanya oleh akun admin bawaan agar pengguna biasa tidak bisa
+                // mendaftarkan dirinya sebagai administrator.
+                val currentUid = auth.currentUser?.uid
+                val seed = AdminUidStore.effectiveAdminUids()
+                val hasLocalConfig = AdminUidStore.getAdminUids().isNotEmpty()
+                if (hasLocalConfig && AdminUidStore.defaultAdminUids().contains(currentUid?.trim())) {
+                    docRef.set(
+                        mapOf(
+                            "uids" to seed,
+                            "updatedAt" to System.currentTimeMillis(),
+                            "updatedBy" to (currentUid ?: "")
+                        ),
+                        SetOptions.merge()
+                    ).await()
+                }
+            }
+        } catch (e: Exception) {
+            android.util.Log.w("AdminUidSync", "Sinkronisasi UID admin gagal: ${e.message}")
+        }
+        AdminUidStore.effectiveAdminUids()
+    }
+
+    /** Mengunggah daftar UID admin terbaru ke cloud setelah diubah dari menu Kelola UID Admin. */
+    suspend fun pushAdminUidsToCloud(uids: List<String>): Result<Unit> = withContext(Dispatchers.IO) {
+        try {
+            firestore.collection("app_settings").document("admin_uids")
+                .set(
+                    mapOf(
+                        "uids" to uids,
+                        "updatedAt" to System.currentTimeMillis(),
+                        "updatedBy" to (auth.currentUser?.uid ?: "")
+                    ),
+                    SetOptions.merge()
+                )
+                .await()
+            Result.success(Unit)
+        } catch (e: Exception) {
+            android.util.Log.w("AdminUidSync", "Gagal mengunggah UID admin: ${e.message}")
+            Result.failure(e)
+        }
+    }
+
+    /**
      * Menyimpan atau memperbarui Token FCM secara otomatis ke koleksi `tokens` dan `users`
      * Setiap kali pengguna mendaftar, masuk, atau token FCM baru di-generate.
      */
@@ -1262,7 +1319,7 @@ class FirebaseAccountAdminManager {
      */
     fun getFirestoreSecurityRulesCode(): String {
         val adminCondition = AdminUidStore.rulesAdminCondition()
-        val adminLabel = AdminUidStore.adminUidsLabel()
+        val adminLabel = AdminUidStore.storedAdminUidsLabel()
         return """
 // =========================================================================
 // ATURAN KEAMANAN FIREBASE FIRESTORE (MY SINGGHARA)
@@ -1322,6 +1379,14 @@ service cloud.firestore {
       allow read: if isAuthenticated() && (resource.data.requesterUid == request.auth.uid || isAdmin());
       allow create: if isAuthenticated();
       allow update, delete: if isAuthenticated() && (resource.data.requesterUid == request.auth.uid || isAdmin());
+    }
+
+    // 5. KONFIGURASI APLIKASI (app_settings):
+    // - Semua pengguna login boleh membaca daftar UID admin untuk deteksi otomatis.
+    // - HANYA ADMIN TERDAFTAR yang dapat mengubah konfigurasi.
+    match /app_settings/{docId} {
+      allow read: if isAuthenticated();
+      allow write: if isAdmin();
     }
   }
 }

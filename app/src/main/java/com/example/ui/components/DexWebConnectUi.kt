@@ -33,6 +33,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -48,6 +49,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.R
+import com.example.firebase.AdminUidStore
 import com.example.ui.MainViewModel
 import com.example.ui.models.AppRegistry
 
@@ -159,6 +161,8 @@ fun DexWebSidebar(
     var openGroupId by remember { mutableStateOf<String?>(null) }
     val currentRoute = viewModel.currentRoute
     val isLoggedIn = viewModel.currentFirebaseUser != null
+    val adminUids by AdminUidStore.adminUids.collectAsState()
+    val isUserAdmin = AdminUidStore.isAdminIn(adminUids, viewModel.currentFirebaseUser?.uid)
 
     fun go(route: String) {
         viewModel.currentRoute = route
@@ -250,9 +254,7 @@ fun DexWebSidebar(
             buildList {
                 add(DexNavItem("Share", Icons.Default.Share, Color(0xFF3674B5), currentRoute == "share") { go("share") })
                 add(DexNavItem("Transfer File", Icons.Default.SwapHoriz, Color(0xFF0284C7), currentRoute == "transfer_file") { go("transfer_file") })
-                if (!com.example.firebase.AdminUidStore.isConfigured() ||
-                    com.example.firebase.AdminUidStore.isAdmin(viewModel.currentFirebaseUser?.uid)
-                ) {
+                if (isUserAdmin) {
                     add(DexNavItem("Manajemen Akun", Icons.Default.AdminPanelSettings, Color(0xFF047857), currentRoute == "manajemen_akun") { go("manajemen_akun") })
                 }
             }

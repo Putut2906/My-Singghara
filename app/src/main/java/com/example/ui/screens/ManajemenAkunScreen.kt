@@ -173,13 +173,11 @@ fun ManajemenAkunScreen(
     val isOnline = viewModel.isNetworkAvailable
     var isCheckingNetwork by remember { mutableStateOf(false) }
 
-    // Status Admin UID (daftar lokal; kosong = mode setup instalasi pertama)
+    // Status Admin UID (cache lokal + sinkron cloud; kosong = mode setup)
     val currentUser = viewModel.currentFirebaseUser
-    var adminUids by remember { mutableStateOf(AdminUidStore.getAdminUids()) }
+    val adminUids by AdminUidStore.adminUids.collectAsState()
     val isAdminSetup = adminUids.isEmpty()
-    val isCurrentAdmin = remember(currentUser, adminUids) {
-        adminManager.isAdmin(currentUser?.uid)
-    }
+    val isCurrentAdmin = AdminUidStore.isAdminIn(adminUids, currentUser?.uid)
 
     // Sub Menu: 0 = Daftar Pengguna, 1 = Pesan (Diakses via menu titik 3 di samping icon refresh)
     var selectedTab by remember { mutableIntStateOf(0) }
@@ -300,12 +298,14 @@ fun ManajemenAkunScreen(
         AdminUidManagerDialog(
             currentUid = currentUser?.uid,
             onDismiss = { showUidManagerDialog = false },
-            onUidsChanged = { adminUids = it }
+            onUidsChanged = { updated ->
+                scope.launch { adminManager.pushAdminUidsToCloud(updated) }
+            }
         )
     }
 
-    // KASUS 0: BELUM ADA UID ADMIN (Mode Setup) - dapat diakses tanpa internet
-    if (isAdminSetup) {
+    // KASUS 0: BELUM ADA UID ADMIN (Mode Setup) - hanya untuk admin terdeteksi, tanpa internet
+    if (isCurrentAdmin && isAdminSetup) {
         UidAdminSetupState(
             currentUid = currentUser?.uid,
             onManageUids = { showUidManagerDialog = true },
@@ -315,7 +315,7 @@ fun ManajemenAkunScreen(
     }
 
     // KASUS 1: INTERNET TERPUTUS (Tampilkan Animasi Bergerak Khusus)
-    if (!isOnline) {
+    if (isCurrentAdmin && !isOnline) {
         OfflineAnimatedState(
             title = "Koneksi Internet Terputus",
             description = "Menu Manajemen Akun adalah fitur khusus online. Diperlukan sambungan internet aktif untuk memverifikasi hak Administrator (UID: ${AdminUidStore.adminUidsLabel()}) dan menyinkronkan data cloud Firebase.",
@@ -3206,7 +3206,7 @@ private fun UidAdminSetupState(
             )
 
             Text(
-                text = "Daftar UID admin masih kosong pada instalasi pertama. Tambahkan minimal satu UID agar panel Manajemen Akun aktif dan aturan keamanan Firestore terisi otomatis.",
+                text = "Akun Anda terdeteksi sebagai admin. Daftar UID admin belum tersimpan di perangkat ini, jadi simpan UID Anda agar panel Manajemen Akun aktif dan aturan keamanan Firestore terisi otomatis.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center
@@ -3321,7 +3321,7 @@ private fun AdminUidManagerDialog(
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Text(
-                            text = "Belum ada UID terdaftar. Saat ini tidak ada akun yang dianggap administrator.",
+                            text = "Belum ada UID tambahan tersimpan. Akun admin bawaan (${AdminUidStore.defaultAdminUids().joinToString(", ")}) tetap dikenali, tetapi aturan Firebase baru terisi setelah UID disimpan.",
                             fontSize = 11.sp,
                             color = MaterialTheme.colorScheme.onErrorContainer,
                             modifier = Modifier.padding(10.dp)
