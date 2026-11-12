@@ -34,6 +34,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import com.example.ui.MainViewModel
+import com.example.ui.theme.lightCardElevation
 import java.text.NumberFormat
 import java.util.Locale
 import android.print.PrintAttributes
@@ -800,7 +801,8 @@ fun BusinessIdentityCard(
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.primaryContainer,
             contentColor = MaterialTheme.colorScheme.onPrimaryContainer
-        )
+        ),
+        elevation = lightCardElevation()
     ) {
         Column(
             modifier = Modifier.padding(16.dp)
@@ -912,7 +914,7 @@ fun OverviewTab(
             containerColor = MaterialTheme.colorScheme.primary,
             contentColor = MaterialTheme.colorScheme.onPrimary
         ),
-        elevation = CardDefaults.cardElevation(defaultElevation = 6.dp)
+        elevation = lightCardElevation(6.dp)
     ) {
         Column(
             modifier = Modifier.padding(18.dp),
@@ -1010,7 +1012,8 @@ fun InvestasiTab(
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
+        elevation = lightCardElevation()
     ) {
         Column(modifier = Modifier.padding(14.dp)) {
             Row(
@@ -1107,7 +1110,8 @@ fun PendapatanTab(
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
+        elevation = lightCardElevation()
     ) {
         Column(modifier = Modifier.padding(14.dp)) {
             Row(
@@ -1205,7 +1209,8 @@ fun OperasionalTab(
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
+        elevation = lightCardElevation()
     ) {
         Column(modifier = Modifier.padding(14.dp)) {
             Row(

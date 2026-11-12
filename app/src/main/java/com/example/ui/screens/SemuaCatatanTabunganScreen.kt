@@ -27,6 +27,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.SavingTransaction
 import com.example.ui.MainViewModel
+import com.example.ui.theme.lightCardElevation
 import androidx.compose.ui.window.Dialog
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.input.KeyboardType
@@ -136,7 +137,8 @@ fun SemuaCatatanTabunganScreen(viewModel: MainViewModel) {
                     Spacer(modifier = Modifier.height(8.dp))
                     Card(
                         modifier = Modifier.fillMaxWidth(),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f))
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)),
+                        elevation = lightCardElevation()
                     ) {
                         Row(
                             modifier = Modifier
@@ -362,7 +364,7 @@ fun SemuaCatatanTabunganScreen(viewModel: MainViewModel) {
                 // Main Table displaying ALL transactions
                 if (filteredTransactions.isEmpty()) {
                     item {
-                        Card(modifier = Modifier.fillMaxWidth()) {
+                        Card(modifier = Modifier.fillMaxWidth(), elevation = lightCardElevation()) {
                             Column(
                                 modifier = Modifier
                                     .fillMaxWidth()

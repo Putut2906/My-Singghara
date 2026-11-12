@@ -49,6 +49,7 @@ import com.example.data.AnggotaItem
 import com.example.data.GajiItem
 import com.example.ui.MainViewModel
 import com.example.ui.components.CustomDatePickerDialog
+import com.example.ui.theme.lightCardElevation
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -378,6 +379,7 @@ fun GajiScreen(
                             Card(
                                 shape = RoundedCornerShape(14.dp),
                                 colors = CardDefaults.cardColors(containerColor = Color(0xFF0F766E).copy(alpha = 0.08f)),
+                                elevation = lightCardElevation(),
                                 border = BorderStroke(1.dp, Color(0xFF0F766E).copy(alpha = 0.2f)),
                                 modifier = Modifier.fillMaxWidth()
                             ) {
@@ -580,6 +582,7 @@ fun GajiScreen(
                                         .fillMaxWidth()
                                         .padding(vertical = 24.dp),
                                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)),
+                                    elevation = lightCardElevation(),
                                     shape = RoundedCornerShape(12.dp)
                                 ) {
                                     Column(
@@ -1224,7 +1227,7 @@ fun GajiScreen(
                         Card(
                             shape = RoundedCornerShape(14.dp),
                             colors = CardDefaults.cardColors(containerColor = Color(0xFF0F766E)),
-                            elevation = CardDefaults.cardElevation(defaultElevation = 6.dp),
+                            elevation = lightCardElevation(lightElevation = 10.dp, darkElevation = 6.dp),
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             Column(
@@ -1367,6 +1370,7 @@ fun GajiScreen(
                             Card(
                                 shape = RoundedCornerShape(12.dp),
                                 colors = CardDefaults.cardColors(containerColor = Color(0xFF0F766E).copy(alpha = 0.08f)),
+                                elevation = lightCardElevation(),
                                 border = BorderStroke(1.dp, Color(0xFF0F766E).copy(alpha = 0.2f))
                             ) {
                                 Column(modifier = Modifier.padding(14.dp)) {
@@ -1391,6 +1395,7 @@ fun GajiScreen(
                                 Card(
                                     shape = RoundedCornerShape(10.dp),
                                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                                    elevation = lightCardElevation(),
                                     border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f))
                                 ) {
                                     Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -1517,7 +1522,8 @@ fun GajiScreen(
                         // Employee Info
                         Card(
                             shape = RoundedCornerShape(10.dp),
-                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))
+                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)),
+                            elevation = lightCardElevation()
                         ) {
                             Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
@@ -1746,7 +1752,7 @@ fun GajiItemCard(
         shape = RoundedCornerShape(12.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+        elevation = lightCardElevation(lightElevation = 8.dp, darkElevation = 2.dp),
         modifier = Modifier
             .fillMaxWidth()
             .clickable { onViewSlip() }

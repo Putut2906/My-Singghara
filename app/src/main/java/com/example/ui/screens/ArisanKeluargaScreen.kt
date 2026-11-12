@@ -49,6 +49,8 @@ import androidx.compose.ui.window.DialogProperties
 import androidx.print.PrintHelper
 import com.example.data.arisan.*
 import com.example.ui.MainViewModel
+import com.example.ui.theme.lightCardElevation
+import com.example.ui.theme.lightWhiteCard
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.text.NumberFormat
@@ -886,7 +888,8 @@ private fun TabRingkasanDanKocokan(
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(16.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
+                    colors = CardDefaults.cardColors(containerColor = lightWhiteCard(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))),
+                    elevation = lightCardElevation(),
                     border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f))
                 ) {
                     Column(
@@ -995,6 +998,7 @@ private fun TabRingkasanDanKocokan(
                 colors = CardDefaults.cardColors(
                     containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.25f)
                 ),
+                elevation = lightCardElevation(),
                 border = BorderStroke(1.dp, Color(0xFFF59E0B).copy(alpha = 0.45f))
             ) {
                 Column(
@@ -1102,10 +1106,10 @@ private fun TabRingkasanDanKocokan(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(16.dp),
                 colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surface
+                    containerColor = lightWhiteCard(MaterialTheme.colorScheme.surface)
                 ),
                 border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)),
-                elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+                elevation = lightCardElevation(lightElevation = 8.dp, darkElevation = 1.dp)
             ) {
                 Column(
                     modifier = Modifier
@@ -1312,7 +1316,8 @@ private fun TabRingkasanDanKocokan(
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(14.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)),
+                colors = CardDefaults.cardColors(containerColor = lightWhiteCard(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f))),
+                elevation = lightCardElevation(),
                 border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
@@ -1557,9 +1562,9 @@ private fun TabAturanDanPanduan(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(20.dp),
                 colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surface
+                    containerColor = lightWhiteCard(MaterialTheme.colorScheme.surface)
                 ),
-                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+                elevation = lightCardElevation(lightElevation = 10.dp, darkElevation = 2.dp),
                 border = BorderStroke(1.dp, Color(0xFFF59E0B).copy(alpha = 0.5f))
             ) {
                 Column(
@@ -1735,8 +1740,9 @@ private fun TabAturanDanPanduan(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(16.dp),
                 colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
+                    containerColor = lightWhiteCard(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f))
                 ),
+                elevation = lightCardElevation(),
                 border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
             ) {
                 Column(
@@ -1832,8 +1838,8 @@ private fun RuleCard(
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+        colors = CardDefaults.cardColors(containerColor = lightWhiteCard(MaterialTheme.colorScheme.surface)),
+        elevation = lightCardElevation(lightElevation = 8.dp, darkElevation = 1.dp),
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f))
     ) {
         Column(
@@ -1991,7 +1997,8 @@ private fun TabPencatatanIuran(
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(14.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                    colors = CardDefaults.cardColors(containerColor = lightWhiteCard(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))),
+                    elevation = lightCardElevation()
                 ) {
                     Column(
                         modifier = Modifier.padding(24.dp),
@@ -2024,7 +2031,8 @@ private fun TabPencatatanIuran(
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(14.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)),
+                    colors = CardDefaults.cardColors(containerColor = lightWhiteCard(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f))),
+                    elevation = lightCardElevation(),
                     border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
                 ) {
                     Column(modifier = Modifier.padding(14.dp)) {
@@ -2171,7 +2179,8 @@ private fun PaymentItemCard(
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        colors = CardDefaults.cardColors(containerColor = lightWhiteCard(MaterialTheme.colorScheme.surface)),
+        elevation = lightCardElevation(),
         border = BorderStroke(1.dp, if (payment.isLunas) MaterialTheme.colorScheme.primary.copy(alpha = 0.4f) else MaterialTheme.colorScheme.error.copy(alpha = 0.4f))
     ) {
         Column(modifier = Modifier.padding(14.dp)) {
@@ -2296,7 +2305,7 @@ private fun TabBukuKasSosial(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(16.dp),
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
-                    elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+                    elevation = lightCardElevation(lightElevation = 10.dp, darkElevation = 1.dp)
                 ) {
                     Column(modifier = Modifier.padding(18.dp)) {
                         Text("Saldo Kas Sosial Arisan", fontSize = 12.sp, color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f))
@@ -2354,7 +2363,8 @@ private fun TabBukuKasSosial(
                 item {
                     Card(
                         modifier = Modifier.fillMaxWidth(),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))
+                        colors = CardDefaults.cardColors(containerColor = lightWhiteCard(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))),
+                        elevation = lightCardElevation()
                     ) {
                         Column(
                             modifier = Modifier
@@ -2387,7 +2397,8 @@ private fun KasItemCard(item: KasSosialArisan, onDelete: () -> Unit) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        colors = CardDefaults.cardColors(containerColor = lightWhiteCard(MaterialTheme.colorScheme.surface)),
+        elevation = lightCardElevation(),
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f))
     ) {
         Row(
@@ -2531,7 +2542,8 @@ private fun TabDaftarPeserta(
                 item {
                     Card(
                         modifier = Modifier.fillMaxWidth(),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))
+                        colors = CardDefaults.cardColors(containerColor = lightWhiteCard(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))),
+                        elevation = lightCardElevation()
                     ) {
                         Column(
                             modifier = Modifier
@@ -2580,7 +2592,8 @@ private fun MemberItemCard(
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        colors = CardDefaults.cardColors(containerColor = lightWhiteCard(MaterialTheme.colorScheme.surface)),
+        elevation = lightCardElevation(),
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f))
     ) {
         Row(
@@ -2699,7 +2712,8 @@ private fun TabRiwayatDanKuitansi(
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(14.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)),
+                colors = CardDefaults.cardColors(containerColor = lightWhiteCard(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))),
+                elevation = lightCardElevation(),
                 border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
             ) {
                 Row(
@@ -2739,7 +2753,8 @@ private fun TabRiwayatDanKuitansi(
             item {
                 Card(
                     modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))
+                    colors = CardDefaults.cardColors(containerColor = lightWhiteCard(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))),
+                    elevation = lightCardElevation()
                 ) {
                     Box(
                         modifier = Modifier
@@ -2767,7 +2782,8 @@ private fun WinnerHistoryCard(
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        colors = CardDefaults.cardColors(containerColor = lightWhiteCard(MaterialTheme.colorScheme.surface)),
+        elevation = lightCardElevation(),
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f))
     ) {
         Column(modifier = Modifier.padding(14.dp)) {

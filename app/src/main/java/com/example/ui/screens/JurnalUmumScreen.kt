@@ -33,6 +33,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.JournalEntry
 import com.example.DialogAccountPicker
+import com.example.ui.theme.lightCardElevation
 import java.util.Calendar
 import android.content.Context
 import android.print.PrintManager
@@ -204,6 +205,7 @@ fun JurnalUmumScreen(
                 colors = CardDefaults.cardColors(
                     containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f)
                 ),
+                elevation = lightCardElevation(),
                 border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.2f))
             ) {
                 Column(
@@ -378,6 +380,7 @@ fun JurnalUmumScreen(
                 colors = CardDefaults.cardColors(
                     containerColor = MaterialTheme.colorScheme.surface
                 ),
+                elevation = lightCardElevation(),
                 border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
             ) {
                 Column(modifier = Modifier.fillMaxSize()) {

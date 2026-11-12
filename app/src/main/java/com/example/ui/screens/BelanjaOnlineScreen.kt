@@ -53,6 +53,8 @@ import androidx.compose.ui.window.DialogProperties
 import com.example.data.BelanjaOnlineItem
 import com.example.ui.MainViewModel
 import com.example.ui.components.CustomDatePickerDialog
+import com.example.ui.theme.lightCardElevation
+import com.example.ui.theme.lightWhiteCard
 import com.google.accompanist.permissions.ExperimentalPermissionsApi
 import com.google.accompanist.permissions.isGranted
 import com.google.accompanist.permissions.rememberPermissionState
@@ -189,9 +191,9 @@ fun BelanjaOnlineScreen(
                         .padding(horizontal = 16.dp, vertical = 8.dp),
                     shape = RoundedCornerShape(20.dp),
                     colors = CardDefaults.cardColors(
-                        containerColor = AccentPurple.copy(alpha = 0.10f)
+                        containerColor = lightWhiteCard(AccentPurple.copy(alpha = 0.10f))
                     ),
-                    elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+                    elevation = lightCardElevation()
                 ) {
                     Column(modifier = Modifier
                         .fillMaxWidth()
@@ -359,7 +361,7 @@ private fun BelanjaOnlineRow(
             containerColor = MaterialTheme.colorScheme.surface
         ),
         border = androidx.compose.foundation.BorderStroke(1.dp, AccentPurple.copy(alpha = 0.15f)),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+        elevation = lightCardElevation()
     ) {
         Column(modifier = Modifier
             .fillMaxWidth()

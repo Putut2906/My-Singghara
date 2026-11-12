@@ -37,6 +37,7 @@ import androidx.core.content.FileProvider
 import com.example.data.AnggotaItem
 import com.example.data.RiwayatPresensi
 import com.example.ui.MainViewModel
+import com.example.ui.theme.lightCardElevation
 import com.example.util.AbsensiAudioType
 import com.example.util.AbsensiSoundHelper
 import java.io.File
@@ -559,6 +560,7 @@ fun AbsensiScreen(
                     Card(
                         shape = RoundedCornerShape(14.dp),
                         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                        elevation = lightCardElevation(),
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Column(
@@ -602,7 +604,7 @@ fun AbsensiScreen(
                     Card(
                         shape = RoundedCornerShape(14.dp),
                         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+                        elevation = lightCardElevation(lightElevation = 8.dp, darkElevation = 2.dp),
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         val horizontalScrollState = rememberScrollState()
@@ -1412,7 +1414,7 @@ fun AbsensiStatsOverview(
     Card(
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+        elevation = lightCardElevation(lightElevation = 8.dp, darkElevation = 2.dp),
         modifier = Modifier.fillMaxWidth()
     ) {
         Column(

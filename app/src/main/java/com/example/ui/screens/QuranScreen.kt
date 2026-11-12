@@ -34,6 +34,8 @@ import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.data.*
 import com.example.ui.MainViewModel
+import com.example.ui.theme.lightCardElevation
+import com.example.ui.theme.lightWhiteCard
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -382,7 +384,8 @@ fun QuranScreen(viewModel: MainViewModel) {
                         item {
                             Card(
                                 shape = RoundedCornerShape(12.dp),
-                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.2f)),
+                                colors = CardDefaults.cardColors(containerColor = lightWhiteCard(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.2f))),
+                                elevation = lightCardElevation(),
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .padding(bottom = 16.dp),
@@ -412,8 +415,9 @@ fun QuranScreen(viewModel: MainViewModel) {
                             shape = RoundedCornerShape(16.dp),
                             colors = CardDefaults.cardColors(
                                 containerColor = if (isPlayingThisVerse) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
-                                else MaterialTheme.colorScheme.surface
+                                else lightWhiteCard(MaterialTheme.colorScheme.surface)
                             ),
+                            elevation = lightCardElevation(),
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(vertical = 8.dp),
@@ -1221,7 +1225,8 @@ fun SurahListItem(surah: Surah, onClick: () -> Unit) {
             .padding(vertical = 4.dp)
             .clickable { onClick() },
         shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        colors = CardDefaults.cardColors(containerColor = lightWhiteCard(MaterialTheme.colorScheme.surface)),
+        elevation = lightCardElevation(),
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
     ) {
         Row(
@@ -1285,7 +1290,8 @@ fun JuzListItem(juz: JuzInfo, onClick: () -> Unit) {
             .padding(vertical = 4.dp)
             .clickable { onClick() },
         shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        colors = CardDefaults.cardColors(containerColor = lightWhiteCard(MaterialTheme.colorScheme.surface)),
+        elevation = lightCardElevation(),
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
     ) {
         Row(
@@ -1346,7 +1352,8 @@ fun BookmarkListItem(bookmark: QuranBookmark, onDelete: () -> Unit, onClick: () 
             .padding(vertical = 4.dp)
             .clickable { onClick() },
         shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        colors = CardDefaults.cardColors(containerColor = lightWhiteCard(MaterialTheme.colorScheme.surface)),
+        elevation = lightCardElevation(),
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
     ) {
         Row(
@@ -1398,7 +1405,8 @@ fun HistoryListItem(hist: QuranHistory, onClick: () -> Unit) {
             .padding(vertical = 4.dp)
             .clickable { onClick() },
         shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)),
+        colors = CardDefaults.cardColors(containerColor = lightWhiteCard(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))),
+        elevation = lightCardElevation(),
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
     ) {
         Row(

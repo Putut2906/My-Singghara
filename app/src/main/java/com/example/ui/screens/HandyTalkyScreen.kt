@@ -1153,7 +1153,7 @@ fun TacticalTransceiverConsole(
         color = frameBg,
         shape = RoundedCornerShape(16.dp),
         border = BorderStroke(1.5.dp, frameBorder),
-        shadowElevation = if (isDark) 6.dp else 2.dp,
+        shadowElevation = if (isDark) 6.dp else 10.dp,
         modifier = Modifier.fillMaxWidth()
     ) {
         Column(
@@ -1765,7 +1765,7 @@ fun KeypadButton(
         color = buttonBg,
         shape = RoundedCornerShape(10.dp),
         border = BorderStroke(1.dp, buttonBorder),
-        shadowElevation = if (!isDark) 1.dp else 0.dp
+        shadowElevation = if (!isDark) 3.dp else 0.dp
     ) {
         Box(contentAlignment = Alignment.Center) {
             if (label == "DEL") {
@@ -1938,7 +1938,7 @@ fun ChannelCard(
         color = cardBg,
         shape = RoundedCornerShape(10.dp),
         border = BorderStroke(1.5.dp, borderColor),
-        shadowElevation = if (!isDark && isSelected) 2.dp else 0.dp,
+        shadowElevation = if (!isDark) 6.dp else 0.dp,
         modifier = Modifier
             .width(135.dp)
             .clickable { onClick() }

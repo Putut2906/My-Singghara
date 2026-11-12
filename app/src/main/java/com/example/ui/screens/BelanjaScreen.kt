@@ -39,6 +39,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import com.example.data.ShoppingItem
 import com.example.ui.MainViewModel
+import com.example.ui.theme.lightCardElevation
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -194,7 +195,7 @@ fun BelanjaScreen(viewModel: MainViewModel) {
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(20.dp))
                         .background(gradientBrush),
-                    elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                    elevation = lightCardElevation(lightElevation = 12.dp, darkElevation = 2.dp)
                 ) {
                     Column(
                         modifier = Modifier.padding(20.dp)
@@ -395,7 +396,7 @@ fun BelanjaScreen(viewModel: MainViewModel) {
                             .weight(1f)
                             .clip(RoundedCornerShape(16.dp)),
                         border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)),
-                        elevation = CardDefaults.cardElevation(defaultElevation = 0.5.dp)
+                        elevation = lightCardElevation(lightElevation = 8.dp, darkElevation = 0.5.dp)
                     ) {
                         Row(
                             modifier = Modifier
@@ -441,7 +442,7 @@ fun BelanjaScreen(viewModel: MainViewModel) {
                             .weight(1f)
                             .clip(RoundedCornerShape(16.dp)),
                         border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)),
-                        elevation = CardDefaults.cardElevation(defaultElevation = 0.5.dp)
+                        elevation = lightCardElevation(lightElevation = 8.dp, darkElevation = 0.5.dp)
                     ) {
                         Row(
                             modifier = Modifier
@@ -496,6 +497,7 @@ fun BelanjaScreen(viewModel: MainViewModel) {
                     modifier = Modifier.fillMaxWidth(),
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.2f)),
                     shape = RoundedCornerShape(16.dp),
+                    elevation = lightCardElevation(),
                     border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
                 ) {
                     Column(
@@ -1020,6 +1022,7 @@ fun ShoppingTable(
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(12.dp),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            elevation = lightCardElevation(),
             border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
         ) {
             Box(
@@ -1171,7 +1174,7 @@ fun ShoppingItemCard(
             width = 1.dp,
             color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
         ),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.5.dp)
+        elevation = lightCardElevation(lightElevation = 8.dp, darkElevation = 0.5.dp)
     ) {
         Row(
             modifier = Modifier
