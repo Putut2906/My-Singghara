@@ -2,8 +2,10 @@ package com.example.ui.components
 
 import android.content.Context
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -23,6 +25,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -36,6 +39,7 @@ import androidx.compose.ui.window.DialogProperties
 import com.example.firebase.FirebaseAuthManager
 import com.example.ui.MainViewModel
 import com.example.ui.screens.BarcodeScannerDialog
+import com.example.utils.MembershipCardQuickLoginReader
 import com.example.utils.VipMembershipCardGenerator
 import com.google.android.gms.auth.api.signin.GoogleSignIn
 import com.google.android.gms.auth.api.signin.GoogleSignInAccount
@@ -81,6 +85,7 @@ fun FirebaseAuthDialog(
     var successMessage by remember { mutableStateOf<String?>(null) }
 
     var showQuickLoginScanner by remember { mutableStateOf(false) }
+    var showQuickLoginOptions by remember { mutableStateOf(false) }
 
     var showLinkGoogleDialog by remember { mutableStateOf(false) }
     var pendingLinkEmail by remember { mutableStateOf("") }
@@ -223,6 +228,67 @@ fun FirebaseAuthDialog(
             } catch (e: Exception) {
                 errorMessage = "Terjadi kesalahan saat masuk dengan Google: ${e.localizedMessage ?: e.message}"
             }
+        }
+    }
+
+    suspend fun performQuickLogin(rawPayload: String) {
+        isLoading = true
+        errorMessage = null
+        val quickLoginResult = viewModel.authManager.quickLoginWithCard(rawPayload, context)
+        isLoading = false
+        quickLoginResult.onSuccess { user ->
+            viewModel.refreshAuthUser()
+            val displayName = user.displayName ?: "Member VIP"
+            viewModel.showAuthSuccessPopup(
+                isRegister = false,
+                userName = displayName,
+                userEmail = user.email ?: ""
+            )
+            viewModel.showToastPopup("Login Cepat Berhasil! Selamat datang, $displayName")
+            showQuickLoginOptions = false
+            onDismissRequest()
+        }.onFailure { err ->
+            val cleanEmail = VipMembershipCardGenerator.extractCleanEmail(rawPayload)
+            if (!cleanEmail.isNullOrBlank()) {
+                // Alihkan ke mode LOGIN dengan email terisi agar pengguna dapat langsung memasukkan kata sandinya tanpa OTP
+                currentMode = AuthMode.LOGIN
+                email = cleanEmail
+                password = ""
+                errorMessage = err.message ?: "Silakan masukkan kata sandi akun Anda untuk menyelesaikan masuk."
+            } else {
+                errorMessage = err.message ?: "QR Code tidak dikenali sebagai kartu membership untuk Login Cepat."
+            }
+        }
+    }
+
+    suspend fun importMembershipCard(uri: Uri) {
+        isLoading = true
+        errorMessage = null
+        val payload = MembershipCardQuickLoginReader.readQuickLoginPayload(context, uri)
+        if (payload.isNullOrBlank()) {
+            isLoading = false
+            errorMessage = "QR Code Login Cepat tidak ditemukan pada kartu yang dipilih. Pastikan gambar/PDF kartu terlihat jelas."
+            viewModel.showToastPopup("QR Code pada kartu tidak terbaca. Coba pilih file lain.")
+            return
+        }
+        performQuickLogin(payload)
+    }
+
+    val importCardLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) {
+            showQuickLoginOptions = false
+            scope.launch { importMembershipCard(uri) }
+        }
+    }
+
+    val pickCardFromGalleryLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickVisualMedia()
+    ) { uri ->
+        if (uri != null) {
+            showQuickLoginOptions = false
+            scope.launch { importMembershipCard(uri) }
         }
     }
 
@@ -513,7 +579,7 @@ fun FirebaseAuthDialog(
                                 onClick = {
                                     errorMessage = null
                                     successMessage = null
-                                    showQuickLoginScanner = true
+                                    showQuickLoginOptions = true
                                 },
                                 contentPadding = PaddingValues(horizontal = 4.dp, vertical = 2.dp)
                             ) {
@@ -1238,6 +1304,110 @@ fun FirebaseAuthDialog(
         }
     }
 
+    if (showQuickLoginOptions) {
+        Dialog(
+            onDismissRequest = { if (!isLoading) showQuickLoginOptions = false },
+            properties = DialogProperties(usePlatformDefaultWidth = false)
+        ) {
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth(0.9f)
+                    .wrapContentHeight()
+                    .padding(vertical = 16.dp),
+                shape = RoundedCornerShape(20.dp),
+                color = MaterialTheme.colorScheme.surface,
+                tonalElevation = 6.dp
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(20.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(48.dp)
+                            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.12f), CircleShape),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.QrCodeScanner,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(26.dp)
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    Text(
+                        text = "Login Cepat",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 17.sp,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+
+                    Text(
+                        text = "Pilih sumber QR Code pada kartu membership VIP Anda.",
+                        fontSize = 11.5.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.padding(top = 4.dp, bottom = 12.dp)
+                    )
+
+                    QuickLoginSourceRow(
+                        icon = Icons.Default.QrCodeScanner,
+                        title = "Scan Kamera",
+                        subtitle = "Pindai QR langsung dari kartu fisik",
+                        onClick = {
+                            showQuickLoginOptions = false
+                            errorMessage = null
+                            successMessage = null
+                            showQuickLoginScanner = true
+                        }
+                    )
+
+                    QuickLoginSourceRow(
+                        icon = Icons.Default.UploadFile,
+                        title = "Import Kartu Membership",
+                        subtitle = "Pilih file gambar/PDF kartu atau berkas teks QR",
+                        onClick = {
+                            errorMessage = null
+                            successMessage = null
+                            importCardLauncher.launch(
+                                arrayOf("image/*", "application/pdf", "text/plain", "application/json")
+                            )
+                        }
+                    )
+
+                    QuickLoginSourceRow(
+                        icon = Icons.Default.PhotoLibrary,
+                        title = "Galeri",
+                        subtitle = "Ambil foto kartu dari galeri perangkat",
+                        onClick = {
+                            errorMessage = null
+                            successMessage = null
+                            pickCardFromGalleryLauncher.launch(
+                                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                            )
+                        }
+                    )
+
+                    Spacer(modifier = Modifier.height(6.dp))
+
+                    OutlinedButton(
+                        onClick = { showQuickLoginOptions = false },
+                        shape = RoundedCornerShape(10.dp),
+                        modifier = Modifier.fillMaxWidth().height(40.dp),
+                        enabled = !isLoading
+                    ) {
+                        Text("Batal", fontSize = 12.sp)
+                    }
+                }
+            }
+        }
+    }
+
     if (showQuickLoginScanner) {
         BarcodeScannerDialog(
             onDismissRequest = { showQuickLoginScanner = false },
@@ -1246,35 +1416,7 @@ fun FirebaseAuthDialog(
             isQrSquare = true,
             onBarcodeScanned = { scannedRaw ->
                 showQuickLoginScanner = false
-                isLoading = true
-                errorMessage = null
-                scope.launch {
-                    val quickLoginResult = viewModel.authManager.quickLoginWithCard(scannedRaw, context)
-                    isLoading = false
-                    quickLoginResult.onSuccess { user ->
-                        viewModel.refreshAuthUser()
-                        val displayName = user.displayName ?: "Member VIP"
-                        val userEmail = user.email ?: ""
-                        viewModel.showAuthSuccessPopup(
-                            isRegister = false,
-                            userName = displayName,
-                            userEmail = userEmail
-                        )
-                        viewModel.showToastPopup("Login Cepat Berhasil! Selamat datang, $displayName")
-                        onDismissRequest()
-                    }.onFailure { err ->
-                        val cleanEmail = VipMembershipCardGenerator.extractCleanEmail(scannedRaw)
-                        if (!cleanEmail.isNullOrBlank()) {
-                            // Alihkan ke mode LOGIN dengan email terisi agar pengguna dapat langsung memasukkan kata sandinya tanpa OTP
-                            currentMode = AuthMode.LOGIN
-                            email = cleanEmail
-                            password = ""
-                            errorMessage = err.message ?: "Silakan masukkan kata sandi akun Anda untuk menyelesaikan masuk."
-                        } else {
-                            errorMessage = err.message ?: "QR Code tidak dikenali sebagai kartu membership untuk Login Cepat."
-                        }
-                    }
-                }
+                scope.launch { performQuickLogin(scannedRaw) }
             }
         )
     }
@@ -1726,4 +1868,64 @@ private fun isGoogleNativeRecentlyBlocked(context: Context): Boolean {
     val blockedAt = context.getSharedPreferences(GOOGLE_NATIVE_PREFS, Context.MODE_PRIVATE)
         .getLong(KEY_GOOGLE_NATIVE_BLOCKED_AT, 0L)
     return blockedAt > 0L && System.currentTimeMillis() - blockedAt < GOOGLE_NATIVE_BLOCK_WINDOW_MS
+}
+
+@Composable
+private fun QuickLoginSourceRow(
+    icon: ImageVector,
+    title: String,
+    subtitle: String,
+    onClick: () -> Unit
+) {
+    Surface(
+        shape = RoundedCornerShape(14.dp),
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp)
+            .clickable(onClick = onClick)
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(36.dp)
+                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.12f), CircleShape),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(19.dp)
+                )
+            }
+
+            Spacer(modifier = Modifier.width(12.dp))
+
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = title,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Text(
+                    text = subtitle,
+                    fontSize = 10.5.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+
+            Icon(
+                imageVector = Icons.Default.ChevronRight,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(18.dp)
+            )
+        }
+    }
 }
