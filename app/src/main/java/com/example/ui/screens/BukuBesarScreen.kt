@@ -40,7 +40,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.JournalEntry
 import com.example.ui.MainViewModel
-import com.example.ui.theme.lightCardElevation
 
 data class LedgerItem(
     val tanggal: String,
@@ -174,7 +173,6 @@ fun BukuBesarScreen(
             colors = CardDefaults.cardColors(
                 containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f)
             ),
-            elevation = lightCardElevation(),
             border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.2f))
         ) {
             Column(
@@ -372,7 +370,6 @@ fun BukuBesarScreen(
             colors = CardDefaults.cardColors(
                 containerColor = MaterialTheme.colorScheme.surface
             ),
-            elevation = lightCardElevation(),
             border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
         ) {
             Column(modifier = Modifier.fillMaxSize()) {

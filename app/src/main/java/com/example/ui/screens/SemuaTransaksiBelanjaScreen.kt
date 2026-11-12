@@ -28,7 +28,6 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import com.example.data.ShoppingItem
 import com.example.ui.MainViewModel
-import com.example.ui.theme.lightCardElevation
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -122,8 +121,7 @@ fun SemuaTransaksiBelanjaScreen(viewModel: MainViewModel) {
                     Spacer(modifier = Modifier.height(8.dp))
                     Card(
                         modifier = Modifier.fillMaxWidth(),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f)),
-                        elevation = lightCardElevation()
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f))
                     ) {
                     Row(
                         modifier = Modifier
@@ -153,7 +151,7 @@ fun SemuaTransaksiBelanjaScreen(viewModel: MainViewModel) {
 
             // Search and Filters
             item {
-                Card(modifier = Modifier.fillMaxWidth(), elevation = lightCardElevation()) {
+                Card(modifier = Modifier.fillMaxWidth()) {
                     Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         Row(
                             modifier = Modifier.fillMaxWidth(),
@@ -246,7 +244,7 @@ fun SemuaTransaksiBelanjaScreen(viewModel: MainViewModel) {
             // Main Table displaying ALL filtered items
             if (filteredItems.isEmpty()) {
                 item {
-                    Card(modifier = Modifier.fillMaxWidth(), elevation = lightCardElevation()) {
+                    Card(modifier = Modifier.fillMaxWidth()) {
                         Column(
                             modifier = Modifier
                                 .fillMaxWidth()

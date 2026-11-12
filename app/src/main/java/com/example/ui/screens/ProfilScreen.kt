@@ -56,7 +56,6 @@ import com.example.ui.components.AuthMode
 import com.example.ui.components.PhotoRepositionDialog
 import com.example.ui.components.AppUserAvatar
 import com.example.ui.components.VipMembershipDetailDialog
-import com.example.ui.theme.lightCardElevation
 import com.example.firebase.CloudUserItem
 import coil.compose.AsyncImage
 
@@ -529,7 +528,7 @@ fun ProfilScreen(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(16.dp),
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                    elevation = lightCardElevation(lightElevation = 8.dp, darkElevation = 1.dp)
+                    elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
                 ) {
                     Column {
                         MenuItem(
@@ -634,7 +633,7 @@ fun ProfilScreen(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(16.dp),
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                    elevation = lightCardElevation(lightElevation = 8.dp, darkElevation = 1.dp)
+                    elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
                 ) {
                     Column {
                         MenuItem(
@@ -689,7 +688,7 @@ fun ProfilScreen(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(16.dp),
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                    elevation = lightCardElevation(lightElevation = 8.dp, darkElevation = 1.dp)
+                    elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
                 ) {
                     Column {
                         // State for Popup Dialogs

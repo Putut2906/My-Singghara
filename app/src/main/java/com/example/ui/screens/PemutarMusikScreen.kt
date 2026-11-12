@@ -58,7 +58,6 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import com.example.ui.MainViewModel
 import com.example.ui.MusicTrack
-import com.example.ui.theme.lightCardElevation
 import com.example.util.MediaPermission
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
@@ -540,7 +539,6 @@ fun PemutarMusikScreen(viewModel: MainViewModel, onOpenDrawer: () -> Unit) {
                                             colors = CardDefaults.cardColors(
                                                 containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.12f)
                                             ),
-                                            elevation = lightCardElevation(6.dp),
                                             modifier = Modifier
                                                 .fillMaxWidth()
                                                 .clickable { if (canHandleItemClick()) selectedFolder = folderName }
@@ -2013,7 +2011,7 @@ fun PemutarMusikScreen(viewModel: MainViewModel, onOpenDrawer: () -> Unit) {
                         colors = CardDefaults.cardColors(
                             containerColor = MaterialTheme.colorScheme.surfaceColorAtElevation(1.dp)
                         ),
-                        elevation = lightCardElevation()
+                        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
                     ) {
                         Column {
                             // 1. Izin akses media (sama dengan setup pertama)

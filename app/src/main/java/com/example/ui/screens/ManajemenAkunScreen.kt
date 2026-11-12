@@ -141,7 +141,6 @@ import com.example.ui.components.OfflineAnimatedState
 import com.example.ui.components.VipCardSide
 import com.example.ui.components.VipMembershipCard
 import com.example.ui.components.VipMembershipDetailDialog
-import com.example.ui.theme.lightCardElevation
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -352,7 +351,6 @@ fun ManajemenAkunScreen(
                 Card(
                     shape = RoundedCornerShape(16.dp),
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
-                    elevation = lightCardElevation(),
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Column(
@@ -1384,7 +1382,6 @@ fun DaftarPenggunaContent(
                 shape = RoundedCornerShape(12.dp),
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                 border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)),
-                elevation = lightCardElevation(),
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(1f)
@@ -2501,7 +2498,6 @@ fun MessageItemCard(
     Card(
         shape = RoundedCornerShape(12.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
-        elevation = lightCardElevation(),
         modifier = Modifier.fillMaxWidth()
     ) {
         Column(modifier = Modifier.padding(14.dp)) {
@@ -2963,7 +2959,6 @@ fun AdminOtpInboxDialog(
                                 colors = CardDefaults.cardColors(
                                     containerColor = if (isPending) MaterialTheme.colorScheme.surface else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
                                 ),
-                                elevation = lightCardElevation(),
                                 border = BorderStroke(
                                     1.dp,
                                     if (isPending) Color(0xFF0F766E).copy(alpha = 0.5f) else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)

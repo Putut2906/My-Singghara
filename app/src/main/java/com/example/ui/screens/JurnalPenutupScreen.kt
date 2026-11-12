@@ -33,7 +33,6 @@ import androidx.compose.ui.unit.sp
 import com.example.AdjustmentEntry
 import com.example.JournalEntry
 import com.example.ui.MainViewModel
-import com.example.ui.theme.lightCardElevation
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -193,7 +192,6 @@ fun JurnalPenutupScreen(
             colors = CardDefaults.cardColors(
                 containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f)
             ),
-            elevation = lightCardElevation(),
             border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.2f))
         ) {
             Column(
@@ -299,7 +297,6 @@ fun JurnalPenutupScreen(
                 .weight(1f),
             shape = RoundedCornerShape(16.dp),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-            elevation = lightCardElevation(),
             border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
         ) {
             Column(modifier = Modifier.fillMaxSize()) {

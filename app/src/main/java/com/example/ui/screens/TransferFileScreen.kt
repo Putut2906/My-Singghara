@@ -40,7 +40,6 @@ import androidx.compose.ui.window.Dialog
 import com.example.transfer.FileTransferManager
 import com.example.transfer.LocalTransferItem
 import com.example.ui.MainViewModel
-import com.example.ui.theme.lightCardElevation
 import com.example.utils.QrCodeHelper
 import com.example.web.LocalHttpServer
 import kotlinx.coroutines.launch
@@ -170,7 +169,6 @@ fun TransferFileScreen(viewModel: MainViewModel) {
                 colors = CardDefaults.cardColors(
                     containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.25f)
                 ),
-                elevation = lightCardElevation(),
                 border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.3f))
             ) {
                 Row(
@@ -518,7 +516,6 @@ fun ReceivedFromPcSection(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(12.dp),
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)),
-                    elevation = lightCardElevation(),
                     border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
                 ) {
                     Column(
@@ -656,8 +653,7 @@ fun TransferHistorySection(
                     Card(
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(10.dp),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)),
-                        elevation = lightCardElevation()
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f))
                     ) {
                         Row(
                             modifier = Modifier.padding(12.dp),
@@ -722,7 +718,6 @@ fun FileItemCard(
             .clickable { onOpen() },
         shape = RoundedCornerShape(12.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)),
-        elevation = lightCardElevation(),
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f))
     ) {
         Row(

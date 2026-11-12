@@ -59,7 +59,6 @@ import com.example.BuildConfig
 import com.example.R
 import com.example.data.MindMap
 import com.example.ui.MainViewModel
-import com.example.ui.theme.lightCardElevation
 import com.squareup.moshi.JsonClass
 import com.squareup.moshi.Moshi
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
@@ -270,7 +269,6 @@ fun MindMapScreen(
                                 modifier = Modifier.fillMaxWidth(),
                                 shape = RoundedCornerShape(20.dp),
                                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)),
-                                elevation = lightCardElevation(),
                                 border = BorderStroke(
                                     1.dp,
                                     Brush.horizontalGradient(
@@ -575,7 +573,6 @@ fun MindMapScreen(
                                         .padding(horizontal = 8.dp),
                                     shape = RoundedCornerShape(16.dp),
                                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.2f)),
-                                    elevation = lightCardElevation(),
                                     border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.1f))
                                 ) {
                                     Column(
@@ -628,7 +625,6 @@ fun MindMapScreen(
                                     .testTag("saved_mindmap_${map.id}"),
                                 shape = RoundedCornerShape(16.dp),
                                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                                elevation = lightCardElevation(),
                                 border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.12f))
                             ) {
                                 Row(
@@ -4732,7 +4728,6 @@ fun AllSavedMapsView(
                             .clickable { onSelectMap(map) },
                         shape = RoundedCornerShape(16.dp),
                         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                        elevation = lightCardElevation(),
                         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.12f))
                     ) {
                         Row(

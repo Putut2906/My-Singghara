@@ -58,7 +58,6 @@ import com.example.data.AnggotaItem
 import com.example.data.RiwayatPresensi
 import com.example.ui.MainViewModel
 import com.example.ui.components.CustomDatePickerDialog
-import com.example.ui.theme.lightCardElevation
 import com.example.utils.IdCardBitmapGenerator
 import com.example.utils.QrCodeHelper
 import kotlinx.coroutines.Dispatchers
@@ -171,7 +170,6 @@ fun DataKaryawanMuridScreen(
                         colors = CardDefaults.cardColors(
                             containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
                         ),
-                        elevation = lightCardElevation(),
                         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
                     ) {
                         Row(
@@ -742,7 +740,7 @@ fun AnggotaTableView(
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)),
-        elevation = lightCardElevation(lightElevation = 8.dp, darkElevation = 1.dp)
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
     ) {
         Box(
             modifier = Modifier
@@ -987,7 +985,7 @@ fun AnggotaCardItem(
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)),
-        elevation = lightCardElevation(lightElevation = 8.dp, darkElevation = 2.dp)
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
     ) {
         Column(modifier = Modifier.padding(14.dp)) {
             Row(
@@ -1394,7 +1392,6 @@ fun AnggotaInputDialog(
                             colors = CardDefaults.cardColors(
                                 containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
                             ),
-                            elevation = lightCardElevation(),
                             shape = RoundedCornerShape(16.dp)
                         ) {
                             Column(
@@ -1766,7 +1763,6 @@ fun AnggotaInputDialog(
                             colors = CardDefaults.cardColors(
                                 containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
                             ),
-                            elevation = lightCardElevation(),
                             border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
                         ) {
                             Column(
@@ -1918,7 +1914,6 @@ fun AnggotaInputDialog(
                             colors = CardDefaults.cardColors(
                                 containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f)
                             ),
-                            elevation = lightCardElevation(),
                             border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.3f))
                         ) {
                             Column(

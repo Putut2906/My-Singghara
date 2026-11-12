@@ -46,7 +46,6 @@ import androidx.compose.ui.window.Dialog
 import androidx.core.content.ContextCompat
 import com.example.BuildConfig
 import com.example.ui.MainViewModel
-import com.example.ui.theme.lightCardElevation
 import com.example.update.*
 import kotlinx.coroutines.launch
 import java.io.File
@@ -741,7 +740,7 @@ fun TentangAplikasiScreen(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(20.dp),
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                elevation = lightCardElevation(lightElevation = 10.dp, darkElevation = 2.dp)
+                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
             ) {
                 Box(modifier = Modifier.fillMaxWidth()) {
                     Column(
@@ -829,7 +828,7 @@ fun TentangAplikasiScreen(
                 modifier = Modifier.fillMaxWidth().testTag("app_update_card"),
                 shape = RoundedCornerShape(20.dp),
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                elevation = lightCardElevation(lightElevation = 10.dp, darkElevation = 2.dp)
+                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
             ) {
                 Column(
                     modifier = Modifier
@@ -1492,7 +1491,7 @@ fun TentangAplikasiScreen(
                 modifier = Modifier.fillMaxWidth().testTag("fcm_cloud_messaging_card"),
                 shape = RoundedCornerShape(20.dp),
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                elevation = lightCardElevation(lightElevation = 10.dp, darkElevation = 2.dp)
+                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
             ) {
                 Column(
                     modifier = Modifier
@@ -1664,7 +1663,7 @@ fun TentangAplikasiScreen(
                 modifier = Modifier.fillMaxWidth().testTag("bagikan_aplikasi_card"),
                 shape = RoundedCornerShape(20.dp),
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                elevation = lightCardElevation(lightElevation = 10.dp, darkElevation = 2.dp)
+                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
             ) {
                 Column(
                     modifier = Modifier

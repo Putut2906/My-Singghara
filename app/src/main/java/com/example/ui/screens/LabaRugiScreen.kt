@@ -33,7 +33,6 @@ import androidx.compose.ui.unit.sp
 import com.example.AdjustmentEntry
 import com.example.JournalEntry
 import com.example.ui.MainViewModel
-import com.example.ui.theme.lightCardElevation
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -145,7 +144,6 @@ fun LabaRugiScreen(
             colors = CardDefaults.cardColors(
                 containerColor = if (isProfit) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f) else MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.5f)
             ),
-            elevation = lightCardElevation(),
             border = BorderStroke(
                 1.dp,
                 if (isProfit) MaterialTheme.colorScheme.primary.copy(alpha = 0.3f) else MaterialTheme.colorScheme.error.copy(alpha = 0.3f)
@@ -253,7 +251,6 @@ fun LabaRugiScreen(
                 .weight(1f),
             shape = RoundedCornerShape(16.dp),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-            elevation = lightCardElevation(),
             border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
         ) {
             LazyColumn(

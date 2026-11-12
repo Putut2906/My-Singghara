@@ -40,8 +40,6 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.ui.MainViewModel
-import com.example.ui.theme.lightSurfaceShadow
-import com.example.ui.theme.lightWhiteCard
 import kotlin.math.abs
 import kotlin.math.floor
 import kotlin.math.sqrt
@@ -536,8 +534,7 @@ private fun DisplayCard(
     Surface(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(18.dp),
-        color = lightWhiteCard(AccentBlue.copy(alpha = 0.08f)),
-        shadowElevation = lightSurfaceShadow()
+        color = AccentBlue.copy(alpha = 0.08f)
     ) {
         Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp)) {
             Row(

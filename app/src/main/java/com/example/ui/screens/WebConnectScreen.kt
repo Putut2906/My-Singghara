@@ -91,7 +91,6 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.example.ui.MainViewModel
-import com.example.ui.theme.lightCardElevation
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -245,8 +244,7 @@ fun WebConnectScreen(
                     Card(
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(8.dp),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
-                        elevation = lightCardElevation()
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)
                     ) {
                         Column(modifier = Modifier.padding(10.dp)) {
                             Text(
@@ -447,7 +445,6 @@ fun WebConnectScreen(
                 colors = CardDefaults.cardColors(
                     containerColor = if (isServerActive) Color(0xFF00A884).copy(alpha = 0.1f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
                 ),
-                elevation = lightCardElevation(lightElevation = 10.dp),
                 border = androidx.compose.foundation.BorderStroke(
                     width = 1.dp,
                     color = if (isServerActive) Color(0xFF00A884) else MaterialTheme.colorScheme.outlineVariant
@@ -561,7 +558,6 @@ fun WebConnectScreen(
                             modifier = Modifier.fillMaxWidth(),
                             shape = RoundedCornerShape(14.dp),
                             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                            elevation = lightCardElevation(),
                             border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF00A884).copy(alpha = 0.35f))
                         ) {
                             Column(
@@ -836,7 +832,6 @@ fun WebConnectScreen(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(16.dp),
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                    elevation = lightCardElevation(),
                     border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF00A884).copy(alpha = 0.3f))
                 ) {
                     Column(
@@ -987,7 +982,6 @@ fun WebConnectScreen(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(16.dp),
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                    elevation = lightCardElevation(),
                     border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
                 ) {
                     Column(
@@ -1083,7 +1077,6 @@ fun WebConnectScreen(
                                         else if (device.isVerified) Color(0xFF00A884).copy(alpha = 0.08f)
                                         else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
                                     ),
-                                    elevation = lightCardElevation(),
                                     border = androidx.compose.foundation.BorderStroke(
                                         1.dp,
                                         if (device.isRejected) MaterialTheme.colorScheme.error.copy(alpha = 0.3f)

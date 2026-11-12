@@ -93,7 +93,6 @@ import com.example.ui.video.VideoItem
 import com.example.ui.video.VideoLibraryScanner
 import com.example.ui.video.VideoSort
 import com.example.ui.video.formatSize
-import com.example.ui.theme.lightCardElevation
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -523,7 +522,7 @@ private fun FolderRow(folder: VideoFolder, label: String, onClick: () -> Unit) {
             .clickable(onClick = onClick),
         shape = RoundedCornerShape(14.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        elevation = lightCardElevation(lightElevation = 8.dp, darkElevation = 1.dp)
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
     ) {
         Row(
             modifier = Modifier.padding(12.dp),
@@ -575,7 +574,7 @@ private fun VideoRow(item: VideoItem, onClick: () -> Unit) {
             .clickable(onClick = onClick),
         shape = RoundedCornerShape(14.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        elevation = lightCardElevation(lightElevation = 8.dp, darkElevation = 1.dp)
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
     ) {
         Row(
             modifier = Modifier.padding(8.dp),
@@ -622,7 +621,7 @@ private fun FolderGridCard(folder: VideoFolder, label: String, onClick: () -> Un
             .clickable(onClick = onClick),
         shape = RoundedCornerShape(14.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        elevation = lightCardElevation(lightElevation = 8.dp, darkElevation = 1.dp)
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
     ) {
         Column(modifier = Modifier.padding(10.dp)) {
             Box(
@@ -668,7 +667,7 @@ private fun VideoGridCard(item: VideoItem, onClick: () -> Unit) {
             .clickable(onClick = onClick),
         shape = RoundedCornerShape(14.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        elevation = lightCardElevation(lightElevation = 8.dp, darkElevation = 1.dp)
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
     ) {
         Column {
             Box {

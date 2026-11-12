@@ -46,7 +46,6 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import com.example.data.JadwalKegiatan
 import com.example.ui.MainViewModel
-import com.example.ui.theme.lightCardElevation
 
 // Helper function to get category properties
 private data class CategoryConfig(val name: String, val color: Color, val icon: ImageVector)
@@ -253,8 +252,7 @@ fun JadwalHarianScreen(
                         shape = RoundedCornerShape(12.dp),
                         colors = CardDefaults.cardColors(
                             containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.25f)
-                        ),
-                        elevation = lightCardElevation()
+                        )
                     ) {
                         Column(
                             modifier = Modifier
@@ -301,8 +299,7 @@ fun JadwalHarianScreen(
                         .padding(horizontal = 16.dp, vertical = 8.dp),
                     shape = RoundedCornerShape(12.dp),
                     border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                    elevation = lightCardElevation()
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
                 ) {
                     Box(
                         modifier = Modifier

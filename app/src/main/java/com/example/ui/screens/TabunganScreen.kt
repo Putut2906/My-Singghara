@@ -59,7 +59,6 @@ import coil.compose.AsyncImage
 import com.example.data.SavingTarget
 import com.example.data.SavingTransaction
 import com.example.ui.MainViewModel
-import com.example.ui.theme.lightCardElevation
 import com.example.util.ReceiptScannerHelper
 import com.example.util.ParsedReceiptData
 import kotlinx.coroutines.launch
@@ -261,7 +260,6 @@ fun TabunganScreen(viewModel: MainViewModel) {
         item {
             Card(
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                elevation = lightCardElevation(),
                 shape = RoundedCornerShape(16.dp),
                 border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
                 modifier = Modifier.fillMaxWidth()
@@ -680,7 +678,7 @@ fun TabunganScreen(viewModel: MainViewModel) {
 
         if (transactionsFlow.isEmpty()) {
             item {
-                Card(modifier = Modifier.fillMaxWidth(), elevation = lightCardElevation()) {
+                Card(modifier = Modifier.fillMaxWidth()) {
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -872,7 +870,6 @@ fun TabunganScreen(viewModel: MainViewModel) {
                     Card(
                         modifier = Modifier.fillMaxWidth(),
                         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)),
-                        elevation = lightCardElevation(),
                         shape = RoundedCornerShape(12.dp)
                     ) {
                         Column(
@@ -1973,7 +1970,6 @@ fun SavingTable(
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(12.dp),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-            elevation = lightCardElevation(),
             border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
         ) {
             Box(

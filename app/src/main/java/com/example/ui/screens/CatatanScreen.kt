@@ -61,7 +61,6 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.example.data.NoteItem
 import com.example.ui.MainViewModel
-import com.example.ui.theme.lightCardElevation
 import kotlinx.coroutines.delay
 import java.text.SimpleDateFormat
 import java.util.*
@@ -600,7 +599,6 @@ fun CatatanScreen(viewModel: MainViewModel) {
                         colors = CardDefaults.cardColors(
                             containerColor = MaterialTheme.colorScheme.surfaceColorAtElevation(2.dp)
                         ),
-                        elevation = lightCardElevation(),
                         shape = RoundedCornerShape(20.dp),
                         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
                     ) {
@@ -651,7 +649,6 @@ fun CatatanScreen(viewModel: MainViewModel) {
                                 MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.7f)
                             else MaterialTheme.colorScheme.surfaceColorAtElevation(2.dp)
                         ),
-                        elevation = lightCardElevation(),
                         shape = RoundedCornerShape(20.dp),
                         border = BorderStroke(
                             1.dp,
@@ -814,7 +811,6 @@ fun CatatanScreen(viewModel: MainViewModel) {
                             .fillMaxWidth()
                             .weight(1f),
                         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.2f)),
-                        elevation = lightCardElevation(),
                         shape = RoundedCornerShape(20.dp),
                         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
                     ) {
@@ -933,7 +929,7 @@ fun CatatanScreen(viewModel: MainViewModel) {
                 // REDESIGNED IMMERSIVE EDITOR
                 Card(
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                    elevation = lightCardElevation(lightElevation = 8.dp, darkElevation = 2.dp),
+                    elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
                     shape = RoundedCornerShape(20.dp),
                     border = BorderStroke(1.5.dp, parseHexColor(editColorHex).copy(alpha = 0.5f)),
                     modifier = Modifier.fillMaxWidth().weight(1f)
@@ -1991,7 +1987,6 @@ fun NoteCardGrid(
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.surfaceColorAtElevation(1.dp)
         ),
-        elevation = lightCardElevation(),
         shape = RoundedCornerShape(18.dp),
         border = BorderStroke(
             width = if (note.isPinned) 2.dp else 1.dp,
@@ -2103,7 +2098,6 @@ fun NoteCardList(
             .clickable { onClick() }
             .testTag("note_card_${note.id}"),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceColorAtElevation(1.dp)),
-        elevation = lightCardElevation(),
         shape = RoundedCornerShape(16.dp),
         border = BorderStroke(
             width = if (note.isPinned) 1.5.dp else 1.dp,

@@ -68,7 +68,6 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import coil.compose.AsyncImage
 import com.example.ui.MainViewModel
-import com.example.ui.theme.lightCardElevation
 import java.text.NumberFormat
 import java.util.Locale
 import java.text.SimpleDateFormat
@@ -799,7 +798,7 @@ fun MyKasirScreen(viewModel: MainViewModel) {
                                                 modifier = Modifier.fillMaxWidth(),
                                                 shape = RoundedCornerShape(12.dp),
                                                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                                                elevation = lightCardElevation(lightElevation = 8.dp, darkElevation = 2.dp)
+                                                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
                                             ) {
                                                 Box(
                                                     modifier = Modifier
@@ -1164,7 +1163,7 @@ fun MyKasirScreen(viewModel: MainViewModel) {
                                                 modifier = Modifier.fillMaxWidth(),
                                                 shape = RoundedCornerShape(12.dp),
                                                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                                                elevation = lightCardElevation(lightElevation = 8.dp, darkElevation = 2.dp)
+                                                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
                                             ) {
                                                 Box(
                                                     modifier = Modifier
@@ -1357,7 +1356,7 @@ fun MyKasirScreen(viewModel: MainViewModel) {
                                             modifier = Modifier.fillMaxWidth(),
                                             shape = RoundedCornerShape(12.dp),
                                             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                                            elevation = lightCardElevation(lightElevation = 8.dp, darkElevation = 2.dp)
+                                            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
                                         ) {
                                             Box(
                                                 modifier = Modifier
@@ -1429,7 +1428,7 @@ fun MyKasirScreen(viewModel: MainViewModel) {
                                                 modifier = Modifier.fillMaxWidth(),
                                                 shape = RoundedCornerShape(12.dp),
                                                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                                                elevation = lightCardElevation(lightElevation = 8.dp, darkElevation = 2.dp)
+                                                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
                                             ) {
                                                 Box(
                                                     modifier = Modifier
@@ -1713,7 +1712,7 @@ fun MyKasirScreen(viewModel: MainViewModel) {
                                     .weight(1f),
                                 shape = RoundedCornerShape(12.dp),
                                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                                elevation = lightCardElevation(lightElevation = 8.dp, darkElevation = 2.dp)
+                                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
                             ) {
                                 Box(
                                     modifier = Modifier
@@ -1878,7 +1877,7 @@ fun MyKasirScreen(viewModel: MainViewModel) {
                                     .weight(1f),
                                 shape = RoundedCornerShape(12.dp),
                                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                                elevation = lightCardElevation(lightElevation = 8.dp, darkElevation = 2.dp)
+                                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
                             ) {
                                 Box(
                                     modifier = Modifier
@@ -1979,7 +1978,7 @@ fun MyKasirScreen(viewModel: MainViewModel) {
                                     .weight(1f),
                                 shape = RoundedCornerShape(12.dp),
                                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                                elevation = lightCardElevation(lightElevation = 8.dp, darkElevation = 2.dp)
+                                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
                             ) {
                                 Box(
                                     modifier = Modifier
@@ -4108,8 +4107,7 @@ fun MyKasirScreen(viewModel: MainViewModel) {
                         if (cartItems.isEmpty()) {
                             Card(
                                 modifier = Modifier.fillMaxWidth(),
-                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                                elevation = lightCardElevation()
+                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
                             ) {
                                 Box(
                                     modifier = Modifier
@@ -4129,7 +4127,6 @@ fun MyKasirScreen(viewModel: MainViewModel) {
                             Card(
                                 modifier = Modifier.fillMaxWidth(),
                                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                                elevation = lightCardElevation(),
                                 border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
                             ) {
                                 Column(modifier = Modifier.padding(8.dp)) {
@@ -5895,7 +5892,6 @@ private fun PrintRevenueReportOptionDialog(
                         colors = CardDefaults.cardColors(
                             containerColor = if (txCount > 0) Color(0xFF2E7D32).copy(alpha = 0.06f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
                         ),
-                        elevation = lightCardElevation(),
                         border = BorderStroke(1.dp, if (txCount > 0) Color(0xFF2E7D32).copy(alpha = 0.3f) else MaterialTheme.colorScheme.outlineVariant)
                     ) {
                         Row(
@@ -6370,7 +6366,6 @@ fun StockItemRow(
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        elevation = lightCardElevation(),
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
         shape = RoundedCornerShape(10.dp)
     ) {
@@ -6503,7 +6498,6 @@ fun SalesTransactionRow(
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        elevation = lightCardElevation(),
         border = BorderStroke(1.dp, Color(0xFF2E7D32).copy(alpha = 0.15f)),
         shape = RoundedCornerShape(10.dp)
     ) {
@@ -6642,8 +6636,7 @@ private fun RevenueTrendLineChartCard(
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        elevation = lightCardElevation()
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
             // Header Row with Title and Period Filter Chips

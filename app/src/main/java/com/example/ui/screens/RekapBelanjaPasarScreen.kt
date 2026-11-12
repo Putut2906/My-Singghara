@@ -47,7 +47,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.BelanjaPasarItem
 import com.example.ui.MainViewModel
-import com.example.ui.theme.lightCardElevation
 import java.text.NumberFormat
 import java.text.SimpleDateFormat
 import java.util.*
@@ -217,7 +216,7 @@ fun RekapBelanjaPasarScreen(
                     colors = CardDefaults.cardColors(
                         containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
                     ),
-                    elevation = lightCardElevation()
+                    elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
                 ) {
                     Column(
                         modifier = Modifier
@@ -372,7 +371,7 @@ fun RekapBelanjaPasarScreen(
                     colors = CardDefaults.cardColors(
                         containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
                     ),
-                    elevation = lightCardElevation()
+                    elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
                 ) {
                     Column(modifier = Modifier.padding(8.dp)) {
                         Row(
@@ -823,10 +822,7 @@ fun MarketShoppingItemCard(
                 MaterialTheme.colorScheme.surface
             }
         ),
-        elevation = lightCardElevation(
-            lightElevation = 8.dp,
-            darkElevation = if (item.sudahDibeli) 0.dp else 1.dp
-        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = if (item.sudahDibeli) 0.dp else 1.dp),
         border = androidx.compose.foundation.BorderStroke(
             1.dp,
             if (item.sudahDibeli) MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f) else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)
