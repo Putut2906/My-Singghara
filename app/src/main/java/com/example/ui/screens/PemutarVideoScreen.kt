@@ -78,6 +78,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -522,7 +523,9 @@ private fun FolderRow(folder: VideoFolder, label: String, onClick: () -> Unit) {
             .clickable(onClick = onClick),
         shape = RoundedCornerShape(14.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+        elevation = CardDefaults.cardElevation(
+            defaultElevation = if (MaterialTheme.colorScheme.surface.luminance() > 0.5f) 4.dp else 1.dp
+        )
     ) {
         Row(
             modifier = Modifier.padding(12.dp),
@@ -574,7 +577,9 @@ private fun VideoRow(item: VideoItem, onClick: () -> Unit) {
             .clickable(onClick = onClick),
         shape = RoundedCornerShape(14.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+        elevation = CardDefaults.cardElevation(
+            defaultElevation = if (MaterialTheme.colorScheme.surface.luminance() > 0.5f) 4.dp else 1.dp
+        )
     ) {
         Row(
             modifier = Modifier.padding(8.dp),
@@ -621,7 +626,9 @@ private fun FolderGridCard(folder: VideoFolder, label: String, onClick: () -> Un
             .clickable(onClick = onClick),
         shape = RoundedCornerShape(14.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+        elevation = CardDefaults.cardElevation(
+            defaultElevation = if (MaterialTheme.colorScheme.surface.luminance() > 0.5f) 4.dp else 1.dp
+        )
     ) {
         Column(modifier = Modifier.padding(10.dp)) {
             Box(
@@ -667,7 +674,9 @@ private fun VideoGridCard(item: VideoItem, onClick: () -> Unit) {
             .clickable(onClick = onClick),
         shape = RoundedCornerShape(14.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+        elevation = CardDefaults.cardElevation(
+            defaultElevation = if (MaterialTheme.colorScheme.surface.luminance() > 0.5f) 4.dp else 1.dp
+        )
     ) {
         Column {
             Box {
