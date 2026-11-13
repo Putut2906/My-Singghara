@@ -740,7 +740,7 @@ fun HomeScreen(viewModel: MainViewModel) {
                 .testTag("home_screen"),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-        // SECTION 1: HEADER & PROFILE GREETING
+        // SECTION 1: PREMIUM DIGITAL CLOCK & CALENDAR CARD (Ucapan & Nama di Atas Jam)
         item {
             val calendarNow = Calendar.getInstance()
             val hour = calendarNow.get(Calendar.HOUR_OF_DAY)
@@ -751,32 +751,6 @@ fun HomeScreen(viewModel: MainViewModel) {
                 else -> "Selamat Malam"
             }
 
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 4.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                Text(
-                    text = greeting,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Medium,
-                    color = MaterialTheme.colorScheme.onBackground.copy(alpha = 0.6f),
-                    textAlign = TextAlign.Center
-                )
-                Spacer(modifier = Modifier.height(2.dp))
-                Text(
-                    text = viewModel.profileName,
-                    fontSize = 22.sp,
-                    fontWeight = FontWeight.Black,
-                    color = MaterialTheme.colorScheme.primary,
-                    textAlign = TextAlign.Center
-                )
-            }
-        }
-
-        // SECTION 2: PREMIUM DIGITAL CLOCK & CALENDAR CARD
-        item {
             Card(
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.15f)),
                 modifier = Modifier.fillMaxWidth(),
@@ -787,6 +761,24 @@ fun HomeScreen(viewModel: MainViewModel) {
                     modifier = Modifier.padding(24.dp).fillMaxWidth(),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
+                    // Ucapan selamat & nama pengguna di atas jam digital
+                    Text(
+                        text = greeting,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f),
+                        textAlign = TextAlign.Center
+                    )
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = viewModel.profileName,
+                        fontSize = 22.sp,
+                        fontWeight = FontWeight.Black,
+                        color = MaterialTheme.colorScheme.primary,
+                        textAlign = TextAlign.Center
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+
                     // Real-time digital clock display (clickable to change font, long click to resize)
                     val clockFontSize = viewModel.clockFontSizeSp.sp
 
