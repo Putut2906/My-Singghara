@@ -149,6 +149,34 @@ object KalkulatorWebScript {
             return String(rounded);
         }
 
+        // Titik ribuan otomatis pada tampilan (1.000, 10.000, 1.000.000).
+        // Deret desimal dan ekspresi mentah dibiarkan agar perhitungan tetap tepat.
+        function kalcGroup(text) {
+            if (text.length < 4) return text;
+            let out = '';
+            let i = 0;
+            while (i < text.length) {
+                const ch = text.charAt(i);
+                if (ch < '0' || ch > '9') { out += ch; i++; continue; }
+                let j = i;
+                while (j < text.length && text.charAt(j) >= '0' && text.charAt(j) <= '9') j++;
+                const run = text.slice(i, j);
+                const before = i === 0 ? '' : text.charAt(i - 1);
+                const after = j >= text.length ? '' : text.charAt(j);
+                const byDecimal = before === '.' || after === '.';
+                if (run.length >= 4 && !byDecimal && run.charAt(0) !== '0') {
+                    for (let k = 0; k < run.length; k++) {
+                        if (k > 0 && (run.length - k) % 3 === 0) out += '.';
+                        out += run.charAt(k);
+                    }
+                } else {
+                    out += run;
+                }
+                i = j;
+            }
+            return out;
+        }
+
         // Bentuk pecahan untuk desimal rasional sederhana, mis. 1÷3 -> 1/3 (penyebut <= 999).
         function kalcFractionHint(v) {
             if (!isFinite(v)) return null;
@@ -741,23 +769,26 @@ object KalkulatorWebScript {
             unitBtn.classList.toggle('kalc-active', st.unit !== 'RAD');
 
             const live = kalcEvalNow(st);
-            const liveText = live !== null ? kalcFormat(live) : '';
+            const liveText = live !== null ? kalcGroup(kalcFormat(live)) : '';
             const frac = live !== null ? (kalcFractionHint(live) || '') : '';
 
+            const prevText = kalcGroup(st.prevFormula);
             const prevEl = document.getElementById('kalcPrev');
-            prevEl.style.display = st.prevFormula !== '' ? '' : 'none';
-            prevEl.textContent = st.prevFormula;
+            prevEl.style.display = prevText !== '' ? '' : 'none';
+            prevEl.textContent = prevText;
             prevEl.scrollLeft = prevEl.scrollWidth;
 
+            const exprText = kalcGroup(st.expression !== '' ? st.expression : (st.lastResult !== '' ? st.lastResult : '0'));
             const exprEl = document.getElementById('kalcExpr');
-            exprEl.textContent = st.expression !== '' ? st.expression : (st.lastResult !== '' ? st.lastResult : '0');
-            exprEl.style.fontSize = st.expression.length > 26 ? '18px' : (st.expression.length > 18 ? '23px' : '29px');
+            exprEl.textContent = exprText;
+            exprEl.style.fontSize = exprText.length > 26 ? '18px' : (exprText.length > 18 ? '23px' : '29px');
             exprEl.classList.toggle('kalc-error', st.error);
             exprEl.scrollLeft = exprEl.scrollWidth;
 
+            const hintText = kalcGroup(st.hint);
             const hintEl = document.getElementById('kalcHint');
-            hintEl.style.display = st.hint !== '' ? '' : 'none';
-            hintEl.textContent = st.hint;
+            hintEl.style.display = hintText !== '' ? '' : 'none';
+            hintEl.textContent = hintText;
 
             const fracEl = document.getElementById('kalcFrac');
             fracEl.style.display = frac !== '' ? '' : 'none';
@@ -768,7 +799,7 @@ object KalkulatorWebScript {
             let liveRow;
             if (st.error) liveRow = 'Pernyataan salah';
             else if (st.expression.trim() === '') liveRow = '\u00A0';
-            else if (liveText !== '' && liveText !== st.expression) liveRow = '= ' + liveText;
+            else if (liveText !== '' && liveText !== exprText) liveRow = '= ' + liveText;
             else liveRow = '\u00A0';
             liveEl.textContent = liveRow;
             liveEl.classList.toggle('kalc-error', st.error);

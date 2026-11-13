@@ -615,11 +615,12 @@ private fun DisplayCard(
             }
 
             // Baris 1: rumus yang sudah dihitung
-            if (prevFormula.isNotEmpty()) {
+            val displayPrev = formatGroupedNominal(prevFormula)
+            if (displayPrev.isNotEmpty()) {
                 val prevScroll = rememberScrollState()
-                LaunchedEffect(prevFormula) { prevScroll.scrollTo(prevScroll.maxValue) }
+                LaunchedEffect(displayPrev) { prevScroll.scrollTo(prevScroll.maxValue) }
                 Text(
-                    text = prevFormula,
+                    text = displayPrev,
                     fontSize = 12.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
@@ -630,13 +631,16 @@ private fun DisplayCard(
             }
 
             // Baris 2: ekspresi yang sedang diketik
+            val displayExpression = formatGroupedNominal(
+                expression.ifBlank { lastResult.ifBlank { "0" } }
+            )
             val scrollState = rememberScrollState()
-            LaunchedEffect(expression) { scrollState.scrollTo(scrollState.maxValue) }
+            LaunchedEffect(displayExpression) { scrollState.scrollTo(scrollState.maxValue) }
             Text(
-                text = expression.ifBlank { lastResult.ifBlank { "0" } },
+                text = displayExpression,
                 fontSize = when {
-                    expression.length > 26 -> 18.sp
-                    expression.length > 18 -> 23.sp
+                    displayExpression.length > 26 -> 18.sp
+                    displayExpression.length > 18 -> 23.sp
                     else -> 29.sp
                 },
                 fontWeight = FontWeight.Bold,
@@ -652,7 +656,7 @@ private fun DisplayCard(
             // Baris 3: keterangan memori/statistik dan bentuk pecahan
             if (hint.isNotEmpty()) {
                 Text(
-                    text = hint,
+                    text = formatGroupedNominal(hint),
                     fontSize = 11.sp,
                     color = calcAccent(),
                     maxLines = 1,
@@ -671,13 +675,14 @@ private fun DisplayCard(
             }
 
             // Baris terakhir: hasil
+            val displayLive = formatGroupedNominal(liveResult)
             val outScroll = rememberScrollState()
-            LaunchedEffect(liveResult) { outScroll.scrollTo(outScroll.maxValue) }
+            LaunchedEffect(displayLive) { outScroll.scrollTo(outScroll.maxValue) }
             Text(
                 text = when {
                     error -> "Pernyataan salah"
                     expression.isBlank() -> " "
-                    liveResult.isNotBlank() && liveResult != expression -> "= $liveResult"
+                    displayLive.isNotBlank() && displayLive != displayExpression -> "= $displayLive"
                     else -> " "
                 },
                 fontSize = 16.sp,
@@ -979,6 +984,39 @@ private fun formatCalcResult(v: Double): String {
     } else {
         rounded.toString()
     }
+}
+
+// Titik ribuan otomatis pada tampilan (1.000, 10.000, 1.000.000).
+// Hanya untuk deret angka utuh supaya tidak rancu dengan pemisah desimal
+// kalkulator; ekspresi mentah tetap tanpa pemisah agar tetap bisa dihitung.
+private fun formatGroupedNominal(text: String): String {
+    if (text.length < 4) return text
+    val out = StringBuilder(text.length + text.length / 3)
+    var i = 0
+    while (i < text.length) {
+        val c = text[i]
+        if (!c.isDigit()) {
+            out.append(c)
+            i++
+            continue
+        }
+        var j = i
+        while (j < text.length && text[j].isDigit()) j++
+        val run = text.substring(i, j)
+        val before = if (i == 0) null else text[i - 1]
+        val after = if (j >= text.length) null else text[j]
+        val byDecimal = before == '.' || after == '.'
+        if (run.length >= 4 && !byDecimal && run[0] != '0') {
+            run.forEachIndexed { idx, ch ->
+                if (idx > 0 && (run.length - idx) % 3 == 0) out.append('.')
+                out.append(ch)
+            }
+        } else {
+            out.append(run)
+        }
+        i = j
+    }
+    return out.toString()
 }
 
 // Bentuk pecahan untuk desimal yang memang rasional sederhana,
