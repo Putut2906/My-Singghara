@@ -96,6 +96,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
@@ -1188,6 +1189,12 @@ fun DaftarPenggunaContent(
     val isDark = isSystemInDarkTheme()
     var statusFilter by remember { mutableStateOf("ALL") }
 
+    // Mode terang: outlineVariant/outline terlalu pucat untuk teks & garis tabel,
+    // jadi tabel memakai palet sendiri yang tetap tegas di atas latar putih.
+    val subtleText = if (isDark) MaterialTheme.colorScheme.outline else Color(0xFF64748B)
+    val tableBorderColor = if (isDark) MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f) else Color(0xFFCBD5E1)
+    val rowDividerColor = if (isDark) MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f) else Color(0xFFE2E8F0)
+
     val filteredList = remember(userList, searchQuery, statusFilter) {
         userList.filter { user ->
             val matchesSearch = if (searchQuery.isBlank()) true else {
@@ -1233,7 +1240,14 @@ fun DaftarPenggunaContent(
                 }
             } else null,
             singleLine = true,
-            shape = RoundedCornerShape(12.dp)
+            shape = RoundedCornerShape(12.dp),
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedContainerColor = if (isDark) Color.Transparent else Color.White,
+                unfocusedContainerColor = if (isDark) Color.Transparent else Color.White,
+                disabledContainerColor = Color.Transparent,
+                unfocusedBorderColor = tableBorderColor,
+                focusedBorderColor = MaterialTheme.colorScheme.primary
+            )
         )
 
         Spacer(modifier = Modifier.height(8.dp))
@@ -1351,18 +1365,18 @@ fun DaftarPenggunaContent(
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     CircularProgressIndicator(modifier = Modifier.size(36.dp))
                     Spacer(modifier = Modifier.height(12.dp))
-                    Text("Memuat data pengguna dari Firebase...", fontSize = 12.sp, color = MaterialTheme.colorScheme.outline)
+                    Text("Memuat data pengguna dari Firebase...", fontSize = 12.sp, color = subtleText)
                 }
             }
         } else if (filteredList.isEmpty()) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Icon(Icons.Default.People, null, modifier = Modifier.size(48.dp), tint = MaterialTheme.colorScheme.outline)
+                    Icon(Icons.Default.People, null, modifier = Modifier.size(48.dp), tint = subtleText)
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
                         text = if (searchQuery.isNotEmpty() || statusFilter != "ALL") "Tidak ada pengguna yang cocok dengan kriteria." else "Belum ada data pengguna di cloud.",
                         style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.outline,
+                        color = subtleText,
                         textAlign = TextAlign.Center
                     )
                     if (searchQuery.isNotEmpty() || statusFilter != "ALL") {
@@ -1381,7 +1395,7 @@ fun DaftarPenggunaContent(
             Card(
                 shape = RoundedCornerShape(12.dp),
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)),
+                border = BorderStroke(1.dp, tableBorderColor),
                 modifier = Modifier
                     .fillMaxWidth()
                     .weight(1f)
@@ -1399,7 +1413,7 @@ fun DaftarPenggunaContent(
                     ) {
                         // BARIS HEADER TABEL
                         UserTableHeader()
-                        HorizontalDivider(thickness = 1.5.dp, color = MaterialTheme.colorScheme.outlineVariant)
+                        HorizontalDivider(thickness = 1.5.dp, color = tableBorderColor)
 
                         // BARIS DATA TABEL (LazyColumn vertikal di dalam kolom tabel)
                         LazyColumn(
@@ -1418,13 +1432,13 @@ fun DaftarPenggunaContent(
                                     onManageMembership = { onManageMembership(userItem) },
                                     onOpenMembershipDetail = { onOpenMembershipDetail(userItem) }
                                 )
-                                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f))
+                                HorizontalDivider(color = rowDividerColor)
                             }
                         }
 
                         // FOOTER TABEL: RINGKASAN STATUS
                         Surface(
-                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                            color = if (isDark) MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f) else Color(0xFFF1F5F9),
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             Row(
@@ -1435,13 +1449,14 @@ fun DaftarPenggunaContent(
                                 Text(
                                     text = "Menampilkan ${filteredList.size} dari $totalCount pengguna",
                                     fontSize = 11.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    fontWeight = FontWeight.Medium,
+                                    color = if (isDark) MaterialTheme.colorScheme.onSurfaceVariant else Color(0xFF334155)
                                 )
                                 Text(
                                     text = "$activeCount Aktif • $inactiveCount Nonaktif • $onlineCount Online",
                                     fontSize = 11.sp,
                                     fontWeight = FontWeight.SemiBold,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    color = if (isDark) MaterialTheme.colorScheme.onSurfaceVariant else Color(0xFF334155)
                                 )
                             }
                         }
@@ -1457,11 +1472,16 @@ fun DaftarPenggunaContent(
  */
 @Composable
 fun UserTableHeader() {
+    val isDark = isSystemInDarkTheme()
+    val headerBg = if (isDark) MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.85f) else Color(0xFFEFF6FF)
+    val headerText = if (isDark) MaterialTheme.colorScheme.onSurface else Color(0xFF1E3A8A)
+    val headerIconTint = if (isDark) MaterialTheme.colorScheme.primary else Color(0xFF2563EB)
+
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.85f))
-            .padding(horizontal = 8.dp, vertical = 10.dp),
+            .background(headerBg)
+            .padding(horizontal = 8.dp, vertical = 11.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         // Kolom 1: No
@@ -1469,7 +1489,7 @@ fun UserTableHeader() {
             modifier = Modifier.width(44.dp),
             contentAlignment = Alignment.Center
         ) {
-            Text("NO", fontWeight = FontWeight.Bold, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurface)
+            Text("NO", fontWeight = FontWeight.Bold, fontSize = 11.sp, color = headerText)
         }
 
         // Kolom 2: Pengguna
@@ -1480,8 +1500,8 @@ fun UserTableHeader() {
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(4.dp)
         ) {
-            Icon(Icons.Default.People, contentDescription = null, modifier = Modifier.size(14.dp), tint = MaterialTheme.colorScheme.primary)
-            Text("PENGGUNA", fontWeight = FontWeight.Bold, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurface)
+            Icon(Icons.Default.People, contentDescription = null, modifier = Modifier.size(14.dp), tint = headerIconTint)
+            Text("PENGGUNA", fontWeight = FontWeight.Bold, fontSize = 11.sp, color = headerText)
         }
 
         // Kolom 3: Status Akun
@@ -1493,8 +1513,8 @@ fun UserTableHeader() {
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(4.dp)
             ) {
-                Icon(Icons.Default.Shield, contentDescription = null, modifier = Modifier.size(14.dp), tint = MaterialTheme.colorScheme.primary)
-                Text("STATUS", fontWeight = FontWeight.Bold, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurface)
+                Icon(Icons.Default.Shield, contentDescription = null, modifier = Modifier.size(14.dp), tint = headerIconTint)
+                Text("STATUS", fontWeight = FontWeight.Bold, fontSize = 11.sp, color = headerText)
             }
         }
 
@@ -1507,7 +1527,7 @@ fun UserTableHeader() {
             horizontalArrangement = Arrangement.spacedBy(4.dp)
         ) {
             Icon(Icons.Default.Star, contentDescription = null, modifier = Modifier.size(14.dp), tint = Color(0xFFF59E0B))
-            Text("MEMBERSHIP", fontWeight = FontWeight.Bold, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurface)
+            Text("MEMBERSHIP", fontWeight = FontWeight.Bold, fontSize = 11.sp, color = headerText)
         }
 
         // Kolom 5: Terakhir Akses
@@ -1518,8 +1538,8 @@ fun UserTableHeader() {
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(4.dp)
         ) {
-            Icon(Icons.Default.AccessTime, contentDescription = null, modifier = Modifier.size(14.dp), tint = MaterialTheme.colorScheme.primary)
-            Text("TERAKHIR AKSES", fontWeight = FontWeight.Bold, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurface)
+            Icon(Icons.Default.AccessTime, contentDescription = null, modifier = Modifier.size(14.dp), tint = headerIconTint)
+            Text("TERAKHIR AKSES", fontWeight = FontWeight.Bold, fontSize = 11.sp, color = headerText)
         }
 
         // Kolom 6: Perangkat & FCM
@@ -1530,8 +1550,8 @@ fun UserTableHeader() {
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(4.dp)
         ) {
-            Icon(Icons.Default.PhoneAndroid, contentDescription = null, modifier = Modifier.size(14.dp), tint = MaterialTheme.colorScheme.primary)
-            Text("PERANGKAT & FCM", fontWeight = FontWeight.Bold, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurface)
+            Icon(Icons.Default.PhoneAndroid, contentDescription = null, modifier = Modifier.size(14.dp), tint = headerIconTint)
+            Text("PERANGKAT & FCM", fontWeight = FontWeight.Bold, fontSize = 11.sp, color = headerText)
         }
 
         // Kolom 7: Aksi Admin
@@ -1543,8 +1563,8 @@ fun UserTableHeader() {
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(4.dp)
             ) {
-                Icon(Icons.Default.AdminPanelSettings, contentDescription = null, modifier = Modifier.size(14.dp), tint = MaterialTheme.colorScheme.primary)
-                Text("AKSI ADMIN", fontWeight = FontWeight.Bold, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurface)
+                Icon(Icons.Default.AdminPanelSettings, contentDescription = null, modifier = Modifier.size(14.dp), tint = headerIconTint)
+                Text("AKSI ADMIN", fontWeight = FontWeight.Bold, fontSize = 11.sp, color = headerText)
             }
         }
     }
@@ -1569,10 +1589,13 @@ fun UserTableRow(
     val formattedLastActive = user.getFormattedLastActive()
     val fullDateTime = user.getFullDateTimeLastActive()
 
+    // Di mode terang, outline (#E2E8F0) tidak terbaca sebagai teks; pakai slate 500.
+    val subtleText = if (isDark) MaterialTheme.colorScheme.outline else Color(0xFF64748B)
+
     val rowBgColor = when {
-        user.isAdmin -> if (isDark) Color(0xFF064E3B).copy(alpha = 0.25f) else Color(0xFFF0FDF4)
-        !user.isActive || user.isMembershipExpired() -> if (isDark) Color(0xFF7F1D1D).copy(alpha = 0.25f) else Color(0xFFFEF2F2).copy(alpha = 0.55f)
-        index % 2 == 0 -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.25f)
+        user.isAdmin -> if (isDark) Color(0xFF064E3B).copy(alpha = 0.25f) else Color(0xFFECFDF5)
+        !user.isActive || user.isMembershipExpired() -> if (isDark) Color(0xFF7F1D1D).copy(alpha = 0.25f) else Color(0xFFFEF2F2)
+        index % 2 == 0 -> if (isDark) MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.25f) else Color(0xFFF8FAFC)
         else -> MaterialTheme.colorScheme.surface
     }
 
@@ -1668,8 +1691,9 @@ fun UserTableRow(
                     Text(
                         text = "UID: ${user.uid.take(8)}...",
                         fontSize = 9.sp,
+                        fontWeight = FontWeight.Medium,
                         fontFamily = FontFamily.Monospace,
-                        color = MaterialTheme.colorScheme.outline
+                        color = subtleText
                     )
                     IconButton(
                         onClick = onCopyUid,
@@ -1679,7 +1703,7 @@ fun UserTableRow(
                             imageVector = Icons.Default.ContentCopy,
                             contentDescription = "Salin UID",
                             modifier = Modifier.size(10.dp),
-                            tint = MaterialTheme.colorScheme.outline
+                            tint = subtleText
                         )
                     }
                 }
@@ -1820,7 +1844,8 @@ fun UserTableRow(
                 Text(
                     text = "Belum Diatur",
                     fontSize = 10.sp,
-                    color = MaterialTheme.colorScheme.outline
+                    fontWeight = FontWeight.Medium,
+                    color = subtleText
                 )
             }
         }
@@ -1864,7 +1889,8 @@ fun UserTableRow(
                 Text(
                     text = fullDateTime,
                     fontSize = 9.sp,
-                    color = MaterialTheme.colorScheme.outline
+                    fontWeight = FontWeight.Medium,
+                    color = subtleText
                 )
             }
         }
@@ -1888,12 +1914,13 @@ fun UserTableRow(
                 Text(
                     text = user.osVersion,
                     fontSize = 9.sp,
-                    color = MaterialTheme.colorScheme.outline,
+                    fontWeight = FontWeight.Medium,
+                    color = subtleText,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
             } else {
-                Text("Perangkat: -", fontSize = 10.sp, color = MaterialTheme.colorScheme.outline)
+                Text("Perangkat: -", fontSize = 10.sp, fontWeight = FontWeight.Medium, color = subtleText)
             }
 
             Row(
@@ -1909,7 +1936,8 @@ fun UserTableRow(
                 Text(
                     text = if (user.fcmToken.isNotBlank()) "Token Tersimpan" else "Belum Ada",
                     fontSize = 9.sp,
-                    color = if (user.fcmToken.isNotBlank()) (if (isDark) Color(0xFF6EE7B7) else Color(0xFF15803D)) else MaterialTheme.colorScheme.outline
+                    fontWeight = FontWeight.Medium,
+                    color = if (user.fcmToken.isNotBlank()) (if (isDark) Color(0xFF6EE7B7) else Color(0xFF15803D)) else subtleText
                 )
                 if (user.fcmToken.isNotBlank()) {
                     IconButton(
@@ -1920,7 +1948,7 @@ fun UserTableRow(
                             imageVector = Icons.Default.ContentCopy,
                             contentDescription = "Salin Token",
                             modifier = Modifier.size(10.dp),
-                            tint = MaterialTheme.colorScheme.outline
+                            tint = subtleText
                         )
                     }
                 }
@@ -2343,6 +2371,7 @@ fun PesanAdminContent(
     onBackToUsers: () -> Unit = {}
 ) {
     val isDark = isSystemInDarkTheme()
+    val subtleText = if (isDark) MaterialTheme.colorScheme.outline else Color(0xFF64748B)
 
     Column(
         modifier = Modifier
@@ -2438,15 +2467,15 @@ fun PesanAdminContent(
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     CircularProgressIndicator(modifier = Modifier.size(36.dp))
                     Spacer(modifier = Modifier.height(12.dp))
-                    Text("Memuat pesan dari Firestore...", fontSize = 12.sp, color = MaterialTheme.colorScheme.outline)
+                    Text("Memuat pesan dari Firestore...", fontSize = 12.sp, color = subtleText)
                 }
             }
         } else if (messageList.isEmpty()) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Icon(Icons.Default.Message, null, modifier = Modifier.size(48.dp), tint = MaterialTheme.colorScheme.outline)
+                    Icon(Icons.Default.Message, null, modifier = Modifier.size(48.dp), tint = subtleText)
                     Spacer(modifier = Modifier.height(8.dp))
-                    Text("Belum ada pesan yang dibuat.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.outline)
+                    Text("Belum ada pesan yang dibuat.", style = MaterialTheme.typography.bodyMedium, color = subtleText)
                     Spacer(modifier = Modifier.height(8.dp))
                     TextButton(onClick = onWriteMessageClick) {
                         Text("Mulai Tulis Pesan Pertama")
@@ -2479,6 +2508,7 @@ fun MessageItemCard(
     onDelete: () -> Unit
 ) {
     val isDark = isSystemInDarkTheme()
+    val subtleText = if (isDark) MaterialTheme.colorScheme.outline else Color(0xFF64748B)
     val categoryColor = when (message.category) {
         "PERINGATAN" -> Color(0xFFDC2626)
         "PEMBARUAN" -> if (isDark) Color(0xFF2DD4BF) else Color(0xFF0F766E)
@@ -2497,7 +2527,10 @@ fun MessageItemCard(
 
     Card(
         shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
+        colors = CardDefaults.cardColors(
+            containerColor = if (isDark) MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f) else Color.White
+        ),
+        border = BorderStroke(1.dp, if (isDark) MaterialTheme.colorScheme.outlineVariant else Color(0xFFE2E8F0)),
         modifier = Modifier.fillMaxWidth()
     ) {
         Column(modifier = Modifier.padding(14.dp)) {
@@ -2544,7 +2577,8 @@ fun MessageItemCard(
                     Text(
                         text = "Target: ${message.targetName}",
                         fontSize = 10.sp,
-                        color = MaterialTheme.colorScheme.outline
+                        fontWeight = FontWeight.Medium,
+                        color = subtleText
                     )
                 }
 
@@ -2583,7 +2617,7 @@ fun MessageItemCard(
             )
 
             Spacer(modifier = Modifier.height(10.dp))
-            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+            HorizontalDivider(color = if (isDark) MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f) else Color(0xFFE2E8F0))
             Spacer(modifier = Modifier.height(6.dp))
 
             // Footer: Waktu & Penulis (Admin)
@@ -2601,7 +2635,8 @@ fun MessageItemCard(
                 Text(
                     text = formattedDate,
                     fontSize = 10.sp,
-                    color = MaterialTheme.colorScheme.outline
+                    fontWeight = FontWeight.Medium,
+                    color = subtleText
                 )
             }
         }
