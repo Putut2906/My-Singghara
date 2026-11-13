@@ -565,9 +565,28 @@ fun PemutarMusikScreen(viewModel: MainViewModel, onOpenDrawer: () -> Unit) {
                                 // Render folder list view as requested
                                 groupedByFolder.forEach { (folderName, tracksInFolder) ->
                                     item {
+                                        val isLightTheme = MaterialTheme.colorScheme.surface.luminance() > 0.5f
+                                        val folderShape = RoundedCornerShape(12.dp)
                                         Row(
                                             modifier = Modifier
                                                 .fillMaxWidth()
+                                                .border(
+                                                    width = 1.dp,
+                                                    color = if (isLightTheme) {
+                                                        MaterialTheme.colorScheme.primary.copy(alpha = 0.22f)
+                                                    } else {
+                                                        MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.15f)
+                                                    },
+                                                    shape = folderShape
+                                                )
+                                                .clip(folderShape)
+                                                .background(
+                                                    if (isLightTheme) {
+                                                        MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.24f)
+                                                    } else {
+                                                        MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.12f)
+                                                    }
+                                                )
                                                 .clickable { if (canHandleItemClick()) selectedFolder = folderName }
                                                 .padding(horizontal = 16.dp, vertical = 14.dp),
                                             verticalAlignment = Alignment.CenterVertically,
@@ -1954,9 +1973,28 @@ fun PemutarMusikScreen(viewModel: MainViewModel, onOpenDrawer: () -> Unit) {
                             ) {
                                 itemsIndexed(currentFolderTracks) { _, track ->
                                     val isPlaying = activeTrack != null && activeTrack.uriStr == track.uriStr
+                                    val isLightTheme = MaterialTheme.colorScheme.surface.luminance() > 0.5f
+                                    val queueShape = RoundedCornerShape(10.dp)
                                     Row(
                                         modifier = Modifier
                                             .fillMaxWidth()
+                                            .border(
+                                                width = 1.dp,
+                                                color = if (isLightTheme) {
+                                                    MaterialTheme.colorScheme.primary.copy(alpha = 0.16f)
+                                                } else {
+                                                    Color.Transparent
+                                                },
+                                                shape = queueShape
+                                            )
+                                            .clip(queueShape)
+                                            .background(
+                                                when {
+                                                    isPlaying -> MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
+                                                    isLightTheme -> MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.16f)
+                                                    else -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.12f)
+                                                }
+                                            )
                                             .clickable {
                                                 val globalIndex = viewModel.musicPlaylist.indexOfFirst { it.uriStr == track.uriStr }
                                                 if (globalIndex != -1) {
@@ -2418,9 +2456,28 @@ fun TrackListItem(
     onPlayClick: () -> Unit,
     onFavoriteClick: () -> Unit
 ) {
+    val isLightTheme = MaterialTheme.colorScheme.surface.luminance() > 0.5f
+    val itemShape = RoundedCornerShape(12.dp)
+    val itemBackground = when {
+        isActive -> MaterialTheme.colorScheme.primary.copy(alpha = 0.10f)
+        isLightTheme -> MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.18f)
+        else -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.12f)
+    }
+
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .border(
+                width = 1.dp,
+                color = if (isLightTheme) {
+                    MaterialTheme.colorScheme.primary.copy(alpha = 0.14f)
+                } else {
+                    Color.Transparent
+                },
+                shape = itemShape
+            )
+            .clip(itemShape)
+            .background(itemBackground)
             .clickable { onPlayClick() }
             .padding(horizontal = 12.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically
