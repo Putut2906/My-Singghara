@@ -1153,7 +1153,7 @@ fun TacticalTransceiverConsole(
         color = frameBg,
         shape = RoundedCornerShape(16.dp),
         border = BorderStroke(1.5.dp, frameBorder),
-        shadowElevation = if (isDark) 6.dp else 2.dp,
+        shadowElevation = if (isDark) 6.dp else 4.dp,
         modifier = Modifier.fillMaxWidth()
     ) {
         Column(
@@ -1938,7 +1938,7 @@ fun ChannelCard(
         color = cardBg,
         shape = RoundedCornerShape(10.dp),
         border = BorderStroke(1.5.dp, borderColor),
-        shadowElevation = if (!isDark && isSelected) 2.dp else 0.dp,
+        shadowElevation = if (isDark) 0.dp else 3.dp,
         modifier = Modifier
             .width(135.dp)
             .clickable { onClick() }
