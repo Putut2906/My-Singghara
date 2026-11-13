@@ -34,6 +34,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.AnnotatedString
@@ -42,6 +43,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -62,6 +64,81 @@ enum class ArisanSection(val title: String) {
     KAS_SOSIAL("Buku Kas Sosial"),
     PESERTA("Daftar Peserta & Anggota"),
     RIWAYAT("Riwayat Pemenang & Kuitansi")
+}
+
+// ----------------------------------------------------
+// PALET LOKAL HALAMAN ARISAN (MENGIKUTI MODE TERANG/GELAP)
+// ----------------------------------------------------
+@Composable
+private fun arisanIsLight(): Boolean =
+    MaterialTheme.colorScheme.surface.luminance() > 0.5f
+
+@Composable
+private fun arisanCardElevation(): Dp = if (arisanIsLight()) 3.dp else 1.dp
+
+@Composable
+private fun arisanPanelColor(): Color =
+    if (arisanIsLight()) MaterialTheme.colorScheme.surface
+    else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
+
+@Composable
+private fun arisanSoftAccent(): Color =
+    if (arisanIsLight()) Color(0xFFDBEAFE) else MaterialTheme.colorScheme.primaryContainer
+
+@Composable
+private fun arisanOnSoftAccent(): Color =
+    if (arisanIsLight()) Color(0xFF1D4ED8) else MaterialTheme.colorScheme.onPrimaryContainer
+
+@Composable
+private fun arisanSoftSecondary(): Color =
+    if (arisanIsLight()) Color(0xFFE0E7FF) else MaterialTheme.colorScheme.secondaryContainer
+
+@Composable
+private fun arisanOnSoftSecondary(): Color =
+    if (arisanIsLight()) Color(0xFF3730A3) else MaterialTheme.colorScheme.onSecondaryContainer
+
+@Composable
+private fun HeroMetricTile(
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    iconTint: Color,
+    label: String,
+    value: String,
+    containerColor: Color,
+    borderColor: Color,
+    labelColor: Color,
+    valueColor: Color,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        modifier = modifier
+            .background(containerColor, RoundedCornerShape(12.dp))
+            .border(1.dp, borderColor, RoundedCornerShape(12.dp))
+            .padding(horizontal = 10.dp, vertical = 9.dp),
+        verticalArrangement = Arrangement.spacedBy(3.dp)
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
+            Icon(icon, contentDescription = null, tint = iconTint, modifier = Modifier.size(13.dp))
+            Text(
+                text = label,
+                fontSize = 9.5.sp,
+                fontWeight = FontWeight.Medium,
+                color = labelColor,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+        Text(
+            text = value,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Bold,
+            color = valueColor,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+    }
 }
 
 private fun formatRupiah(amount: Double): String {
@@ -274,29 +351,48 @@ fun ArisanKeluargaScreen(
             .fillMaxSize()
     ) {
         // ----------------------------------------------------
-        // MODERN PREMIUM EXECUTIVE HERO CARD (DEEP BLUE GRADIENT)
+        // HERO CARD RINGKASAN ARISAN (ADAPTIF MODE TERANG/GELAP)
         // ----------------------------------------------------
-        val deepBlueGradient = Brush.linearGradient(
-            colors = listOf(
-                Color(0xFF071426), // Midnight Navy
-                Color(0xFF0D254C), // Deep Navy
-                Color(0xFF1E40AF), // Sapphire Blue
-                Color(0xFF2563EB)  // Vibrant Royal Blue
-            )
+        val isLight = arisanIsLight()
+        val heroGradient = Brush.linearGradient(
+            colors = if (isLight) {
+                listOf(
+                    Color(0xFFFFFFFF), // Putih
+                    Color(0xFFF1F6FF), // Biru sangat muda
+                    Color(0xFFE3EDFF)  // Biru pastel
+                )
+            } else {
+                listOf(
+                    Color(0xFF071426), // Midnight Navy
+                    Color(0xFF0D254C), // Deep Navy
+                    Color(0xFF1E40AF), // Sapphire Blue
+                    Color(0xFF2563EB)  // Vibrant Royal Blue
+                )
+            }
         )
+        val heroTextPrimary = if (isLight) Color(0xFF0F172A) else Color.White
+        val heroTextMuted = if (isLight) Color(0xFF475569) else Color(0xFFDBEAFE).copy(alpha = 0.8f)
+        val heroLabel = if (isLight) Color(0xFF2563EB) else Color(0xFF93C5FD)
+        val heroIconTint = if (isLight) Color(0xFF1D4ED8) else Color.White.copy(alpha = 0.85f)
+        val heroTileColor = if (isLight) Color.White else Color(0xFF0F172A).copy(alpha = 0.45f)
+        val heroTileBorder = if (isLight) Color(0xFFDBEAFE) else Color(0xFF38BDF8).copy(alpha = 0.25f)
+        val heroTileLabel = if (isLight) Color(0xFF475569) else Color(0xFF93C5FD)
 
         Card(
             modifier = Modifier
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp, vertical = 6.dp),
             shape = RoundedCornerShape(20.dp),
-            elevation = CardDefaults.cardElevation(defaultElevation = 6.dp),
-            border = BorderStroke(1.dp, Color(0xFF60A5FA).copy(alpha = 0.35f))
+            elevation = CardDefaults.cardElevation(defaultElevation = if (isLight) 4.dp else 6.dp),
+            border = BorderStroke(
+                1.dp,
+                if (isLight) Color(0xFFBFDBFE) else Color(0xFF60A5FA).copy(alpha = 0.35f)
+            )
         ) {
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .background(deepBlueGradient)
+                    .background(heroGradient)
                     .padding(16.dp)
             ) {
                 Column(
@@ -311,8 +407,11 @@ fun ArisanKeluargaScreen(
                     ) {
                         Surface(
                             shape = RoundedCornerShape(20.dp),
-                            color = Color(0xFF1E3A8A).copy(alpha = 0.7f),
-                            border = BorderStroke(1.dp, Color(0xFF93C5FD).copy(alpha = 0.4f))
+                            color = if (isLight) Color(0xFFEFF6FF) else Color(0xFF1E3A8A).copy(alpha = 0.7f),
+                            border = BorderStroke(
+                                1.dp,
+                                if (isLight) Color(0xFFBFDBFE) else Color(0xFF93C5FD).copy(alpha = 0.4f)
+                            )
                         ) {
                             Row(
                                 modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
@@ -322,13 +421,13 @@ fun ArisanKeluargaScreen(
                                 Box(
                                     modifier = Modifier
                                         .size(6.dp)
-                                        .background(Color(0xFF38BDF8), CircleShape)
+                                        .background(if (isLight) Color(0xFF2563EB) else Color(0xFF38BDF8), CircleShape)
                                 )
                                 Text(
                                     text = "PUTARAN KE-${config.periodeAktif} • SIKLUS KE-${dataState.siklusKe}",
                                     fontSize = 11.sp,
                                     fontWeight = FontWeight.Bold,
-                                    color = Color(0xFFDBEAFE),
+                                    color = if (isLight) Color(0xFF1D4ED8) else Color(0xFFDBEAFE),
                                     letterSpacing = 0.5.sp
                                 )
                             }
@@ -346,7 +445,7 @@ fun ArisanKeluargaScreen(
                                 Icon(
                                     imageVector = Icons.Default.Tune,
                                     contentDescription = "Pengaturan Arisan",
-                                    tint = Color.White.copy(alpha = 0.85f),
+                                    tint = heroIconTint,
                                     modifier = Modifier.size(18.dp)
                                 )
                             }
@@ -359,7 +458,7 @@ fun ArisanKeluargaScreen(
                                     Icon(
                                         imageVector = Icons.Default.FilterList,
                                         contentDescription = "Menu Halaman Arisan",
-                                        tint = Color.White.copy(alpha = 0.85f),
+                                        tint = heroIconTint,
                                         modifier = Modifier.size(18.dp)
                                     )
                                 }
@@ -427,7 +526,7 @@ fun ArisanKeluargaScreen(
                                     Icon(
                                         imageVector = Icons.Default.MoreVert,
                                         contentDescription = "Aksi Arisan",
-                                        tint = Color.White,
+                                        tint = heroIconTint,
                                         modifier = Modifier.size(20.dp)
                                     )
                                 }
@@ -464,7 +563,7 @@ fun ArisanKeluargaScreen(
                             text = "TOTAL UANG TARIKAN PEMENANG",
                             fontSize = 11.sp,
                             fontWeight = FontWeight.SemiBold,
-                            color = Color(0xFF93C5FD),
+                            color = heroLabel,
                             letterSpacing = 1.1.sp
                         )
                         Spacer(modifier = Modifier.height(2.dp))
@@ -472,84 +571,53 @@ fun ArisanKeluargaScreen(
                             text = formatRupiah(totalTarikanPerPutaran),
                             fontSize = 26.sp,
                             fontWeight = FontWeight.ExtraBold,
-                            color = Color.White
+                            color = heroTextPrimary
                         )
                         Text(
                             text = "Akumulasi tarikan putaran ini • ${totalSlots} Total Slot Terdaftar",
                             fontSize = 11.sp,
-                            color = Color(0xFFDBEAFE).copy(alpha = 0.8f)
+                            color = heroTextMuted
                         )
                     }
 
-                    // Frosted Metrics Row inside the Deep Blue Card
-                    Surface(
+                    // Metric tiles: satu kartu per metrik agar rapi di mode terang
+                    Row(
                         modifier = Modifier.fillMaxWidth(),
-                        shape = RoundedCornerShape(12.dp),
-                        color = Color(0xFF0F172A).copy(alpha = 0.45f),
-                        border = BorderStroke(1.dp, Color(0xFF38BDF8).copy(alpha = 0.25f))
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 12.dp, vertical = 10.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            // Saldo Kas Sosial
-                            Column {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
-                                ) {
-                                    Icon(Icons.Default.AccountBalanceWallet, contentDescription = null, tint = Color(0xFF38BDF8), modifier = Modifier.size(13.dp))
-                                    Text("Kas Sosial", fontSize = 10.sp, color = Color(0xFF93C5FD), fontWeight = FontWeight.Medium)
-                                }
-                                Text(
-                                    text = formatRupiah(saldoKasSosial),
-                                    fontSize = 13.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = Color.White
-                                )
-                            }
-
-                            Box(modifier = Modifier.width(1.dp).height(24.dp).background(Color(0xFF38BDF8).copy(alpha = 0.3f)))
-
-                            // Iuran / Slot
-                            Column {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
-                                ) {
-                                    Icon(Icons.Default.Payments, contentDescription = null, tint = Color(0xFF60A5FA), modifier = Modifier.size(13.dp))
-                                    Text("Iuran / Slot", fontSize = 10.sp, color = Color(0xFF93C5FD), fontWeight = FontWeight.Medium)
-                                }
-                                Text(
-                                    text = formatRupiah(config.iuranPokokPerSlot + config.iuranKasPerSlot),
-                                    fontSize = 13.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = Color.White
-                                )
-                            }
-
-                            Box(modifier = Modifier.width(1.dp).height(24.dp).background(Color(0xFF38BDF8).copy(alpha = 0.3f)))
-
-                            // Status Pemenang
-                            Column {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
-                                ) {
-                                    Icon(Icons.Default.EmojiEvents, contentDescription = null, tint = Color(0xFFFCD34D), modifier = Modifier.size(13.dp))
-                                    Text("Pemenang", fontSize = 10.sp, color = Color(0xFF93C5FD), fontWeight = FontWeight.Medium)
-                                }
-                                Text(
-                                    text = "$totalSudahMenang / ${dataState.anggotaList.size} Peserta",
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = Color.White
-                                )
-                            }
-                        }
+                        HeroMetricTile(
+                            icon = Icons.Default.AccountBalanceWallet,
+                            iconTint = if (isLight) Color(0xFF2563EB) else Color(0xFF38BDF8),
+                            label = "Kas Sosial",
+                            value = formatRupiah(saldoKasSosial),
+                            containerColor = heroTileColor,
+                            borderColor = heroTileBorder,
+                            labelColor = heroTileLabel,
+                            valueColor = heroTextPrimary,
+                            modifier = Modifier.weight(1f)
+                        )
+                        HeroMetricTile(
+                            icon = Icons.Default.Payments,
+                            iconTint = if (isLight) Color(0xFF0EA5E9) else Color(0xFF60A5FA),
+                            label = "Iuran / Slot",
+                            value = formatRupiah(config.iuranPokokPerSlot + config.iuranKasPerSlot),
+                            containerColor = heroTileColor,
+                            borderColor = heroTileBorder,
+                            labelColor = heroTileLabel,
+                            valueColor = heroTextPrimary,
+                            modifier = Modifier.weight(1f)
+                        )
+                        HeroMetricTile(
+                            icon = Icons.Default.EmojiEvents,
+                            iconTint = if (isLight) Color(0xFFD97706) else Color(0xFFFCD34D),
+                            label = "Pemenang",
+                            value = "$totalSudahMenang / ${dataState.anggotaList.size}",
+                            containerColor = heroTileColor,
+                            borderColor = heroTileBorder,
+                            labelColor = heroTileLabel,
+                            valueColor = heroTextPrimary,
+                            modifier = Modifier.weight(1f)
+                        )
                     }
                 }
             }
@@ -886,7 +954,8 @@ private fun TabRingkasanDanKocokan(
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(16.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
+                    colors = CardDefaults.cardColors(containerColor = arisanPanelColor()),
+                    elevation = CardDefaults.cardElevation(defaultElevation = arisanCardElevation()),
                     border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f))
                 ) {
                     Column(
@@ -898,14 +967,14 @@ private fun TabRingkasanDanKocokan(
                     ) {
                         Surface(
                             shape = CircleShape,
-                            color = MaterialTheme.colorScheme.primaryContainer,
+                            color = arisanSoftAccent(),
                             modifier = Modifier.size(56.dp)
                         ) {
                             Box(contentAlignment = Alignment.Center) {
                                 Icon(
                                     Icons.Default.GroupAdd,
                                     contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                                    tint = arisanOnSoftAccent(),
                                     modifier = Modifier.size(28.dp)
                                 )
                             }
@@ -947,7 +1016,7 @@ private fun TabRingkasanDanKocokan(
             Surface(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(12.dp),
-                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
+                color = arisanPanelColor(),
                 border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
             ) {
                 Row(
@@ -964,7 +1033,7 @@ private fun TabRingkasanDanKocokan(
                         Icon(
                             imageVector = Icons.Default.Info,
                             contentDescription = null,
-                            tint = Color(0xFF2563EB),
+                            tint = MaterialTheme.colorScheme.primary,
                             modifier = Modifier.size(16.dp)
                         )
                         Text(
@@ -979,7 +1048,7 @@ private fun TabRingkasanDanKocokan(
                         text = "$totalBelumMenang sisa undian",
                         fontSize = 11.sp,
                         fontWeight = FontWeight.SemiBold,
-                        color = Color(0xFF2563EB)
+                        color = MaterialTheme.colorScheme.primary
                     )
                 }
             }
@@ -993,9 +1062,14 @@ private fun TabRingkasanDanKocokan(
                     .clickable { onOpenAturan() },
                 shape = RoundedCornerShape(16.dp),
                 colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.25f)
+                    containerColor = if (arisanIsLight()) Color(0xFFFFFBF2)
+                    else MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.25f)
                 ),
-                border = BorderStroke(1.dp, Color(0xFFF59E0B).copy(alpha = 0.45f))
+                elevation = CardDefaults.cardElevation(defaultElevation = arisanCardElevation()),
+                border = BorderStroke(
+                    1.dp,
+                    if (arisanIsLight()) Color(0xFFFCD34D) else Color(0xFFF59E0B).copy(alpha = 0.45f)
+                )
             ) {
                 Column(
                     modifier = Modifier
@@ -1036,7 +1110,7 @@ private fun TabRingkasanDanKocokan(
                                 text = "Buka Detail >",
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = Color(0xFFD97706)
+                                color = if (arisanIsLight()) Color(0xFFB45309) else Color(0xFFD97706)
                             )
                         }
                     }
@@ -1053,7 +1127,8 @@ private fun TabRingkasanDanKocokan(
                         modifier = Modifier
                             .fillMaxWidth()
                             .background(
-                                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.85f),
+                                color = if (arisanIsLight()) Color.White
+                                else MaterialTheme.colorScheme.surface.copy(alpha = 0.85f),
                                 shape = RoundedCornerShape(10.dp)
                             )
                             .border(
@@ -1105,7 +1180,7 @@ private fun TabRingkasanDanKocokan(
                     containerColor = MaterialTheme.colorScheme.surface
                 ),
                 border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)),
-                elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+                elevation = CardDefaults.cardElevation(defaultElevation = arisanCardElevation())
             ) {
                 Column(
                     modifier = Modifier
@@ -1121,14 +1196,14 @@ private fun TabRingkasanDanKocokan(
                         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             Surface(
                                 shape = CircleShape,
-                                color = MaterialTheme.colorScheme.primaryContainer,
+                                color = arisanSoftAccent(),
                                 modifier = Modifier.size(32.dp)
                             ) {
                                 Box(contentAlignment = Alignment.Center) {
                                     Icon(
                                         Icons.Default.Casino,
                                         contentDescription = null,
-                                        tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                                        tint = arisanOnSoftAccent(),
                                         modifier = Modifier.size(18.dp)
                                     )
                                 }
@@ -1166,7 +1241,7 @@ private fun TabRingkasanDanKocokan(
                         Column(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f), RoundedCornerShape(12.dp))
+                                .background(arisanPanelColor(), RoundedCornerShape(12.dp))
                                 .padding(16.dp),
                             horizontalAlignment = Alignment.CenterHorizontally
                         ) {
@@ -1195,7 +1270,8 @@ private fun TabRingkasanDanKocokan(
                             }
                         }
                     } else {
-                        // Digital Rotating Display Drum (Light/Dark Theme Synchronized)
+                        // Digital Rotating Display Drum (selaras mode terang/gelap)
+                        val drumIsLight = arisanIsLight()
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -1203,14 +1279,26 @@ private fun TabRingkasanDanKocokan(
                                 .clip(RoundedCornerShape(14.dp))
                                 .background(
                                     Brush.verticalGradient(
-                                        listOf(
-                                            Color(0xFF071426),
-                                            Color(0xFF0F2B5C),
-                                            Color(0xFF071426)
-                                        )
+                                        if (drumIsLight) {
+                                            listOf(
+                                                Color(0xFFF8FAFC),
+                                                Color(0xFFE3EDFF),
+                                                Color(0xFFF8FAFC)
+                                            )
+                                        } else {
+                                            listOf(
+                                                Color(0xFF071426),
+                                                Color(0xFF0F2B5C),
+                                                Color(0xFF071426)
+                                            )
+                                        }
                                     )
                                 )
-                                .border(1.5.dp, Color(0xFF38BDF8).copy(alpha = 0.5f), RoundedCornerShape(14.dp)),
+                                .border(
+                                    1.5.dp,
+                                    if (drumIsLight) Color(0xFFBFDBFE) else Color(0xFF38BDF8).copy(alpha = 0.5f),
+                                    RoundedCornerShape(14.dp)
+                                ),
                             contentAlignment = Alignment.Center
                         ) {
                             Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -1218,7 +1306,7 @@ private fun TabRingkasanDanKocokan(
                                     text = if (isSpinning) "SEDANG MENGOCOK NAMA PESERTA..." else "KANDIDAT PUTARAN KE-${dataState.config.periodeAktif}",
                                     fontSize = 10.sp,
                                     fontWeight = FontWeight.Bold,
-                                    color = Color(0xFF38BDF8),
+                                    color = if (drumIsLight) Color(0xFF2563EB) else Color(0xFF38BDF8),
                                     letterSpacing = 1.2.sp
                                 )
                                 Spacer(modifier = Modifier.height(6.dp))
@@ -1226,7 +1314,7 @@ private fun TabRingkasanDanKocokan(
                                     text = displayedCandidateName,
                                     fontSize = if (displayedCandidateName.length > 20) 19.sp else 23.sp,
                                     fontWeight = FontWeight.ExtraBold,
-                                    color = Color.White,
+                                    color = if (drumIsLight) Color(0xFF0F172A) else Color.White,
                                     textAlign = TextAlign.Center,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis,
@@ -1235,15 +1323,18 @@ private fun TabRingkasanDanKocokan(
                                 if (displayedCandidateRelation.isNotBlank()) {
                                     Spacer(modifier = Modifier.height(4.dp))
                                     Surface(
-                                        color = Color(0xFF1E3A8A).copy(alpha = 0.85f),
+                                        color = if (drumIsLight) Color.White else Color(0xFF1E3A8A).copy(alpha = 0.85f),
                                         shape = RoundedCornerShape(8.dp),
-                                        border = BorderStroke(1.dp, Color(0xFF60A5FA).copy(alpha = 0.4f))
+                                        border = BorderStroke(
+                                            1.dp,
+                                            if (drumIsLight) Color(0xFFBFDBFE) else Color(0xFF60A5FA).copy(alpha = 0.4f)
+                                        )
                                     ) {
                                         Text(
                                             text = displayedCandidateRelation,
                                             fontSize = 11.sp,
                                             fontWeight = FontWeight.Medium,
-                                            color = Color(0xFFDBEAFE),
+                                            color = if (drumIsLight) Color(0xFF1D4ED8) else Color(0xFFDBEAFE),
                                             modifier = Modifier.padding(horizontal = 10.dp, vertical = 2.dp)
                                         )
                                     }
@@ -1312,7 +1403,8 @@ private fun TabRingkasanDanKocokan(
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(14.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)),
+                colors = CardDefaults.cardColors(containerColor = arisanPanelColor()),
+                elevation = CardDefaults.cardElevation(defaultElevation = arisanCardElevation()),
                 border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
@@ -1393,7 +1485,7 @@ private fun TabRingkasanDanKocokan(
                     Box(
                         modifier = Modifier
                             .size(70.dp)
-                            .background(MaterialTheme.colorScheme.primaryContainer, CircleShape),
+                            .background(arisanSoftAccent(), CircleShape),
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
@@ -1426,7 +1518,7 @@ private fun TabRingkasanDanKocokan(
                     Surface(
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(12.dp),
-                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                        color = arisanPanelColor(),
                         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f))
                     ) {
                         Column(
@@ -1559,8 +1651,11 @@ private fun TabAturanDanPanduan(
                 colors = CardDefaults.cardColors(
                     containerColor = MaterialTheme.colorScheme.surface
                 ),
-                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
-                border = BorderStroke(1.dp, Color(0xFFF59E0B).copy(alpha = 0.5f))
+                elevation = CardDefaults.cardElevation(defaultElevation = arisanCardElevation()),
+                border = BorderStroke(
+                    1.dp,
+                    if (arisanIsLight()) Color(0xFFFCD34D) else Color(0xFFF59E0B).copy(alpha = 0.5f)
+                )
             ) {
                 Column(
                     modifier = Modifier
@@ -1583,7 +1678,7 @@ private fun TabAturanDanPanduan(
                             Text(
                                 text = "Aturan Jelas • Catatan Rapi • Kocokan Transparan",
                                 fontSize = 12.sp,
-                                color = Color(0xFFD97706),
+                                color = if (arisanIsLight()) Color(0xFFB45309) else Color(0xFFD97706),
                                 fontWeight = FontWeight.Medium
                             )
                         }
@@ -1609,7 +1704,8 @@ private fun TabAturanDanPanduan(
                             modifier = Modifier.weight(1f),
                             shape = RoundedCornerShape(10.dp),
                             colors = ButtonDefaults.buttonColors(
-                                containerColor = Color(0xFF1E3A8A)
+                                containerColor = if (arisanIsLight()) MaterialTheme.colorScheme.primary
+                                else Color(0xFF1E3A8A)
                             ),
                             contentPadding = PaddingValues(vertical = 10.dp)
                         ) {
@@ -1662,7 +1758,7 @@ private fun TabAturanDanPanduan(
             RuleCard(
                 number = "1",
                 badgeText = "IURAN WAJAR",
-                badgeColor = Color(0xFF3B82F6),
+                badgeColor = if (arisanIsLight()) Color(0xFF1D4ED8) else Color(0xFF3B82F6),
                 icon = Icons.Default.Payments,
                 title = "Nominal Setoran",
                 description = "Tentukan jumlah iuran yang wajar dan tidak memberatkan seluruh anggota keluarga (misalnya Rp50.000 – Rp100.000 per bulan).",
@@ -1680,7 +1776,7 @@ private fun TabAturanDanPanduan(
             RuleCard(
                 number = "2",
                 badgeText = "ROTASI BERGILIR",
-                badgeColor = Color(0xFF8B5CF6),
+                badgeColor = if (arisanIsLight()) Color(0xFF6D28D9) else Color(0xFF8B5CF6),
                 icon = Icons.Default.LocationOn,
                 title = "Jadwal & Lokasi Pertemuan",
                 description = "Sepakati apakah arisan diadakan tiap bulan, dua bulan sekali, atau setahun sekali saat momen Lebaran/liburan. Buat sistem rotasi tempat tinggal secara bergiliran.",
@@ -1698,7 +1794,7 @@ private fun TabAturanDanPanduan(
             RuleCard(
                 number = "3",
                 badgeText = "KONSUMSI TERPISAH",
-                badgeColor = Color(0xFF10B981),
+                badgeColor = if (arisanIsLight()) Color(0xFF047857) else Color(0xFF10B981),
                 icon = Icons.Default.ShoppingBasket,
                 title = "Biaya Konsumsi",
                 description = "Pisahkan uang konsumsi dari uang arisan. Tuan rumah bisa menyiapkan sekadarnya, menggunakan sistem potluck (bawa makanan sendiri-sendiri), atau iuran konsumsi terpisah (misalnya Rp20.000 per orang).",
@@ -1716,7 +1812,7 @@ private fun TabAturanDanPanduan(
             RuleCard(
                 number = "4",
                 badgeText = "DISIPLIN TANGGAL 5",
-                badgeColor = Color(0xFFEF4444),
+                badgeColor = if (arisanIsLight()) Color(0xFFB91C1C) else Color(0xFFEF4444),
                 icon = Icons.Default.CalendarMonth,
                 title = "Ketentuan Pembayaran",
                 description = "Tentukan batas tanggal penyetoran setiap bulannya (misalnya tanggal 5 setiap bulan) melalui bendahara atau transfer rekening.",
@@ -1735,8 +1831,9 @@ private fun TabAturanDanPanduan(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(16.dp),
                 colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
+                    containerColor = arisanPanelColor()
                 ),
+                elevation = CardDefaults.cardElevation(defaultElevation = arisanCardElevation()),
                 border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
             ) {
                 Column(
@@ -1833,7 +1930,7 @@ private fun RuleCard(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = arisanCardElevation()),
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f))
     ) {
         Column(
@@ -1899,7 +1996,8 @@ private fun RuleCard(
             Surface(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(10.dp),
-                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
+                color = if (arisanIsLight()) Color(0xFFF8FAFC)
+                else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
                 border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
             ) {
                 Column(
@@ -1922,8 +2020,11 @@ private fun RuleCard(
             Surface(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(10.dp),
-                color = Color(0xFFFEF3C7).copy(alpha = 0.4f),
-                border = BorderStroke(1.dp, Color(0xFFF59E0B).copy(alpha = 0.3f))
+                color = if (arisanIsLight()) Color(0xFFFFFBEB) else Color(0xFFFEF3C7).copy(alpha = 0.4f),
+                border = BorderStroke(
+                    1.dp,
+                    if (arisanIsLight()) Color(0xFFFDE68A) else Color(0xFFF59E0B).copy(alpha = 0.3f)
+                )
             ) {
                 Row(
                     modifier = Modifier.padding(10.dp),
@@ -1933,7 +2034,7 @@ private fun RuleCard(
                     Icon(
                         imageVector = Icons.Default.Lightbulb,
                         contentDescription = null,
-                        tint = Color(0xFFD97706),
+                        tint = if (arisanIsLight()) Color(0xFFB45309) else Color(0xFFD97706),
                         modifier = Modifier.size(16.dp)
                     )
                     Text(
@@ -1991,7 +2092,8 @@ private fun TabPencatatanIuran(
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(14.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                    colors = CardDefaults.cardColors(containerColor = arisanPanelColor()),
+                    elevation = CardDefaults.cardElevation(defaultElevation = arisanCardElevation())
                 ) {
                     Column(
                         modifier = Modifier.padding(24.dp),
@@ -2024,7 +2126,8 @@ private fun TabPencatatanIuran(
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(14.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)),
+                    colors = CardDefaults.cardColors(containerColor = arisanPanelColor()),
+                    elevation = CardDefaults.cardElevation(defaultElevation = arisanCardElevation()),
                     border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
                 ) {
                     Column(modifier = Modifier.padding(14.dp)) {
@@ -2172,6 +2275,7 @@ private fun PaymentItemCard(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(12.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = arisanCardElevation()),
         border = BorderStroke(1.dp, if (payment.isLunas) MaterialTheme.colorScheme.primary.copy(alpha = 0.4f) else MaterialTheme.colorScheme.error.copy(alpha = 0.4f))
     ) {
         Column(modifier = Modifier.padding(14.dp)) {
@@ -2187,13 +2291,13 @@ private fun PaymentItemCard(
 
                 Surface(
                     shape = RoundedCornerShape(6.dp),
-                    color = if (payment.isLunas) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.errorContainer
+                    color = if (payment.isLunas) arisanSoftAccent() else MaterialTheme.colorScheme.errorContainer
                 ) {
                     Text(
                         text = if (payment.isLunas) "LUNAS (${payment.metodePembayaran})" else "BELUM BAYAR",
                         fontSize = 10.sp,
                         fontWeight = FontWeight.Bold,
-                        color = if (payment.isLunas) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onErrorContainer,
+                        color = if (payment.isLunas) arisanOnSoftAccent() else MaterialTheme.colorScheme.onErrorContainer,
                         modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
                     )
                 }
@@ -2295,24 +2399,44 @@ private fun TabBukuKasSosial(
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(16.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
-                    elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+                    colors = CardDefaults.cardColors(
+                        containerColor = if (arisanIsLight()) Color(0xFFEFF6FF)
+                        else MaterialTheme.colorScheme.primaryContainer
+                    ),
+                    elevation = CardDefaults.cardElevation(defaultElevation = if (arisanIsLight()) 3.dp else 1.dp),
+                    border = if (arisanIsLight()) BorderStroke(1.dp, Color(0xFFBFDBFE)) else null
                 ) {
                     Column(modifier = Modifier.padding(18.dp)) {
-                        Text("Saldo Kas Sosial Arisan", fontSize = 12.sp, color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f))
+                        Text(
+                            text = "Saldo Kas Sosial Arisan",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = if (arisanIsLight()) Color(0xFF1D4ED8)
+                            else MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
+                        )
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
                             text = formatRupiah(saldoKas),
                             fontSize = 24.sp,
                             fontWeight = FontWeight.ExtraBold,
-                            color = MaterialTheme.colorScheme.onPrimaryContainer
+                            color = if (arisanIsLight()) Color(0xFF0F172A)
+                            else MaterialTheme.colorScheme.onPrimaryContainer
                         )
                         Spacer(modifier = Modifier.height(14.dp))
 
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.6f), RoundedCornerShape(10.dp))
+                                .background(
+                                    if (arisanIsLight()) Color.White
+                                    else MaterialTheme.colorScheme.surface.copy(alpha = 0.6f),
+                                    RoundedCornerShape(10.dp)
+                                )
+                                .border(
+                                    1.dp,
+                                    if (arisanIsLight()) Color(0xFFDBEAFE) else Color.Transparent,
+                                    RoundedCornerShape(10.dp)
+                                )
                                 .padding(10.dp),
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
@@ -2354,7 +2478,8 @@ private fun TabBukuKasSosial(
                 item {
                     Card(
                         modifier = Modifier.fillMaxWidth(),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))
+                        colors = CardDefaults.cardColors(containerColor = arisanPanelColor()),
+                        elevation = CardDefaults.cardElevation(defaultElevation = arisanCardElevation())
                     ) {
                         Column(
                             modifier = Modifier
@@ -2388,6 +2513,7 @@ private fun KasItemCard(item: KasSosialArisan, onDelete: () -> Unit) {
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(12.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = arisanCardElevation()),
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f))
     ) {
         Row(
@@ -2402,7 +2528,7 @@ private fun KasItemCard(item: KasSosialArisan, onDelete: () -> Unit) {
                     modifier = Modifier
                         .size(36.dp)
                         .background(
-                            if (item.jenis == "Masuk") MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.errorContainer,
+                            if (item.jenis == "Masuk") arisanSoftAccent() else MaterialTheme.colorScheme.errorContainer,
                             CircleShape
                         ),
                     contentAlignment = Alignment.Center
@@ -2531,7 +2657,8 @@ private fun TabDaftarPeserta(
                 item {
                     Card(
                         modifier = Modifier.fillMaxWidth(),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))
+                        colors = CardDefaults.cardColors(containerColor = arisanPanelColor()),
+                        elevation = CardDefaults.cardElevation(defaultElevation = arisanCardElevation())
                     ) {
                         Column(
                             modifier = Modifier
@@ -2581,6 +2708,7 @@ private fun MemberItemCard(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(12.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = arisanCardElevation()),
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f))
     ) {
         Row(
@@ -2594,14 +2722,14 @@ private fun MemberItemCard(
                 Box(
                     modifier = Modifier
                         .size(42.dp)
-                        .background(MaterialTheme.colorScheme.primaryContainer, CircleShape),
+                        .background(arisanSoftAccent(), CircleShape),
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
                         text = member.nama.take(1).uppercase(),
                         fontWeight = FontWeight.Bold,
                         fontSize = 16.sp,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer
+                        color = arisanOnSoftAccent()
                     )
                 }
 
@@ -2610,13 +2738,13 @@ private fun MemberItemCard(
                         Text(member.nama, fontWeight = FontWeight.Bold, fontSize = 14.sp)
                         Surface(
                             shape = RoundedCornerShape(4.dp),
-                            color = MaterialTheme.colorScheme.secondaryContainer
+                            color = arisanSoftSecondary()
                         ) {
                             Text(
                                 text = "${member.jumlahSlot} Slot",
                                 fontSize = 9.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                color = arisanOnSoftSecondary(),
                                 modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
                             )
                         }
@@ -2633,20 +2761,21 @@ private fun MemberItemCard(
                     if (member.sudahMenang) {
                         Surface(
                             shape = RoundedCornerShape(4.dp),
-                            color = MaterialTheme.colorScheme.primaryContainer
+                            color = arisanSoftAccent()
                         ) {
                             Text(
                                 text = "Menang Putaran ${member.periodeMenang ?: 1} (${member.tanggalMenang ?: ""})",
                                 fontSize = 9.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                color = arisanOnSoftAccent(),
                                 modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                             )
                         }
                     } else {
                         Surface(
                             shape = RoundedCornerShape(4.dp),
-                            color = MaterialTheme.colorScheme.surfaceVariant
+                            color = if (arisanIsLight()) Color(0xFFF1F5F9)
+                            else MaterialTheme.colorScheme.surfaceVariant
                         ) {
                             Text(
                                 text = "Belum Menang",
@@ -2699,7 +2828,8 @@ private fun TabRiwayatDanKuitansi(
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(14.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)),
+                colors = CardDefaults.cardColors(containerColor = arisanPanelColor()),
+                elevation = CardDefaults.cardElevation(defaultElevation = arisanCardElevation()),
                 border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
             ) {
                 Row(
@@ -2739,7 +2869,8 @@ private fun TabRiwayatDanKuitansi(
             item {
                 Card(
                     modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))
+                    colors = CardDefaults.cardColors(containerColor = arisanPanelColor()),
+                    elevation = CardDefaults.cardElevation(defaultElevation = arisanCardElevation())
                 ) {
                     Box(
                         modifier = Modifier
@@ -2768,6 +2899,7 @@ private fun WinnerHistoryCard(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(12.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = arisanCardElevation()),
         border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f))
     ) {
         Column(modifier = Modifier.padding(14.dp)) {
@@ -2916,7 +3048,7 @@ private fun ReceiptDetailDialog(
                     Surface(
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(6.dp),
-                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                        color = arisanPanelColor()
                     ) {
                         Text(
                             text = "Terbilang: \"${TerbilangHelper.konversi(riwayat.nominalTarikan.toLong())}\"",
