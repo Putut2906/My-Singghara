@@ -11,7 +11,9 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.LocalIndication
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -31,11 +33,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -45,6 +50,32 @@ import kotlin.math.floor
 import kotlin.math.sqrt
 
 private val AccentBlue = Color(0xFF0EA5E9)
+private val AccentBlueDeep = Color(0xFF0369A1)
+private val AccentBlueSoft = Color(0xFFE0F2FE)
+private val AccentBlueBorder = Color(0xFFBAE6FD)
+private val CalcKeyBorder = Color(0xFFE2E8F0)
+private val CalcKeyText = Color(0xFF0F172A)
+private val CalcClearSoft = Color(0xFFFEE2E2)
+private val CalcClearBorder = Color(0xFFFECACA)
+private val CalcClearText = Color(0xFFB91C1C)
+
+@Composable
+private fun calcIsLight(): Boolean =
+    MaterialTheme.colorScheme.surface.luminance() > 0.5f
+
+@Composable
+private fun calcAccent(): Color = if (calcIsLight()) AccentBlueDeep else AccentBlue
+
+@Composable
+private fun calcSoftAccent(): Color =
+    if (calcIsLight()) AccentBlueSoft else AccentBlue.copy(alpha = 0.16f)
+
+@Composable
+private fun calcKeyShadow(): Dp = if (calcIsLight()) 2.dp else 0.dp
+
+@Composable
+private fun calcDisplayColor(): Color =
+    if (calcIsLight()) Color.White else AccentBlue.copy(alpha = 0.08f)
 
 private enum class CalcMode { BIASA, ILMIAH }
 
@@ -331,13 +362,13 @@ fun KalkulatorScreen(
                     modifier = Modifier
                         .size(38.dp)
                         .clip(CircleShape)
-                        .background(AccentBlue.copy(alpha = 0.15f)),
+                        .background(calcSoftAccent()),
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
                         imageVector = Icons.Default.Calculate,
                         contentDescription = null,
-                        tint = AccentBlue,
+                        tint = calcAccent(),
                         modifier = Modifier.size(22.dp)
                     )
                 }
@@ -534,7 +565,12 @@ private fun DisplayCard(
     Surface(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(18.dp),
-        color = AccentBlue.copy(alpha = 0.08f)
+        color = calcDisplayColor(),
+        border = BorderStroke(
+            1.dp,
+            if (calcIsLight()) AccentBlueBorder else AccentBlue.copy(alpha = 0.28f)
+        ),
+        shadowElevation = if (calcIsLight()) 3.dp else 0.dp
     ) {
         Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp)) {
             Row(
@@ -618,7 +654,7 @@ private fun DisplayCard(
                 Text(
                     text = hint,
                     fontSize = 11.sp,
-                    color = AccentBlue,
+                    color = calcAccent(),
                     maxLines = 1,
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -679,12 +715,12 @@ private fun MiniToolButton(
     contentDescription: String,
     content: @Composable (Color) -> Unit
 ) {
-    val fg = if (active) AccentBlue else MaterialTheme.colorScheme.onSurfaceVariant
+    val fg = if (active) calcAccent() else MaterialTheme.colorScheme.onSurfaceVariant
     Box(
         modifier = Modifier
             .height(24.dp)
             .clip(RoundedCornerShape(8.dp))
-            .background(if (active) AccentBlue.copy(alpha = 0.16f) else Color.Transparent)
+            .background(if (active) calcSoftAccent() else Color.Transparent)
             .clickable(onClickLabel = contentDescription) { onClick() }
             .padding(horizontal = 7.dp),
         contentAlignment = Alignment.Center
@@ -700,7 +736,10 @@ private fun SciKeyPanel(
     shiftOn: Boolean,
     onKey: (String) -> Unit
 ) {
-    val neutralBg = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.32f)
+    val light = calcIsLight()
+    val neutralBg = if (light) Color.White else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.32f)
+    val neutralFg = if (light) AccentBlueDeep else AccentBlue
+    val keyShadow = calcKeyShadow()
     Column(
         modifier = modifier,
         verticalArrangement = Arrangement.spacedBy(5.dp)
@@ -720,12 +759,18 @@ private fun SciKeyPanel(
                         label = label,
                         modifier = Modifier.weight(1f),
                         bg = when {
-                            isShift && shiftOn -> AccentBlue
-                            isShift -> AccentBlue.copy(alpha = 0.18f)
+                            isShift && shiftOn -> calcAccent()
+                            isShift -> calcSoftAccent()
                             else -> neutralBg
                         },
-                        fg = if (isShift && shiftOn) Color.White else AccentBlue,
+                        fg = if (isShift && shiftOn) Color.White else neutralFg,
                         fontSize = if (label.length > 4) 11 else 13,
+                        borderColor = when {
+                            isShift && shiftOn -> null
+                            isShift -> if (light) AccentBlueBorder else null
+                            else -> if (light) CalcKeyBorder else null
+                        },
+                        shadowElevation = keyShadow,
                         onClick = { onKey(token) }
                     )
                 }
@@ -746,18 +791,25 @@ private fun MemStrip(
             KeyCap("M−", "M-"), KeyCap("STO", "STO"), KeyCap("RCL", "A")
         )
     }
+    val light = calcIsLight()
     Row(
         modifier = modifier,
         horizontalArrangement = Arrangement.spacedBy(5.dp)
     ) {
         keys.forEach { cap ->
+            val active = cap.token == "M" && memActive
             CalcKey(
                 label = cap.label,
                 modifier = Modifier.weight(1f),
-                bg = if (cap.token == "M" && memActive) AccentBlue.copy(alpha = 0.2f)
-                else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.28f),
-                fg = AccentBlue,
+                bg = when {
+                    active -> calcSoftAccent()
+                    light -> Color.White
+                    else -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.28f)
+                },
+                fg = calcAccent(),
                 fontSize = 12,
+                borderColor = if (light) (if (active) AccentBlueBorder else CalcKeyBorder) else null,
+                shadowElevation = calcKeyShadow(),
                 onClick = { onKey(cap.token) }
             )
         }
@@ -777,6 +829,7 @@ private fun StatsStrip(
             KeyCap("sx", "sigs"), KeyCap("CL", "CL")
         )
     }
+    val light = calcIsLight()
     Row(
         modifier = modifier,
         horizontalArrangement = Arrangement.spacedBy(4.dp)
@@ -785,9 +838,11 @@ private fun StatsStrip(
             CalcKey(
                 label = cap.label,
                 modifier = Modifier.weight(1f),
-                bg = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.28f),
-                fg = if (hasData) AccentBlue else MaterialTheme.colorScheme.onSurfaceVariant,
+                bg = if (light) Color.White else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.28f),
+                fg = if (hasData) calcAccent() else MaterialTheme.colorScheme.onSurfaceVariant,
                 fontSize = 11,
+                borderColor = if (light) CalcKeyBorder else null,
+                shadowElevation = calcKeyShadow(),
                 onClick = { onKey(cap.token) }
             )
         }
@@ -796,44 +851,50 @@ private fun StatsStrip(
 
 @Composable
 private fun MainKeypad(modifier: Modifier = Modifier, onKey: (String) -> Unit) {
-    val opBg = AccentBlue.copy(alpha = 0.14f)
-    val opFg = AccentBlue
-    val numBg = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
-    val numFg = MaterialTheme.colorScheme.onSurface
-    val clearBg = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.55f)
+    val light = calcIsLight()
+    val keyShadow = calcKeyShadow()
+    val numBg = if (light) Color.White else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+    val numFg = if (light) CalcKeyText else MaterialTheme.colorScheme.onSurface
+    val numBorder = if (light) CalcKeyBorder else null
+    val opBg = if (light) AccentBlueSoft else AccentBlue.copy(alpha = 0.14f)
+    val opFg = calcAccent()
+    val opBorder = if (light) AccentBlueBorder else null
+    val clearBg = if (light) CalcClearSoft else MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.55f)
+    val clearFg = if (light) CalcClearText else MaterialTheme.colorScheme.error
+    val clearBorder = if (light) CalcClearBorder else null
 
     Column(
         modifier = modifier.fillMaxWidth(),
         verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
         KeypadRow(modifier = Modifier.weight(1f)) {
-            CalcKey("C", modifier = Modifier.weight(1f), bg = clearBg, fg = MaterialTheme.colorScheme.error, onClick = { onKey("C") })
-            CalcKey("⌫", modifier = Modifier.weight(1f), bg = numBg, fg = numFg, onClick = { onKey("BS") })
-            CalcKey("%", modifier = Modifier.weight(1f), bg = opBg, fg = opFg, onClick = { onKey("%") })
-            CalcKey("÷", modifier = Modifier.weight(1f), bg = opBg, fg = opFg, onClick = { onKey("÷") })
+            CalcKey("C", modifier = Modifier.weight(1f), bg = clearBg, fg = clearFg, borderColor = clearBorder, shadowElevation = keyShadow, onClick = { onKey("C") })
+            CalcKey("⌫", modifier = Modifier.weight(1f), bg = numBg, fg = numFg, borderColor = numBorder, shadowElevation = keyShadow, onClick = { onKey("BS") })
+            CalcKey("%", modifier = Modifier.weight(1f), bg = opBg, fg = opFg, borderColor = opBorder, shadowElevation = keyShadow, onClick = { onKey("%") })
+            CalcKey("÷", modifier = Modifier.weight(1f), bg = opBg, fg = opFg, borderColor = opBorder, shadowElevation = keyShadow, onClick = { onKey("÷") })
         }
         KeypadRow(modifier = Modifier.weight(1f)) {
-            CalcKey("7", modifier = Modifier.weight(1f), bg = numBg, fg = numFg, onClick = { onKey("7") })
-            CalcKey("8", modifier = Modifier.weight(1f), bg = numBg, fg = numFg, onClick = { onKey("8") })
-            CalcKey("9", modifier = Modifier.weight(1f), bg = numBg, fg = numFg, onClick = { onKey("9") })
-            CalcKey("×", modifier = Modifier.weight(1f), bg = opBg, fg = opFg, onClick = { onKey("×") })
+            CalcKey("7", modifier = Modifier.weight(1f), bg = numBg, fg = numFg, borderColor = numBorder, shadowElevation = keyShadow, onClick = { onKey("7") })
+            CalcKey("8", modifier = Modifier.weight(1f), bg = numBg, fg = numFg, borderColor = numBorder, shadowElevation = keyShadow, onClick = { onKey("8") })
+            CalcKey("9", modifier = Modifier.weight(1f), bg = numBg, fg = numFg, borderColor = numBorder, shadowElevation = keyShadow, onClick = { onKey("9") })
+            CalcKey("×", modifier = Modifier.weight(1f), bg = opBg, fg = opFg, borderColor = opBorder, shadowElevation = keyShadow, onClick = { onKey("×") })
         }
         KeypadRow(modifier = Modifier.weight(1f)) {
-            CalcKey("4", modifier = Modifier.weight(1f), bg = numBg, fg = numFg, onClick = { onKey("4") })
-            CalcKey("5", modifier = Modifier.weight(1f), bg = numBg, fg = numFg, onClick = { onKey("5") })
-            CalcKey("6", modifier = Modifier.weight(1f), bg = numBg, fg = numFg, onClick = { onKey("6") })
-            CalcKey("−", modifier = Modifier.weight(1f), bg = opBg, fg = opFg, onClick = { onKey("−") })
+            CalcKey("4", modifier = Modifier.weight(1f), bg = numBg, fg = numFg, borderColor = numBorder, shadowElevation = keyShadow, onClick = { onKey("4") })
+            CalcKey("5", modifier = Modifier.weight(1f), bg = numBg, fg = numFg, borderColor = numBorder, shadowElevation = keyShadow, onClick = { onKey("5") })
+            CalcKey("6", modifier = Modifier.weight(1f), bg = numBg, fg = numFg, borderColor = numBorder, shadowElevation = keyShadow, onClick = { onKey("6") })
+            CalcKey("−", modifier = Modifier.weight(1f), bg = opBg, fg = opFg, borderColor = opBorder, shadowElevation = keyShadow, onClick = { onKey("−") })
         }
         KeypadRow(modifier = Modifier.weight(1f)) {
-            CalcKey("1", modifier = Modifier.weight(1f), bg = numBg, fg = numFg, onClick = { onKey("1") })
-            CalcKey("2", modifier = Modifier.weight(1f), bg = numBg, fg = numFg, onClick = { onKey("2") })
-            CalcKey("3", modifier = Modifier.weight(1f), bg = numBg, fg = numFg, onClick = { onKey("3") })
-            CalcKey("+", modifier = Modifier.weight(1f), bg = opBg, fg = opFg, onClick = { onKey("+") })
+            CalcKey("1", modifier = Modifier.weight(1f), bg = numBg, fg = numFg, borderColor = numBorder, shadowElevation = keyShadow, onClick = { onKey("1") })
+            CalcKey("2", modifier = Modifier.weight(1f), bg = numBg, fg = numFg, borderColor = numBorder, shadowElevation = keyShadow, onClick = { onKey("2") })
+            CalcKey("3", modifier = Modifier.weight(1f), bg = numBg, fg = numFg, borderColor = numBorder, shadowElevation = keyShadow, onClick = { onKey("3") })
+            CalcKey("+", modifier = Modifier.weight(1f), bg = opBg, fg = opFg, borderColor = opBorder, shadowElevation = keyShadow, onClick = { onKey("+") })
         }
         KeypadRow(modifier = Modifier.weight(1f)) {
-            CalcKey("0", modifier = Modifier.weight(2f), bg = numBg, fg = numFg, onClick = { onKey("0") })
-            CalcKey(".", modifier = Modifier.weight(1f), bg = numBg, fg = numFg, onClick = { onKey(".") })
-            CalcKey("=", modifier = Modifier.weight(1f), bg = AccentBlue, fg = Color.White, fontSize = 30, onClick = { onKey("EQ") })
+            CalcKey("0", modifier = Modifier.weight(2f), bg = numBg, fg = numFg, borderColor = numBorder, shadowElevation = keyShadow, onClick = { onKey("0") })
+            CalcKey(".", modifier = Modifier.weight(1f), bg = numBg, fg = numFg, borderColor = numBorder, shadowElevation = keyShadow, onClick = { onKey(".") })
+            CalcKey("=", modifier = Modifier.weight(1f), bg = if (light) AccentBlueDeep else AccentBlue, fg = Color.White, fontSize = 30, shadowElevation = if (light) 4.dp else 0.dp, onClick = { onKey("EQ") })
         }
     }
 }
@@ -857,7 +918,9 @@ private fun CalcKey(
     modifier: Modifier = Modifier,
     bg: Color = MaterialTheme.colorScheme.surfaceVariant,
     fg: Color = MaterialTheme.colorScheme.onSurface,
-    fontSize: Int = 26
+    fontSize: Int = 26,
+    borderColor: Color? = null,
+    shadowElevation: Dp = 0.dp
 ) {
     val interaction = remember { MutableInteractionSource() }
     val pressed by interaction.collectIsPressedAsState()
@@ -867,13 +930,20 @@ private fun CalcKey(
         label = "keyScale"
     )
     val tint = MaterialTheme.colorScheme.onSurface
+    val pressedAlpha = if (calcIsLight()) 0.08f else 0.12f
+    val shape = RoundedCornerShape(16.dp)
     Box(
         modifier = modifier
             .fillMaxHeight()
             .scale(scale)
-            .clip(RoundedCornerShape(16.dp))
+            .then(
+                if (shadowElevation > 0.dp) Modifier.shadow(shadowElevation, shape, clip = false)
+                else Modifier
+            )
+            .clip(shape)
             .background(bg)
-            .background(if (pressed) tint.copy(alpha = 0.12f) else Color.Transparent)
+            .background(if (pressed) tint.copy(alpha = pressedAlpha) else Color.Transparent)
+            .then(if (borderColor != null) Modifier.border(1.dp, borderColor, shape) else Modifier)
             .clickable(
                 interactionSource = interaction,
                 indication = LocalIndication.current,
