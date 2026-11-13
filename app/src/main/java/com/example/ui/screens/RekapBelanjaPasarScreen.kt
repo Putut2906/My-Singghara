@@ -35,6 +35,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.testTag
@@ -43,6 +44,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.data.BelanjaPasarItem
@@ -50,6 +52,75 @@ import com.example.ui.MainViewModel
 import java.text.NumberFormat
 import java.text.SimpleDateFormat
 import java.util.*
+
+private val PasarGreen = Color(0xFF10B981)
+private val PasarGreenDeep = Color(0xFF047857)
+private val PasarGreenSoft = Color(0xFFDCFCE7)
+private val PasarGreenBorder = Color(0xFFBBF7D0)
+private val PasarHeroBackground = Color(0xFFF0FDF4)
+private val PasarChipBackground = Color(0xFFECFDF5)
+private val PasarFieldBackground = Color(0xFFF8FAFC)
+
+@Composable
+private fun pasarIsLight(): Boolean =
+    MaterialTheme.colorScheme.surface.luminance() > 0.5f
+
+@Composable
+private fun pasarCardElevation(): Dp = if (pasarIsLight()) 3.dp else 1.dp
+
+@Composable
+private fun pasarAccent(): Color = if (pasarIsLight()) PasarGreenDeep else PasarGreen
+
+@Composable
+private fun pasarSoftAccent(): Color =
+    if (pasarIsLight()) PasarGreenSoft else PasarGreen.copy(alpha = 0.15f)
+
+@Composable
+private fun pasarHeroColor(): Color =
+    if (pasarIsLight()) PasarHeroBackground else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
+
+@Composable
+private fun pasarPanelColor(): Color =
+    if (pasarIsLight()) Color.White else MaterialTheme.colorScheme.surface
+
+@Composable
+private fun pasarFieldColor(): Color =
+    if (pasarIsLight()) PasarFieldBackground else MaterialTheme.colorScheme.surface
+
+@Composable
+private fun pasarChipColor(): Color =
+    if (pasarIsLight()) PasarChipBackground else MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f)
+
+@Composable
+private fun pasarCardBorder(): Color =
+    if (pasarIsLight()) PasarGreenBorder else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)
+
+private fun pasarCategoryColor(category: String, light: Boolean): Color {
+    val key = category.lowercase()
+    return if (light) {
+        when (key) {
+            "sayuran" -> Color(0xFF047857)
+            "daging & unggas" -> Color(0xFFB91C1C)
+            "ikan & laut" -> Color(0xFF0369A1)
+            "bumbu & rempah" -> Color(0xFFB45309)
+            "buah-buahan" -> Color(0xFF6D28D9)
+            "sembako" -> Color(0xFF92400E)
+            "tahu & tempe" -> Color(0xFFA16207)
+            else -> Color(0xFF475569)
+        }
+    } else {
+        when (key) {
+            "sayuran" -> PasarGreen
+            "daging & unggas" -> Color(0xFFEF4444)
+            "ikan & laut" -> Color(0xFF0284C7)
+            "bumbu & rempah" -> Color(0xFFF59E0B)
+            "buah-buahan" -> Color(0xFF8B5CF6)
+            "sembako" -> Color(0xFFD97706)
+            "tahu & tempe" -> Color(0xFFEAB308)
+            else -> Color(0xFF6B7280)
+        }
+    }
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -140,7 +211,7 @@ fun RekapBelanjaPasarScreen(
                     editingItem = null
                     showAddDialog = true
                 },
-                containerColor = Color(0xFF10B981),
+                containerColor = pasarAccent(),
                 contentColor = Color.White,
                 shape = RoundedCornerShape(16.dp),
                 modifier = Modifier.testTag("fab_add_belanja_pasar")
@@ -179,13 +250,13 @@ fun RekapBelanjaPasarScreen(
                         modifier = Modifier
                             .size(42.dp)
                             .clip(CircleShape)
-                            .background(Color(0xFF10B981).copy(alpha = 0.15f)),
+                            .background(pasarSoftAccent()),
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
                             imageVector = Icons.Default.ShoppingCart,
                             contentDescription = null,
-                            tint = Color(0xFF10B981),
+                            tint = pasarAccent(),
                             modifier = Modifier.size(24.dp)
                         )
                     }
@@ -214,9 +285,14 @@ fun RekapBelanjaPasarScreen(
                         .padding(horizontal = 16.dp, vertical = 8.dp),
                     shape = RoundedCornerShape(20.dp),
                     colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
+                        containerColor = pasarHeroColor()
                     ),
-                    elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+                    border = androidx.compose.foundation.BorderStroke(
+                        1.dp,
+                        if (pasarIsLight()) PasarGreenBorder
+                        else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)
+                    ),
+                    elevation = CardDefaults.cardElevation(defaultElevation = pasarCardElevation())
                 ) {
                     Column(
                         modifier = Modifier
@@ -234,7 +310,7 @@ fun RekapBelanjaPasarScreen(
                                     fontSize = 11.sp,
                                     fontWeight = FontWeight.Bold,
                                     letterSpacing = 1.sp,
-                                    color = Color(0xFF10B981)
+                                    color = pasarAccent()
                                 )
                                 Spacer(modifier = Modifier.height(2.dp))
                                 Text(
@@ -247,13 +323,13 @@ fun RekapBelanjaPasarScreen(
                             // Percentage Badge
                             Surface(
                                 shape = RoundedCornerShape(12.dp),
-                                color = if (totalCount > 0 && boughtCount == totalCount) Color(0xFF10B981) else Color(0xFF10B981).copy(alpha = 0.15f)
+                                color = if (totalCount > 0 && boughtCount == totalCount) pasarAccent() else pasarSoftAccent()
                             ) {
                                 Text(
                                     text = "${(progressFraction * 100).toInt()}%",
                                     fontWeight = FontWeight.Bold,
                                     fontSize = 13.sp,
-                                    color = if (totalCount > 0 && boughtCount == totalCount) Color.White else Color(0xFF10B981),
+                                    color = if (totalCount > 0 && boughtCount == totalCount) Color.White else pasarAccent(),
                                     modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
                                 )
                             }
@@ -268,7 +344,7 @@ fun RekapBelanjaPasarScreen(
                                 .fillMaxWidth()
                                 .height(8.dp)
                                 .clip(RoundedCornerShape(4.dp)),
-                            color = Color(0xFF10B981),
+                            color = pasarAccent(),
                             trackColor = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)
                         )
 
@@ -279,8 +355,14 @@ fun RekapBelanjaPasarScreen(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .background(
-                                    color = MaterialTheme.colorScheme.surface,
+                                    color = pasarPanelColor(),
                                     shape = RoundedCornerShape(12.dp)
+                                )
+                                .border(
+                                    1.dp,
+                                    if (pasarIsLight()) PasarGreenBorder
+                                    else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f),
+                                    RoundedCornerShape(12.dp)
                                 )
                                 .padding(12.dp),
                             horizontalArrangement = Arrangement.SpaceBetween
@@ -308,7 +390,7 @@ fun RekapBelanjaPasarScreen(
                                     text = idrFormat.format(totalRealisasi),
                                     fontWeight = FontWeight.Bold,
                                     fontSize = 14.sp,
-                                    color = Color(0xFF10B981)
+                                    color = pasarAccent()
                                 )
                             }
                         }
@@ -330,10 +412,11 @@ fun RekapBelanjaPasarScreen(
                                     val formattedQty = if (qty % 1.0 == 0.0) qty.toInt().toString() else "%.2f".format(qty).trimEnd('0').trimEnd('.')
                                     Surface(
                                         shape = RoundedCornerShape(8.dp),
-                                        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f),
+                                        color = pasarChipColor(),
                                         border = androidx.compose.foundation.BorderStroke(
                                             1.dp,
-                                            MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+                                            if (pasarIsLight()) PasarGreenBorder
+                                            else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
                                         )
                                     ) {
                                         Row(
@@ -344,7 +427,7 @@ fun RekapBelanjaPasarScreen(
                                                 text = "$formattedQty ",
                                                 fontWeight = FontWeight.Bold,
                                                 fontSize = 12.sp,
-                                                color = MaterialTheme.colorScheme.primary
+                                                color = pasarAccent()
                                             )
                                             Text(
                                                 text = satuan,
@@ -369,9 +452,14 @@ fun RekapBelanjaPasarScreen(
                         .padding(horizontal = 16.dp, vertical = 4.dp),
                     shape = RoundedCornerShape(16.dp),
                     colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
+                        containerColor = pasarPanelColor()
                     ),
-                    elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+                    border = androidx.compose.foundation.BorderStroke(
+                        1.dp,
+                        if (pasarIsLight()) PasarGreenBorder
+                        else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)
+                    ),
+                    elevation = CardDefaults.cardElevation(defaultElevation = pasarCardElevation())
                 ) {
                     Column(modifier = Modifier.padding(8.dp)) {
                         Row(
@@ -386,7 +474,7 @@ fun RekapBelanjaPasarScreen(
                                     modifier = Modifier
                                         .size(40.dp)
                                         .clip(CircleShape)
-                                        .background(MaterialTheme.colorScheme.surface)
+                                        .background(pasarFieldColor())
                                         .testTag("btn_more_belanja_pasar")
                                 ) {
                                     Icon(
@@ -402,7 +490,7 @@ fun RekapBelanjaPasarScreen(
                                     DropdownMenuItem(
                                         text = { Text("Bagikan ke WhatsApp", fontSize = 13.sp) },
                                         leadingIcon = {
-                                            Icon(Icons.Default.Share, contentDescription = null, tint = Color(0xFF10B981))
+                                            Icon(Icons.Default.Share, contentDescription = null, tint = pasarAccent())
                                         },
                                         onClick = {
                                             showMoreMenu = false
@@ -449,10 +537,10 @@ fun RekapBelanjaPasarScreen(
                                 Surface(
                                     onClick = { showStatusMenu = true },
                                     shape = RoundedCornerShape(10.dp),
-                                    color = MaterialTheme.colorScheme.surface,
+                                    color = pasarFieldColor(),
                                     border = androidx.compose.foundation.BorderStroke(
                                         1.dp,
-                                        if (selectedStatusFilter != "Semua") Color(0xFF10B981) else MaterialTheme.colorScheme.outlineVariant
+                                        if (selectedStatusFilter != "Semua") pasarAccent() else MaterialTheme.colorScheme.outlineVariant
                                     ),
                                     modifier = Modifier
                                         .fillMaxWidth()
@@ -470,7 +558,7 @@ fun RekapBelanjaPasarScreen(
                                             Icon(
                                                 imageVector = Icons.Default.FilterList,
                                                 contentDescription = null,
-                                                tint = if (selectedStatusFilter != "Semua") Color(0xFF10B981) else MaterialTheme.colorScheme.onSurfaceVariant,
+                                                tint = if (selectedStatusFilter != "Semua") pasarAccent() else MaterialTheme.colorScheme.onSurfaceVariant,
                                                 modifier = Modifier.size(16.dp)
                                             )
                                             Spacer(modifier = Modifier.width(4.dp))
@@ -482,7 +570,7 @@ fun RekapBelanjaPasarScreen(
                                                 },
                                                 fontSize = 12.sp,
                                                 fontWeight = if (selectedStatusFilter != "Semua") FontWeight.Bold else FontWeight.Medium,
-                                                color = if (selectedStatusFilter != "Semua") Color(0xFF10B981) else MaterialTheme.colorScheme.onSurface,
+                                                color = if (selectedStatusFilter != "Semua") pasarAccent() else MaterialTheme.colorScheme.onSurface,
                                                 maxLines = 1,
                                                 overflow = TextOverflow.Ellipsis
                                             )
@@ -511,7 +599,7 @@ fun RekapBelanjaPasarScreen(
                                                     text = label,
                                                     fontSize = 13.sp,
                                                     fontWeight = if (selectedStatusFilter == st) FontWeight.Bold else FontWeight.Normal,
-                                                    color = if (selectedStatusFilter == st) Color(0xFF10B981) else MaterialTheme.colorScheme.onSurface
+                                                    color = if (selectedStatusFilter == st) pasarAccent() else MaterialTheme.colorScheme.onSurface
                                                 )
                                             },
                                             onClick = {
@@ -528,10 +616,10 @@ fun RekapBelanjaPasarScreen(
                                 Surface(
                                     onClick = { showCategoryMenu = true },
                                     shape = RoundedCornerShape(10.dp),
-                                    color = MaterialTheme.colorScheme.surface,
+                                    color = pasarFieldColor(),
                                     border = androidx.compose.foundation.BorderStroke(
                                         1.dp,
-                                        if (selectedCategoryFilter != "Semua") Color(0xFF10B981) else MaterialTheme.colorScheme.outlineVariant
+                                        if (selectedCategoryFilter != "Semua") pasarAccent() else MaterialTheme.colorScheme.outlineVariant
                                     ),
                                     modifier = Modifier
                                         .fillMaxWidth()
@@ -549,7 +637,7 @@ fun RekapBelanjaPasarScreen(
                                             Icon(
                                                 imageVector = Icons.Default.Category,
                                                 contentDescription = null,
-                                                tint = if (selectedCategoryFilter != "Semua") Color(0xFF10B981) else MaterialTheme.colorScheme.onSurfaceVariant,
+                                                tint = if (selectedCategoryFilter != "Semua") pasarAccent() else MaterialTheme.colorScheme.onSurfaceVariant,
                                                 modifier = Modifier.size(16.dp)
                                             )
                                             Spacer(modifier = Modifier.width(4.dp))
@@ -557,7 +645,7 @@ fun RekapBelanjaPasarScreen(
                                                 text = if (selectedCategoryFilter == "Semua") "Kategori" else selectedCategoryFilter,
                                                 fontSize = 12.sp,
                                                 fontWeight = if (selectedCategoryFilter != "Semua") FontWeight.Bold else FontWeight.Medium,
-                                                color = if (selectedCategoryFilter != "Semua") Color(0xFF10B981) else MaterialTheme.colorScheme.onSurface,
+                                                color = if (selectedCategoryFilter != "Semua") pasarAccent() else MaterialTheme.colorScheme.onSurface,
                                                 maxLines = 1,
                                                 overflow = TextOverflow.Ellipsis
                                             )
@@ -582,7 +670,7 @@ fun RekapBelanjaPasarScreen(
                                                     text = cat,
                                                     fontSize = 13.sp,
                                                     fontWeight = if (selectedCategoryFilter == cat) FontWeight.Bold else FontWeight.Normal,
-                                                    color = if (selectedCategoryFilter == cat) Color(0xFF10B981) else MaterialTheme.colorScheme.onSurface
+                                                    color = if (selectedCategoryFilter == cat) pasarAccent() else MaterialTheme.colorScheme.onSurface
                                                 )
                                             },
                                             onClick = {
@@ -601,15 +689,15 @@ fun RekapBelanjaPasarScreen(
                                     .size(40.dp)
                                     .clip(CircleShape)
                                     .background(
-                                        if (isSearchExpanded || searchQuery.isNotEmpty()) Color(0xFF10B981).copy(alpha = 0.15f)
-                                        else MaterialTheme.colorScheme.surface
+                                        if (isSearchExpanded || searchQuery.isNotEmpty()) pasarSoftAccent()
+                                        else pasarFieldColor()
                                     )
                                     .testTag("btn_search_belanja_pasar")
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.Search,
                                     contentDescription = "Cari Belanjaan",
-                                    tint = if (isSearchExpanded || searchQuery.isNotEmpty()) Color(0xFF10B981) else MaterialTheme.colorScheme.onSurfaceVariant
+                                    tint = if (isSearchExpanded || searchQuery.isNotEmpty()) pasarAccent() else MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
                         }
@@ -626,7 +714,7 @@ fun RekapBelanjaPasarScreen(
                                         .testTag("input_search_belanja_pasar"),
                                     placeholder = { Text("Cari barang belanja pasar...", fontSize = 13.sp) },
                                     leadingIcon = {
-                                        Icon(Icons.Default.Search, contentDescription = null, tint = Color(0xFF10B981), modifier = Modifier.size(18.dp))
+                                        Icon(Icons.Default.Search, contentDescription = null, tint = pasarAccent(), modifier = Modifier.size(18.dp))
                                     },
                                     trailingIcon = {
                                         if (searchQuery.isNotEmpty()) {
@@ -638,10 +726,10 @@ fun RekapBelanjaPasarScreen(
                                     singleLine = true,
                                     shape = RoundedCornerShape(12.dp),
                                     colors = OutlinedTextFieldDefaults.colors(
-                                        focusedBorderColor = Color(0xFF10B981),
+                                        focusedBorderColor = pasarAccent(),
                                         unfocusedBorderColor = MaterialTheme.colorScheme.outlineVariant,
-                                        focusedContainerColor = MaterialTheme.colorScheme.surface,
-                                        unfocusedContainerColor = MaterialTheme.colorScheme.surface
+                                        focusedContainerColor = pasarFieldColor(),
+                                        unfocusedContainerColor = pasarFieldColor()
                                     )
                                 )
                             }
@@ -653,40 +741,56 @@ fun RekapBelanjaPasarScreen(
             // 4. ITEMS LIST
             if (filteredItems.isEmpty()) {
                 item {
-                    Column(
+                    Card(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(40.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally
+                            .padding(horizontal = 16.dp, vertical = 12.dp),
+                        shape = RoundedCornerShape(20.dp),
+                        colors = CardDefaults.cardColors(
+                            containerColor = pasarPanelColor()
+                        ),
+                        border = androidx.compose.foundation.BorderStroke(
+                            1.dp,
+                            if (pasarIsLight()) PasarGreenBorder
+                            else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)
+                        ),
+                        elevation = CardDefaults.cardElevation(defaultElevation = pasarCardElevation())
                     ) {
-                        Box(
+                        Column(
                             modifier = Modifier
-                                .size(72.dp)
-                                .clip(CircleShape)
-                                .background(Color(0xFF10B981).copy(alpha = 0.1f)),
-                            contentAlignment = Alignment.Center
+                                .fillMaxWidth()
+                                .padding(horizontal = 20.dp, vertical = 32.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally
                         ) {
-                            Icon(
-                                imageVector = Icons.Default.ShoppingBasket,
-                                contentDescription = null,
-                                tint = Color(0xFF10B981),
-                                modifier = Modifier.size(36.dp)
+                            Box(
+                                modifier = Modifier
+                                    .size(72.dp)
+                                    .clip(CircleShape)
+                                    .background(pasarSoftAccent()),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.ShoppingBasket,
+                                    contentDescription = null,
+                                    tint = pasarAccent(),
+                                    modifier = Modifier.size(36.dp)
+                                )
+                            }
+                            Spacer(modifier = Modifier.height(14.dp))
+                            Text(
+                                text = if (searchQuery.isNotEmpty() || selectedCategoryFilter != "Semua") "Tidak ada item belanja yang cocok" else "Daftar Belanja Pasar Kosong",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 16.sp,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Text(
+                                text = "Tekan tombol 'Tambah Belanjaan' untuk menyusun daftar belanja pasar dalam satuan kg, pcs, ikat, dll.",
+                                fontSize = 13.sp,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                textAlign = androidx.compose.ui.text.style.TextAlign.Center
                             )
                         }
-                        Spacer(modifier = Modifier.height(14.dp))
-                        Text(
-                            text = if (searchQuery.isNotEmpty() || selectedCategoryFilter != "Semua") "Tidak ada item belanja yang cocok" else "Daftar Belanja Pasar Kosong",
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 16.sp,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-                        Spacer(modifier = Modifier.height(6.dp))
-                        Text(
-                            text = "Tekan tombol 'Tambah Belanjaan' untuk menyusun daftar belanja pasar dalam satuan kg, pcs, ikat, dll.",
-                            fontSize = 13.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
-                        )
                     }
                 }
             } else {
@@ -792,17 +896,9 @@ fun MarketShoppingItemCard(
     onEdit: () -> Unit,
     onDelete: () -> Unit
 ) {
-    val categoryColor = remember(item.kategori) {
-        when (item.kategori.lowercase()) {
-            "sayuran" -> Color(0xFF10B981)
-            "daging & unggas" -> Color(0xFFEF4444)
-            "ikan & laut" -> Color(0xFF0284C7)
-            "bumbu & rempah" -> Color(0xFFF59E0B)
-            "buah-buahan" -> Color(0xFF8B5CF6)
-            "sembako" -> Color(0xFFD97706)
-            "tahu & tempe" -> Color(0xFFEAB308)
-            else -> Color(0xFF6B7280)
-        }
+    val isLight = pasarIsLight()
+    val categoryColor = remember(item.kategori, isLight) {
+        pasarCategoryColor(item.kategori, isLight)
     }
 
     val formattedQty = remember(item.jumlah) {
@@ -816,16 +912,20 @@ fun MarketShoppingItemCard(
             .testTag("card_belanja_pasar_${item.id}"),
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(
-            containerColor = if (item.sudahDibeli) {
-                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.25f)
-            } else {
-                MaterialTheme.colorScheme.surface
+            containerColor = when {
+                item.sudahDibeli && isLight -> PasarFieldBackground
+                item.sudahDibeli -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.25f)
+                else -> pasarPanelColor()
             }
         ),
-        elevation = CardDefaults.cardElevation(defaultElevation = if (item.sudahDibeli) 0.dp else 1.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = if (item.sudahDibeli) 0.dp else pasarCardElevation()),
         border = androidx.compose.foundation.BorderStroke(
             1.dp,
-            if (item.sudahDibeli) MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f) else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)
+            if (item.sudahDibeli) {
+                if (isLight) Color(0xFFE2E8F0) else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f)
+            } else {
+                pasarCardBorder()
+            }
         )
     ) {
         Row(
@@ -839,7 +939,7 @@ fun MarketShoppingItemCard(
                 checked = item.sudahDibeli,
                 onCheckedChange = onToggle,
                 colors = CheckboxDefaults.colors(
-                    checkedColor = Color(0xFF10B981),
+                    checkedColor = pasarAccent(),
                     checkmarkColor = Color.White
                 ),
                 modifier = Modifier.testTag("chk_item_${item.id}")
@@ -874,13 +974,13 @@ fun MarketShoppingItemCard(
                     // QUANTITY & UNIT BADGE (E.G. 1.5 kg, 2 ikat, 10 pcs)
                     Surface(
                         shape = RoundedCornerShape(6.dp),
-                        color = Color(0xFF10B981).copy(alpha = 0.12f)
+                        color = pasarSoftAccent()
                     ) {
                         Text(
                             text = "$formattedQty ${item.satuan}",
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Bold,
-                            color = Color(0xFF10B981),
+                            color = pasarAccent(),
                             modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                         )
                     }
@@ -888,7 +988,7 @@ fun MarketShoppingItemCard(
                     // Category Pill
                     Surface(
                         shape = RoundedCornerShape(6.dp),
-                        color = categoryColor.copy(alpha = 0.12f)
+                        color = categoryColor.copy(alpha = if (isLight) 0.10f else 0.12f)
                     ) {
                         Text(
                             text = item.kategori,
@@ -1049,7 +1149,7 @@ fun AddEditBelanjaPasarDialog(
                         text = "PILIHAN KOMODITAS POPULER (MENU LIST)",
                         fontSize = 11.sp,
                         fontWeight = FontWeight.Bold,
-                        color = Color(0xFF10B981),
+                        color = pasarAccent(),
                         letterSpacing = 0.5.sp
                     )
                     Spacer(modifier = Modifier.height(4.dp))
@@ -1057,10 +1157,11 @@ fun AddEditBelanjaPasarDialog(
                         Surface(
                             onClick = { showCommodityMenu = true },
                             shape = RoundedCornerShape(12.dp),
-                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
+                            color = pasarFieldColor(),
                             border = androidx.compose.foundation.BorderStroke(
                                 1.dp,
-                                MaterialTheme.colorScheme.outlineVariant
+                                if (pasarIsLight()) PasarGreenBorder
+                                else MaterialTheme.colorScheme.outlineVariant
                             ),
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -1080,7 +1181,7 @@ fun AddEditBelanjaPasarDialog(
                                     Icon(
                                         Icons.Default.MenuBook,
                                         contentDescription = null,
-                                        tint = Color(0xFF10B981),
+                                        tint = pasarAccent(),
                                         modifier = Modifier.size(18.dp)
                                     )
                                     Spacer(modifier = Modifier.width(8.dp))
@@ -1162,7 +1263,7 @@ fun AddEditBelanjaPasarDialog(
                                     text = "• ${catName.uppercase()}",
                                     fontSize = 10.sp,
                                     fontWeight = FontWeight.Bold,
-                                    color = Color(0xFF10B981),
+                                    color = pasarAccent(),
                                     modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp)
                                 )
                                 itemList.forEach { (cName, cUnit) ->
@@ -1176,13 +1277,13 @@ fun AddEditBelanjaPasarDialog(
                                                 Text(cName, fontSize = 13.sp)
                                                 Surface(
                                                     shape = RoundedCornerShape(4.dp),
-                                                    color = Color(0xFF10B981).copy(alpha = 0.12f)
+                                                    color = pasarSoftAccent()
                                                 ) {
                                                     Text(
                                                         cUnit,
                                                         fontSize = 10.sp,
                                                         fontWeight = FontWeight.Bold,
-                                                        color = Color(0xFF10B981),
+                                                        color = pasarAccent(),
                                                         modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                                                     )
                                                 }
@@ -1215,7 +1316,7 @@ fun AddEditBelanjaPasarDialog(
                         .testTag("input_nama_belanja_pasar"),
                     singleLine = true,
                     colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = Color(0xFF10B981)
+                        focusedBorderColor = pasarAccent()
                     )
                 )
 
@@ -1238,7 +1339,7 @@ fun AddEditBelanjaPasarDialog(
                             .testTag("input_qty_belanja_pasar"),
                         singleLine = true,
                         colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = Color(0xFF10B981)
+                            focusedBorderColor = pasarAccent()
                         )
                     )
 
@@ -1262,7 +1363,7 @@ fun AddEditBelanjaPasarDialog(
                             Text(
                                 text = if (isCustomSatuanMode) customSatuan.ifBlank { "Custom" } else satuan,
                                 fontWeight = FontWeight.Bold,
-                                color = Color(0xFF10B981)
+                                color = pasarAccent()
                             )
                             Spacer(modifier = Modifier.width(4.dp))
                             Icon(Icons.Default.ArrowDropDown, contentDescription = null)
@@ -1312,7 +1413,7 @@ fun AddEditBelanjaPasarDialog(
                     listOf("0.25", "0.5", "1", "2", "5").forEach { qVal ->
                         Surface(
                             shape = RoundedCornerShape(6.dp),
-                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+                            color = pasarFieldColor(),
                             modifier = Modifier.clickable { jumlahStr = qVal }
                         ) {
                             Text(
@@ -1379,7 +1480,7 @@ fun AddEditBelanjaPasarDialog(
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true,
                     colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = Color(0xFF10B981)
+                        focusedBorderColor = pasarAccent()
                     )
                 )
 
@@ -1424,7 +1525,7 @@ fun AddEditBelanjaPasarDialog(
 
                     onSave(result)
                 },
-                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF10B981)),
+                colors = ButtonDefaults.buttonColors(containerColor = pasarAccent()),
                 modifier = Modifier.testTag("btn_save_belanja_pasar")
             ) {
                 Text(if (item == null) "Tambah" else "Simpan Perubahan")
