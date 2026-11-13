@@ -2532,46 +2532,6 @@ fun MainAppContent(viewModel: MainViewModel, desktopMode: Boolean = false) {
                                         unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
                                     )
                                 )
-
-                                val adminUids by com.example.firebase.AdminUidStore.adminUids.collectAsState()
-                                val isUserAdmin = com.example.firebase.AdminUidStore.isAdminIn(
-                                    adminUids,
-                                    viewModel.currentFirebaseUser?.uid
-                                )
-                                if (isUserAdmin) {
-                                    val isManajemenAkunSelected = viewModel.currentRoute == "manajemen_akun"
-                                    NavigationDrawerItem(
-                                        icon = {
-                                            Icon(
-                                                imageVector = Icons.Default.AdminPanelSettings,
-                                                contentDescription = "Manajemen Akun",
-                                                tint = Color(0xFF047857)
-                                            )
-                                        },
-                                        label = {
-                                            Text(
-                                                text = "Manajemen Akun",
-                                                fontWeight = FontWeight.SemiBold,
-                                                fontSize = 13.sp
-                                            )
-                                        },
-                                        selected = isManajemenAkunSelected,
-                                        onClick = {
-                                            viewModel.currentRoute = "manajemen_akun"
-                                            scope.launch { drawerState.close() }
-                                        },
-                                        shape = RoundedCornerShape(8.dp),
-                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 2.dp),
-                                        colors = NavigationDrawerItemDefaults.colors(
-                                            selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
-                                            selectedTextColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                                            selectedIconColor = MaterialTheme.colorScheme.primary,
-                                            unselectedContainerColor = Color.Transparent,
-                                            unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                                            unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-                                        )
-                                    )
-                                }
                             }
                         }
                     }
