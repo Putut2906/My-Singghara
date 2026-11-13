@@ -32,6 +32,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.input.KeyboardType
 import java.text.SimpleDateFormat
 import java.util.*
+import com.example.ui.components.RibuanVisualTransformation
 
 private fun formatToIndonesianDate(dateStr: String): String {
     if (dateStr.isEmpty()) return ""
@@ -559,6 +560,7 @@ fun SemuaCatatanTabunganScreen(viewModel: MainViewModel) {
                             modifier = Modifier.fillMaxWidth(),
                             label = { Text("Nominal Uang (Rp) *") },
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            visualTransformation = RibuanVisualTransformation,
                             singleLine = true
                         )
 

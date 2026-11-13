@@ -52,6 +52,7 @@ import com.example.ui.MainViewModel
 import java.text.NumberFormat
 import java.text.SimpleDateFormat
 import java.util.*
+import com.example.ui.components.RibuanVisualTransformation
 
 private val PasarGreen = Color(0xFF10B981)
 private val PasarGreenDeep = Color(0xFF047857)
@@ -1477,6 +1478,7 @@ fun AddEditBelanjaPasarDialog(
                     label = { Text("Estimasi Harga per Satuan (Rp) - Opsional") },
                     placeholder = { Text("Misal: 35000") },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    visualTransformation = RibuanVisualTransformation,
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true,
                     colors = OutlinedTextFieldDefaults.colors(

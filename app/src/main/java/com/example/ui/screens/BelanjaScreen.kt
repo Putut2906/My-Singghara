@@ -44,6 +44,7 @@ import com.example.data.ShoppingItem
 import com.example.ui.MainViewModel
 import java.text.SimpleDateFormat
 import java.util.*
+import com.example.ui.components.RibuanVisualTransformation
 
 // --- ADAPTIVE LIGHT THEME PALETTE (BELANJA) ---
 private val BelanjaAccentDeep = Color(0xFF4338CA)
@@ -732,6 +733,7 @@ fun BelanjaScreen(viewModel: MainViewModel) {
                             label = { Text("Harga Satuan (Rp) *") },
                             modifier = Modifier.weight(1.5f),
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            visualTransformation = RibuanVisualTransformation,
                             singleLine = true,
                             shape = RoundedCornerShape(12.dp)
                         )

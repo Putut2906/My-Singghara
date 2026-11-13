@@ -627,24 +627,25 @@ object GajiWebScript {
             document.getElementById('gaji-in-bpjs').value = preset.potonganBpjs;
             document.getElementById('gaji-in-pph').value = preset.potonganPph;
 
+            if (typeof formatSemuaNominal === 'function') formatSemuaNominal(document);
             calcGajiLive();
         };
 
         window.calcGajiLive = function() {
-            const pokok = Number(document.getElementById('gaji-in-pokok')?.value) || 0;
-            const jabatan = Number(document.getElementById('gaji-in-jabatan')?.value) || 0;
-            const transport = Number(document.getElementById('gaji-in-transport')?.value) || 0;
-            const kehadiran = Number(document.getElementById('gaji-in-kehadiran')?.value) || 0;
-            const lembur = Number(document.getElementById('gaji-in-lembur')?.value) || 0;
-            const tunjLain = Number(document.getElementById('gaji-in-tunjlain')?.value) || 0;
+            const pokok = nilaiNominal(document.getElementById('gaji-in-pokok')?.value) || 0;
+            const jabatan = nilaiNominal(document.getElementById('gaji-in-jabatan')?.value) || 0;
+            const transport = nilaiNominal(document.getElementById('gaji-in-transport')?.value) || 0;
+            const kehadiran = nilaiNominal(document.getElementById('gaji-in-kehadiran')?.value) || 0;
+            const lembur = nilaiNominal(document.getElementById('gaji-in-lembur')?.value) || 0;
+            const tunjLain = nilaiNominal(document.getElementById('gaji-in-tunjlain')?.value) || 0;
 
             const totPenerimaan = pokok + jabatan + transport + kehadiran + lembur + tunjLain;
 
-            const bpjs = Number(document.getElementById('gaji-in-bpjs')?.value) || 0;
-            const pph = Number(document.getElementById('gaji-in-pph')?.value) || 0;
-            const kasbon = Number(document.getElementById('gaji-in-kasbon')?.value) || 0;
-            const telat = Number(document.getElementById('gaji-in-telat')?.value) || 0;
-            const potLain = Number(document.getElementById('gaji-in-potlain')?.value) || 0;
+            const bpjs = nilaiNominal(document.getElementById('gaji-in-bpjs')?.value) || 0;
+            const pph = nilaiNominal(document.getElementById('gaji-in-pph')?.value) || 0;
+            const kasbon = nilaiNominal(document.getElementById('gaji-in-kasbon')?.value) || 0;
+            const telat = nilaiNominal(document.getElementById('gaji-in-telat')?.value) || 0;
+            const potLain = nilaiNominal(document.getElementById('gaji-in-potlain')?.value) || 0;
 
             const totPotongan = bpjs + pph + kasbon + telat + potLain;
             const gajiBersih = Math.max(0, totPenerimaan - totPotongan);
@@ -673,17 +674,17 @@ object GajiWebScript {
                 peran: document.getElementById('gaji-in-peran').value,
                 periode: document.getElementById('gaji-in-periode').value.trim(),
                 tanggalBayar: document.getElementById('gaji-in-tanggal').value,
-                gajiPokok: Number(document.getElementById('gaji-in-pokok').value) || 0,
-                tunjanganJabatan: Number(document.getElementById('gaji-in-jabatan').value) || 0,
-                tunjanganMakanTransport: Number(document.getElementById('gaji-in-transport').value) || 0,
-                tunjanganKehadiran: Number(document.getElementById('gaji-in-kehadiran').value) || 0,
-                bonusLembur: Number(document.getElementById('gaji-in-lembur').value) || 0,
-                tunjanganLain: Number(document.getElementById('gaji-in-tunjlain').value) || 0,
-                potonganBpjs: Number(document.getElementById('gaji-in-bpjs').value) || 0,
-                potonganPph: Number(document.getElementById('gaji-in-pph').value) || 0,
-                potonganKasbon: Number(document.getElementById('gaji-in-kasbon').value) || 0,
-                potonganKeterlambatan: Number(document.getElementById('gaji-in-telat').value) || 0,
-                potonganLain: Number(document.getElementById('gaji-in-potlain').value) || 0,
+                gajiPokok: nilaiNominal(document.getElementById('gaji-in-pokok').value) || 0,
+                tunjanganJabatan: nilaiNominal(document.getElementById('gaji-in-jabatan').value) || 0,
+                tunjanganMakanTransport: nilaiNominal(document.getElementById('gaji-in-transport').value) || 0,
+                tunjanganKehadiran: nilaiNominal(document.getElementById('gaji-in-kehadiran').value) || 0,
+                bonusLembur: nilaiNominal(document.getElementById('gaji-in-lembur').value) || 0,
+                tunjanganLain: nilaiNominal(document.getElementById('gaji-in-tunjlain').value) || 0,
+                potonganBpjs: nilaiNominal(document.getElementById('gaji-in-bpjs').value) || 0,
+                potonganPph: nilaiNominal(document.getElementById('gaji-in-pph').value) || 0,
+                potonganKasbon: nilaiNominal(document.getElementById('gaji-in-kasbon').value) || 0,
+                potonganKeterlambatan: nilaiNominal(document.getElementById('gaji-in-telat').value) || 0,
+                potonganLain: nilaiNominal(document.getElementById('gaji-in-potlain').value) || 0,
                 metodePembayaran: document.getElementById('gaji-in-metode').value,
                 statusPembayaran: document.getElementById('gaji-in-statusbayar').value,
                 catatan: document.getElementById('gaji-in-catatan').value.trim()

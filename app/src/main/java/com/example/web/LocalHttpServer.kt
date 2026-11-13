@@ -13108,6 +13108,101 @@ class LocalHttpServer(
                 .replace(/'/g, "&#039;");
         }
 
+        // --- FORMAT NOMINAL RUPIAH OTOMATIS ---
+        // Titik ribuan hanya untuk tampilan input. Nilai dibaca ulang lewat
+        // unmaskNominalInput/nilaiNominal agar perhitungan tetap memakai angka bersih.
+        const NOMINAL_INPUT_SELECTOR = '[data-nominal="1"], ' +
+            '#inpNominalKas, #inpCfgPokok, #inpCfgKas, ' +
+            '#juNominal, #adjNominal, #bpPerkiraanHarga, #nkInpJumlah, ' +
+            '#gaji-in-pokok, #gaji-in-jabatan, #gaji-in-transport, #gaji-in-kehadiran, ' +
+            '#gaji-in-lembur, #gaji-in-tunjlain, #gaji-in-bpjs, #gaji-in-pph, ' +
+            '#gaji-in-kasbon, #gaji-in-telat, #gaji-in-potlain, ' +
+            '#inpStockHarga, #inpShopHarga, #inpTargetJumlah, #inpTrxNominal, ' +
+            '#editModalUsahaInput, #modalItemHarga, #incTarif, #expBiaya';
+
+        function formatNominalInput(nilai) {
+            const digit = String(nilai === null || nilai === undefined ? '' : nilai).replace(/[^0-9]/g, '');
+            const tanpaNol = digit.replace(/^0+(?=\d)/, '');
+            if (!tanpaNol) return '';
+            return tanpaNol.replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+        }
+
+        function unmaskNominalInput(nilai) {
+            return String(nilai === null || nilai === undefined ? '' : nilai).replace(/[^0-9]/g, '');
+        }
+
+        function nilaiNominal(nilai) {
+            const digit = unmaskNominalInput(nilai);
+            return digit === '' ? NaN : Number(digit);
+        }
+
+        function siapkanInputNominal(el) {
+            if (!el || el.tagName !== 'INPUT' || !el.matches || !el.matches(NOMINAL_INPUT_SELECTOR)) return false;
+            if (el.getAttribute('type') !== 'text') {
+                el.setAttribute('type', 'text');
+                el.setAttribute('inputmode', 'numeric');
+                el.removeAttribute('min');
+                el.removeAttribute('max');
+                el.removeAttribute('step');
+            }
+            return true;
+        }
+
+        function formatInputNominal(el, paksa) {
+            if (!siapkanInputNominal(el)) return;
+            if (document.activeElement === el && !paksa) return;
+            const hasil = formatNominalInput(el.value);
+            if (el.value !== hasil) el.value = hasil;
+        }
+
+        function formatSemuaNominal(root) {
+            const scope = root && root.querySelectorAll ? root : document;
+            if (scope.matches && siapkanInputNominal(scope)) formatInputNominal(scope, false);
+            if (!scope.querySelectorAll) return;
+            scope.querySelectorAll(NOMINAL_INPUT_SELECTOR).forEach(function (el) {
+                formatInputNominal(el, false);
+            });
+        }
+
+        document.addEventListener('focusin', function (ev) {
+            formatInputNominal(ev.target, true);
+        });
+
+        // Dijalankan setelah handler inline, jadi nilai yang dibaca handler tetap
+        // bisa dibersihkan lewat unmaskNominalInput/nilaiNominal.
+        document.addEventListener('input', function (ev) {
+            const el = ev.target;
+            if (!siapkanInputNominal(el)) return;
+            const kursor = el.selectionStart === null || el.selectionStart === undefined ? el.value.length : el.selectionStart;
+            const digitSebelum = unmaskNominalInput(el.value.substring(0, kursor)).length;
+            const hasil = formatNominalInput(el.value);
+            if (el.value === hasil) return;
+            el.value = hasil;
+            let pos = 0, terlihat = 0;
+            while (pos < hasil.length && terlihat < digitSebelum) {
+                const kode = hasil.charCodeAt(pos);
+                if (kode >= 48 && kode <= 57) terlihat++;
+                pos++;
+            }
+            try { el.setSelectionRange(pos, pos); } catch (_) {}
+        });
+
+        document.addEventListener('DOMContentLoaded', function () {
+            formatSemuaNominal(document);
+            if (!window.MutationObserver) return;
+            const pengamatNominal = new MutationObserver(function (records) {
+                let adaTambahan = false;
+                for (let i = 0; i < records.length && !adaTambahan; i++) {
+                    const tambahan = records[i].addedNodes;
+                    for (let j = 0; j < tambahan.length; j++) {
+                        if (tambahan[j].nodeType === 1) { adaTambahan = true; break; }
+                    }
+                }
+                if (adaTambahan) window.requestAnimationFrame(function () { formatSemuaNominal(document); });
+            });
+            pengamatNominal.observe(document.body, { childList: true, subtree: true });
+        });
+
         function showCustomToast(message, durationMs) {
             let holder = document.getElementById('globalToastHolder');
             if (!holder) {
@@ -13771,7 +13866,7 @@ class LocalHttpServer(
             `;
             window.submitAction = async () => {
                 const namaUsaha = document.getElementById('editNamaUsahaInput').value.trim() || 'Usaha Saya';
-                const modalUsaha = parseFloat(document.getElementById('editModalUsahaInput').value) || 0;
+                const modalUsaha = nilaiNominal(document.getElementById('editModalUsahaInput').value) || 0;
                 try {
                     await fetch('/api/pembukuan', {
                         method: 'POST',
@@ -13808,7 +13903,7 @@ class LocalHttpServer(
             window.submitAction = async () => {
                 const nama = document.getElementById('modalItemNama').value.trim();
                 const qty = parseInt(document.getElementById('modalItemQty').value) || 1;
-                const harga = parseFloat(document.getElementById('modalItemHarga').value) || 0;
+                const harga = nilaiNominal(document.getElementById('modalItemHarga').value) || 0;
                 if (!nama) return alert('Nama barang harus diisi');
                 try {
                     await fetch('/api/pembukuan', {
@@ -13865,7 +13960,7 @@ class LocalHttpServer(
             `;
             window.submitAction = async () => {
                 const nama = document.getElementById('incNama').value.trim();
-                const tarif = parseFloat(document.getElementById('incTarif').value) || 0;
+                const tarif = nilaiNominal(document.getElementById('incTarif').value) || 0;
                 const qty = parseInt(document.getElementById('incQty').value) || 1;
                 if (!nama) return alert('Nama layanan harus diisi');
                 try {
@@ -13917,7 +14012,7 @@ class LocalHttpServer(
             `;
             window.submitAction = async () => {
                 const nama = document.getElementById('expNama').value.trim();
-                const biaya = parseFloat(document.getElementById('expBiaya').value) || 0;
+                const biaya = nilaiNominal(document.getElementById('expBiaya').value) || 0;
                 if (!nama) return alert('Nama biaya harus diisi');
                 try {
                     await fetch('/api/pembukuan', {

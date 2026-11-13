@@ -107,6 +107,7 @@ import kotlin.math.sqrt
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import com.example.ui.components.RibuanVisualTransformation
 
 private val WARNA_MASUK = Color(0xFF16A34A)
 private val WARNA_KELUAR = Color(0xFFDC2626)
@@ -1173,6 +1174,7 @@ private fun FormCatatanKeuanganDialog(
                     onValueChange = { masukan -> jumlah = masukan.filter { it.isDigit() } },
                     label = { Text("Jumlah (Rp)", fontSize = 12.sp) },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    visualTransformation = RibuanVisualTransformation,
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = true
                 )

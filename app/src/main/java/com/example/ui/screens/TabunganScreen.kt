@@ -68,6 +68,7 @@ import com.example.util.ParsedReceiptData
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.*
+import com.example.ui.components.RibuanVisualTransformation
 
 // --- ADAPTIVE LIGHT THEME PALETTE (TABUNGAN) ---
 private val TabunganAccentDeep = Color(0xFF047857)
@@ -1317,6 +1318,7 @@ fun TabunganScreen(viewModel: MainViewModel) {
                         label = { Text("Jumlah Target (Rp) *") },
                         placeholder = { Text("0") },
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        visualTransformation = RibuanVisualTransformation,
                         singleLine = true
                     )
 
@@ -1460,6 +1462,7 @@ fun TabunganScreen(viewModel: MainViewModel) {
                         modifier = Modifier.fillMaxWidth(),
                         label = { Text("Nominal Uang (Rp) *") },
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        visualTransformation = RibuanVisualTransformation,
                         singleLine = true
                     )
 
@@ -2615,6 +2618,7 @@ fun SharedReceiptProcessDialog(
                     label = { Text("Nominal Transaksi") },
                     prefix = { Text("Rp ", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary) },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    visualTransformation = RibuanVisualTransformation,
                     shape = RoundedCornerShape(12.dp),
                     modifier = Modifier.fillMaxWidth().testTag("input_shared_nominal"),
                     singleLine = true

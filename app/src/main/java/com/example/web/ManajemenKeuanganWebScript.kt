@@ -497,7 +497,7 @@ object ManajemenKeuanganWebScript {
             const taxAmount = window.mkKasirTaxEnabled ? (taxedSubtotal * window.mkKasirTaxRate) : 0;
             const grandTotal = Math.round(taxedSubtotal + taxAmount);
 
-            const cash = Number(window.mkKasirCashInput) || 0;
+            const cash = nilaiNominal(window.mkKasirCashInput) || 0;
             const change = Math.max(0, cash - grandTotal);
             const isCashEnough = cash >= grandTotal && grandTotal > 0;
 
@@ -638,7 +638,7 @@ object ManajemenKeuanganWebScript {
                                 <label class="form-label small fw-bold">Nominal Uang Tunai (Rp):</label>
                                 <div class="input-group mb-2">
                                     <span class="input-group-text bg-transparent">Rp</span>
-                                    <input type="number" class="form-control fw-bold fs-5 text-success" placeholder="0" value="${dol}{window.mkKasirCashInput}" oninput="window.mkKasirCashInput = this.value; renderKasirUi();">
+                                    <input type="number" class="form-control fw-bold fs-5 text-success" placeholder="0" value="${dol}{window.mkKasirCashInput}" data-nominal="1" oninput="window.mkKasirCashInput = unmaskNominalInput(this.value); renderKasirUi();">
                                 </div>
 
                                 <!-- Quick Chips (Grid Rapi Mobile Mode Terang Berwarna) -->
@@ -1285,7 +1285,7 @@ object ManajemenKeuanganWebScript {
             const nama = document.getElementById('inpStockNama').value.trim();
             const kategori = document.getElementById('inpStockKategori').value.trim() || 'Umum';
             const barcode = document.getElementById('inpStockBarcode').value.trim();
-            const harga = parseFloat(document.getElementById('inpStockHarga').value) || 0;
+            const harga = nilaiNominal(document.getElementById('inpStockHarga').value) || 0;
             const stok = parseInt(document.getElementById('inpStockQty').value, 10) || 0;
             const keterangan = document.getElementById('inpStockKeterangan').value.trim();
             const foto = window.currentStockFormFoto || '';
@@ -1856,7 +1856,7 @@ object ManajemenKeuanganWebScript {
                 if (matched) {
                     if (namaInp) namaInp.value = matched.nama;
                     if (hargaInp) {
-                        hargaInp.value = matched.harga;
+                        hargaInp.value = formatNominalInput(matched.harga);
                         calcShoppingModalTotal();
                     }
                     if (jenisInp && matched.kategori) {
@@ -2382,7 +2382,7 @@ object ManajemenKeuanganWebScript {
         }
 
         function calcShoppingModalTotal() {
-            const h = parseFloat(document.getElementById('inpShopHarga')?.value) || 0;
+            const h = nilaiNominal(document.getElementById('inpShopHarga')?.value) || 0;
             const q = parseInt(document.getElementById('inpShopQty')?.value, 10) || 1;
             const p = parseFloat(document.getElementById('inpShopPajak')?.value) || 0;
             const total = (h * q) * (1.0 + (p / 100.0));
@@ -2394,7 +2394,7 @@ object ManajemenKeuanganWebScript {
             const nama = document.getElementById('inpShopNama').value.trim();
             const jenis = document.getElementById('inpShopJenis').value;
             const tanggal = document.getElementById('inpShopTanggal').value;
-            const hargaSatuan = parseFloat(document.getElementById('inpShopHarga').value) || 0;
+            const hargaSatuan = nilaiNominal(document.getElementById('inpShopHarga').value) || 0;
             const qty = parseInt(document.getElementById('inpShopQty').value, 10) || 1;
             const pajak = parseFloat(document.getElementById('inpShopPajak').value) || 0;
 
@@ -3111,7 +3111,7 @@ object ManajemenKeuanganWebScript {
 
         async function saveSavingTarget() {
             const nama = document.getElementById('inpTargetNama').value.trim();
-            const jumlah = parseFloat(document.getElementById('inpTargetJumlah').value) || 0;
+            const jumlah = nilaiNominal(document.getElementById('inpTargetJumlah').value) || 0;
             if (!nama) return alert('Nama target wajib diisi!');
 
             try {
@@ -3235,7 +3235,7 @@ object ManajemenKeuanganWebScript {
             const jenis = document.querySelector('input[name="inpTrxJenis"]:checked')?.value || 'masuk';
             const kategori = document.getElementById('inpTrxKategori').value;
             const tanggal = document.getElementById('inpTrxTanggal').value;
-            const nominal = parseFloat(document.getElementById('inpTrxNominal').value) || 0;
+            const nominal = nilaiNominal(document.getElementById('inpTrxNominal').value) || 0;
             const deskripsi = document.getElementById('inpTrxDeskripsi').value.trim();
 
             if (nominal <= 0) return alert('Nominal harus lebih dari 0!');

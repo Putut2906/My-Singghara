@@ -75,6 +75,7 @@ import java.util.Locale
 import java.text.SimpleDateFormat
 import java.util.Date
 import kotlin.math.abs
+import com.example.ui.components.RibuanVisualTransformation
 
 // --- ADAPTIVE LIGHT THEME PALETTE (KASIR) ---
 private val KasirAccentDeep = Color(0xFF047857)
@@ -3018,6 +3019,7 @@ fun MyKasirScreen(viewModel: MainViewModel) {
                             onValueChange = { editHargaBarang = it },
                             label = { Text("Harga Jual (Rupiah)") },
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Next),
+                            visualTransformation = RibuanVisualTransformation,
                             keyboardActions = KeyboardActions(onNext = { dialogFocusManager.moveFocus(FocusDirection.Down) }),
                             modifier = Modifier.fillMaxWidth(),
                             singleLine = true
@@ -3520,6 +3522,7 @@ fun MyKasirScreen(viewModel: MainViewModel) {
                             onValueChange = { hargaBarang = it },
                             label = { Text("Harga Jual (Rupiah)") },
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Next),
+                            visualTransformation = RibuanVisualTransformation,
                             keyboardActions = KeyboardActions(onNext = { dialogFocusManager.moveFocus(FocusDirection.Down) }),
                             modifier = Modifier.fillMaxWidth(),
                             singleLine = true
@@ -4066,6 +4069,7 @@ fun MyKasirScreen(viewModel: MainViewModel) {
                                         onValueChange = { customHarga = it },
                                         label = { Text("Harga", fontSize = 11.sp) },
                                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Next),
+                                        visualTransformation = RibuanVisualTransformation,
                                         keyboardActions = KeyboardActions(onNext = { dialogFocusManager.moveFocus(FocusDirection.Next) }),
                                         modifier = Modifier.weight(1f),
                                         singleLine = true
@@ -4261,6 +4265,7 @@ fun MyKasirScreen(viewModel: MainViewModel) {
                                         label = { Text("Uang Tunai Diterima (Rp)") }, keyboardActions = KeyboardActions(onDone = { dialogFocusManager.clearFocus(); dialogKeyboardController?.hide() }),
                                         placeholder = { Text("Masukkan jumlah bayar tunai") },
                                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ImeAction.Done),
+                                        visualTransformation = RibuanVisualTransformation,
                                         modifier = Modifier.fillMaxWidth(),
                                         singleLine = true,
                                         trailingIcon = {
@@ -4850,7 +4855,8 @@ fun MyKasirScreen(viewModel: MainViewModel) {
                                 label = { Text("Uang Tunai Diterima (Rp)") },
                                 placeholder = { Text("Contoh: 50000") },
                                 singleLine = true,
-                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                visualTransformation = RibuanVisualTransformation,
                             )
 
                             if (uangTunai > 0.0) {

@@ -63,6 +63,7 @@ import java.text.NumberFormat
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import com.example.ui.components.RibuanVisualTransformation
 
 private val AccentPurple = Color(0xFF7C3AED)
 private val AccentPurpleDeep = Color(0xFF6D28D9)
@@ -963,7 +964,8 @@ fun AddEditBelanjaOnlineDialog(
                         label = { Text("Harga Barang (Rp)") },
                         modifier = Modifier.fillMaxWidth(),
                         singleLine = true,
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        visualTransformation = RibuanVisualTransformation,
                     )
                     Spacer(modifier = Modifier.height(8.dp))
                     Row(
@@ -976,7 +978,8 @@ fun AddEditBelanjaOnlineDialog(
                             label = { Text("Ongkir") },
                             modifier = Modifier.weight(1f),
                             singleLine = true,
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            visualTransformation = RibuanVisualTransformation,
                         )
                         OutlinedTextField(
                             value = biayaLayananStr,
@@ -984,7 +987,8 @@ fun AddEditBelanjaOnlineDialog(
                             label = { Text("Biaya Layanan") },
                             modifier = Modifier.weight(1f),
                             singleLine = true,
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            visualTransformation = RibuanVisualTransformation,
                         )
                     }
                     Spacer(modifier = Modifier.height(8.dp))
@@ -994,7 +998,8 @@ fun AddEditBelanjaOnlineDialog(
                         label = { Text("Potongan (Voucher/Diskon/Cashback)") },
                         modifier = Modifier.fillMaxWidth(),
                         singleLine = true,
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number)
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        visualTransformation = RibuanVisualTransformation,
                     )
 
                     Spacer(modifier = Modifier.height(10.dp))

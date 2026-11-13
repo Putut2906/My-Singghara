@@ -412,7 +412,7 @@ object KeuanganWebScript {
 
             window.submitAction = async () => {
                 const tanggal = document.getElementById('juTanggal').value || todayStr;
-                const nominal = parseFloat(document.getElementById('juNominal').value) || 0;
+                const nominal = nilaiNominal(document.getElementById('juNominal').value) || 0;
                 const debetAkun = document.getElementById('juDebetAkun').value.trim();
                 const kreditAkun = document.getElementById('juKreditAkun').value.trim();
                 const keterangan = document.getElementById('juKeterangan').value.trim();
@@ -1142,7 +1142,7 @@ object KeuanganWebScript {
                 const jenisPenyesuaian = document.getElementById('adjJenis').value;
                 const debetAkun = document.getElementById('adjDebetAkun').value.trim();
                 const kreditAkun = document.getElementById('adjKreditAkun').value.trim();
-                const nominal = parseFloat(document.getElementById('adjNominal').value) || 0;
+                const nominal = nilaiNominal(document.getElementById('adjNominal').value) || 0;
                 const keterangan = document.getElementById('adjKeterangan').value.trim();
 
                 if (nominal <= 0) return alert('Nominal harus lebih besar dari 0');

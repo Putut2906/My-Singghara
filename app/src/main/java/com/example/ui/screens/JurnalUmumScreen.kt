@@ -36,6 +36,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.JournalEntry
 import com.example.DialogAccountPicker
+import com.example.ui.components.RibuanVisualTransformation
 import java.util.Calendar
 import android.content.Context
 import android.print.PrintManager
@@ -945,7 +946,8 @@ fun DialogInputTransaksiBaru(
                     shape = RoundedCornerShape(12.dp),
                     keyboardOptions = KeyboardOptions(
                         keyboardType = KeyboardType.Number
-                    )
+                    ),
+                    visualTransformation = RibuanVisualTransformation
                 )
             }
         },

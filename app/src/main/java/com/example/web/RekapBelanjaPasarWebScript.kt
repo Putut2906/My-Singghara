@@ -585,7 +585,7 @@ object RekapBelanjaPasarWebScript {
             const satuan = (satuanSelect === 'custom') ? (customSatuan || 'pcs') : satuanSelect;
 
             const kategori = document.getElementById('bpKategori').value || 'Sayuran';
-            const perkiraanHarga = parseFloat(document.getElementById('bpPerkiraanHarga').value) || 0.0;
+            const perkiraanHarga = nilaiNominal(document.getElementById('bpPerkiraanHarga').value) || 0.0;
             const catatan = (document.getElementById('bpCatatan').value || '').trim();
             const today = new Date().toISOString().split('T')[0];
 

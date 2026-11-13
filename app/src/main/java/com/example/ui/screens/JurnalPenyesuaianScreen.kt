@@ -43,6 +43,7 @@ import com.example.JournalEntry
 import com.example.ui.MainViewModel
 import java.text.SimpleDateFormat
 import java.util.*
+import com.example.ui.components.RibuanVisualTransformation
 
 // --- ADAPTIVE LIGHT THEME PALETTE (JURNAL PENYESUAIAN) ---
 private val KeuanganAccentDeep = Color(0xFF0F766E)
@@ -1176,6 +1177,7 @@ fun DialogInputPenyesuaian(
                     onValueChange = { nominalInput = it },
                     label = { Text("Nominal Penyesuaian (Rp)") },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    visualTransformation = RibuanVisualTransformation,
                     placeholder = { Text("Contoh: 500000") },
                     leadingIcon = { Text("Rp ", fontWeight = FontWeight.Bold) },
                     modifier = Modifier.fillMaxWidth(),

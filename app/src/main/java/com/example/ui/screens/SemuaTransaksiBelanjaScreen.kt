@@ -30,6 +30,7 @@ import com.example.data.ShoppingItem
 import com.example.ui.MainViewModel
 import java.text.SimpleDateFormat
 import java.util.*
+import com.example.ui.components.RibuanVisualTransformation
 
 private fun formatToIndonesianDate(dateStr: String): String {
     if (dateStr.isEmpty()) return ""
@@ -364,6 +365,7 @@ fun SemuaTransaksiBelanjaScreen(viewModel: MainViewModel) {
                             onValueChange = { inputHarga = it.filter { c -> c.isDigit() } },
                             label = { Text("Harga Satuan (Rp)") },
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            visualTransformation = RibuanVisualTransformation,
                             modifier = Modifier.fillMaxWidth()
                         )
 

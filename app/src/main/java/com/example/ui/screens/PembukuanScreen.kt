@@ -44,6 +44,7 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import java.text.SimpleDateFormat
 import java.util.Date
+import com.example.ui.components.RibuanVisualTransformation
 
 private val PembukuanAccentDeep = Color(0xFF1D4ED8)
 private val PembukuanHeroSoft = Color(0xFFEFF6FF)
@@ -495,6 +496,7 @@ fun PembukuanScreen(viewModel: MainViewModel) {
                             onValueChange = { tempModal = it },
                             label = { Text("Modal Usaha (Rupiah)") },
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            visualTransformation = RibuanVisualTransformation,
                             modifier = Modifier.fillMaxWidth()
                         )
                     }
@@ -552,6 +554,7 @@ fun PembukuanScreen(viewModel: MainViewModel) {
                             onValueChange = { inputHargaSatuan = it },
                             label = { Text("Harga Satuan (Rupiah)") },
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            visualTransformation = RibuanVisualTransformation,
                             modifier = Modifier.fillMaxWidth()
                         )
                     }
@@ -614,6 +617,7 @@ fun PembukuanScreen(viewModel: MainViewModel) {
                             onValueChange = { inputHargaJual = it },
                             label = { Text("Harga Sewa / Jual (Rupiah)") },
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            visualTransformation = RibuanVisualTransformation,
                             modifier = Modifier.fillMaxWidth()
                         )
                         OutlinedTextField(
@@ -689,6 +693,7 @@ fun PembukuanScreen(viewModel: MainViewModel) {
                             onValueChange = { inputHarga = it },
                             label = { Text("Harga Satuan (Rupiah)") },
                             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            visualTransformation = RibuanVisualTransformation,
                             modifier = Modifier.fillMaxWidth()
                         )
                         OutlinedTextField(

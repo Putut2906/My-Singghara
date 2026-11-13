@@ -56,6 +56,7 @@ import java.io.File
 import java.text.NumberFormat
 import java.text.SimpleDateFormat
 import java.util.*
+import com.example.ui.components.RibuanVisualTransformation
 
 // Helper formatting currency IDR
 fun formatRupiahGaji(amount: Double): String {
@@ -984,6 +985,7 @@ fun GajiScreen(
                                         onValueChange = { inputGajiPokok = it.filter { c -> c.isDigit() } },
                                         label = { Text("Gaji Pokok (Rp) *", fontSize = 11.sp) },
                                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                        visualTransformation = RibuanVisualTransformation,
                                         modifier = Modifier.weight(1f),
                                         singleLine = true,
                                         shape = RoundedCornerShape(8.dp)
@@ -993,6 +995,7 @@ fun GajiScreen(
                                         onValueChange = { inputTunjanganJabatan = it.filter { c -> c.isDigit() } },
                                         label = { Text("Tunj. Jabatan / Peran (Rp)", fontSize = 11.sp) },
                                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                        visualTransformation = RibuanVisualTransformation,
                                         modifier = Modifier.weight(1f),
                                         singleLine = true,
                                         shape = RoundedCornerShape(8.dp)
@@ -1005,6 +1008,7 @@ fun GajiScreen(
                                         onValueChange = { inputTunjanganMakanTransport = it.filter { c -> c.isDigit() } },
                                         label = { Text("Tunj. Makan & Transport", fontSize = 11.sp) },
                                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                        visualTransformation = RibuanVisualTransformation,
                                         modifier = Modifier.weight(1f),
                                         singleLine = true,
                                         shape = RoundedCornerShape(8.dp)
@@ -1014,6 +1018,7 @@ fun GajiScreen(
                                         onValueChange = { inputTunjanganKehadiran = it.filter { c -> c.isDigit() } },
                                         label = { Text("Tunj. Kehadiran / Disiplin", fontSize = 11.sp) },
                                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                        visualTransformation = RibuanVisualTransformation,
                                         modifier = Modifier.weight(1f),
                                         singleLine = true,
                                         shape = RoundedCornerShape(8.dp)
@@ -1026,6 +1031,7 @@ fun GajiScreen(
                                         onValueChange = { inputBonusLembur = it.filter { c -> c.isDigit() } },
                                         label = { Text("Bonus Lembur / Insentif", fontSize = 11.sp) },
                                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                        visualTransformation = RibuanVisualTransformation,
                                         modifier = Modifier.weight(1f),
                                         singleLine = true,
                                         shape = RoundedCornerShape(8.dp)
@@ -1035,6 +1041,7 @@ fun GajiScreen(
                                         onValueChange = { inputTunjanganLain = it.filter { c -> c.isDigit() } },
                                         label = { Text("Tunjangan Lainnya", fontSize = 11.sp) },
                                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                        visualTransformation = RibuanVisualTransformation,
                                         modifier = Modifier.weight(1f),
                                         singleLine = true,
                                         shape = RoundedCornerShape(8.dp)
@@ -1077,6 +1084,7 @@ fun GajiScreen(
                                         onValueChange = { inputPotonganBpjs = it.filter { c -> c.isDigit() } },
                                         label = { Text("BPJS Kes & Ketenagakerjaan", fontSize = 11.sp) },
                                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                        visualTransformation = RibuanVisualTransformation,
                                         modifier = Modifier.weight(1f),
                                         singleLine = true,
                                         shape = RoundedCornerShape(8.dp)
@@ -1086,6 +1094,7 @@ fun GajiScreen(
                                         onValueChange = { inputPotonganPph = it.filter { c -> c.isDigit() } },
                                         label = { Text("Pajak PPh 21 (Rp)", fontSize = 11.sp) },
                                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                        visualTransformation = RibuanVisualTransformation,
                                         modifier = Modifier.weight(1f),
                                         singleLine = true,
                                         shape = RoundedCornerShape(8.dp)
@@ -1098,6 +1107,7 @@ fun GajiScreen(
                                         onValueChange = { inputPotonganKasbon = it.filter { c -> c.isDigit() } },
                                         label = { Text("Kasbon / Pinjaman", fontSize = 11.sp) },
                                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                        visualTransformation = RibuanVisualTransformation,
                                         modifier = Modifier.weight(1f),
                                         singleLine = true,
                                         shape = RoundedCornerShape(8.dp)
@@ -1107,6 +1117,7 @@ fun GajiScreen(
                                         onValueChange = { inputPotonganKeterlambatan = it.filter { c -> c.isDigit() } },
                                         label = { Text("Potongan Telat / Absen", fontSize = 11.sp) },
                                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                        visualTransformation = RibuanVisualTransformation,
                                         modifier = Modifier.weight(1f),
                                         singleLine = true,
                                         shape = RoundedCornerShape(8.dp)
@@ -1118,6 +1129,7 @@ fun GajiScreen(
                                     onValueChange = { inputPotonganLain = it.filter { c -> c.isDigit() } },
                                     label = { Text("Potongan Lainnya (Rp)", fontSize = 11.sp) },
                                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                    visualTransformation = RibuanVisualTransformation,
                                     modifier = Modifier.fillMaxWidth(),
                                     singleLine = true,
                                     shape = RoundedCornerShape(8.dp)

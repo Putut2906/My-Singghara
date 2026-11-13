@@ -1440,7 +1440,7 @@ object ArisanWebScript {
         }
 
         function saveKasModalAction() {
-            const nominal = Math.max(0, parseFloat(document.getElementById('inpNominalKas')?.value) || 0);
+            const nominal = Math.max(0, nilaiNominal(document.getElementById('inpNominalKas')?.value) || 0);
             if (nominal <= 0) {
                 alert('Nominal transaksi kas harus lebih besar dari 0!');
                 return;
@@ -1541,8 +1541,8 @@ object ArisanWebScript {
         function saveArisanConfigAction() {
             const nama = (document.getElementById('inpCfgNama')?.value || '').trim() || 'Arisan Keluarga besar singghara';
             const periode = Math.max(1, parseInt(document.getElementById('inpCfgPeriode')?.value) || 1);
-            const pokok = Math.max(0, parseFloat(document.getElementById('inpCfgPokok')?.value) || 0);
-            const kas = Math.max(0, parseFloat(document.getElementById('inpCfgKas')?.value) || 0);
+            const pokok = Math.max(0, nilaiNominal(document.getElementById('inpCfgPokok')?.value) || 0);
+            const kas = Math.max(0, nilaiNominal(document.getElementById('inpCfgKas')?.value) || 0);
             const tgl = (document.getElementById('inpCfgTgl')?.value || '').trim();
             const waktu = (document.getElementById('inpCfgWaktu')?.value || '').trim();
             const lokasi = (document.getElementById('inpCfgLokasi')?.value || '').trim();

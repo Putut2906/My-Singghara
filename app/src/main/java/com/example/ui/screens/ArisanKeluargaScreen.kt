@@ -56,6 +56,7 @@ import kotlinx.coroutines.launch
 import java.text.NumberFormat
 import java.text.SimpleDateFormat
 import java.util.*
+import com.example.ui.components.RibuanVisualTransformation
 
 enum class ArisanSection(val title: String) {
     RINGKASAN("Ringkasan & Kocokan"),
@@ -3369,6 +3370,7 @@ private fun AddKasEntryDialog(
                     onValueChange = { nominalStr = it },
                     label = { Text("Nominal (Rp) *") },
                     keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    visualTransformation = RibuanVisualTransformation,
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth()
                 )
@@ -3478,6 +3480,7 @@ private fun ArisanConfigDialog(
                         onValueChange = { iuranPokokStr = it },
                         label = { Text("Iuran Pokok / Slot (Rp)") },
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        visualTransformation = RibuanVisualTransformation,
                         singleLine = true,
                         modifier = Modifier.weight(1f)
                     )
@@ -3486,6 +3489,7 @@ private fun ArisanConfigDialog(
                         onValueChange = { iuranKasStr = it },
                         label = { Text("Kas Sosial / Slot (Rp)") },
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        visualTransformation = RibuanVisualTransformation,
                         singleLine = true,
                         modifier = Modifier.weight(1f)
                     )
