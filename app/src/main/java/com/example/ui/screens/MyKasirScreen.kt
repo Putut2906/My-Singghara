@@ -38,6 +38,7 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.pointerInput
@@ -50,6 +51,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -73,6 +75,30 @@ import java.util.Locale
 import java.text.SimpleDateFormat
 import java.util.Date
 import kotlin.math.abs
+
+// --- ADAPTIVE LIGHT THEME PALETTE (KASIR) ---
+private val KasirAccentDeep = Color(0xFF047857)
+private val KasirAccentSoft = Color(0xFFECFDF5)
+private val KasirAccentBorder = Color(0xFFA7F3D0)
+private val KasirHairline = Color(0xFFE2E8F0)
+private val KasirSunken = Color(0xFFF1F5F9)
+private val KasirAmberDeep = Color(0xFFB45309)
+private val KasirRedDeep = Color(0xFFB91C1C)
+
+@Composable
+private fun kasirIsLight(): Boolean = MaterialTheme.colorScheme.surface.luminance() > 0.5f
+
+@Composable
+private fun kasirPanelColor(): Color =
+    if (kasirIsLight()) Color.White else MaterialTheme.colorScheme.surface
+
+@Composable
+private fun kasirBorderColor(): Color =
+    if (kasirIsLight()) KasirHairline else MaterialTheme.colorScheme.outlineVariant
+
+@Composable
+private fun kasirCardElevation(): Dp =
+    if (kasirIsLight()) 2.dp else 0.dp
 
 private fun compressBitmapToBase64(bitmap: Bitmap, maxSize: Int = 400): String {
     return try {
@@ -797,8 +823,9 @@ fun MyKasirScreen(viewModel: MainViewModel) {
                                             Card(
                                                 modifier = Modifier.fillMaxWidth(),
                                                 shape = RoundedCornerShape(12.dp),
-                                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                                                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                                                colors = CardDefaults.cardColors(containerColor = kasirPanelColor()),
+                                                border = BorderStroke(1.dp, kasirBorderColor()),
+                                                elevation = CardDefaults.cardElevation(defaultElevation = kasirCardElevation())
                                             ) {
                                                 Box(
                                                     modifier = Modifier
@@ -809,19 +836,19 @@ fun MyKasirScreen(viewModel: MainViewModel) {
                                                         // Table Header
                                                         Row(
                                                             modifier = Modifier
-                                                                .background(MaterialTheme.colorScheme.primaryContainer)
+                                                                .background(if (kasirIsLight()) KasirSunken else MaterialTheme.colorScheme.primaryContainer)
                                                                 .height(IntrinsicSize.Min),
                                                             verticalAlignment = Alignment.CenterVertically
                                                         ) {
-                                                            Box(modifier = Modifier.width(68.dp).fillMaxHeight().border(0.5.dp, MaterialTheme.colorScheme.outlineVariant).padding(horizontal = 4.dp, vertical = 12.dp), contentAlignment = Alignment.Center) { Text("Foto", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimaryContainer, maxLines = 1) }
-                                                            Box(modifier = Modifier.width(110.dp).fillMaxHeight().border(0.5.dp, MaterialTheme.colorScheme.outlineVariant).padding(horizontal = 12.dp, vertical = 12.dp), contentAlignment = Alignment.CenterStart) { Text("Tanggal", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimaryContainer, maxLines = 1) }
-                                                            Box(modifier = Modifier.width(140.dp).fillMaxHeight().border(0.5.dp, MaterialTheme.colorScheme.outlineVariant).padding(horizontal = 12.dp, vertical = 12.dp), contentAlignment = Alignment.CenterStart) { Text("Kategori", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimaryContainer, maxLines = 1) }
-                                                            Box(modifier = Modifier.width(200.dp).fillMaxHeight().border(0.5.dp, MaterialTheme.colorScheme.outlineVariant).padding(horizontal = 12.dp, vertical = 12.dp), contentAlignment = Alignment.CenterStart) { Text("Nama Barang", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimaryContainer, maxLines = 1) }
-                                                            Box(modifier = Modifier.width(130.dp).fillMaxHeight().border(0.5.dp, MaterialTheme.colorScheme.outlineVariant).padding(horizontal = 12.dp, vertical = 12.dp), contentAlignment = Alignment.CenterStart) { Text("Kode Barang", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimaryContainer, maxLines = 1) }
-                                                            Box(modifier = Modifier.width(180.dp).fillMaxHeight().border(0.5.dp, MaterialTheme.colorScheme.outlineVariant).padding(horizontal = 12.dp, vertical = 12.dp), contentAlignment = Alignment.CenterStart) { Text("Keterangan", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimaryContainer, maxLines = 1) }
-                                                            Box(modifier = Modifier.width(140.dp).fillMaxHeight().border(0.5.dp, MaterialTheme.colorScheme.outlineVariant).padding(horizontal = 12.dp, vertical = 12.dp), contentAlignment = Alignment.CenterStart) { Text("Harga Jual", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimaryContainer, maxLines = 1) }
-                                                            Box(modifier = Modifier.width(90.dp).fillMaxHeight().border(0.5.dp, MaterialTheme.colorScheme.outlineVariant).padding(horizontal = 12.dp, vertical = 12.dp), contentAlignment = Alignment.CenterStart) { Text("Stok", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimaryContainer, maxLines = 1) }
-                                                            Box(modifier = Modifier.width(100.dp).fillMaxHeight().border(0.5.dp, MaterialTheme.colorScheme.outlineVariant).padding(horizontal = 12.dp, vertical = 12.dp), contentAlignment = Alignment.Center) { Text("Aksi", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimaryContainer, maxLines = 1) }
+                                                            Box(modifier = Modifier.width(68.dp).fillMaxHeight().border(0.5.dp, MaterialTheme.colorScheme.outlineVariant).padding(horizontal = 4.dp, vertical = 12.dp), contentAlignment = Alignment.Center) { Text("Foto", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = if (kasirIsLight()) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onPrimaryContainer, maxLines = 1) }
+                                                            Box(modifier = Modifier.width(110.dp).fillMaxHeight().border(0.5.dp, MaterialTheme.colorScheme.outlineVariant).padding(horizontal = 12.dp, vertical = 12.dp), contentAlignment = Alignment.CenterStart) { Text("Tanggal", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = if (kasirIsLight()) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onPrimaryContainer, maxLines = 1) }
+                                                            Box(modifier = Modifier.width(140.dp).fillMaxHeight().border(0.5.dp, MaterialTheme.colorScheme.outlineVariant).padding(horizontal = 12.dp, vertical = 12.dp), contentAlignment = Alignment.CenterStart) { Text("Kategori", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = if (kasirIsLight()) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onPrimaryContainer, maxLines = 1) }
+                                                            Box(modifier = Modifier.width(200.dp).fillMaxHeight().border(0.5.dp, MaterialTheme.colorScheme.outlineVariant).padding(horizontal = 12.dp, vertical = 12.dp), contentAlignment = Alignment.CenterStart) { Text("Nama Barang", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = if (kasirIsLight()) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onPrimaryContainer, maxLines = 1) }
+                                                            Box(modifier = Modifier.width(130.dp).fillMaxHeight().border(0.5.dp, MaterialTheme.colorScheme.outlineVariant).padding(horizontal = 12.dp, vertical = 12.dp), contentAlignment = Alignment.CenterStart) { Text("Kode Barang", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = if (kasirIsLight()) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onPrimaryContainer, maxLines = 1) }
+                                                            Box(modifier = Modifier.width(180.dp).fillMaxHeight().border(0.5.dp, MaterialTheme.colorScheme.outlineVariant).padding(horizontal = 12.dp, vertical = 12.dp), contentAlignment = Alignment.CenterStart) { Text("Keterangan", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = if (kasirIsLight()) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onPrimaryContainer, maxLines = 1) }
+                                                            Box(modifier = Modifier.width(140.dp).fillMaxHeight().border(0.5.dp, MaterialTheme.colorScheme.outlineVariant).padding(horizontal = 12.dp, vertical = 12.dp), contentAlignment = Alignment.CenterStart) { Text("Harga Jual", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = if (kasirIsLight()) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onPrimaryContainer, maxLines = 1) }
+                                                            Box(modifier = Modifier.width(90.dp).fillMaxHeight().border(0.5.dp, MaterialTheme.colorScheme.outlineVariant).padding(horizontal = 12.dp, vertical = 12.dp), contentAlignment = Alignment.CenterStart) { Text("Stok", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = if (kasirIsLight()) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onPrimaryContainer, maxLines = 1) }
+                                                            Box(modifier = Modifier.width(100.dp).fillMaxHeight().border(0.5.dp, MaterialTheme.colorScheme.outlineVariant).padding(horizontal = 12.dp, vertical = 12.dp), contentAlignment = Alignment.Center) { Text("Aksi", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = if (kasirIsLight()) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onPrimaryContainer, maxLines = 1) }
                                                         }
 
                                                         // Table Body
@@ -1162,8 +1189,9 @@ fun MyKasirScreen(viewModel: MainViewModel) {
                                             Card(
                                                 modifier = Modifier.fillMaxWidth(),
                                                 shape = RoundedCornerShape(12.dp),
-                                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                                                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                                                colors = CardDefaults.cardColors(containerColor = kasirPanelColor()),
+                                                border = BorderStroke(1.dp, kasirBorderColor()),
+                                                elevation = CardDefaults.cardElevation(defaultElevation = kasirCardElevation())
                                             ) {
                                                 Box(
                                                     modifier = Modifier
@@ -1174,15 +1202,15 @@ fun MyKasirScreen(viewModel: MainViewModel) {
                                                          // Table Header
                                                          Row(
                                                              modifier = Modifier
-                                                                 .background(MaterialTheme.colorScheme.primaryContainer)
+                                                                 .background(if (kasirIsLight()) KasirSunken else MaterialTheme.colorScheme.primaryContainer)
                                                                  .height(IntrinsicSize.Min),
                                                              verticalAlignment = Alignment.CenterVertically
                                                          ) {
-                                                             Box(modifier = Modifier.width(140.dp).fillMaxHeight().border(0.5.dp, MaterialTheme.colorScheme.outlineVariant).padding(horizontal = 12.dp, vertical = 12.dp), contentAlignment = Alignment.CenterStart) { Text("Tanggal", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimaryContainer, maxLines = 1) }
-                                                             Box(modifier = Modifier.width(300.dp).fillMaxHeight().border(0.5.dp, MaterialTheme.colorScheme.outlineVariant).padding(horizontal = 12.dp, vertical = 12.dp), contentAlignment = Alignment.CenterStart) { Text("Barang/Produk", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimaryContainer, maxLines = 1) }
-                                                             Box(modifier = Modifier.width(180.dp).fillMaxHeight().border(0.5.dp, MaterialTheme.colorScheme.outlineVariant).padding(horizontal = 12.dp, vertical = 12.dp), contentAlignment = Alignment.CenterStart) { Text("Kategori", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimaryContainer, maxLines = 1) }
-                                                             Box(modifier = Modifier.width(140.dp).fillMaxHeight().border(0.5.dp, MaterialTheme.colorScheme.outlineVariant).padding(horizontal = 12.dp, vertical = 12.dp), contentAlignment = Alignment.CenterStart) { Text("Harga Jual", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimaryContainer, maxLines = 1) }
-                                                             Box(modifier = Modifier.width(100.dp).fillMaxHeight().border(0.5.dp, MaterialTheme.colorScheme.outlineVariant).padding(horizontal = 12.dp, vertical = 12.dp), contentAlignment = Alignment.Center) { Text("Aksi", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimaryContainer, maxLines = 1) }
+                                                             Box(modifier = Modifier.width(140.dp).fillMaxHeight().border(0.5.dp, MaterialTheme.colorScheme.outlineVariant).padding(horizontal = 12.dp, vertical = 12.dp), contentAlignment = Alignment.CenterStart) { Text("Tanggal", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = if (kasirIsLight()) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onPrimaryContainer, maxLines = 1) }
+                                                             Box(modifier = Modifier.width(300.dp).fillMaxHeight().border(0.5.dp, MaterialTheme.colorScheme.outlineVariant).padding(horizontal = 12.dp, vertical = 12.dp), contentAlignment = Alignment.CenterStart) { Text("Barang/Produk", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = if (kasirIsLight()) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onPrimaryContainer, maxLines = 1) }
+                                                             Box(modifier = Modifier.width(180.dp).fillMaxHeight().border(0.5.dp, MaterialTheme.colorScheme.outlineVariant).padding(horizontal = 12.dp, vertical = 12.dp), contentAlignment = Alignment.CenterStart) { Text("Kategori", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = if (kasirIsLight()) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onPrimaryContainer, maxLines = 1) }
+                                                             Box(modifier = Modifier.width(140.dp).fillMaxHeight().border(0.5.dp, MaterialTheme.colorScheme.outlineVariant).padding(horizontal = 12.dp, vertical = 12.dp), contentAlignment = Alignment.CenterStart) { Text("Harga Jual", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = if (kasirIsLight()) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onPrimaryContainer, maxLines = 1) }
+                                                             Box(modifier = Modifier.width(100.dp).fillMaxHeight().border(0.5.dp, MaterialTheme.colorScheme.outlineVariant).padding(horizontal = 12.dp, vertical = 12.dp), contentAlignment = Alignment.Center) { Text("Aksi", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = if (kasirIsLight()) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onPrimaryContainer, maxLines = 1) }
                                                          }
 
                                                          // Table Body
@@ -1263,7 +1291,7 @@ fun MyKasirScreen(viewModel: MainViewModel) {
                                                          // Table Footer - Total Omset Penjualan
                                                          Row(
                                                              modifier = Modifier
-                                                                 .background(Color(0xFF2E7D32).copy(alpha = 0.08f))
+                                                                 .background(if (kasirIsLight()) KasirAccentSoft else Color(0xFF2E7D32).copy(alpha = 0.08f))
                                                                  .height(IntrinsicSize.Min),
                                                              verticalAlignment = Alignment.CenterVertically
                                                          ) {
@@ -1308,8 +1336,8 @@ fun MyKasirScreen(viewModel: MainViewModel) {
                                                      .fillMaxWidth()
                                                      .padding(top = 8.dp),
                                                  shape = RoundedCornerShape(10.dp),
-                                                 colors = CardDefaults.cardColors(containerColor = Color(0xFF2E7D32).copy(alpha = 0.08f)),
-                                                 border = BorderStroke(1.dp, Color(0xFF2E7D32).copy(alpha = 0.3f))
+                                                 colors = CardDefaults.cardColors(containerColor = if (kasirIsLight()) KasirAccentSoft else Color(0xFF2E7D32).copy(alpha = 0.08f)),
+                                                 border = BorderStroke(1.dp, if (kasirIsLight()) KasirAccentBorder else Color(0xFF2E7D32).copy(alpha = 0.3f))
                                              ) {
                                                  Row(
                                                      modifier = Modifier
@@ -1355,8 +1383,9 @@ fun MyKasirScreen(viewModel: MainViewModel) {
                                         Card(
                                             modifier = Modifier.fillMaxWidth(),
                                             shape = RoundedCornerShape(12.dp),
-                                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                                            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                                            colors = CardDefaults.cardColors(containerColor = kasirPanelColor()),
+                                            border = BorderStroke(1.dp, kasirBorderColor()),
+                                            elevation = CardDefaults.cardElevation(defaultElevation = kasirCardElevation())
                                         ) {
                                             Box(
                                                 modifier = Modifier
@@ -1365,7 +1394,7 @@ fun MyKasirScreen(viewModel: MainViewModel) {
                                                 contentAlignment = Alignment.Center
                                             ) {
                                                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                                    Icon(Icons.Default.CheckCircle, contentDescription = null, tint = Color(0xFF2E7D32), modifier = Modifier.size(48.dp))
+                                                    Icon(Icons.Default.CheckCircle, contentDescription = null, tint = if (kasirIsLight()) KasirAccentDeep else Color(0xFF2E7D32), modifier = Modifier.size(48.dp).background(if (kasirIsLight()) KasirAccentSoft else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f), androidx.compose.foundation.shape.CircleShape).padding(10.dp))
                                                     Spacer(modifier = Modifier.height(8.dp))
                                                     Text(
                                                         "Semua stok produk aman! Tidak ada stok kosong.",
@@ -1427,8 +1456,9 @@ fun MyKasirScreen(viewModel: MainViewModel) {
                                             Card(
                                                 modifier = Modifier.fillMaxWidth(),
                                                 shape = RoundedCornerShape(12.dp),
-                                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                                                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                                                colors = CardDefaults.cardColors(containerColor = kasirPanelColor()),
+                                                border = BorderStroke(1.dp, kasirBorderColor()),
+                                                elevation = CardDefaults.cardElevation(defaultElevation = kasirCardElevation())
                                             ) {
                                                 Box(
                                                     modifier = Modifier
@@ -1439,13 +1469,13 @@ fun MyKasirScreen(viewModel: MainViewModel) {
                                                          // Table Header
                                                          Row(
                                                              modifier = Modifier
-                                                                 .background(MaterialTheme.colorScheme.primaryContainer)
+                                                                 .background(if (kasirIsLight()) KasirSunken else MaterialTheme.colorScheme.primaryContainer)
                                                                  .height(IntrinsicSize.Min),
                                                              verticalAlignment = Alignment.CenterVertically
                                                          ) {
-                                                             Box(modifier = Modifier.width(300.dp).fillMaxHeight().border(0.5.dp, MaterialTheme.colorScheme.outlineVariant).padding(horizontal = 12.dp, vertical = 12.dp), contentAlignment = Alignment.CenterStart) { Text("Barang/Produk", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimaryContainer, maxLines = 1) }
-                                                             Box(modifier = Modifier.width(180.dp).fillMaxHeight().border(0.5.dp, MaterialTheme.colorScheme.outlineVariant).padding(horizontal = 12.dp, vertical = 12.dp), contentAlignment = Alignment.CenterStart) { Text("Kategori", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimaryContainer, maxLines = 1) }
-                                                             Box(modifier = Modifier.width(140.dp).fillMaxHeight().border(0.5.dp, MaterialTheme.colorScheme.outlineVariant).padding(horizontal = 12.dp, vertical = 12.dp), contentAlignment = Alignment.Center) { Text("Status", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimaryContainer, maxLines = 1) }
+                                                             Box(modifier = Modifier.width(300.dp).fillMaxHeight().border(0.5.dp, MaterialTheme.colorScheme.outlineVariant).padding(horizontal = 12.dp, vertical = 12.dp), contentAlignment = Alignment.CenterStart) { Text("Barang/Produk", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = if (kasirIsLight()) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onPrimaryContainer, maxLines = 1) }
+                                                             Box(modifier = Modifier.width(180.dp).fillMaxHeight().border(0.5.dp, MaterialTheme.colorScheme.outlineVariant).padding(horizontal = 12.dp, vertical = 12.dp), contentAlignment = Alignment.CenterStart) { Text("Kategori", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = if (kasirIsLight()) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onPrimaryContainer, maxLines = 1) }
+                                                             Box(modifier = Modifier.width(140.dp).fillMaxHeight().border(0.5.dp, MaterialTheme.colorScheme.outlineVariant).padding(horizontal = 12.dp, vertical = 12.dp), contentAlignment = Alignment.Center) { Text("Status", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = if (kasirIsLight()) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onPrimaryContainer, maxLines = 1) }
                                                          }
 
                                                          // Table Body
@@ -1711,8 +1741,9 @@ fun MyKasirScreen(viewModel: MainViewModel) {
                                     .fillMaxWidth()
                                     .weight(1f),
                                 shape = RoundedCornerShape(12.dp),
-                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                                colors = CardDefaults.cardColors(containerColor = kasirPanelColor()),
+                                border = BorderStroke(1.dp, kasirBorderColor()),
+                                elevation = CardDefaults.cardElevation(defaultElevation = kasirCardElevation())
                             ) {
                                 Box(
                                     modifier = Modifier
@@ -1725,19 +1756,19 @@ fun MyKasirScreen(viewModel: MainViewModel) {
                                         // Table Header
                                         Row(
                                             modifier = Modifier
-                                                .background(MaterialTheme.colorScheme.primaryContainer)
+                                                .background(if (kasirIsLight()) KasirSunken else MaterialTheme.colorScheme.primaryContainer)
                                                 .height(IntrinsicSize.Min),
                                             verticalAlignment = Alignment.CenterVertically
                                         ) {
-                                            Box(modifier = Modifier.width(68.dp).fillMaxHeight().border(0.5.dp, MaterialTheme.colorScheme.outlineVariant).padding(horizontal = 4.dp, vertical = 12.dp), contentAlignment = Alignment.Center) { Text("Foto", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimaryContainer, maxLines = 1) }
-                                            Box(modifier = Modifier.width(110.dp).fillMaxHeight().border(0.5.dp, MaterialTheme.colorScheme.outlineVariant).padding(horizontal = 12.dp, vertical = 12.dp), contentAlignment = Alignment.CenterStart) { Text("Tanggal", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimaryContainer, maxLines = 1) }
-                                            Box(modifier = Modifier.width(140.dp).fillMaxHeight().border(0.5.dp, MaterialTheme.colorScheme.outlineVariant).padding(horizontal = 12.dp, vertical = 12.dp), contentAlignment = Alignment.CenterStart) { Text("Kategori", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimaryContainer, maxLines = 1) }
-                                            Box(modifier = Modifier.width(200.dp).fillMaxHeight().border(0.5.dp, MaterialTheme.colorScheme.outlineVariant).padding(horizontal = 12.dp, vertical = 12.dp), contentAlignment = Alignment.CenterStart) { Text("Nama Barang", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimaryContainer, maxLines = 1) }
-                                            Box(modifier = Modifier.width(130.dp).fillMaxHeight().border(0.5.dp, MaterialTheme.colorScheme.outlineVariant).padding(horizontal = 12.dp, vertical = 12.dp), contentAlignment = Alignment.CenterStart) { Text("Kode Barang", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimaryContainer, maxLines = 1) }
-                                            Box(modifier = Modifier.width(180.dp).fillMaxHeight().border(0.5.dp, MaterialTheme.colorScheme.outlineVariant).padding(horizontal = 12.dp, vertical = 12.dp), contentAlignment = Alignment.CenterStart) { Text("Keterangan", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimaryContainer, maxLines = 1) }
-                                            Box(modifier = Modifier.width(140.dp).fillMaxHeight().border(0.5.dp, MaterialTheme.colorScheme.outlineVariant).padding(horizontal = 12.dp, vertical = 12.dp), contentAlignment = Alignment.CenterStart) { Text("Harga Jual", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimaryContainer, maxLines = 1) }
-                                            Box(modifier = Modifier.width(90.dp).fillMaxHeight().border(0.5.dp, MaterialTheme.colorScheme.outlineVariant).padding(horizontal = 12.dp, vertical = 12.dp), contentAlignment = Alignment.CenterStart) { Text("Stok", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimaryContainer, maxLines = 1) }
-                                            Box(modifier = Modifier.width(100.dp).fillMaxHeight().border(0.5.dp, MaterialTheme.colorScheme.outlineVariant).padding(horizontal = 12.dp, vertical = 12.dp), contentAlignment = Alignment.Center) { Text("Aksi", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimaryContainer, maxLines = 1) }
+                                            Box(modifier = Modifier.width(68.dp).fillMaxHeight().border(0.5.dp, MaterialTheme.colorScheme.outlineVariant).padding(horizontal = 4.dp, vertical = 12.dp), contentAlignment = Alignment.Center) { Text("Foto", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = if (kasirIsLight()) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onPrimaryContainer, maxLines = 1) }
+                                            Box(modifier = Modifier.width(110.dp).fillMaxHeight().border(0.5.dp, MaterialTheme.colorScheme.outlineVariant).padding(horizontal = 12.dp, vertical = 12.dp), contentAlignment = Alignment.CenterStart) { Text("Tanggal", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = if (kasirIsLight()) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onPrimaryContainer, maxLines = 1) }
+                                            Box(modifier = Modifier.width(140.dp).fillMaxHeight().border(0.5.dp, MaterialTheme.colorScheme.outlineVariant).padding(horizontal = 12.dp, vertical = 12.dp), contentAlignment = Alignment.CenterStart) { Text("Kategori", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = if (kasirIsLight()) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onPrimaryContainer, maxLines = 1) }
+                                            Box(modifier = Modifier.width(200.dp).fillMaxHeight().border(0.5.dp, MaterialTheme.colorScheme.outlineVariant).padding(horizontal = 12.dp, vertical = 12.dp), contentAlignment = Alignment.CenterStart) { Text("Nama Barang", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = if (kasirIsLight()) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onPrimaryContainer, maxLines = 1) }
+                                            Box(modifier = Modifier.width(130.dp).fillMaxHeight().border(0.5.dp, MaterialTheme.colorScheme.outlineVariant).padding(horizontal = 12.dp, vertical = 12.dp), contentAlignment = Alignment.CenterStart) { Text("Kode Barang", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = if (kasirIsLight()) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onPrimaryContainer, maxLines = 1) }
+                                            Box(modifier = Modifier.width(180.dp).fillMaxHeight().border(0.5.dp, MaterialTheme.colorScheme.outlineVariant).padding(horizontal = 12.dp, vertical = 12.dp), contentAlignment = Alignment.CenterStart) { Text("Keterangan", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = if (kasirIsLight()) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onPrimaryContainer, maxLines = 1) }
+                                            Box(modifier = Modifier.width(140.dp).fillMaxHeight().border(0.5.dp, MaterialTheme.colorScheme.outlineVariant).padding(horizontal = 12.dp, vertical = 12.dp), contentAlignment = Alignment.CenterStart) { Text("Harga Jual", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = if (kasirIsLight()) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onPrimaryContainer, maxLines = 1) }
+                                            Box(modifier = Modifier.width(90.dp).fillMaxHeight().border(0.5.dp, MaterialTheme.colorScheme.outlineVariant).padding(horizontal = 12.dp, vertical = 12.dp), contentAlignment = Alignment.CenterStart) { Text("Stok", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = if (kasirIsLight()) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onPrimaryContainer, maxLines = 1) }
+                                            Box(modifier = Modifier.width(100.dp).fillMaxHeight().border(0.5.dp, MaterialTheme.colorScheme.outlineVariant).padding(horizontal = 12.dp, vertical = 12.dp), contentAlignment = Alignment.Center) { Text("Aksi", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = if (kasirIsLight()) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onPrimaryContainer, maxLines = 1) }
                                         }
 
                                         // Table Body
@@ -1876,8 +1907,9 @@ fun MyKasirScreen(viewModel: MainViewModel) {
                                     .fillMaxWidth()
                                     .weight(1f),
                                 shape = RoundedCornerShape(12.dp),
-                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                                colors = CardDefaults.cardColors(containerColor = kasirPanelColor()),
+                                border = BorderStroke(1.dp, kasirBorderColor()),
+                                elevation = CardDefaults.cardElevation(defaultElevation = kasirCardElevation())
                             ) {
                                 Box(
                                     modifier = Modifier
@@ -1890,13 +1922,13 @@ fun MyKasirScreen(viewModel: MainViewModel) {
                                         // Table Header
                                         Row(
                                             modifier = Modifier
-                                                .background(MaterialTheme.colorScheme.primaryContainer)
+                                                .background(if (kasirIsLight()) KasirSunken else MaterialTheme.colorScheme.primaryContainer)
                                                 .height(IntrinsicSize.Min),
                                             verticalAlignment = Alignment.CenterVertically
                                         ) {
-                                            Box(modifier = Modifier.width(300.dp).fillMaxHeight().border(0.5.dp, MaterialTheme.colorScheme.outlineVariant).padding(horizontal = 12.dp, vertical = 12.dp), contentAlignment = Alignment.CenterStart) { Text("Barang/Produk", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimaryContainer, maxLines = 1) }
-                                            Box(modifier = Modifier.width(180.dp).fillMaxHeight().border(0.5.dp, MaterialTheme.colorScheme.outlineVariant).padding(horizontal = 12.dp, vertical = 12.dp), contentAlignment = Alignment.CenterStart) { Text("Kategori", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimaryContainer, maxLines = 1) }
-                                            Box(modifier = Modifier.width(140.dp).fillMaxHeight().border(0.5.dp, MaterialTheme.colorScheme.outlineVariant).padding(horizontal = 12.dp, vertical = 12.dp), contentAlignment = Alignment.Center) { Text("Status", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimaryContainer, maxLines = 1) }
+                                            Box(modifier = Modifier.width(300.dp).fillMaxHeight().border(0.5.dp, MaterialTheme.colorScheme.outlineVariant).padding(horizontal = 12.dp, vertical = 12.dp), contentAlignment = Alignment.CenterStart) { Text("Barang/Produk", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = if (kasirIsLight()) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onPrimaryContainer, maxLines = 1) }
+                                            Box(modifier = Modifier.width(180.dp).fillMaxHeight().border(0.5.dp, MaterialTheme.colorScheme.outlineVariant).padding(horizontal = 12.dp, vertical = 12.dp), contentAlignment = Alignment.CenterStart) { Text("Kategori", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = if (kasirIsLight()) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onPrimaryContainer, maxLines = 1) }
+                                            Box(modifier = Modifier.width(140.dp).fillMaxHeight().border(0.5.dp, MaterialTheme.colorScheme.outlineVariant).padding(horizontal = 12.dp, vertical = 12.dp), contentAlignment = Alignment.Center) { Text("Status", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = if (kasirIsLight()) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onPrimaryContainer, maxLines = 1) }
                                         }
 
                                         // Table Body
@@ -1977,8 +2009,9 @@ fun MyKasirScreen(viewModel: MainViewModel) {
                                     .fillMaxWidth()
                                     .weight(1f),
                                 shape = RoundedCornerShape(12.dp),
-                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                                colors = CardDefaults.cardColors(containerColor = kasirPanelColor()),
+                                border = BorderStroke(1.dp, kasirBorderColor()),
+                                elevation = CardDefaults.cardElevation(defaultElevation = kasirCardElevation())
                             ) {
                                 Box(
                                     modifier = Modifier
@@ -1991,15 +2024,15 @@ fun MyKasirScreen(viewModel: MainViewModel) {
                                         // Table Header
                                         Row(
                                             modifier = Modifier
-                                                .background(MaterialTheme.colorScheme.primaryContainer)
+                                                .background(if (kasirIsLight()) KasirSunken else MaterialTheme.colorScheme.primaryContainer)
                                                 .height(IntrinsicSize.Min),
                                             verticalAlignment = Alignment.CenterVertically
                                         ) {
-                                            Box(modifier = Modifier.width(140.dp).fillMaxHeight().border(0.5.dp, MaterialTheme.colorScheme.outlineVariant).padding(horizontal = 12.dp, vertical = 12.dp), contentAlignment = Alignment.CenterStart) { Text("Tanggal", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimaryContainer, maxLines = 1) }
-                                            Box(modifier = Modifier.width(300.dp).fillMaxHeight().border(0.5.dp, MaterialTheme.colorScheme.outlineVariant).padding(horizontal = 12.dp, vertical = 12.dp), contentAlignment = Alignment.CenterStart) { Text("Barang/Produk", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimaryContainer, maxLines = 1) }
-                                            Box(modifier = Modifier.width(180.dp).fillMaxHeight().border(0.5.dp, MaterialTheme.colorScheme.outlineVariant).padding(horizontal = 12.dp, vertical = 12.dp), contentAlignment = Alignment.CenterStart) { Text("Kategori", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimaryContainer, maxLines = 1) }
-                                            Box(modifier = Modifier.width(140.dp).fillMaxHeight().border(0.5.dp, MaterialTheme.colorScheme.outlineVariant).padding(horizontal = 12.dp, vertical = 12.dp), contentAlignment = Alignment.CenterStart) { Text("Harga Jual", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimaryContainer, maxLines = 1) }
-                                            Box(modifier = Modifier.width(100.dp).fillMaxHeight().border(0.5.dp, MaterialTheme.colorScheme.outlineVariant).padding(horizontal = 12.dp, vertical = 12.dp), contentAlignment = Alignment.Center) { Text("Aksi", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimaryContainer, maxLines = 1) }
+                                            Box(modifier = Modifier.width(140.dp).fillMaxHeight().border(0.5.dp, MaterialTheme.colorScheme.outlineVariant).padding(horizontal = 12.dp, vertical = 12.dp), contentAlignment = Alignment.CenterStart) { Text("Tanggal", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = if (kasirIsLight()) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onPrimaryContainer, maxLines = 1) }
+                                            Box(modifier = Modifier.width(300.dp).fillMaxHeight().border(0.5.dp, MaterialTheme.colorScheme.outlineVariant).padding(horizontal = 12.dp, vertical = 12.dp), contentAlignment = Alignment.CenterStart) { Text("Barang/Produk", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = if (kasirIsLight()) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onPrimaryContainer, maxLines = 1) }
+                                            Box(modifier = Modifier.width(180.dp).fillMaxHeight().border(0.5.dp, MaterialTheme.colorScheme.outlineVariant).padding(horizontal = 12.dp, vertical = 12.dp), contentAlignment = Alignment.CenterStart) { Text("Kategori", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = if (kasirIsLight()) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onPrimaryContainer, maxLines = 1) }
+                                            Box(modifier = Modifier.width(140.dp).fillMaxHeight().border(0.5.dp, MaterialTheme.colorScheme.outlineVariant).padding(horizontal = 12.dp, vertical = 12.dp), contentAlignment = Alignment.CenterStart) { Text("Harga Jual", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = if (kasirIsLight()) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onPrimaryContainer, maxLines = 1) }
+                                            Box(modifier = Modifier.width(100.dp).fillMaxHeight().border(0.5.dp, MaterialTheme.colorScheme.outlineVariant).padding(horizontal = 12.dp, vertical = 12.dp), contentAlignment = Alignment.Center) { Text("Aksi", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = if (kasirIsLight()) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onPrimaryContainer, maxLines = 1) }
                                         }
 
                                         // Table Body
@@ -2153,7 +2186,7 @@ fun MyKasirScreen(viewModel: MainViewModel) {
                             Card(
                                 modifier = Modifier.fillMaxWidth(),
                                 shape = RoundedCornerShape(12.dp),
-                                colors = CardDefaults.cardColors(containerColor = Color(0xFF2E7D32).copy(alpha = 0.08f)),
+                                colors = CardDefaults.cardColors(containerColor = if (kasirIsLight()) KasirAccentSoft else Color(0xFF2E7D32).copy(alpha = 0.08f)),
                                 border = BorderStroke(1.dp, Color(0xFF2E7D32).copy(alpha = 0.15f))
                             ) {
                                 Column(modifier = Modifier.padding(16.dp)) {
@@ -3877,7 +3910,7 @@ fun MyKasirScreen(viewModel: MainViewModel) {
                     ) {
                         Surface(
                             modifier = Modifier.fillMaxWidth(),
-                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
+                            color = if (kasirIsLight()) KasirSunken else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
                             shape = RoundedCornerShape(8.dp),
                             border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
                         ) {
@@ -4107,7 +4140,8 @@ fun MyKasirScreen(viewModel: MainViewModel) {
                         if (cartItems.isEmpty()) {
                             Card(
                                 modifier = Modifier.fillMaxWidth(),
-                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+                                colors = CardDefaults.cardColors(containerColor = kasirPanelColor()),
+                                border = BorderStroke(1.dp, kasirBorderColor())
                             ) {
                                 Box(
                                     modifier = Modifier
@@ -4126,8 +4160,8 @@ fun MyKasirScreen(viewModel: MainViewModel) {
                         } else {
                             Card(
                                 modifier = Modifier.fillMaxWidth(),
-                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+                                colors = CardDefaults.cardColors(containerColor = kasirPanelColor()),
+                                border = BorderStroke(1.dp, kasirBorderColor())
                             ) {
                                 Column(modifier = Modifier.padding(8.dp)) {
                                     cartItems.forEachIndexed { i, item ->
@@ -4177,7 +4211,7 @@ fun MyKasirScreen(viewModel: MainViewModel) {
                             // Config & Tax Form
                             Surface(
                                 modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
+                                color = if (kasirIsLight()) KasirSunken else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
                                 shape = RoundedCornerShape(8.dp),
                                 border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
                             ) {
@@ -4241,8 +4275,9 @@ fun MyKasirScreen(viewModel: MainViewModel) {
                             }
 
                             Card(
-                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f)),
-                                modifier = Modifier.fillMaxWidth()
+                                colors = CardDefaults.cardColors(containerColor = if (kasirIsLight()) KasirAccentSoft else MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f)),
+                                modifier = Modifier.fillMaxWidth(),
+                                border = if (kasirIsLight()) BorderStroke(1.dp, KasirAccentBorder) else null
                             ) {
                                 Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
@@ -4667,7 +4702,7 @@ fun MyKasirScreen(viewModel: MainViewModel) {
 
                         if (cartItems.isEmpty()) {
                             Surface(
-                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
+                                color = if (kasirIsLight()) KasirSunken else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
                                 shape = RoundedCornerShape(8.dp),
                                 modifier = Modifier.fillMaxWidth()
                             ) {
@@ -5245,7 +5280,7 @@ fun MyKasirScreen(viewModel: MainViewModel) {
 
                         if (restockHistoryList.isEmpty()) {
                             Surface(
-                                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
+                                color = if (kasirIsLight()) KasirSunken else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
                                 shape = RoundedCornerShape(8.dp),
                                 modifier = Modifier.fillMaxWidth()
                             ) {
@@ -5896,9 +5931,9 @@ private fun PrintRevenueReportOptionDialog(
                             },
                         shape = RoundedCornerShape(10.dp),
                         colors = CardDefaults.cardColors(
-                            containerColor = if (txCount > 0) Color(0xFF2E7D32).copy(alpha = 0.06f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+                            containerColor = if (kasirIsLight()) (if (txCount > 0) KasirAccentSoft else Color.White) else if (txCount > 0) Color(0xFF2E7D32).copy(alpha = 0.06f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
                         ),
-                        border = BorderStroke(1.dp, if (txCount > 0) Color(0xFF2E7D32).copy(alpha = 0.3f) else MaterialTheme.colorScheme.outlineVariant)
+                        border = BorderStroke(1.dp, if (kasirIsLight()) (if (txCount > 0) KasirAccentBorder else KasirHairline) else if (txCount > 0) Color(0xFF2E7D32).copy(alpha = 0.3f) else MaterialTheme.colorScheme.outlineVariant)
                     ) {
                         Row(
                             modifier = Modifier.padding(12.dp),
@@ -6076,6 +6111,8 @@ fun CashierDashboardHeader(
     onHpScannerClick: () -> Unit = {},
     onPrinterSettingsClick: () -> Unit = {}
 ) {
+    // Palet adaptif: mode terang pakai latar lembut, mode gelap tetap gradasi asli.
+    val light = kasirIsLight()
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -6087,7 +6124,11 @@ fun CashierDashboardHeader(
             modifier = Modifier
                 .background(
                     Brush.linearGradient(
-                        colors = listOf(
+                        colors = if (light) listOf(
+                            Color(0xFFECFDF5),
+                            Color(0xFFD1FAE5),
+                            Color(0xFFF0FDF4)
+                        ) else listOf(
                             Color(0xFF1B5E20), // Dark Green
                             Color(0xFF2E7D32), // Emerald Green
                             Color(0xFF388E3C)  // Leaf Green
@@ -6111,7 +6152,7 @@ fun CashierDashboardHeader(
                             namaUsaha,
                             fontSize = 20.sp,
                             fontWeight = FontWeight.Black,
-                            color = Color.White,
+                            color = if (light) KasirAccentDeep else Color.White,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.weight(1f, fill = false)
@@ -6120,7 +6161,7 @@ fun CashierDashboardHeader(
                         Icon(
                             imageVector = Icons.Default.Edit,
                             contentDescription = "Ubah Nama Usaha",
-                            tint = Color.White.copy(alpha = 0.85f),
+                            tint = if (light) KasirAccentDeep.copy(alpha = 0.7f) else Color.White.copy(alpha = 0.85f),
                             modifier = Modifier
                                 .size(18.dp)
                                 .clickable { onManageUsahaClick() }
@@ -6132,8 +6173,9 @@ fun CashierDashboardHeader(
                     var menuExpanded by remember { mutableStateOf(false) }
                     Box {
                         Surface(
-                            color = Color.White.copy(alpha = 0.2f),
+                            color = if (light) Color.White else Color.White.copy(alpha = 0.2f),
                             shape = RoundedCornerShape(8.dp),
+                            border = if (light) BorderStroke(1.dp, KasirAccentBorder) else null,
                             modifier = Modifier.clickable { menuExpanded = true }
                         ) {
                             Box(
@@ -6143,7 +6185,7 @@ fun CashierDashboardHeader(
                                 Icon(
                                     imageVector = Icons.Default.MoreVert,
                                     contentDescription = "Menu Navigasi",
-                                    tint = Color.White,
+                                    tint = if (light) KasirAccentDeep else Color.White,
                                     modifier = Modifier.size(20.dp)
                                 )
                             }
@@ -6207,8 +6249,9 @@ fun CashierDashboardHeader(
                     Spacer(modifier = Modifier.width(6.dp))
 
                     Surface(
-                        color = Color.White.copy(alpha = 0.2f),
+                        color = if (light) Color.White else Color.White.copy(alpha = 0.2f),
                         shape = RoundedCornerShape(8.dp),
+                        border = if (light) BorderStroke(1.dp, KasirAccentBorder) else null,
                         modifier = Modifier.clickable { onBarcodeScanClick() }
                     ) {
                         Row(
@@ -6218,7 +6261,7 @@ fun CashierDashboardHeader(
                             Icon(
                                 Icons.Default.QrCodeScanner,
                                 contentDescription = "Pindai Barcode Transaksi Kasir",
-                                tint = Color.White,
+                                tint = if (light) KasirAccentDeep else Color.White,
                                 modifier = Modifier.size(13.dp)
                             )
                             Spacer(modifier = Modifier.width(4.dp))
@@ -6226,7 +6269,7 @@ fun CashierDashboardHeader(
                                 "Scan",
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = Color.White
+                                color = if (light) KasirAccentDeep else Color.White
                             )
                         }
                     }
@@ -6243,7 +6286,8 @@ fun CashierDashboardHeader(
                     Card(
                         modifier = Modifier.weight(1.2f),
                         shape = RoundedCornerShape(10.dp),
-                        colors = CardDefaults.cardColors(containerColor = Color.White.copy(alpha = 0.15f))
+                        colors = CardDefaults.cardColors(containerColor = if (light) Color.White else Color.White.copy(alpha = 0.15f)),
+                        border = if (light) BorderStroke(1.dp, KasirAccentBorder) else null
                     ) {
                         Column(
                             modifier = Modifier.padding(10.dp),
@@ -6253,14 +6297,14 @@ fun CashierDashboardHeader(
                                 Icon(
                                     Icons.Default.MonetizationOn,
                                     contentDescription = null,
-                                    tint = Color(0xFFA5D6A7),
+                                    tint = if (light) KasirAccentDeep else Color(0xFFA5D6A7),
                                     modifier = Modifier.size(12.dp)
                                 )
                                 Spacer(modifier = Modifier.width(4.dp))
                                 Text(
                                     "Pendapatan",
                                     fontSize = 10.sp,
-                                    color = Color(0xFFE8F5E9),
+                                    color = if (light) KasirAccentDeep.copy(alpha = 0.8f) else Color(0xFFE8F5E9),
                                     fontWeight = FontWeight.SemiBold
                                 )
                             }
@@ -6269,7 +6313,7 @@ fun CashierDashboardHeader(
                                 toRupiah(totalSales),
                                 fontSize = 13.sp,
                                 fontWeight = FontWeight.Black,
-                                color = Color.White,
+                                color = if (light) KasirAccentDeep else Color.White,
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis
                             )
@@ -6280,7 +6324,8 @@ fun CashierDashboardHeader(
                     Card(
                         modifier = Modifier.weight(0.9f),
                         shape = RoundedCornerShape(10.dp),
-                        colors = CardDefaults.cardColors(containerColor = Color.White.copy(alpha = 0.15f))
+                        colors = CardDefaults.cardColors(containerColor = if (light) Color.White else Color.White.copy(alpha = 0.15f)),
+                        border = if (light) BorderStroke(1.dp, KasirAccentBorder) else null
                     ) {
                         Column(
                             modifier = Modifier.padding(10.dp),
@@ -6290,14 +6335,14 @@ fun CashierDashboardHeader(
                                 Icon(
                                     Icons.Default.Warning,
                                     contentDescription = null,
-                                    tint = if (lowStockCount > 0) Color(0xFFFFB74D) else Color(0xFFA5D6A7),
+                                    tint = if (light) (if (lowStockCount > 0) KasirAmberDeep else KasirAccentDeep) else if (lowStockCount > 0) Color(0xFFFFB74D) else Color(0xFFA5D6A7),
                                     modifier = Modifier.size(12.dp)
                                 )
                                 Spacer(modifier = Modifier.width(4.dp))
                                 Text(
                                     "Stok Tipis",
                                     fontSize = 10.sp,
-                                    color = Color(0xFFE8F5E9),
+                                    color = if (light) KasirAccentDeep.copy(alpha = 0.8f) else Color(0xFFE8F5E9),
                                     fontWeight = FontWeight.SemiBold
                                 )
                             }
@@ -6306,7 +6351,7 @@ fun CashierDashboardHeader(
                                 "$lowStockCount Item",
                                 fontSize = 13.sp,
                                 fontWeight = FontWeight.Black,
-                                color = if (lowStockCount > 0) Color(0xFFFFCC80) else Color.White
+                                color = if (light) (if (lowStockCount > 0) KasirAmberDeep else KasirAccentDeep) else if (lowStockCount > 0) Color(0xFFFFCC80) else Color.White
                             )
                         }
                     }
@@ -6315,7 +6360,8 @@ fun CashierDashboardHeader(
                     Card(
                         modifier = Modifier.weight(0.9f),
                         shape = RoundedCornerShape(10.dp),
-                        colors = CardDefaults.cardColors(containerColor = Color.White.copy(alpha = 0.15f))
+                        colors = CardDefaults.cardColors(containerColor = if (light) Color.White else Color.White.copy(alpha = 0.15f)),
+                        border = if (light) BorderStroke(1.dp, KasirAccentBorder) else null
                     ) {
                         Column(
                             modifier = Modifier.padding(10.dp),
@@ -6325,14 +6371,14 @@ fun CashierDashboardHeader(
                                 Icon(
                                     Icons.Default.Error,
                                     contentDescription = null,
-                                    tint = if (outOfStockCount > 0) Color(0xFFEF5350) else Color(0xFFA5D6A7),
+                                    tint = if (light) (if (outOfStockCount > 0) KasirRedDeep else KasirAccentDeep) else if (outOfStockCount > 0) Color(0xFFEF5350) else Color(0xFFA5D6A7),
                                     modifier = Modifier.size(12.dp)
                                 )
                                 Spacer(modifier = Modifier.width(4.dp))
                                 Text(
                                     "Habis",
                                     fontSize = 10.sp,
-                                    color = Color(0xFFE8F5E9),
+                                    color = if (light) KasirAccentDeep.copy(alpha = 0.8f) else Color(0xFFE8F5E9),
                                     fontWeight = FontWeight.SemiBold
                                 )
                             }
@@ -6341,7 +6387,7 @@ fun CashierDashboardHeader(
                                 "$outOfStockCount Item",
                                 fontSize = 13.sp,
                                 fontWeight = FontWeight.Black,
-                                color = if (outOfStockCount > 0) Color(0xFFFFCDD2) else Color.White
+                                color = if (light) (if (outOfStockCount > 0) KasirRedDeep else KasirAccentDeep) else if (outOfStockCount > 0) Color(0xFFFFCDD2) else Color.White
                             )
                         }
                     }
@@ -6371,9 +6417,10 @@ fun StockItemRow(
 
     Card(
         modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
-        shape = RoundedCornerShape(10.dp)
+        colors = CardDefaults.cardColors(containerColor = kasirPanelColor()),
+        border = BorderStroke(1.dp, if (kasirIsLight()) KasirHairline else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
+        shape = RoundedCornerShape(10.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = kasirCardElevation())
     ) {
         Row(
             modifier = Modifier
@@ -6413,13 +6460,13 @@ fun StockItemRow(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Box(
                         modifier = Modifier
-                            .background(MaterialTheme.colorScheme.secondaryContainer, RoundedCornerShape(4.dp))
+                            .background(if (kasirIsLight()) KasirAccentSoft else MaterialTheme.colorScheme.secondaryContainer, RoundedCornerShape(4.dp))
                             .padding(horizontal = 6.dp, vertical = 2.dp)
                     ) {
                         Text(
                             item.kategori,
                             fontSize = 9.sp,
-                            color = MaterialTheme.colorScheme.onSecondaryContainer,
+                            color = if (kasirIsLight()) KasirAccentDeep else MaterialTheme.colorScheme.onSecondaryContainer,
                             fontWeight = FontWeight.Bold
                         )
                     }
@@ -6503,9 +6550,10 @@ fun SalesTransactionRow(
 
     Card(
         modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        border = BorderStroke(1.dp, Color(0xFF2E7D32).copy(alpha = 0.15f)),
-        shape = RoundedCornerShape(10.dp)
+        colors = CardDefaults.cardColors(containerColor = kasirPanelColor()),
+        border = BorderStroke(1.dp, if (kasirIsLight()) KasirAccentBorder else Color(0xFF2E7D32).copy(alpha = 0.15f)),
+        shape = RoundedCornerShape(10.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = kasirCardElevation())
     ) {
         Row(
             modifier = Modifier
@@ -6596,6 +6644,7 @@ private fun RevenueTrendLineChartCard(
     toRupiah: (Double) -> String,
     onPrintReportClick: () -> Unit
 ) {
+    val light = kasirIsLight()
     var selectedDaysPeriod by remember { mutableStateOf(7) } // 7 or 30
     var selectedPointIndex by remember { mutableStateOf<Int?>(null) }
 
@@ -6642,7 +6691,9 @@ private fun RevenueTrendLineChartCard(
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+        colors = CardDefaults.cardColors(containerColor = kasirPanelColor()),
+        border = BorderStroke(1.dp, kasirBorderColor()),
+        elevation = CardDefaults.cardElevation(defaultElevation = kasirCardElevation())
     ) {
         Column(modifier = Modifier.padding(16.dp)) {
             // Header Row with Title and Period Filter Chips
@@ -6675,8 +6726,9 @@ private fun RevenueTrendLineChartCard(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Surface(
-                        color = if (selectedDaysPeriod == 7) Color(0xFF2E7D32) else MaterialTheme.colorScheme.surfaceVariant,
+                        color = if (light) (if (selectedDaysPeriod == 7) KasirAccentSoft else Color.White) else if (selectedDaysPeriod == 7) Color(0xFF2E7D32) else MaterialTheme.colorScheme.surfaceVariant,
                         shape = RoundedCornerShape(16.dp),
+                        border = if (light) BorderStroke(1.dp, if (selectedDaysPeriod == 7) KasirAccentBorder else KasirHairline) else null,
                         modifier = Modifier.clickable {
                             selectedDaysPeriod = 7
                             selectedPointIndex = null
@@ -6686,14 +6738,15 @@ private fun RevenueTrendLineChartCard(
                             "7 Hari",
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Bold,
-                            color = if (selectedDaysPeriod == 7) Color.White else MaterialTheme.colorScheme.onSurfaceVariant,
+                            color = if (light) (if (selectedDaysPeriod == 7) KasirAccentDeep else MaterialTheme.colorScheme.onSurfaceVariant) else if (selectedDaysPeriod == 7) Color.White else MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
                         )
                     }
 
                     Surface(
-                        color = if (selectedDaysPeriod == 30) Color(0xFF2E7D32) else MaterialTheme.colorScheme.surfaceVariant,
+                        color = if (light) (if (selectedDaysPeriod == 30) KasirAccentSoft else Color.White) else if (selectedDaysPeriod == 30) Color(0xFF2E7D32) else MaterialTheme.colorScheme.surfaceVariant,
                         shape = RoundedCornerShape(16.dp),
+                        border = if (light) BorderStroke(1.dp, if (selectedDaysPeriod == 30) KasirAccentBorder else KasirHairline) else null,
                         modifier = Modifier.clickable {
                             selectedDaysPeriod = 30
                             selectedPointIndex = null
@@ -6703,7 +6756,7 @@ private fun RevenueTrendLineChartCard(
                             "30 Hari",
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Bold,
-                            color = if (selectedDaysPeriod == 30) Color.White else MaterialTheme.colorScheme.onSurfaceVariant,
+                            color = if (light) (if (selectedDaysPeriod == 30) KasirAccentDeep else MaterialTheme.colorScheme.onSurfaceVariant) else if (selectedDaysPeriod == 30) Color.White else MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
                         )
                     }
@@ -6726,9 +6779,10 @@ private fun RevenueTrendLineChartCard(
 
             // Summary Stats Banner inside Chart
             Surface(
-                color = Color(0xFF2E7D32).copy(alpha = 0.08f),
+                color = if (light) KasirAccentSoft else Color(0xFF2E7D32).copy(alpha = 0.08f),
                 shape = RoundedCornerShape(10.dp),
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier.fillMaxWidth(),
+                border = if (light) BorderStroke(1.dp, KasirAccentBorder) else null
             ) {
                 Row(
                     modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
@@ -7024,7 +7078,7 @@ fun PrinterSettingsDialog(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(10.dp),
                     colors = CardDefaults.cardColors(
-                        containerColor = if (selectedMethod == "direct") Color(0xFF2E7D32).copy(alpha = 0.15f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
+                        containerColor = if (selectedMethod == "direct") (if (kasirIsLight()) KasirAccentSoft else Color(0xFF2E7D32).copy(alpha = 0.15f)) else (if (kasirIsLight()) Color.White else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))
                     ),
                     border = BorderStroke(
                         if (selectedMethod == "direct") 2.dp else 1.dp,
@@ -7062,7 +7116,7 @@ fun PrinterSettingsDialog(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(10.dp),
                     colors = CardDefaults.cardColors(
-                        containerColor = if (selectedMethod == "system") MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
+                        containerColor = if (selectedMethod == "system") (if (kasirIsLight()) KasirAccentSoft else MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)) else (if (kasirIsLight()) Color.White else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))
                     ),
                     border = BorderStroke(
                         if (selectedMethod == "system") 2.dp else 1.dp,

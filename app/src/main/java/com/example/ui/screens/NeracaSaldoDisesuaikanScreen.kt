@@ -25,11 +25,14 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.AdjustmentEntry
@@ -38,6 +41,25 @@ import com.example.ui.MainViewModel
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+
+// --- ADAPTIVE LIGHT THEME PALETTE (NERACA SALDO DISESUAIKAN) ---
+private val KeuanganAccentDeep = Color(0xFF0F766E)
+private val KeuanganAccentSoft = Color(0xFFF0FDFA)
+private val KeuanganAccentBorder = Color(0xFF99F6E4)
+private val KeuanganHairline = Color(0xFFE2E8F0)
+private val KeuanganSunken = Color(0xFFF1F5F9)
+
+@Composable
+private fun neracaSaldoDisesuaikanIsLight(): Boolean = MaterialTheme.colorScheme.surface.luminance() > 0.5f
+
+@Composable
+private fun neracaSaldoDisesuaikanPanelColor(): Color = if (neracaSaldoDisesuaikanIsLight()) Color.White else MaterialTheme.colorScheme.surface
+
+@Composable
+private fun neracaSaldoDisesuaikanBorderColor(): Color = if (neracaSaldoDisesuaikanIsLight()) KeuanganHairline else MaterialTheme.colorScheme.outlineVariant
+
+@Composable
+private fun neracaSaldoDisesuaikanCardElevation(): Dp = if (neracaSaldoDisesuaikanIsLight()) 2.dp else 0.dp
 
 data class AdjustedTrialBalanceRow(
     val accountName: String,
@@ -164,13 +186,21 @@ fun NeracaSaldoDisesuaikanScreen(
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
         // --- HERO SUMMARY CARD ---
+        val heroIsLight = neracaSaldoDisesuaikanIsLight()
         Card(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(20.dp))
+                .background(
+                    if (heroIsLight) Brush.linearGradient(listOf(Color(0xFFF0FDFA), Color(0xFFCCFBF1)))
+                    else Brush.linearGradient(listOf(Color.Transparent, Color.Transparent))
+                ),
             shape = RoundedCornerShape(20.dp),
             colors = CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f)
+                containerColor = if (heroIsLight) Color.Transparent else MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f)
             ),
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.2f))
+            border = BorderStroke(1.dp, if (heroIsLight) KeuanganAccentBorder else MaterialTheme.colorScheme.primary.copy(alpha = 0.2f)),
+            elevation = CardDefaults.cardElevation(defaultElevation = neracaSaldoDisesuaikanCardElevation())
         ) {
             Column(
                 modifier = Modifier.padding(16.dp),
@@ -201,12 +231,12 @@ fun NeracaSaldoDisesuaikanScreen(
                                 text = "Neraca Saldo Disesuaikan",
                                 style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.Black,
-                                color = MaterialTheme.colorScheme.onPrimaryContainer
+                                color = if (heroIsLight) KeuanganAccentDeep else MaterialTheme.colorScheme.onPrimaryContainer
                             )
                             Text(
                                 text = "${rows.size} Akun Terdaftar",
                                 fontSize = 11.sp,
-                                color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
+                                color = if (heroIsLight) KeuanganAccentDeep.copy(alpha = 0.72f) else MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
                             )
                         }
                     }
@@ -235,8 +265,8 @@ fun NeracaSaldoDisesuaikanScreen(
                     Surface(
                         modifier = Modifier.weight(1f),
                         shape = RoundedCornerShape(12.dp),
-                        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.85f),
-                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.2f))
+                        color = if (heroIsLight) Color.White else MaterialTheme.colorScheme.surface.copy(alpha = 0.85f),
+                        border = BorderStroke(1.dp, if (heroIsLight) KeuanganAccentBorder else MaterialTheme.colorScheme.primary.copy(alpha = 0.2f))
                     ) {
                         Column(modifier = Modifier.padding(10.dp)) {
                             Text("Total Debet Akhir", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -253,8 +283,8 @@ fun NeracaSaldoDisesuaikanScreen(
                     Surface(
                         modifier = Modifier.weight(1f),
                         shape = RoundedCornerShape(12.dp),
-                        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.85f),
-                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.tertiary.copy(alpha = 0.2f))
+                        color = if (heroIsLight) Color.White else MaterialTheme.colorScheme.surface.copy(alpha = 0.85f),
+                        border = BorderStroke(1.dp, if (heroIsLight) KeuanganAccentBorder else MaterialTheme.colorScheme.tertiary.copy(alpha = 0.2f))
                     ) {
                         Column(modifier = Modifier.padding(10.dp)) {
                             Text("Total Kredit Akhir", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -317,14 +347,15 @@ fun NeracaSaldoDisesuaikanScreen(
                 .fillMaxWidth()
                 .weight(1f),
             shape = RoundedCornerShape(16.dp),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+            colors = CardDefaults.cardColors(containerColor = neracaSaldoDisesuaikanPanelColor()),
+            border = BorderStroke(1.dp, neracaSaldoDisesuaikanBorderColor()),
+            elevation = CardDefaults.cardElevation(defaultElevation = neracaSaldoDisesuaikanCardElevation())
         ) {
             Column(modifier = Modifier.fillMaxSize()) {
                 // Table Headers Row
                 Surface(
                     modifier = Modifier.fillMaxWidth(),
-                    color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f)
+                    color = if (neracaSaldoDisesuaikanIsLight()) KeuanganSunken else MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f)
                 ) {
                     Column {
                         Row(
@@ -413,7 +444,23 @@ fun NeracaSaldoDisesuaikanScreen(
                         contentAlignment = Alignment.Center
                     ) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Icon(Icons.Default.TableChart, contentDescription = null, modifier = Modifier.size(48.dp), tint = Color.LightGray)
+                            Box(
+                                modifier = Modifier
+                                    .size(72.dp)
+                                    .clip(RoundedCornerShape(36.dp))
+                                    .background(
+                                        if (neracaSaldoDisesuaikanIsLight()) KeuanganAccentSoft
+                                        else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                                    ),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    Icons.Default.TableChart,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(36.dp),
+                                    tint = if (neracaSaldoDisesuaikanIsLight()) KeuanganAccentDeep else Color.LightGray
+                                )
+                            }
                             Spacer(modifier = Modifier.height(12.dp))
                             Text(if (searchQuery.isNotEmpty()) "Tidak ada rekening yang cocok." else "Belum ada saldo akun.", fontSize = 13.sp, color = Color.Gray)
                         }
@@ -478,7 +525,10 @@ fun NeracaSaldoDisesuaikanScreen(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f))
+                            .background(
+                                if (neracaSaldoDisesuaikanIsLight()) KeuanganSunken
+                                else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
+                            )
                             .height(IntrinsicSize.Min),
                         verticalAlignment = Alignment.CenterVertically
                     ) {

@@ -36,12 +36,15 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.ui.MainViewModel
@@ -56,6 +59,29 @@ import org.json.JSONObject
 import java.util.*
 import java.util.concurrent.TimeUnit
 import okio.buffer
+
+// --- ADAPTIVE LIGHT THEME PALETTE (SHARE) ---
+private val ShareAccentDeep = Color(0xFF0369A1)
+private val ShareAccentSoft = Color(0xFFE0F2FE)
+private val ShareAccentBorder = Color(0xFFBAE6FD)
+private val ShareHairline = Color(0xFFE2E8F0)
+private val ShareSunken = Color(0xFFF1F5F9)
+
+@Composable
+private fun shareIsLight(): Boolean =
+    MaterialTheme.colorScheme.surface.luminance() > 0.5f
+
+@Composable
+private fun sharePanelColor(): Color =
+    if (shareIsLight()) Color.White else MaterialTheme.colorScheme.surface
+
+@Composable
+private fun shareBorderColor(): Color =
+    if (shareIsLight()) ShareHairline else MaterialTheme.colorScheme.outlineVariant
+
+@Composable
+private fun shareCardElevation(): Dp =
+    if (shareIsLight()) 2.dp else 0.dp
 
 // Model data file untuk Google Drive
 data class DriveFileItem(
@@ -680,7 +706,15 @@ fun ShareScreen(viewModel: MainViewModel) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f), RoundedCornerShape(12.dp))
+                        .background(
+                            if (shareIsLight()) ShareSunken else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                            RoundedCornerShape(12.dp)
+                        )
+                        .border(
+                            1.dp,
+                            if (shareIsLight()) shareBorderColor() else Color.Transparent,
+                            RoundedCornerShape(12.dp)
+                        )
                         .padding(4.dp),
                     horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
@@ -739,12 +773,23 @@ fun ShareScreen(viewModel: MainViewModel) {
                 verticalArrangement = Arrangement.Center,
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                Icon(
-                    imageVector = Icons.Outlined.CloudOff,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(64.dp)
-                )
+                Box(
+                    modifier = Modifier
+                        .size(104.dp)
+                        .clip(CircleShape)
+                        .background(
+                            if (shareIsLight()) ShareAccentSoft
+                            else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                        ),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.CloudOff,
+                        contentDescription = null,
+                        tint = if (shareIsLight()) ShareAccentDeep else MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(52.dp)
+                    )
+                }
                 Spacer(modifier = Modifier.height(16.dp))
                 Text(
                     text = "Penyimpanan Cloud Belum Aktif",
@@ -790,7 +835,15 @@ fun ShareScreen(viewModel: MainViewModel) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f), RoundedCornerShape(12.dp))
+                        .background(
+                            if (shareIsLight()) ShareSunken else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                            RoundedCornerShape(12.dp)
+                        )
+                        .border(
+                            1.dp,
+                            if (shareIsLight()) shareBorderColor() else Color.Transparent,
+                            RoundedCornerShape(12.dp)
+                        )
                         .padding(4.dp),
                     horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
@@ -830,16 +883,24 @@ fun ShareScreen(viewModel: MainViewModel) {
                 }
 
                 // Header Status Terhubung yang Elegan (Tanpa Emojis)
+                val heroIsLight = shareIsLight()
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
+                        .shadow(
+                            elevation = shareCardElevation(),
+                            shape = RoundedCornerShape(12.dp),
+                            clip = false
+                        )
                         .background(
-                            MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.2f),
+                            if (heroIsLight) ShareAccentSoft
+                            else MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.2f),
                             RoundedCornerShape(12.dp)
                         )
                         .border(
                             width = 1.dp,
-                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
+                            color = if (heroIsLight) ShareAccentBorder
+                            else MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
                             shape = RoundedCornerShape(12.dp)
                         )
                         .padding(horizontal = 14.dp, vertical = 10.dp),
@@ -853,13 +914,22 @@ fun ShareScreen(viewModel: MainViewModel) {
                         Box(
                             modifier = Modifier
                                 .size(32.dp)
-                                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.12f), CircleShape),
+                                .background(
+                                    if (heroIsLight) Color.White
+                                    else MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
+                                    CircleShape
+                                )
+                                .border(
+                                    1.dp,
+                                    if (heroIsLight) ShareAccentBorder else Color.Transparent,
+                                    CircleShape
+                                ),
                             contentAlignment = Alignment.Center
                         ) {
                             Icon(
                                 imageVector = Icons.Default.CloudDone,
                                 contentDescription = null,
-                                tint = MaterialTheme.colorScheme.primary,
+                                tint = if (heroIsLight) ShareAccentDeep else MaterialTheme.colorScheme.primary,
                                 modifier = Modifier.size(18.dp)
                             )
                         }
@@ -868,12 +938,13 @@ fun ShareScreen(viewModel: MainViewModel) {
                                 text = "Penyimpanan Cloud Aktif",
                                 fontSize = 13.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onSurface
+                                color = if (heroIsLight) ShareAccentDeep else MaterialTheme.colorScheme.onSurface
                             )
                             Text(
                                 text = if (isLoading) "Mensinkronkan berkas..." else "Terhubung ke Google Drive",
                                 fontSize = 11.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                color = if (heroIsLight) ShareAccentDeep.copy(alpha = 0.72f)
+                                else MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         }
                     }
@@ -882,13 +953,13 @@ fun ShareScreen(viewModel: MainViewModel) {
                         onClick = { fetchFileList() },
                         modifier = Modifier
                             .size(32.dp)
-                            .background(MaterialTheme.colorScheme.surface, CircleShape)
-                            .border(1.dp, MaterialTheme.colorScheme.outlineVariant, CircleShape)
+                            .background(sharePanelColor(), CircleShape)
+                            .border(1.dp, shareBorderColor(), CircleShape)
                     ) {
                         Icon(
                             imageVector = Icons.Default.Refresh,
                             contentDescription = "Segarkan",
-                            tint = MaterialTheme.colorScheme.primary,
+                            tint = if (heroIsLight) ShareAccentDeep else MaterialTheme.colorScheme.primary,
                             modifier = Modifier.size(16.dp)
                         )
                     }
@@ -918,7 +989,9 @@ fun ShareScreen(viewModel: MainViewModel) {
                             .testTag("upload_button"),
                         shape = RoundedCornerShape(10.dp),
                         colors = ButtonDefaults.buttonColors(
-                            containerColor = if (isUploading) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.primary
+                            containerColor = if (isUploading)
+                                if (shareIsLight()) ShareSunken else MaterialTheme.colorScheme.secondaryContainer
+                            else MaterialTheme.colorScheme.primary
                         ),
                         elevation = ButtonDefaults.buttonElevation(defaultElevation = 1.dp)
                     ) {
@@ -926,7 +999,7 @@ fun ShareScreen(viewModel: MainViewModel) {
                             CircularProgressIndicator(
                                 progress = animatedProgress,
                                 modifier = Modifier.size(18.dp),
-                                color = MaterialTheme.colorScheme.secondary,
+                                color = if (shareIsLight()) ShareAccentDeep else MaterialTheme.colorScheme.secondary,
                                 strokeWidth = 2.dp
                             )
                             Spacer(modifier = Modifier.width(8.dp))
@@ -934,7 +1007,7 @@ fun ShareScreen(viewModel: MainViewModel) {
                                 text = "Unggah $uploadProgress%",
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onSecondaryContainer
+                                color = if (shareIsLight()) ShareAccentDeep else MaterialTheme.colorScheme.onSecondaryContainer
                             )
                         } else {
                             Icon(Icons.Outlined.CloudUpload, contentDescription = "Upload", modifier = Modifier.size(18.dp))
@@ -968,7 +1041,16 @@ fun ShareScreen(viewModel: MainViewModel) {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .background(MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.4f), RoundedCornerShape(8.dp))
+                            .background(
+                                if (shareIsLight()) ShareAccentSoft
+                                else MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.4f),
+                                RoundedCornerShape(8.dp)
+                            )
+                            .border(
+                                1.dp,
+                                if (shareIsLight()) ShareAccentBorder else Color.Transparent,
+                                RoundedCornerShape(8.dp)
+                            )
                             .padding(horizontal = 12.dp, vertical = 6.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.Center
@@ -977,7 +1059,7 @@ fun ShareScreen(viewModel: MainViewModel) {
                             text = uploadStatusText,
                             fontSize = 11.sp,
                             fontWeight = FontWeight.Medium,
-                            color = MaterialTheme.colorScheme.secondary,
+                            color = if (shareIsLight()) ShareAccentDeep else MaterialTheme.colorScheme.secondary,
                             textAlign = TextAlign.Center
                         )
                     }
@@ -998,8 +1080,8 @@ fun ShareScreen(viewModel: MainViewModel) {
                     },
                     singleLine = true,
                     colors = TextFieldDefaults.colors(
-                        focusedContainerColor = MaterialTheme.colorScheme.surface,
-                        unfocusedContainerColor = MaterialTheme.colorScheme.surface,
+                        focusedContainerColor = sharePanelColor(),
+                        unfocusedContainerColor = sharePanelColor(),
                         focusedIndicatorColor = MaterialTheme.colorScheme.primary,
                         unfocusedIndicatorColor = Color.Transparent
                     ),
@@ -1008,7 +1090,8 @@ fun ShareScreen(viewModel: MainViewModel) {
                         .height(50.dp)
                         .border(
                             1.dp,
-                            MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
+                            if (shareIsLight()) ShareHairline
+                            else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
                             RoundedCornerShape(10.dp)
                         )
                         .clip(RoundedCornerShape(10.dp))
@@ -1027,13 +1110,21 @@ fun ShareScreen(viewModel: MainViewModel) {
                             onClick = { isSortMenuExpanded = true },
                             modifier = Modifier
                                 .size(38.dp)
-                                .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f), RoundedCornerShape(8.dp))
-                                .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(8.dp))
+                                .background(
+                                    if (shareIsLight()) ShareAccentSoft
+                                    else MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f),
+                                    RoundedCornerShape(8.dp)
+                                )
+                                .border(
+                                    1.dp,
+                                    if (shareIsLight()) ShareAccentBorder else MaterialTheme.colorScheme.outlineVariant,
+                                    RoundedCornerShape(8.dp)
+                                )
                         ) {
                             Icon(
                                 imageVector = Icons.Default.Sort,
                                 contentDescription = "Urutkan: $selectedSortOption",
-                                tint = MaterialTheme.colorScheme.primary,
+                                tint = if (shareIsLight()) ShareAccentDeep else MaterialTheme.colorScheme.primary,
                                 modifier = Modifier.size(18.dp)
                             )
                         }
@@ -1079,16 +1170,22 @@ fun ShareScreen(viewModel: MainViewModel) {
                                     { Icon(Icons.Default.Check, contentDescription = null, modifier = Modifier.size(14.dp)) }
                                 } else null,
                                 colors = FilterChipDefaults.filterChipColors(
-                                    selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
-                                    selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
-                                    labelColor = MaterialTheme.colorScheme.onSurfaceVariant
+                                    selectedContainerColor = if (shareIsLight()) ShareAccentSoft
+                                    else MaterialTheme.colorScheme.primaryContainer,
+                                    selectedLabelColor = if (shareIsLight()) ShareAccentDeep
+                                    else MaterialTheme.colorScheme.onPrimaryContainer,
+                                    containerColor = if (shareIsLight()) ShareSunken
+                                    else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
+                                    labelColor = if (shareIsLight()) MaterialTheme.colorScheme.onSurface
+                                    else MaterialTheme.colorScheme.onSurfaceVariant
                                 ),
                                 border = FilterChipDefaults.filterChipBorder(
                                     enabled = true,
                                     selected = isSelected,
-                                    borderColor = MaterialTheme.colorScheme.outlineVariant,
-                                    selectedBorderColor = MaterialTheme.colorScheme.primary
+                                    borderColor = if (shareIsLight()) shareBorderColor()
+                                    else MaterialTheme.colorScheme.outlineVariant,
+                                    selectedBorderColor = if (shareIsLight()) ShareAccentBorder
+                                    else MaterialTheme.colorScheme.primary
                                 ),
                                 shape = RoundedCornerShape(8.dp)
                             )
@@ -1106,7 +1203,13 @@ fun ShareScreen(viewModel: MainViewModel) {
                         modifier = Modifier
                             .fillMaxWidth()
                             .background(
-                                MaterialTheme.colorScheme.secondaryContainer,
+                                if (shareIsLight()) ShareAccentSoft
+                                else MaterialTheme.colorScheme.secondaryContainer,
+                                RoundedCornerShape(10.dp)
+                            )
+                            .border(
+                                1.dp,
+                                if (shareIsLight()) ShareAccentBorder else Color.Transparent,
                                 RoundedCornerShape(10.dp)
                             )
                             .padding(horizontal = 12.dp, vertical = 8.dp),
@@ -1118,13 +1221,17 @@ fun ShareScreen(viewModel: MainViewModel) {
                             horizontalArrangement = Arrangement.spacedBy(10.dp)
                         ) {
                             IconButton(onClick = { selectedFileIds = emptySet() }) {
-                                Icon(Icons.Default.Close, contentDescription = "Batal", tint = MaterialTheme.colorScheme.onSecondaryContainer)
+                                Icon(
+                                    Icons.Default.Close,
+                                    contentDescription = "Batal",
+                                    tint = if (shareIsLight()) ShareAccentDeep else MaterialTheme.colorScheme.onSecondaryContainer
+                                )
                             }
                             Text(
                                 text = "${selectedFileIds.size} file terpilih",
                                 fontSize = 13.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onSecondaryContainer
+                                color = if (shareIsLight()) ShareAccentDeep else MaterialTheme.colorScheme.onSecondaryContainer
                             )
                         }
 
@@ -1145,7 +1252,7 @@ fun ShareScreen(viewModel: MainViewModel) {
                                     text = if (isAllSelected) "Batal Semua" else "Pilih Semua",
                                     fontSize = 12.sp,
                                     fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.primary
+                                    color = if (shareIsLight()) ShareAccentDeep else MaterialTheme.colorScheme.primary
                                 )
                             }
 
@@ -1174,7 +1281,7 @@ fun ShareScreen(viewModel: MainViewModel) {
                                 Icon(
                                     imageVector = Icons.Default.OpenInNew,
                                     contentDescription = "Buka Terpilih",
-                                    tint = MaterialTheme.colorScheme.onSecondaryContainer
+                                    tint = if (shareIsLight()) ShareAccentDeep else MaterialTheme.colorScheme.onSecondaryContainer
                                 )
                             }
 
@@ -1195,13 +1302,19 @@ fun ShareScreen(viewModel: MainViewModel) {
                     modifier = Modifier
                         .fillMaxWidth()
                         .weight(1f)
+                        .shadow(
+                            elevation = shareCardElevation(),
+                            shape = RoundedCornerShape(12.dp),
+                            clip = false
+                        )
                         .border(
                             1.dp,
-                            MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
+                            if (shareIsLight()) shareBorderColor()
+                            else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
                             RoundedCornerShape(12.dp)
                         )
                         .clip(RoundedCornerShape(12.dp))
-                        .background(MaterialTheme.colorScheme.surface)
+                        .background(sharePanelColor())
                 ) {
                     if (isLoading) {
                         Column(
@@ -1229,12 +1342,24 @@ fun ShareScreen(viewModel: MainViewModel) {
                             verticalArrangement = Arrangement.Center,
                             horizontalAlignment = Alignment.CenterHorizontally
                         ) {
-                            Icon(
-                                imageVector = Icons.Outlined.FolderOpen,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f),
-                                modifier = Modifier.size(48.dp)
-                            )
+                            Box(
+                                modifier = Modifier
+                                    .size(88.dp)
+                                    .clip(CircleShape)
+                                    .background(
+                                        if (shareIsLight()) ShareAccentSoft
+                                        else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                                    ),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Outlined.FolderOpen,
+                                    contentDescription = null,
+                                    tint = if (shareIsLight()) ShareAccentDeep
+                                    else MaterialTheme.colorScheme.outline.copy(alpha = 0.5f),
+                                    modifier = Modifier.size(44.dp)
+                                )
+                            }
                             Spacer(modifier = Modifier.height(12.dp))
                             Text(
                                 text = "Tidak Ada File",
@@ -1290,7 +1415,10 @@ fun ShareScreen(viewModel: MainViewModel) {
                                     },
                                     onDelete = { fileToDelete = item }
                                 )
-                                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f))
+                                HorizontalDivider(
+                                    color = if (shareIsLight()) ShareHairline
+                                    else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.2f)
+                                )
                             }
                         }
                     }
@@ -1440,8 +1568,15 @@ fun TableFileRow(
         Box(
             modifier = Modifier
                 .size(38.dp)
-                .background(extensionColor.copy(alpha = 0.1f), CircleShape)
-                .border(1.dp, extensionColor.copy(alpha = 0.2f), CircleShape),
+                .background(
+                    extensionColor.copy(alpha = if (shareIsLight()) 0.12f else 0.1f),
+                    CircleShape
+                )
+                .border(
+                    1.dp,
+                    extensionColor.copy(alpha = if (shareIsLight()) 0.3f else 0.2f),
+                    CircleShape
+                ),
             contentAlignment = Alignment.Center
         ) {
             Icon(
@@ -1565,13 +1700,17 @@ fun AnimatedOfflineState(onRetry: () -> Unit) {
                 modifier = Modifier
                     .size(120.dp)
                     .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.primary.copy(alpha = opacityState * 0.18f))
+                    .background(
+                        if (shareIsLight()) ShareAccentSoft
+                        else MaterialTheme.colorScheme.primary.copy(alpha = opacityState * 0.18f)
+                    )
             )
 
             Icon(
                 imageVector = Icons.Default.Autorenew,
                 contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.35f),
+                tint = if (shareIsLight()) ShareAccentDeep.copy(alpha = opacityState * 0.25f)
+                else MaterialTheme.colorScheme.primary.copy(alpha = 0.35f),
                 modifier = Modifier
                     .size(110.dp)
                     .rotate(rotateAngle)
@@ -1581,14 +1720,19 @@ fun AnimatedOfflineState(onRetry: () -> Unit) {
                 modifier = Modifier
                     .size(76.dp)
                     .clip(CircleShape)
-                    .background(MaterialTheme.colorScheme.surface)
-                    .border(2.dp, MaterialTheme.colorScheme.primary, CircleShape),
+                    .background(sharePanelColor())
+                    .border(
+                        2.dp,
+                        if (shareIsLight()) ShareAccentDeep.copy(alpha = 0.45f)
+                        else MaterialTheme.colorScheme.primary,
+                        CircleShape
+                    ),
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
                     imageVector = Icons.Default.CloudOff,
                     contentDescription = "Offline Mode",
-                    tint = MaterialTheme.colorScheme.primary,
+                    tint = if (shareIsLight()) ShareAccentDeep else MaterialTheme.colorScheme.primary,
                     modifier = Modifier.size(40.dp)
                 )
             }

@@ -24,11 +24,14 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.JournalEntry
@@ -44,6 +47,25 @@ import androidx.compose.ui.platform.testTag
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+
+// --- ADAPTIVE LIGHT THEME PALETTE (JURNAL UMUM) ---
+private val KeuanganAccentDeep = Color(0xFF0F766E)
+private val KeuanganAccentSoft = Color(0xFFF0FDFA)
+private val KeuanganAccentBorder = Color(0xFF99F6E4)
+private val KeuanganHairline = Color(0xFFE2E8F0)
+private val KeuanganSunken = Color(0xFFF1F5F9)
+
+@Composable
+private fun jurnalUmumIsLight(): Boolean = MaterialTheme.colorScheme.surface.luminance() > 0.5f
+
+@Composable
+private fun jurnalUmumPanelColor(): Color = if (jurnalUmumIsLight()) Color.White else MaterialTheme.colorScheme.surface
+
+@Composable
+private fun jurnalUmumBorderColor(): Color = if (jurnalUmumIsLight()) KeuanganHairline else MaterialTheme.colorScheme.outlineVariant
+
+@Composable
+private fun jurnalUmumCardElevation(): Dp = if (jurnalUmumIsLight()) 2.dp else 0.dp
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -198,13 +220,21 @@ fun JurnalUmumScreen(
             verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
             // --- HERO SUMMARY CARD ---
+            val heroIsLight = jurnalUmumIsLight()
             Card(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(20.dp))
+                    .background(
+                        if (heroIsLight) Brush.linearGradient(listOf(Color(0xFFF0FDFA), Color(0xFFCCFBF1)))
+                        else Brush.linearGradient(listOf(Color.Transparent, Color.Transparent))
+                    ),
                 shape = RoundedCornerShape(20.dp),
                 colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f)
+                    containerColor = if (heroIsLight) Color.Transparent else MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f)
                 ),
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.2f))
+                border = BorderStroke(1.dp, if (heroIsLight) KeuanganAccentBorder else MaterialTheme.colorScheme.primary.copy(alpha = 0.2f)),
+                elevation = CardDefaults.cardElevation(defaultElevation = jurnalUmumCardElevation())
             ) {
                 Column(
                     modifier = Modifier.padding(16.dp),
@@ -235,12 +265,12 @@ fun JurnalUmumScreen(
                                     text = "Jurnal Umum",
                                     style = MaterialTheme.typography.titleMedium,
                                     fontWeight = FontWeight.Black,
-                                    color = MaterialTheme.colorScheme.onPrimaryContainer
+                                    color = if (heroIsLight) KeuanganAccentDeep else MaterialTheme.colorScheme.onPrimaryContainer
                                 )
                                 Text(
                                     text = "${journalEntries.size} Transaksi Tercatat",
                                     fontSize = 11.sp,
-                                    color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
+                                    color = if (heroIsLight) KeuanganAccentDeep.copy(alpha = 0.72f) else MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
                                 )
                             }
                         }
@@ -280,8 +310,8 @@ fun JurnalUmumScreen(
                         Surface(
                             modifier = Modifier.weight(1f),
                             shape = RoundedCornerShape(12.dp),
-                            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.8f),
-                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.2f))
+                            color = if (heroIsLight) Color.White else MaterialTheme.colorScheme.surface.copy(alpha = 0.8f),
+                            border = BorderStroke(1.dp, if (heroIsLight) KeuanganAccentBorder else MaterialTheme.colorScheme.primary.copy(alpha = 0.2f))
                         ) {
                             Column(modifier = Modifier.padding(10.dp)) {
                                 Text("Total Debet", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -298,8 +328,8 @@ fun JurnalUmumScreen(
                         Surface(
                             modifier = Modifier.weight(1f),
                             shape = RoundedCornerShape(12.dp),
-                            color = MaterialTheme.colorScheme.surface.copy(alpha = 0.8f),
-                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.tertiary.copy(alpha = 0.2f))
+                            color = if (heroIsLight) Color.White else MaterialTheme.colorScheme.surface.copy(alpha = 0.8f),
+                            border = BorderStroke(1.dp, if (heroIsLight) KeuanganAccentBorder else MaterialTheme.colorScheme.tertiary.copy(alpha = 0.2f))
                         ) {
                             Column(modifier = Modifier.padding(10.dp)) {
                                 Text("Total Kredit", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -376,15 +406,16 @@ fun JurnalUmumScreen(
                     .weight(1f),
                 shape = RoundedCornerShape(16.dp),
                 colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surface
+                    containerColor = jurnalUmumPanelColor()
                 ),
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+                border = BorderStroke(1.dp, jurnalUmumBorderColor()),
+                elevation = CardDefaults.cardElevation(defaultElevation = jurnalUmumCardElevation())
             ) {
                 Column(modifier = Modifier.fillMaxSize()) {
                     // Table Headers Row
                     Surface(
                         modifier = Modifier.fillMaxWidth(),
-                        color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f)
+                        color = if (jurnalUmumIsLight()) KeuanganSunken else MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f)
                     ) {
                         Row(
                             modifier = Modifier
@@ -397,7 +428,7 @@ fun JurnalUmumScreen(
                                     text = "Tanggal",
                                     fontWeight = FontWeight.Bold,
                                     fontSize = 11.sp,
-                                    color = MaterialTheme.colorScheme.onSecondaryContainer
+                                    color = if (jurnalUmumIsLight()) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSecondaryContainer
                                 )
                             }
                             Box(modifier = Modifier.fillMaxHeight().width(1.dp).background(MaterialTheme.colorScheme.outlineVariant))
@@ -406,7 +437,7 @@ fun JurnalUmumScreen(
                                     text = "Akun & Keterangan",
                                     fontWeight = FontWeight.Bold,
                                     fontSize = 11.sp,
-                                    color = MaterialTheme.colorScheme.onSecondaryContainer
+                                    color = if (jurnalUmumIsLight()) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSecondaryContainer
                                 )
                             }
                             Box(modifier = Modifier.fillMaxHeight().width(1.dp).background(MaterialTheme.colorScheme.outlineVariant))
@@ -417,7 +448,7 @@ fun JurnalUmumScreen(
                                     fontSize = 11.sp,
                                     textAlign = TextAlign.Center,
                                     modifier = Modifier.fillMaxWidth(),
-                                    color = MaterialTheme.colorScheme.onSecondaryContainer
+                                    color = if (jurnalUmumIsLight()) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSecondaryContainer
                                 )
                             }
                             Box(modifier = Modifier.fillMaxHeight().width(1.dp).background(MaterialTheme.colorScheme.outlineVariant))
@@ -428,7 +459,7 @@ fun JurnalUmumScreen(
                                     fontSize = 11.sp,
                                     textAlign = TextAlign.End,
                                     modifier = Modifier.fillMaxWidth(),
-                                    color = MaterialTheme.colorScheme.onSecondaryContainer
+                                    color = if (jurnalUmumIsLight()) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSecondaryContainer
                                 )
                             }
                             Box(modifier = Modifier.fillMaxHeight().width(1.dp).background(MaterialTheme.colorScheme.outlineVariant))
@@ -439,7 +470,7 @@ fun JurnalUmumScreen(
                                     fontSize = 11.sp,
                                     textAlign = TextAlign.End,
                                     modifier = Modifier.fillMaxWidth(),
-                                    color = MaterialTheme.colorScheme.onSecondaryContainer
+                                    color = if (jurnalUmumIsLight()) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSecondaryContainer
                                 )
                             }
                         }
@@ -455,12 +486,23 @@ fun JurnalUmumScreen(
                             contentAlignment = Alignment.Center
                         ) {
                             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                Icon(
-                                    imageVector = Icons.Default.MenuBook,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(54.dp),
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
-                                )
+                                Box(
+                                    modifier = Modifier
+                                        .size(76.dp)
+                                        .clip(RoundedCornerShape(38.dp))
+                                        .background(
+                                            if (jurnalUmumIsLight()) KeuanganAccentSoft
+                                            else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                                        ),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.MenuBook,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(38.dp),
+                                        tint = if (jurnalUmumIsLight()) KeuanganAccentDeep else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
+                                    )
+                                }
                                 Spacer(modifier = Modifier.height(12.dp))
                                 Text(
                                     text = if (searchQuery.isNotEmpty()) "Tidak ada transaksi yang cocok." else "Belum ada entri transaksi di jurnal.",
@@ -621,7 +663,10 @@ fun JurnalUmumScreen(
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f))
+                                .background(
+                                    if (jurnalUmumIsLight()) KeuanganSunken
+                                    else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
+                                )
                                 .height(IntrinsicSize.Min),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
@@ -808,10 +853,14 @@ fun DialogInputTransaksiBaru(
                             .weight(1f)
                             .clickable { showDebetPicker = true },
                         colors = CardDefaults.cardColors(
-                            containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.25f)
+                            containerColor = if (jurnalUmumIsLight()) KeuanganAccentSoft
+                            else MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.25f)
                         ),
                         shape = RoundedCornerShape(12.dp),
-                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.3f))
+                        border = BorderStroke(
+                            1.dp,
+                            if (jurnalUmumIsLight()) KeuanganAccentBorder else MaterialTheme.colorScheme.primary.copy(alpha = 0.3f)
+                        )
                     ) {
                         Column(
                             modifier = Modifier.padding(12.dp),
@@ -843,10 +892,14 @@ fun DialogInputTransaksiBaru(
                             .weight(1f)
                             .clickable { showKreditPicker = true },
                         colors = CardDefaults.cardColors(
-                            containerColor = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.25f)
+                            containerColor = if (jurnalUmumIsLight()) KeuanganSunken
+                            else MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.25f)
                         ),
                         shape = RoundedCornerShape(12.dp),
-                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.tertiary.copy(alpha = 0.3f))
+                        border = BorderStroke(
+                            1.dp,
+                            if (jurnalUmumIsLight()) KeuanganAccentBorder else MaterialTheme.colorScheme.tertiary.copy(alpha = 0.3f)
+                        )
                     ) {
                         Column(
                             modifier = Modifier.padding(12.dp),

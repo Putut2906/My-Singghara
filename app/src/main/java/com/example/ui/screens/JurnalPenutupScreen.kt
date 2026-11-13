@@ -23,11 +23,14 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.AdjustmentEntry
@@ -36,6 +39,25 @@ import com.example.ui.MainViewModel
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+
+// --- ADAPTIVE LIGHT THEME PALETTE (JURNAL PENUTUP) ---
+private val KeuanganAccentDeep = Color(0xFF0F766E)
+private val KeuanganAccentSoft = Color(0xFFF0FDFA)
+private val KeuanganAccentBorder = Color(0xFF99F6E4)
+private val KeuanganHairline = Color(0xFFE2E8F0)
+private val KeuanganSunken = Color(0xFFF1F5F9)
+
+@Composable
+private fun jurnalPenutupIsLight(): Boolean = MaterialTheme.colorScheme.surface.luminance() > 0.5f
+
+@Composable
+private fun jurnalPenutupPanelColor(): Color = if (jurnalPenutupIsLight()) Color.White else MaterialTheme.colorScheme.surface
+
+@Composable
+private fun jurnalPenutupBorderColor(): Color = if (jurnalPenutupIsLight()) KeuanganHairline else MaterialTheme.colorScheme.outlineVariant
+
+@Composable
+private fun jurnalPenutupCardElevation(): Dp = if (jurnalPenutupIsLight()) 2.dp else 0.dp
 
 data class ClosingJournalRow(
     val date: String,
@@ -186,13 +208,21 @@ fun JurnalPenutupScreen(
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
         // --- HERO SUMMARY CARD ---
+        val heroIsLight = jurnalPenutupIsLight()
         Card(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(20.dp))
+                .background(
+                    if (heroIsLight) Brush.linearGradient(listOf(Color(0xFFF0FDFA), Color(0xFFCCFBF1)))
+                    else Brush.linearGradient(listOf(Color.Transparent, Color.Transparent))
+                ),
             shape = RoundedCornerShape(20.dp),
             colors = CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f)
+                containerColor = if (heroIsLight) Color.Transparent else MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f)
             ),
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.2f))
+            border = BorderStroke(1.dp, if (heroIsLight) KeuanganAccentBorder else MaterialTheme.colorScheme.primary.copy(alpha = 0.2f)),
+            elevation = CardDefaults.cardElevation(defaultElevation = jurnalPenutupCardElevation())
         ) {
             Column(
                 modifier = Modifier.padding(16.dp),
@@ -223,12 +253,12 @@ fun JurnalPenutupScreen(
                                 text = "Jurnal Penutup",
                                 style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.Black,
-                                color = MaterialTheme.colorScheme.onPrimaryContainer
+                                color = if (heroIsLight) KeuanganAccentDeep else MaterialTheme.colorScheme.onPrimaryContainer
                             )
                             Text(
                                 text = "${closingRows.size} Baris Entri Penutupan",
                                 fontSize = 11.sp,
-                                color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
+                                color = if (heroIsLight) KeuanganAccentDeep.copy(alpha = 0.72f) else MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
                             )
                         }
                     }
@@ -256,8 +286,8 @@ fun JurnalPenutupScreen(
                     Surface(
                         modifier = Modifier.weight(1f),
                         shape = RoundedCornerShape(12.dp),
-                        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.85f),
-                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.2f))
+                        color = if (heroIsLight) Color.White else MaterialTheme.colorScheme.surface.copy(alpha = 0.85f),
+                        border = BorderStroke(1.dp, if (heroIsLight) KeuanganAccentBorder else MaterialTheme.colorScheme.primary.copy(alpha = 0.2f))
                     ) {
                         Column(modifier = Modifier.padding(10.dp)) {
                             Text("Total Penutupan", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -273,8 +303,8 @@ fun JurnalPenutupScreen(
                     Surface(
                         modifier = Modifier.weight(1f),
                         shape = RoundedCornerShape(12.dp),
-                        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.85f),
-                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.2f))
+                        color = if (heroIsLight) Color.White else MaterialTheme.colorScheme.surface.copy(alpha = 0.85f),
+                        border = BorderStroke(1.dp, if (heroIsLight) KeuanganAccentBorder else MaterialTheme.colorScheme.primary.copy(alpha = 0.2f))
                     ) {
                         Column(modifier = Modifier.padding(10.dp)) {
                             Text("Status Penutupan", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -296,14 +326,15 @@ fun JurnalPenutupScreen(
                 .fillMaxWidth()
                 .weight(1f),
             shape = RoundedCornerShape(16.dp),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+            colors = CardDefaults.cardColors(containerColor = jurnalPenutupPanelColor()),
+            border = BorderStroke(1.dp, jurnalPenutupBorderColor()),
+            elevation = CardDefaults.cardElevation(defaultElevation = jurnalPenutupCardElevation())
         ) {
             Column(modifier = Modifier.fillMaxSize()) {
                 // Table header
                 Surface(
                     modifier = Modifier.fillMaxWidth(),
-                    color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f)
+                    color = if (jurnalPenutupIsLight()) KeuanganSunken else MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f)
                 ) {
                     Row(
                         modifier = Modifier
@@ -343,7 +374,23 @@ fun JurnalPenutupScreen(
                         contentAlignment = Alignment.Center
                     ) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Icon(Icons.Default.LibraryBooks, contentDescription = null, modifier = Modifier.size(48.dp), tint = Color.LightGray)
+                            Box(
+                                modifier = Modifier
+                                    .size(72.dp)
+                                    .clip(RoundedCornerShape(36.dp))
+                                    .background(
+                                        if (jurnalPenutupIsLight()) KeuanganAccentSoft
+                                        else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                                    ),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    Icons.Default.LibraryBooks,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(36.dp),
+                                    tint = if (jurnalPenutupIsLight()) KeuanganAccentDeep else Color.LightGray
+                                )
+                            }
                             Spacer(modifier = Modifier.height(12.dp))
                             Text("Belum ada perkiraan yang ditutup.", fontSize = 12.sp, color = Color.Gray)
                         }
@@ -359,8 +406,12 @@ fun JurnalPenutupScreen(
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .background(
-                                        if (row.indexGroup % 2 == 0) Color.Transparent 
-                                        else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.15f)
+                                        when {
+                                            jurnalPenutupIsLight() && row.indexGroup % 2 == 0 -> Color.White
+                                            jurnalPenutupIsLight() -> Color(0xFFF8FAFC)
+                                            row.indexGroup % 2 == 0 -> Color.Transparent
+                                            else -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.15f)
+                                        }
                                     )
                             ) {
                                 Row(
@@ -433,7 +484,10 @@ fun JurnalPenutupScreen(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f))
+                            .background(
+                                if (jurnalPenutupIsLight()) KeuanganSunken
+                                else MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
+                            )
                             .height(IntrinsicSize.Min),
                         verticalAlignment = Alignment.CenterVertically
                     ) {

@@ -23,11 +23,14 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.AdjustmentEntry
@@ -36,6 +39,25 @@ import com.example.ui.MainViewModel
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+
+// --- ADAPTIVE LIGHT THEME PALETTE (LABA RUGI) ---
+private val KeuanganAccentDeep = Color(0xFF0F766E)
+private val KeuanganAccentSoft = Color(0xFFF0FDFA)
+private val KeuanganAccentBorder = Color(0xFF99F6E4)
+private val KeuanganHairline = Color(0xFFE2E8F0)
+private val KeuanganSunken = Color(0xFFF1F5F9)
+
+@Composable
+private fun labaRugiIsLight(): Boolean = MaterialTheme.colorScheme.surface.luminance() > 0.5f
+
+@Composable
+private fun labaRugiPanelColor(): Color = if (labaRugiIsLight()) Color.White else MaterialTheme.colorScheme.surface
+
+@Composable
+private fun labaRugiBorderColor(): Color = if (labaRugiIsLight()) KeuanganHairline else MaterialTheme.colorScheme.outlineVariant
+
+@Composable
+private fun labaRugiCardElevation(): Dp = if (labaRugiIsLight()) 2.dp else 0.dp
 
 data class StatementItem(
     val accountName: String,
@@ -138,16 +160,32 @@ fun LabaRugiScreen(
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
         // --- NET PROFIT/LOSS HERO SHOWCASE CARD ---
+        val heroIsLight = labaRugiIsLight()
         Card(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(20.dp))
+                .background(
+                    if (heroIsLight && isProfit) Brush.linearGradient(listOf(Color(0xFFF0FDFA), Color(0xFFCCFBF1)))
+                    else Brush.linearGradient(listOf(Color.Transparent, Color.Transparent))
+                ),
             shape = RoundedCornerShape(20.dp),
             colors = CardDefaults.cardColors(
-                containerColor = if (isProfit) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f) else MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.5f)
+                containerColor = when {
+                    heroIsLight && isProfit -> Color.Transparent
+                    isProfit -> MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
+                    else -> MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.5f)
+                }
             ),
             border = BorderStroke(
                 1.dp,
-                if (isProfit) MaterialTheme.colorScheme.primary.copy(alpha = 0.3f) else MaterialTheme.colorScheme.error.copy(alpha = 0.3f)
-            )
+                when {
+                    heroIsLight && isProfit -> KeuanganAccentBorder
+                    isProfit -> MaterialTheme.colorScheme.primary.copy(alpha = 0.3f)
+                    else -> MaterialTheme.colorScheme.error.copy(alpha = 0.3f)
+                }
+            ),
+            elevation = CardDefaults.cardElevation(defaultElevation = labaRugiCardElevation())
         ) {
             Column(
                 modifier = Modifier.padding(18.dp),
@@ -181,12 +219,20 @@ fun LabaRugiScreen(
                                 text = if (isProfit) "LABA BERSIH" else "RUGI BERSIH",
                                 style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.Black,
-                                color = if (isProfit) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onErrorContainer
+                                color = when {
+                                    isProfit && heroIsLight -> KeuanganAccentDeep
+                                    isProfit -> MaterialTheme.colorScheme.onPrimaryContainer
+                                    else -> MaterialTheme.colorScheme.onErrorContainer
+                                }
                             )
                             Text(
                                 text = "Laporan Laba Rugi Periode Ini",
                                 fontSize = 11.sp,
-                                color = (if (isProfit) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onErrorContainer).copy(alpha = 0.7f)
+                                color = when {
+                                    isProfit && heroIsLight -> KeuanganAccentDeep.copy(alpha = 0.72f)
+                                    isProfit -> MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
+                                    else -> MaterialTheme.colorScheme.onErrorContainer.copy(alpha = 0.7f)
+                                }
                             )
                         }
                     }
@@ -222,7 +268,8 @@ fun LabaRugiScreen(
                     Surface(
                         modifier = Modifier.weight(1f),
                         shape = RoundedCornerShape(12.dp),
-                        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.85f)
+                        color = if (heroIsLight && isProfit) Color.White else MaterialTheme.colorScheme.surface.copy(alpha = 0.85f),
+                        border = if (heroIsLight && isProfit) BorderStroke(1.dp, KeuanganAccentBorder) else null
                     ) {
                         Column(modifier = Modifier.padding(10.dp)) {
                             Text("Total Pendapatan", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -233,7 +280,8 @@ fun LabaRugiScreen(
                     Surface(
                         modifier = Modifier.weight(1f),
                         shape = RoundedCornerShape(12.dp),
-                        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.85f)
+                        color = if (heroIsLight && isProfit) Color.White else MaterialTheme.colorScheme.surface.copy(alpha = 0.85f),
+                        border = if (heroIsLight && isProfit) BorderStroke(1.dp, KeuanganAccentBorder) else null
                     ) {
                         Column(modifier = Modifier.padding(10.dp)) {
                             Text("Total Beban", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -250,8 +298,9 @@ fun LabaRugiScreen(
                 .fillMaxWidth()
                 .weight(1f),
             shape = RoundedCornerShape(16.dp),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+            colors = CardDefaults.cardColors(containerColor = labaRugiPanelColor()),
+            border = BorderStroke(1.dp, labaRugiBorderColor()),
+            elevation = CardDefaults.cardElevation(defaultElevation = labaRugiCardElevation())
         ) {
             LazyColumn(
                 modifier = Modifier.fillMaxSize()
@@ -260,7 +309,7 @@ fun LabaRugiScreen(
                 item {
                     Surface(
                         modifier = Modifier.fillMaxWidth(),
-                        color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f)
+                        color = if (labaRugiIsLight()) KeuanganSunken else MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f)
                     ) {
                         Row(
                             modifier = Modifier
@@ -273,7 +322,7 @@ fun LabaRugiScreen(
                                     text = "Keterangan / Akun Laba Rugi",
                                     fontWeight = FontWeight.Bold,
                                     fontSize = 12.sp,
-                                    color = MaterialTheme.colorScheme.onSecondaryContainer
+                                    color = if (labaRugiIsLight()) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSecondaryContainer
                                 )
                             }
                             Box(modifier = Modifier.fillMaxHeight().width(1.dp).background(MaterialTheme.colorScheme.outlineVariant))
@@ -284,7 +333,7 @@ fun LabaRugiScreen(
                                     fontSize = 12.sp,
                                     textAlign = TextAlign.Center,
                                     modifier = Modifier.fillMaxWidth(),
-                                    color = MaterialTheme.colorScheme.onSecondaryContainer
+                                    color = if (labaRugiIsLight()) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSecondaryContainer
                                 )
                             }
                             Box(modifier = Modifier.fillMaxHeight().width(1.dp).background(MaterialTheme.colorScheme.outlineVariant))
@@ -295,7 +344,7 @@ fun LabaRugiScreen(
                                     fontSize = 12.sp,
                                     textAlign = TextAlign.End,
                                     modifier = Modifier.fillMaxWidth(),
-                                    color = MaterialTheme.colorScheme.onSecondaryContainer
+                                    color = if (labaRugiIsLight()) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSecondaryContainer
                                 )
                             }
                         }
@@ -307,7 +356,7 @@ fun LabaRugiScreen(
                 item {
                     Surface(
                         modifier = Modifier.fillMaxWidth(),
-                        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.25f)
+                        color = if (labaRugiIsLight()) KeuanganAccentSoft else MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.25f)
                     ) {
                         Row(
                             modifier = Modifier
@@ -382,7 +431,10 @@ fun LabaRugiScreen(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
+                            .background(
+                                if (labaRugiIsLight()) KeuanganSunken
+                                else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+                            )
                             .height(IntrinsicSize.Min),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
@@ -483,7 +535,10 @@ fun LabaRugiScreen(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
+                            .background(
+                                if (labaRugiIsLight()) KeuanganSunken
+                                else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+                            )
                             .height(IntrinsicSize.Min),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
@@ -510,7 +565,10 @@ fun LabaRugiScreen(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.8f))
+                            .background(
+                                if (labaRugiIsLight()) KeuanganSunken
+                                else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.8f)
+                            )
                             .height(IntrinsicSize.Min),
                         verticalAlignment = Alignment.CenterVertically
                     ) {

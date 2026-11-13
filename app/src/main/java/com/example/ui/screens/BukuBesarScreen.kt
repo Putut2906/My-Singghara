@@ -32,14 +32,36 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.JournalEntry
 import com.example.ui.MainViewModel
+
+// --- ADAPTIVE LIGHT THEME PALETTE (BUKU BESAR) ---
+private val KeuanganAccentDeep = Color(0xFF0F766E)
+private val KeuanganAccentSoft = Color(0xFFF0FDFA)
+private val KeuanganAccentBorder = Color(0xFF99F6E4)
+private val KeuanganHairline = Color(0xFFE2E8F0)
+private val KeuanganSunken = Color(0xFFF1F5F9)
+
+@Composable
+private fun bukuBesarIsLight(): Boolean = MaterialTheme.colorScheme.surface.luminance() > 0.5f
+
+@Composable
+private fun bukuBesarPanelColor(): Color = if (bukuBesarIsLight()) Color.White else MaterialTheme.colorScheme.surface
+
+@Composable
+private fun bukuBesarBorderColor(): Color = if (bukuBesarIsLight()) KeuanganHairline else MaterialTheme.colorScheme.outlineVariant
+
+@Composable
+private fun bukuBesarCardElevation(): Dp = if (bukuBesarIsLight()) 2.dp else 0.dp
 
 data class LedgerItem(
     val tanggal: String,
@@ -84,12 +106,23 @@ fun BukuBesarScreen(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center
             ) {
-                Icon(
-                    imageVector = Icons.Default.AccountBalance,
-                    contentDescription = null,
-                    modifier = Modifier.size(72.dp),
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f)
-                )
+                Box(
+                    modifier = Modifier
+                        .size(96.dp)
+                        .clip(RoundedCornerShape(48.dp))
+                        .background(
+                            if (bukuBesarIsLight()) KeuanganAccentSoft
+                            else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                        ),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.AccountBalance,
+                        contentDescription = null,
+                        modifier = Modifier.size(46.dp),
+                        tint = if (bukuBesarIsLight()) KeuanganAccentDeep else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f)
+                    )
+                }
                 Spacer(modifier = Modifier.height(16.dp))
                 Text(
                     text = "Buku Besar Kosong",
@@ -167,13 +200,21 @@ fun BukuBesarScreen(
         verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
         // --- HERO SUMMARY CARD ---
+        val heroIsLight = bukuBesarIsLight()
         Card(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(20.dp))
+                .background(
+                    if (heroIsLight) Brush.linearGradient(listOf(Color(0xFFF0FDFA), Color(0xFFCCFBF1)))
+                    else Brush.linearGradient(listOf(Color.Transparent, Color.Transparent))
+                ),
             shape = RoundedCornerShape(20.dp),
             colors = CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f)
+                containerColor = if (heroIsLight) Color.Transparent else MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f)
             ),
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.2f))
+            border = BorderStroke(1.dp, if (heroIsLight) KeuanganAccentBorder else MaterialTheme.colorScheme.primary.copy(alpha = 0.2f)),
+            elevation = CardDefaults.cardElevation(defaultElevation = bukuBesarCardElevation())
         ) {
             Column(
                 modifier = Modifier.padding(16.dp),
@@ -204,13 +245,13 @@ fun BukuBesarScreen(
                                 text = "Buku Besar",
                                 style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.Black,
-                                color = MaterialTheme.colorScheme.onPrimaryContainer
+                                color = if (heroIsLight) KeuanganAccentDeep else MaterialTheme.colorScheme.onPrimaryContainer
                             )
                             Text(
                                 text = "Akun: $selectedAccount",
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.SemiBold,
-                                color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
+                                color = if (heroIsLight) KeuanganAccentDeep.copy(alpha = 0.8f) else MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
                             )
                         }
                     }
@@ -238,8 +279,8 @@ fun BukuBesarScreen(
                     Surface(
                         modifier = Modifier.weight(1f),
                         shape = RoundedCornerShape(12.dp),
-                        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.85f),
-                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.2f))
+                        color = if (heroIsLight) Color.White else MaterialTheme.colorScheme.surface.copy(alpha = 0.85f),
+                        border = BorderStroke(1.dp, if (heroIsLight) KeuanganAccentBorder else MaterialTheme.colorScheme.primary.copy(alpha = 0.2f))
                     ) {
                         Column(modifier = Modifier.padding(10.dp)) {
                             Text("Total Debet", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -256,8 +297,8 @@ fun BukuBesarScreen(
                     Surface(
                         modifier = Modifier.weight(1f),
                         shape = RoundedCornerShape(12.dp),
-                        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.85f),
-                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.tertiary.copy(alpha = 0.2f))
+                        color = if (heroIsLight) Color.White else MaterialTheme.colorScheme.surface.copy(alpha = 0.85f),
+                        border = BorderStroke(1.dp, if (heroIsLight) KeuanganAccentBorder else MaterialTheme.colorScheme.tertiary.copy(alpha = 0.2f))
                     ) {
                         Column(modifier = Modifier.padding(10.dp)) {
                             Text("Total Kredit", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -274,8 +315,8 @@ fun BukuBesarScreen(
                     Surface(
                         modifier = Modifier.weight(1.2f),
                         shape = RoundedCornerShape(12.dp),
-                        color = MaterialTheme.colorScheme.surface.copy(alpha = 0.85f),
-                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.3f))
+                        color = if (heroIsLight) Color.White else MaterialTheme.colorScheme.surface.copy(alpha = 0.85f),
+                        border = BorderStroke(1.dp, if (heroIsLight) KeuanganAccentDeep.copy(alpha = 0.35f) else MaterialTheme.colorScheme.primary.copy(alpha = 0.3f))
                     ) {
                         Column(modifier = Modifier.padding(10.dp)) {
                             Text("Saldo Akhir ($finalBalanceType)", fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -311,8 +352,9 @@ fun BukuBesarScreen(
                         ) 
                     },
                     colors = FilterChipDefaults.filterChipColors(
-                        selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
-                        selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer
+                        containerColor = if (bukuBesarIsLight()) Color.White else Color.Transparent,
+                        selectedContainerColor = if (bukuBesarIsLight()) KeuanganAccentSoft else MaterialTheme.colorScheme.primaryContainer,
+                        selectedLabelColor = if (bukuBesarIsLight()) KeuanganAccentDeep else MaterialTheme.colorScheme.onPrimaryContainer
                     ),
                     shape = RoundedCornerShape(12.dp)
                 )
@@ -368,15 +410,16 @@ fun BukuBesarScreen(
                 .weight(1f),
             shape = RoundedCornerShape(16.dp),
             colors = CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.surface
+                containerColor = bukuBesarPanelColor()
             ),
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+            border = BorderStroke(1.dp, bukuBesarBorderColor()),
+            elevation = CardDefaults.cardElevation(defaultElevation = bukuBesarCardElevation())
         ) {
             Column(modifier = Modifier.fillMaxSize()) {
                 // Table Headers Row
                 Surface(
                     modifier = Modifier.fillMaxWidth(),
-                    color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f)
+                    color = if (bukuBesarIsLight()) KeuanganSunken else MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f)
                 ) {
                     Row(
                         modifier = Modifier
@@ -389,7 +432,7 @@ fun BukuBesarScreen(
                                 text = "Tanggal",
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 11.sp,
-                                color = MaterialTheme.colorScheme.onSecondaryContainer
+                                color = if (bukuBesarIsLight()) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSecondaryContainer
                             )
                         }
                         Box(modifier = Modifier.fillMaxHeight().width(1.dp).background(MaterialTheme.colorScheme.outlineVariant))
@@ -398,7 +441,7 @@ fun BukuBesarScreen(
                                 text = "Keterangan",
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 11.sp,
-                                color = MaterialTheme.colorScheme.onSecondaryContainer
+                                color = if (bukuBesarIsLight()) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSecondaryContainer
                             )
                         }
                         Box(modifier = Modifier.fillMaxHeight().width(1.dp).background(MaterialTheme.colorScheme.outlineVariant))
@@ -409,7 +452,7 @@ fun BukuBesarScreen(
                                 fontSize = 11.sp,
                                 textAlign = TextAlign.Center,
                                 modifier = Modifier.fillMaxWidth(),
-                                color = MaterialTheme.colorScheme.onSecondaryContainer
+                                color = if (bukuBesarIsLight()) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSecondaryContainer
                             )
                         }
                         Box(modifier = Modifier.fillMaxHeight().width(1.dp).background(MaterialTheme.colorScheme.outlineVariant))
@@ -420,7 +463,7 @@ fun BukuBesarScreen(
                                 fontSize = 11.sp,
                                 textAlign = TextAlign.End,
                                 modifier = Modifier.fillMaxWidth(),
-                                color = MaterialTheme.colorScheme.onSecondaryContainer
+                                color = if (bukuBesarIsLight()) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSecondaryContainer
                             )
                         }
                         Box(modifier = Modifier.fillMaxHeight().width(1.dp).background(MaterialTheme.colorScheme.outlineVariant))
@@ -431,7 +474,7 @@ fun BukuBesarScreen(
                                 fontSize = 11.sp,
                                 textAlign = TextAlign.End,
                                 modifier = Modifier.fillMaxWidth(),
-                                color = MaterialTheme.colorScheme.onSecondaryContainer
+                                color = if (bukuBesarIsLight()) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSecondaryContainer
                             )
                         }
                         Box(modifier = Modifier.fillMaxHeight().width(1.dp).background(MaterialTheme.colorScheme.outlineVariant))
@@ -442,7 +485,7 @@ fun BukuBesarScreen(
                                 fontSize = 11.sp,
                                 textAlign = TextAlign.End,
                                 modifier = Modifier.fillMaxWidth(),
-                                color = MaterialTheme.colorScheme.onSecondaryContainer
+                                color = if (bukuBesarIsLight()) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSecondaryContainer
                             )
                         }
                     }

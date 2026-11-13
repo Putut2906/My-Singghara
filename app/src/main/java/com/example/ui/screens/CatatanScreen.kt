@@ -45,6 +45,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
@@ -56,6 +57,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -64,6 +66,29 @@ import com.example.ui.MainViewModel
 import kotlinx.coroutines.delay
 import java.text.SimpleDateFormat
 import java.util.*
+
+// --- ADAPTIVE LIGHT THEME PALETTE (CATATAN) ---
+private val CatatanAccentDeep = Color(0xFF6D28D9)
+private val CatatanAccentSoft = Color(0xFFF5F3FF)
+private val CatatanAccentBorder = Color(0xFFDDD6FE)
+private val CatatanHairline = Color(0xFFE2E8F0)
+private val CatatanSunken = Color(0xFFF1F5F9)
+
+@Composable
+private fun catatanIsLight(): Boolean =
+    MaterialTheme.colorScheme.surface.luminance() > 0.5f
+
+@Composable
+private fun catatanPanelColor(): Color =
+    if (catatanIsLight()) Color.White else MaterialTheme.colorScheme.surface
+
+@Composable
+private fun catatanBorderColor(): Color =
+    if (catatanIsLight()) CatatanHairline else MaterialTheme.colorScheme.outlineVariant
+
+@Composable
+private fun catatanCardElevation(): Dp =
+    if (catatanIsLight()) 2.dp else 0.dp
 
 // COLOR PALETTE & HELPERS FOR NOTES REDESIGN
 val NOTE_COLORS = listOf(
@@ -592,15 +617,24 @@ fun CatatanScreen(viewModel: MainViewModel) {
                     horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     // Total Notes Card with Quick Create Action
+                    val statsIsLight = catatanIsLight()
                     Card(
                         modifier = Modifier
                             .weight(1f)
                             .clickable { showNewNoteTemplateDialog = true },
                         colors = CardDefaults.cardColors(
-                            containerColor = MaterialTheme.colorScheme.surfaceColorAtElevation(2.dp)
+                            containerColor = if (statsIsLight) catatanPanelColor()
+                            else MaterialTheme.colorScheme.surfaceColorAtElevation(2.dp)
                         ),
                         shape = RoundedCornerShape(20.dp),
-                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                        border = BorderStroke(
+                            1.dp,
+                            if (statsIsLight) CatatanAccentBorder
+                            else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+                        ),
+                        elevation = CardDefaults.cardElevation(
+                            defaultElevation = if (statsIsLight) catatanCardElevation() else 1.dp
+                        )
                     ) {
                         Row(
                             modifier = Modifier.padding(12.dp).fillMaxWidth(),
@@ -611,12 +645,23 @@ fun CatatanScreen(viewModel: MainViewModel) {
                                     .size(42.dp)
                                     .clip(CircleShape)
                                     .background(
-                                        Brush.linearGradient(
-                                            listOf(
-                                                MaterialTheme.colorScheme.primary,
-                                                MaterialTheme.colorScheme.tertiary
+                                        if (statsIsLight) {
+                                            Brush.linearGradient(
+                                                listOf(CatatanAccentSoft, Color(0xFFFFFFFF))
                                             )
-                                        )
+                                        } else {
+                                            Brush.linearGradient(
+                                                listOf(
+                                                    MaterialTheme.colorScheme.primary,
+                                                    MaterialTheme.colorScheme.tertiary
+                                                )
+                                            )
+                                        }
+                                    )
+                                    .border(
+                                        1.dp,
+                                        if (statsIsLight) CatatanAccentBorder else Color.Transparent,
+                                        CircleShape
                                     )
                                     .testTag("add_note_button"),
                                 contentAlignment = Alignment.Center
@@ -624,14 +669,23 @@ fun CatatanScreen(viewModel: MainViewModel) {
                                 Icon(
                                     imageVector = Icons.Default.Add,
                                     contentDescription = "Buat Catatan Baru",
-                                    tint = Color.White,
+                                    tint = if (statsIsLight) CatatanAccentDeep else Color.White,
                                     modifier = Modifier.size(22.dp)
                                 )
                             }
                             Spacer(modifier = Modifier.width(10.dp))
                             Column(modifier = Modifier.weight(1f)) {
-                                Text("Total Catatan", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                Text("${notes.size} Catatan", fontSize = 15.sp, fontWeight = FontWeight.ExtraBold)
+                                Text(
+                                    "Total Catatan",
+                                    fontSize = 11.sp,
+                                    color = if (statsIsLight) CatatanAccentDeep.copy(alpha = 0.72f) else MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                Text(
+                                    "${notes.size} Catatan",
+                                    fontSize = 15.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color = if (statsIsLight) CatatanAccentDeep else MaterialTheme.colorScheme.onSurface
+                                )
                             }
                         }
                     }
@@ -646,14 +700,21 @@ fun CatatanScreen(viewModel: MainViewModel) {
                             },
                         colors = CardDefaults.cardColors(
                             containerColor = if (selectedCategoryFilter == "📌 Disematkan")
-                                MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.7f)
+                                if (statsIsLight) CatatanAccentSoft
+                                else MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.7f)
+                            else if (statsIsLight) catatanPanelColor()
                             else MaterialTheme.colorScheme.surfaceColorAtElevation(2.dp)
                         ),
                         shape = RoundedCornerShape(20.dp),
                         border = BorderStroke(
                             1.dp,
-                            if (selectedCategoryFilter == "📌 Disematkan") MaterialTheme.colorScheme.primary
+                            if (selectedCategoryFilter == "📌 Disematkan")
+                                if (statsIsLight) CatatanAccentDeep else MaterialTheme.colorScheme.primary
+                            else if (statsIsLight) CatatanAccentBorder
                             else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+                        ),
+                        elevation = CardDefaults.cardElevation(
+                            defaultElevation = if (statsIsLight) catatanCardElevation() else 1.dp
                         )
                     ) {
                         Row(
@@ -676,8 +737,17 @@ fun CatatanScreen(viewModel: MainViewModel) {
                             }
                             Spacer(modifier = Modifier.width(10.dp))
                             Column {
-                                Text("Sangat Penting", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                Text("$pinnedCount Disematkan", fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                                Text(
+                                    "Sangat Penting",
+                                    fontSize = 11.sp,
+                                    color = if (statsIsLight) CatatanAccentDeep.copy(alpha = 0.72f) else MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                Text(
+                                    "$pinnedCount Disematkan",
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (statsIsLight) CatatanAccentDeep else MaterialTheme.colorScheme.onSurface
+                                )
                             }
                         }
                     }
@@ -806,13 +876,24 @@ fun CatatanScreen(viewModel: MainViewModel) {
                 }
 
                 if (filteredNotes.isEmpty()) {
+                    val emptyIsLight = catatanIsLight()
                     Card(
                         modifier = Modifier
                             .fillMaxWidth()
                             .weight(1f),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.2f)),
+                        colors = CardDefaults.cardColors(
+                            containerColor = if (emptyIsLight) catatanPanelColor()
+                            else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.2f)
+                        ),
                         shape = RoundedCornerShape(20.dp),
-                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+                        border = BorderStroke(
+                            1.dp,
+                            if (emptyIsLight) CatatanAccentBorder
+                            else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
+                        ),
+                        elevation = CardDefaults.cardElevation(
+                            defaultElevation = if (emptyIsLight) catatanCardElevation() else 1.dp
+                        )
                     ) {
                         Column(
                             modifier = Modifier
@@ -821,12 +902,23 @@ fun CatatanScreen(viewModel: MainViewModel) {
                             horizontalAlignment = Alignment.CenterHorizontally,
                             verticalArrangement = Arrangement.Center
                         ) {
-                            Icon(
-                                imageVector = Icons.Default.StickyNote2,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.4f),
-                                modifier = Modifier.size(64.dp)
-                            )
+                            Box(
+                                modifier = Modifier
+                                    .size(96.dp)
+                                    .clip(CircleShape)
+                                    .background(
+                                        if (emptyIsLight) CatatanAccentSoft
+                                        else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                                    ),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.StickyNote2,
+                                    contentDescription = null,
+                                    tint = if (emptyIsLight) CatatanAccentDeep else MaterialTheme.colorScheme.primary.copy(alpha = 0.4f),
+                                    modifier = Modifier.size(48.dp)
+                                )
+                            }
                             Spacer(modifier = Modifier.height(16.dp))
                             Text(
                                 text = if (searchQuery.isNotEmpty()) "Catatan Tidak Ditemukan" else "Mulai Menulis Ide Pertama Anda!",
@@ -928,10 +1020,14 @@ fun CatatanScreen(viewModel: MainViewModel) {
             } else {
                 // REDESIGNED IMMERSIVE EDITOR
                 Card(
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                    colors = CardDefaults.cardColors(containerColor = catatanPanelColor()),
                     elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
                     shape = RoundedCornerShape(20.dp),
-                    border = BorderStroke(1.5.dp, parseHexColor(editColorHex).copy(alpha = 0.5f)),
+                    border = BorderStroke(
+                        if (catatanIsLight()) 1.dp else 1.5.dp,
+                        if (catatanIsLight()) parseHexColor(editColorHex).copy(alpha = 0.55f)
+                        else parseHexColor(editColorHex).copy(alpha = 0.5f)
+                    ),
                     modifier = Modifier.fillMaxWidth().weight(1f)
                 ) {
                     Column(modifier = Modifier.fillMaxSize().padding(12.dp)) {
@@ -1463,9 +1559,11 @@ fun CatatanScreen(viewModel: MainViewModel) {
                                     }
                                 },
                                 colors = CardDefaults.cardColors(
-                                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                                    containerColor = if (catatanIsLight()) CatatanSunken
+                                    else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
                                 ),
                                 shape = RoundedCornerShape(12.dp),
+                                border = if (catatanIsLight()) BorderStroke(1.dp, catatanBorderColor()) else null,
                                 modifier = Modifier.fillMaxWidth()
                             ) {
                                 Row(
@@ -1479,13 +1577,17 @@ fun CatatanScreen(viewModel: MainViewModel) {
                                         modifier = Modifier
                                             .size(36.dp)
                                             .clip(CircleShape)
-                                            .background(MaterialTheme.colorScheme.primaryContainer),
+                                            .background(
+                                                if (catatanIsLight()) CatatanAccentSoft
+                                                else MaterialTheme.colorScheme.primaryContainer
+                                            ),
                                         contentAlignment = Alignment.Center
                                     ) {
                                         Text(
                                             text = symbol,
                                             style = MaterialTheme.typography.titleMedium.copy(
-                                                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                                color = if (catatanIsLight()) CatatanAccentDeep
+                                                else MaterialTheme.colorScheme.onPrimaryContainer,
                                                 fontWeight = FontWeight.Bold
                                             )
                                         )
@@ -1622,7 +1724,11 @@ fun CatatanScreen(viewModel: MainViewModel) {
                                         editCategory = cat
                                         hasUnsavedChanges = false
                                     },
-                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
+                                colors = CardDefaults.cardColors(
+                                    containerColor = if (catatanIsLight()) CatatanSunken
+                                    else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+                                ),
+                                border = if (catatanIsLight()) BorderStroke(1.dp, catatanBorderColor()) else null
                             ) {
                                 Row(
                                     modifier = Modifier.padding(12.dp).fillMaxWidth(),
@@ -1636,12 +1742,16 @@ fun CatatanScreen(viewModel: MainViewModel) {
                                             else -> Icons.Default.Description
                                         },
                                         contentDescription = null,
-                                        tint = MaterialTheme.colorScheme.primary
+                                        tint = if (catatanIsLight()) CatatanAccentDeep else MaterialTheme.colorScheme.primary
                                     )
                                     Spacer(modifier = Modifier.width(12.dp))
                                     Column {
                                         Text(title, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                                        Text(cat, fontSize = 11.sp, color = MaterialTheme.colorScheme.primary)
+                                        Text(
+                                            cat,
+                                            fontSize = 11.sp,
+                                            color = if (catatanIsLight()) CatatanAccentDeep else MaterialTheme.colorScheme.primary
+                                        )
                                     }
                                 }
                             }
@@ -1851,9 +1961,14 @@ fun CatatanScreen(viewModel: MainViewModel) {
                                 val isActive = activeNote?.id == note.id
                                 Card(
                                     colors = CardDefaults.cardColors(
-                                        containerColor = if (isActive) MaterialTheme.colorScheme.primaryContainer
+                                        containerColor = if (isActive)
+                                            if (catatanIsLight()) CatatanAccentSoft else MaterialTheme.colorScheme.primaryContainer
+                                        else if (catatanIsLight()) CatatanSunken
                                         else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
                                     ),
+                                    border = if (catatanIsLight())
+                                        BorderStroke(1.dp, if (isActive) CatatanAccentBorder else catatanBorderColor())
+                                    else null,
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .clip(RoundedCornerShape(12.dp))
@@ -1883,7 +1998,9 @@ fun CatatanScreen(viewModel: MainViewModel) {
                                                     text = note.title.ifEmpty { "Catatan Tanpa Judul" },
                                                     fontWeight = FontWeight.Bold,
                                                     fontSize = 14.sp,
-                                                    color = if (isActive) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+                                                    color = if (isActive)
+                                                        if (catatanIsLight()) CatatanAccentDeep else MaterialTheme.colorScheme.primary
+                                                    else MaterialTheme.colorScheme.onSurface,
                                                     maxLines = 1,
                                                     overflow = TextOverflow.Ellipsis
                                                 )
@@ -1977,6 +2094,7 @@ fun NoteCardGrid(
     onShare: () -> Unit
 ) {
     val cardColor = parseHexColor(note.colorHex)
+    val cardIsLight = catatanIsLight()
 
     Card(
         modifier = Modifier
@@ -1985,12 +2103,17 @@ fun NoteCardGrid(
             .clickable { onClick() }
             .testTag("note_card_${note.id}"),
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceColorAtElevation(1.dp)
+            containerColor = if (cardIsLight) catatanPanelColor()
+            else MaterialTheme.colorScheme.surfaceColorAtElevation(1.dp)
         ),
         shape = RoundedCornerShape(18.dp),
         border = BorderStroke(
             width = if (note.isPinned) 2.dp else 1.dp,
-            color = if (note.isPinned) Color(0xFFF59E0B) else cardColor.copy(alpha = 0.4f)
+            color = if (note.isPinned) Color(0xFFF59E0B)
+            else cardColor.copy(alpha = if (cardIsLight) 0.45f else 0.4f)
+        ),
+        elevation = CardDefaults.cardElevation(
+            defaultElevation = if (cardIsLight) catatanCardElevation() else 1.dp
         )
     ) {
         Column(
@@ -2009,9 +2132,17 @@ fun NoteCardGrid(
                     text = note.category.ifEmpty { "Umum" },
                     fontSize = 10.sp,
                     fontWeight = FontWeight.Bold,
-                    color = Color.White,
+                    color = if (cardIsLight) CatatanAccentDeep else Color.White,
                     modifier = Modifier
-                        .background(cardColor, RoundedCornerShape(8.dp))
+                        .background(
+                            if (cardIsLight) CatatanAccentSoft else cardColor,
+                            RoundedCornerShape(8.dp)
+                        )
+                        .border(
+                            1.dp,
+                            if (cardIsLight) CatatanAccentBorder else Color.Transparent,
+                            RoundedCornerShape(8.dp)
+                        )
                         .padding(horizontal = 8.dp, vertical = 2.dp)
                 )
 
@@ -2090,6 +2221,7 @@ fun NoteCardList(
     onShare: () -> Unit
 ) {
     val cardColor = parseHexColor(note.colorHex)
+    val cardIsLight = catatanIsLight()
 
     Card(
         modifier = Modifier
@@ -2097,11 +2229,18 @@ fun NoteCardList(
             .clip(RoundedCornerShape(16.dp))
             .clickable { onClick() }
             .testTag("note_card_${note.id}"),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceColorAtElevation(1.dp)),
+        colors = CardDefaults.cardColors(
+            containerColor = if (cardIsLight) catatanPanelColor()
+            else MaterialTheme.colorScheme.surfaceColorAtElevation(1.dp)
+        ),
         shape = RoundedCornerShape(16.dp),
         border = BorderStroke(
             width = if (note.isPinned) 1.5.dp else 1.dp,
-            color = if (note.isPinned) Color(0xFFF59E0B) else cardColor.copy(alpha = 0.3f)
+            color = if (note.isPinned) Color(0xFFF59E0B)
+            else cardColor.copy(alpha = if (cardIsLight) 0.35f else 0.3f)
+        ),
+        elevation = CardDefaults.cardElevation(
+            defaultElevation = if (cardIsLight) catatanCardElevation() else 1.dp
         )
     ) {
         Row(
@@ -2171,9 +2310,17 @@ fun NoteCardList(
                             text = note.category.ifEmpty { "Umum" },
                             fontSize = 10.sp,
                             fontWeight = FontWeight.Bold,
-                            color = Color.White,
+                            color = if (cardIsLight) CatatanAccentDeep else Color.White,
                             modifier = Modifier
-                                .background(cardColor, RoundedCornerShape(4.dp))
+                                .background(
+                                    if (cardIsLight) CatatanAccentSoft else cardColor,
+                                    RoundedCornerShape(4.dp)
+                                )
+                                .border(
+                                    1.dp,
+                                    if (cardIsLight) CatatanAccentBorder else Color.Transparent,
+                                    RoundedCornerShape(4.dp)
+                                )
                                 .padding(horizontal = 6.dp, vertical = 1.dp)
                         )
                         Text(
@@ -2338,10 +2485,15 @@ fun PdfViewer(uriString: String, fileName: String, scale: Float, modifier: Modif
                 Card(
                     shape = RoundedCornerShape(24.dp),
                     colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.surfaceColorAtElevation(6.dp).copy(alpha = 0.9f)
+                        containerColor = if (catatanIsLight()) catatanPanelColor()
+                        else MaterialTheme.colorScheme.surfaceColorAtElevation(6.dp).copy(alpha = 0.9f)
                     ),
                     elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                    border = BorderStroke(
+                        1.dp,
+                        if (catatanIsLight()) CatatanAccentBorder
+                        else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+                    )
                 ) {
                     Column(
                         modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
@@ -2430,10 +2582,16 @@ fun TextFileBookViewer(
         ) { page ->
             Card(
                 modifier = Modifier.fillMaxSize(),
-                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+                elevation = CardDefaults.cardElevation(
+                    defaultElevation = if (catatanIsLight()) catatanCardElevation() else 2.dp
+                ),
                 shape = RoundedCornerShape(12.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                colors = CardDefaults.cardColors(containerColor = catatanPanelColor()),
+                border = BorderStroke(
+                    1.dp,
+                    if (catatanIsLight()) catatanBorderColor()
+                    else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+                )
             ) {
                 Box(
                     modifier = Modifier
@@ -2463,10 +2621,15 @@ fun TextFileBookViewer(
             Card(
                 shape = RoundedCornerShape(24.dp),
                 colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceColorAtElevation(6.dp).copy(alpha = 0.9f)
+                    containerColor = if (catatanIsLight()) catatanPanelColor()
+                    else MaterialTheme.colorScheme.surfaceColorAtElevation(6.dp).copy(alpha = 0.9f)
                 ),
                 elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                border = BorderStroke(
+                    1.dp,
+                    if (catatanIsLight()) CatatanAccentBorder
+                    else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+                )
             ) {
                 Column(
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),

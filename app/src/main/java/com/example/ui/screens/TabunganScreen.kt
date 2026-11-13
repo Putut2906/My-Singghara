@@ -3,6 +3,7 @@ package com.example.ui.screens
 import androidx.compose.animation.*
 import androidx.compose.animation.core.tween
 import kotlinx.coroutines.delay
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -28,6 +29,8 @@ import kotlin.math.atan2
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
@@ -37,6 +40,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import android.content.Context
@@ -64,6 +68,29 @@ import com.example.util.ParsedReceiptData
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.*
+
+// --- ADAPTIVE LIGHT THEME PALETTE (TABUNGAN) ---
+private val TabunganAccentDeep = Color(0xFF047857)
+private val TabunganAccentSoft = Color(0xFFECFDF5)
+private val TabunganAccentBorder = Color(0xFFA7F3D0)
+private val TabunganHairline = Color(0xFFE2E8F0)
+private val TabunganSunken = Color(0xFFF1F5F9)
+
+@Composable
+private fun tabunganIsLight(): Boolean =
+    MaterialTheme.colorScheme.surface.luminance() > 0.5f
+
+@Composable
+private fun tabunganPanelColor(): Color =
+    if (tabunganIsLight()) Color.White else MaterialTheme.colorScheme.surface
+
+@Composable
+private fun tabunganBorderColor(): Color =
+    if (tabunganIsLight()) TabunganHairline else MaterialTheme.colorScheme.outlineVariant
+
+@Composable
+private fun tabunganCardElevation(): Dp =
+    if (tabunganIsLight()) 2.dp else 0.dp
 
 private fun formatToIndonesianDate(dateStr: String): String {
     if (dateStr.isEmpty()) return ""
@@ -259,12 +286,27 @@ fun TabunganScreen(viewModel: MainViewModel) {
         // TOP SUMMARY CONTAINER WITH INTEGRATED INTERACTIVE CHART
         item {
             Card(
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                colors = CardDefaults.cardColors(containerColor = tabunganPanelColor()),
                 shape = RoundedCornerShape(16.dp),
-                border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
+                border = androidx.compose.foundation.BorderStroke(
+                    1.dp,
+                    if (tabunganIsLight()) TabunganAccentBorder
+                    else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+                ),
+                elevation = CardDefaults.cardElevation(defaultElevation = tabunganCardElevation()),
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Column(modifier = Modifier.padding(16.dp)) {
+                Column(
+                    modifier = Modifier
+                        .background(
+                            if (tabunganIsLight())
+                                Brush.linearGradient(
+                                    listOf(Color(0xFFECFDF5), Color(0xFFF7FEFB), Color.White)
+                                )
+                            else Brush.linearGradient(listOf(Color.Transparent, Color.Transparent))
+                        )
+                        .padding(16.dp)
+                ) {
                     // DOUGHNUT CHART WITH MATH PROPORTIONS VARIABLES
                     val valSisa = remainingTarget
                     val valMasuk = totalMasuk
@@ -363,14 +405,18 @@ fun TabunganScreen(viewModel: MainViewModel) {
                                         }
                                     },
                                     shape = RoundedCornerShape(10.dp),
-                                    color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.8f),
+                                    color = if (tabunganIsLight()) TabunganAccentSoft
+                                    else MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.8f),
+                                    border = if (tabunganIsLight())
+                                        androidx.compose.foundation.BorderStroke(1.dp, TabunganAccentBorder) else null,
                                     modifier = Modifier.size(38.dp).testTag("manage_target_button")
                                 ) {
                                     Box(contentAlignment = Alignment.Center) {
                                         Icon(
                                             Icons.Default.Adjust,
                                             contentDescription = "Kelola Target",
-                                            tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                                            tint = if (tabunganIsLight()) TabunganAccentDeep
+                                            else MaterialTheme.colorScheme.onSecondaryContainer,
                                             modifier = Modifier.size(20.dp)
                                         )
                                     }
@@ -388,14 +434,18 @@ fun TabunganScreen(viewModel: MainViewModel) {
                                         }
                                     },
                                     shape = RoundedCornerShape(10.dp),
-                                    color = MaterialTheme.colorScheme.primaryContainer,
+                                    color = if (tabunganIsLight()) TabunganAccentSoft
+                                    else MaterialTheme.colorScheme.primaryContainer,
+                                    border = if (tabunganIsLight())
+                                        androidx.compose.foundation.BorderStroke(1.dp, TabunganAccentBorder) else null,
                                     modifier = Modifier.size(38.dp).testTag("add_transaction_button")
                                 ) {
                                     Box(contentAlignment = Alignment.Center) {
                                         Icon(
                                             Icons.Default.Add,
                                             contentDescription = "Tambah Transaksi",
-                                            tint = MaterialTheme.colorScheme.primary,
+                                            tint = if (tabunganIsLight()) TabunganAccentDeep
+                                            else MaterialTheme.colorScheme.primary,
                                             modifier = Modifier.size(22.dp)
                                         )
                                     }
@@ -408,14 +458,18 @@ fun TabunganScreen(viewModel: MainViewModel) {
                                         )
                                     },
                                     shape = RoundedCornerShape(10.dp),
-                                    color = MaterialTheme.colorScheme.tertiaryContainer,
+                                    color = if (tabunganIsLight()) TabunganSunken
+                                    else MaterialTheme.colorScheme.tertiaryContainer,
+                                    border = if (tabunganIsLight())
+                                        androidx.compose.foundation.BorderStroke(1.dp, TabunganAccentBorder) else null,
                                     modifier = Modifier.size(38.dp).testTag("scan_receipt_button")
                                 ) {
                                     Box(contentAlignment = Alignment.Center) {
                                         Icon(
                                             Icons.Default.ReceiptLong,
                                             contentDescription = "Pindai Bukti E-Wallet (GoPay, DANA, OVO)",
-                                            tint = MaterialTheme.colorScheme.onTertiaryContainer,
+                                            tint = if (tabunganIsLight()) TabunganAccentDeep
+                                            else MaterialTheme.colorScheme.onTertiaryContainer,
                                             modifier = Modifier.size(20.dp)
                                         )
                                     }
@@ -678,19 +732,36 @@ fun TabunganScreen(viewModel: MainViewModel) {
 
         if (transactionsFlow.isEmpty()) {
             item {
-                Card(modifier = Modifier.fillMaxWidth()) {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = tabunganPanelColor()),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, tabunganBorderColor()),
+                    elevation = CardDefaults.cardElevation(defaultElevation = tabunganCardElevation())
+                ) {
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(24.dp),
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
-                        Icon(
-                            Icons.Default.History,
-                            null,
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f),
-                            modifier = Modifier.size(36.dp)
-                        )
+                        Box(
+                            modifier = Modifier
+                                .size(72.dp)
+                                .clip(CircleShape)
+                                .background(
+                                    if (tabunganIsLight()) TabunganAccentSoft
+                                    else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                                ),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                Icons.Default.History,
+                                null,
+                                tint = if (tabunganIsLight()) TabunganAccentDeep
+                                else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f),
+                                modifier = Modifier.size(36.dp)
+                            )
+                        }
                         Spacer(modifier = Modifier.height(8.dp))
                         Text(
                             "Belum ada pencatatan transaksi tabungan.",
@@ -726,13 +797,17 @@ fun TabunganScreen(viewModel: MainViewModel) {
                             )
                             Surface(
                                 shape = RoundedCornerShape(12.dp),
-                                color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f)
+                                color = if (tabunganIsLight()) TabunganAccentSoft
+                                else MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f),
+                                border = if (tabunganIsLight())
+                                    androidx.compose.foundation.BorderStroke(1.dp, TabunganAccentBorder) else null
                             ) {
                                 Text(
                                     "${filteredTransactions.size} Transaksi",
                                     fontSize = 11.sp,
                                     fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.primary,
+                                    color = if (tabunganIsLight()) TabunganAccentDeep
+                                    else MaterialTheme.colorScheme.primary,
                                     modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
                                 )
                             }
@@ -869,8 +944,10 @@ fun TabunganScreen(viewModel: MainViewModel) {
                 item {
                     Card(
                         modifier = Modifier.fillMaxWidth(),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)),
-                        shape = RoundedCornerShape(12.dp)
+                        colors = CardDefaults.cardColors(containerColor = tabunganPanelColor()),
+                        shape = RoundedCornerShape(12.dp),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, tabunganBorderColor()),
+                        elevation = CardDefaults.cardElevation(defaultElevation = tabunganCardElevation())
                     ) {
                         Column(
                             modifier = Modifier
@@ -878,12 +955,24 @@ fun TabunganScreen(viewModel: MainViewModel) {
                                 .padding(20.dp),
                             horizontalAlignment = Alignment.CenterHorizontally
                         ) {
-                            Icon(
-                                Icons.Default.SearchOff,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-                                modifier = Modifier.size(36.dp)
-                            )
+                            Box(
+                                modifier = Modifier
+                                    .size(72.dp)
+                                    .clip(CircleShape)
+                                    .background(
+                                        if (tabunganIsLight()) TabunganAccentSoft
+                                        else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                                    ),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    Icons.Default.SearchOff,
+                                    contentDescription = null,
+                                    tint = if (tabunganIsLight()) TabunganAccentDeep
+                                    else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                                    modifier = Modifier.size(36.dp)
+                                )
+                            }
                             Spacer(modifier = Modifier.height(8.dp))
                             Text(
                                 "Tidak ada transaksi yang cocok dengan filter atau pencarian.",
@@ -1969,8 +2058,9 @@ fun SavingTable(
         Card(
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(12.dp),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-            border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+            colors = CardDefaults.cardColors(containerColor = tabunganPanelColor()),
+            border = androidx.compose.foundation.BorderStroke(1.dp, tabunganBorderColor()),
+            elevation = CardDefaults.cardElevation(defaultElevation = tabunganCardElevation())
         ) {
             Box(
                 modifier = Modifier
@@ -1981,27 +2071,30 @@ fun SavingTable(
                     // Header Row
                     Row(
                         modifier = Modifier
-                            .background(MaterialTheme.colorScheme.primaryContainer)
+                            .background(
+                                if (tabunganIsLight()) TabunganSunken
+                                else MaterialTheme.colorScheme.primaryContainer
+                            )
                             .height(IntrinsicSize.Min),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Box(modifier = Modifier.width(110.dp).fillMaxHeight().border(0.5.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)).padding(horizontal = 12.dp, vertical = 12.dp), contentAlignment = Alignment.CenterStart) {
-                            Text("Tanggal", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                            Text("Tanggal", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = if (tabunganIsLight()) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onPrimaryContainer)
                         }
                         Box(modifier = Modifier.width(160.dp).fillMaxHeight().border(0.5.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)).padding(horizontal = 12.dp, vertical = 12.dp), contentAlignment = Alignment.CenterStart) {
-                            Text("Keterangan/Deskripsi", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                            Text("Keterangan/Deskripsi", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = if (tabunganIsLight()) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onPrimaryContainer)
                         }
                         Box(modifier = Modifier.width(110.dp).fillMaxHeight().border(0.5.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)).padding(horizontal = 12.dp, vertical = 12.dp), contentAlignment = Alignment.Center) {
-                            Text("Jenis", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                            Text("Jenis", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = if (tabunganIsLight()) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onPrimaryContainer)
                         }
                         Box(modifier = Modifier.width(120.dp).fillMaxHeight().border(0.5.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)).padding(horizontal = 12.dp, vertical = 12.dp), contentAlignment = Alignment.CenterStart) {
-                            Text("Kategori", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                            Text("Kategori", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = if (tabunganIsLight()) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onPrimaryContainer)
                         }
                         Box(modifier = Modifier.width(120.dp).fillMaxHeight().border(0.5.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)).padding(horizontal = 12.dp, vertical = 12.dp), contentAlignment = Alignment.CenterEnd) {
-                            Text("Jumlah", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                            Text("Jumlah", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = if (tabunganIsLight()) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onPrimaryContainer)
                         }
                         Box(modifier = Modifier.width(100.dp).fillMaxHeight().border(0.5.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)).padding(horizontal = 12.dp, vertical = 12.dp), contentAlignment = Alignment.Center) {
-                            Text("Aksi", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                            Text("Aksi", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = if (tabunganIsLight()) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onPrimaryContainer)
                         }
                     }
 
@@ -2313,8 +2406,15 @@ fun SharedReceiptProcessDialog(
                 if (uri != null) {
                     Card(
                         shape = RoundedCornerShape(12.dp),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
-                        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
+                        colors = CardDefaults.cardColors(
+                            containerColor = if (tabunganIsLight()) TabunganSunken
+                            else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                        ),
+                        border = androidx.compose.foundation.BorderStroke(
+                            1.dp,
+                            if (tabunganIsLight()) TabunganHairline
+                            else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+                        ),
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(140.dp)
@@ -2336,8 +2436,15 @@ fun SharedReceiptProcessDialog(
                 // Status Analisis OCR
                 if (isAnalyzing) {
                     Card(
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f)),
+                        colors = CardDefaults.cardColors(
+                            containerColor = if (tabunganIsLight()) TabunganAccentSoft
+                            else MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f)
+                        ),
                         shape = RoundedCornerShape(12.dp),
+                        border = androidx.compose.foundation.BorderStroke(
+                            1.dp,
+                            if (tabunganIsLight()) TabunganAccentBorder else Color.Transparent
+                        ),
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Row(

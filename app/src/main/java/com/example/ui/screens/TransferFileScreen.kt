@@ -27,6 +27,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
@@ -34,6 +35,7 @@ import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -43,6 +45,29 @@ import com.example.ui.MainViewModel
 import com.example.utils.QrCodeHelper
 import com.example.web.LocalHttpServer
 import kotlinx.coroutines.launch
+
+// -------------------------------------------------------------
+// LIGHT MODE PANEL PALETTE (mode gelap tidak berubah)
+// -------------------------------------------------------------
+private val TransferAccentDeep = Color(0xFF0369A1)
+private val TransferAccentSoft = Color(0xFFE0F2FE)
+private val TransferAccentBorder = Color(0xFFBAE6FD)
+private val TransferHairline = Color(0xFFE2E8F0)
+private val TransferSunken = Color(0xFFF1F5F9)
+
+@Composable
+private fun transferIsLight(): Boolean = MaterialTheme.colorScheme.surface.luminance() > 0.5f
+
+@Composable
+private fun transferPanelColor(): Color =
+    if (transferIsLight()) Color.White else MaterialTheme.colorScheme.surface
+
+@Composable
+private fun transferBorderColor(): Color =
+    if (transferIsLight()) TransferHairline else MaterialTheme.colorScheme.outlineVariant
+
+@Composable
+private fun transferCardElevation(): Dp = if (transferIsLight()) 2.dp else 0.dp
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -123,7 +148,11 @@ fun TransferFileScreen(viewModel: MainViewModel) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f), RoundedCornerShape(12.dp))
+                    .background(
+                        if (transferIsLight()) TransferSunken
+                        else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                        RoundedCornerShape(12.dp)
+                    )
                     .padding(4.dp),
                 horizontalArrangement = Arrangement.spacedBy(4.dp)
             ) {
@@ -167,9 +196,15 @@ fun TransferFileScreen(viewModel: MainViewModel) {
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(16.dp),
                 colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.25f)
+                    containerColor = if (transferIsLight()) TransferAccentSoft
+                    else MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.25f)
                 ),
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.3f))
+                border = BorderStroke(
+                    1.dp,
+                    if (transferIsLight()) TransferAccentBorder
+                    else MaterialTheme.colorScheme.primary.copy(alpha = 0.3f)
+                ),
+                elevation = CardDefaults.cardElevation(defaultElevation = transferCardElevation())
             ) {
                 Row(
                     modifier = Modifier
@@ -187,13 +222,21 @@ fun TransferFileScreen(viewModel: MainViewModel) {
                             modifier = Modifier
                                 .size(44.dp)
                                 .clip(CircleShape)
-                                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)),
+                                .background(
+                                    if (transferIsLight()) Color.White
+                                    else MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
+                                )
+                                .border(
+                                    width = 1.dp,
+                                    color = if (transferIsLight()) TransferAccentBorder else Color.Transparent,
+                                    shape = CircleShape
+                                ),
                             contentAlignment = Alignment.Center
                         ) {
                             Icon(
                                 imageVector = Icons.Default.Wifi,
                                 contentDescription = null,
-                                tint = MaterialTheme.colorScheme.primary,
+                                tint = if (transferIsLight()) TransferAccentDeep else MaterialTheme.colorScheme.primary,
                                 modifier = Modifier.size(24.dp)
                             )
                         }
@@ -222,7 +265,7 @@ fun TransferFileScreen(viewModel: MainViewModel) {
                                 text = webConnectUrl,
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.SemiBold,
-                                color = MaterialTheme.colorScheme.primary
+                                color = if (transferIsLight()) TransferAccentDeep else MaterialTheme.colorScheme.primary
                             )
                             Text(
                                 text = "Buka alamat di atas pada browser PC",
@@ -419,12 +462,28 @@ fun SendToPcSection(
                     verticalArrangement = Arrangement.spacedBy(10.dp),
                     modifier = Modifier.padding(horizontal = 24.dp)
                 ) {
-                    Icon(
-                        imageVector = Icons.Default.CloudUpload,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.outlineVariant,
-                        modifier = Modifier.size(64.dp)
-                    )
+                    Box(
+                        modifier = Modifier
+                            .size(88.dp)
+                            .clip(CircleShape)
+                            .background(
+                                if (transferIsLight()) TransferAccentSoft
+                                else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                            )
+                            .border(
+                                width = 1.dp,
+                                color = if (transferIsLight()) TransferAccentBorder else Color.Transparent,
+                                shape = CircleShape
+                            ),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.CloudUpload,
+                            contentDescription = null,
+                            tint = if (transferIsLight()) TransferAccentDeep else MaterialTheme.colorScheme.outlineVariant,
+                            modifier = Modifier.size(48.dp)
+                        )
+                    }
                     Text(
                         text = "Belum Ada Berkas yang Dibagikan",
                         fontWeight = FontWeight.Bold,
@@ -486,12 +545,28 @@ fun ReceivedFromPcSection(
                 verticalArrangement = Arrangement.spacedBy(10.dp),
                 modifier = Modifier.padding(horizontal = 24.dp)
             ) {
-                Icon(
-                    imageVector = Icons.Default.FolderOpen,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.outlineVariant,
-                    modifier = Modifier.size(64.dp)
-                )
+                Box(
+                    modifier = Modifier
+                        .size(88.dp)
+                        .clip(CircleShape)
+                        .background(
+                            if (transferIsLight()) TransferAccentSoft
+                            else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                        )
+                        .border(
+                            width = 1.dp,
+                            color = if (transferIsLight()) TransferAccentBorder else Color.Transparent,
+                            shape = CircleShape
+                        ),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.FolderOpen,
+                        contentDescription = null,
+                        tint = if (transferIsLight()) TransferAccentDeep else MaterialTheme.colorScheme.outlineVariant,
+                        modifier = Modifier.size(48.dp)
+                    )
+                }
                 Text(
                     text = "Belum Ada Berkas Diterima dari PC",
                     fontWeight = FontWeight.Bold,
@@ -515,8 +590,16 @@ fun ReceivedFromPcSection(
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(12.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)),
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+                    colors = CardDefaults.cardColors(
+                        containerColor = if (transferIsLight()) transferPanelColor()
+                        else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+                    ),
+                    border = BorderStroke(
+                        1.dp,
+                        if (transferIsLight()) transferBorderColor()
+                        else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
+                    ),
+                    elevation = CardDefaults.cardElevation(defaultElevation = transferCardElevation())
                 ) {
                     Column(
                         modifier = Modifier.padding(12.dp),
@@ -530,7 +613,15 @@ fun ReceivedFromPcSection(
                                 modifier = Modifier
                                     .size(40.dp)
                                     .clip(RoundedCornerShape(8.dp))
-                                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)),
+                                    .background(
+                                        if (transferIsLight()) TransferAccentSoft
+                                        else MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
+                                    )
+                                    .border(
+                                        width = 1.dp,
+                                        color = if (transferIsLight()) TransferAccentBorder else Color.Transparent,
+                                        shape = RoundedCornerShape(8.dp)
+                                    ),
                                 contentAlignment = Alignment.Center
                             ) {
                                 Icon(
@@ -639,7 +730,28 @@ fun TransferHistorySection(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Icon(Icons.Default.History, contentDescription = null, tint = MaterialTheme.colorScheme.outlineVariant, modifier = Modifier.size(54.dp))
+                    Box(
+                        modifier = Modifier
+                            .size(78.dp)
+                            .clip(CircleShape)
+                            .background(
+                                if (transferIsLight()) TransferAccentSoft
+                                else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                            )
+                            .border(
+                                width = 1.dp,
+                                color = if (transferIsLight()) TransferAccentBorder else Color.Transparent,
+                                shape = CircleShape
+                            ),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.History,
+                            contentDescription = null,
+                            tint = if (transferIsLight()) TransferAccentDeep else MaterialTheme.colorScheme.outlineVariant,
+                            modifier = Modifier.size(42.dp)
+                        )
+                    }
                     Text("Belum Ada Riwayat Transfer", fontWeight = FontWeight.Bold, fontSize = 14.sp)
                     Text("Kirim atau terima berkas untuk melihat catatan di sini.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
@@ -653,7 +765,15 @@ fun TransferHistorySection(
                     Card(
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(10.dp),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f))
+                        colors = CardDefaults.cardColors(
+                            containerColor = if (transferIsLight()) transferPanelColor()
+                            else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
+                        ),
+                        border = BorderStroke(
+                            1.dp,
+                            if (transferIsLight()) transferBorderColor() else Color.Transparent
+                        ),
+                        elevation = CardDefaults.cardElevation(defaultElevation = transferCardElevation())
                     ) {
                         Row(
                             modifier = Modifier.padding(12.dp),
@@ -717,8 +837,16 @@ fun FileItemCard(
             .fillMaxWidth()
             .clickable { onOpen() },
         shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f))
+        colors = CardDefaults.cardColors(
+            containerColor = if (transferIsLight()) transferPanelColor()
+            else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+        ),
+        border = BorderStroke(
+            1.dp,
+            if (transferIsLight()) transferBorderColor()
+            else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = transferCardElevation())
     ) {
         Row(
             modifier = Modifier.padding(12.dp),
@@ -734,7 +862,15 @@ fun FileItemCard(
                     modifier = Modifier
                         .size(40.dp)
                         .clip(RoundedCornerShape(8.dp))
-                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)),
+                        .background(
+                            if (transferIsLight()) TransferAccentSoft
+                            else MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
+                        )
+                        .border(
+                            width = 1.dp,
+                            color = if (transferIsLight()) TransferAccentBorder else Color.Transparent,
+                            shape = RoundedCornerShape(8.dp)
+                        ),
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
@@ -759,13 +895,16 @@ fun FileItemCard(
                     ) {
                         Surface(
                             shape = RoundedCornerShape(4.dp),
-                            color = MaterialTheme.colorScheme.secondaryContainer
+                            color = if (transferIsLight()) TransferAccentSoft
+                            else MaterialTheme.colorScheme.secondaryContainer,
+                            border = if (transferIsLight()) BorderStroke(1.dp, TransferAccentBorder) else null
                         ) {
                             Text(
                                 text = item.extension.ifEmpty { "BERKAS" },
                                 fontSize = 9.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onSecondaryContainer,
+                                color = if (transferIsLight()) TransferAccentDeep
+                                else MaterialTheme.colorScheme.onSecondaryContainer,
                                 modifier = Modifier.padding(horizontal = 4.dp, vertical = 1.dp)
                             )
                         }
@@ -798,7 +937,12 @@ fun WebConnectQrDialog(
         Card(
             modifier = Modifier.fillMaxWidth().padding(16.dp),
             shape = RoundedCornerShape(20.dp),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface)
+            colors = CardDefaults.cardColors(containerColor = transferPanelColor()),
+            border = BorderStroke(
+                1.dp,
+                if (transferIsLight()) transferBorderColor() else Color.Transparent
+            ),
+            elevation = CardDefaults.cardElevation(defaultElevation = transferCardElevation())
         ) {
             Column(
                 modifier = Modifier.padding(20.dp),
@@ -829,14 +973,16 @@ fun WebConnectQrDialog(
 
                 Surface(
                     shape = RoundedCornerShape(8.dp),
-                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f),
+                    color = if (transferIsLight()) TransferAccentSoft
+                    else MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f),
+                    border = if (transferIsLight()) BorderStroke(1.dp, TransferAccentBorder) else null,
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Text(
                         text = url,
                         fontWeight = FontWeight.Bold,
                         fontSize = 13.sp,
-                        color = MaterialTheme.colorScheme.primary,
+                        color = if (transferIsLight()) TransferAccentDeep else MaterialTheme.colorScheme.primary,
                         textAlign = TextAlign.Center,
                         modifier = Modifier.padding(8.dp)
                     )

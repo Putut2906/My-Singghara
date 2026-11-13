@@ -39,6 +39,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
@@ -48,6 +49,7 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -83,6 +85,29 @@ import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.input.pointer.pointerInput
+
+// -------------------------------------------------------------
+// LIGHT MODE PANEL PALETTE (aksen teal, mode gelap tidak berubah)
+// -------------------------------------------------------------
+private val KaryawanAccentDeep = Color(0xFF0F766E)
+private val KaryawanAccentSoft = Color(0xFFF0FDFA)
+private val KaryawanAccentBorder = Color(0xFF99F6E4)
+private val KaryawanHairline = Color(0xFFE2E8F0)
+private val KaryawanSunken = Color(0xFFF1F5F9)
+
+@Composable
+private fun karyawanIsLight(): Boolean = MaterialTheme.colorScheme.surface.luminance() > 0.5f
+
+@Composable
+private fun karyawanPanelColor(): Color =
+    if (karyawanIsLight()) Color.White else MaterialTheme.colorScheme.surface
+
+@Composable
+private fun karyawanBorderColor(): Color =
+    if (karyawanIsLight()) KaryawanHairline else MaterialTheme.colorScheme.outlineVariant
+
+@Composable
+private fun karyawanCardElevation(): Dp = if (karyawanIsLight()) 2.dp else 0.dp
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -167,10 +192,13 @@ fun DataKaryawanMuridScreen(
                     Card(
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(16.dp),
-                        colors = CardDefaults.cardColors(
-                            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
+                        colors = CardDefaults.cardColors(containerColor = karyawanPanelColor()),
+                        border = BorderStroke(
+                            1.dp,
+                            if (karyawanIsLight()) KaryawanAccentBorder
+                            else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
                         ),
-                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+                        elevation = CardDefaults.cardElevation(defaultElevation = karyawanCardElevation())
                     ) {
                         Row(
                             modifier = Modifier
@@ -216,8 +244,13 @@ fun DataKaryawanMuridScreen(
                 Surface(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(12.dp),
-                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+                    color = if (karyawanIsLight()) karyawanPanelColor()
+                    else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
+                    border = BorderStroke(
+                        1.dp,
+                        if (karyawanIsLight()) karyawanBorderColor()
+                        else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
+                    )
                 ) {
                     Row(
                         modifier = Modifier
@@ -695,9 +728,12 @@ fun StatMiniBox(
     Surface(
         modifier = modifier,
         shape = RoundedCornerShape(12.dp),
-        color = MaterialTheme.colorScheme.surface,
-        border = BorderStroke(1.dp, color.copy(alpha = 0.2f)),
-        shadowElevation = 1.dp
+        color = if (karyawanIsLight()) KaryawanSunken else MaterialTheme.colorScheme.surface,
+        border = BorderStroke(
+            1.dp,
+            if (karyawanIsLight()) color.copy(alpha = 0.25f) else color.copy(alpha = 0.2f)
+        ),
+        shadowElevation = if (karyawanIsLight()) 0.dp else 1.dp
     ) {
         Column(
             modifier = Modifier.padding(10.dp),
@@ -738,9 +774,13 @@ fun AnggotaTableView(
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)),
-        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+        colors = CardDefaults.cardColors(containerColor = karyawanPanelColor()),
+        border = BorderStroke(
+            1.dp,
+            if (karyawanIsLight()) karyawanBorderColor()
+            else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = karyawanCardElevation())
     ) {
         Box(
             modifier = Modifier
@@ -750,7 +790,8 @@ fun AnggotaTableView(
             Column(modifier = Modifier.widthIn(min = 680.dp)) {
                 // Table Header
                 Surface(
-                    color = MaterialTheme.colorScheme.primary.copy(alpha = 0.08f),
+                    color = if (karyawanIsLight()) KaryawanSunken
+                    else MaterialTheme.colorScheme.primary.copy(alpha = 0.08f),
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Row(
@@ -779,7 +820,12 @@ fun AnggotaTableView(
                         isGuru -> Color(0xFFB45309)
                         else -> Color(0xFF0F766E)
                     }
-                    val rowBg = if (index % 2 == 0) MaterialTheme.colorScheme.surface else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.25f)
+                    val rowBg = if (karyawanIsLight()) {
+                        if (index % 2 == 0) Color.White else KaryawanSunken.copy(alpha = 0.6f)
+                    } else {
+                        if (index % 2 == 0) MaterialTheme.colorScheme.surface
+                        else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.25f)
+                    }
 
                     Surface(
                         color = rowBg,
@@ -983,9 +1029,13 @@ fun AnggotaCardItem(
             .fillMaxWidth()
             .clickable { onViewIdCard() },
         shape = RoundedCornerShape(16.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+        colors = CardDefaults.cardColors(containerColor = karyawanPanelColor()),
+        border = BorderStroke(
+            1.dp,
+            if (karyawanIsLight()) karyawanBorderColor()
+            else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)
+        ),
+        elevation = CardDefaults.cardElevation(defaultElevation = karyawanCardElevation())
     ) {
         Column(modifier = Modifier.padding(14.dp)) {
             Row(
@@ -1180,12 +1230,29 @@ fun EmptyMemberState(
             .padding(vertical = 40.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Icon(
-            imageVector = if (isSearching) Icons.Default.SearchOff else Icons.Default.Badge,
-            contentDescription = null,
-            tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f),
-            modifier = Modifier.size(64.dp)
-        )
+        Box(
+            modifier = Modifier
+                .size(96.dp)
+                .clip(CircleShape)
+                .background(
+                    if (karyawanIsLight()) KaryawanAccentSoft
+                    else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                )
+                .border(
+                    width = 1.dp,
+                    color = if (karyawanIsLight()) KaryawanAccentBorder else MaterialTheme.colorScheme.outlineVariant,
+                    shape = CircleShape
+                ),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = if (isSearching) Icons.Default.SearchOff else Icons.Default.Badge,
+                contentDescription = null,
+                tint = if (karyawanIsLight()) KaryawanAccentDeep
+                else MaterialTheme.colorScheme.primary.copy(alpha = 0.5f),
+                modifier = Modifier.size(52.dp)
+            )
+        }
         Spacer(modifier = Modifier.height(14.dp))
         Text(
             text = if (isSearching) "Data tidak ditemukan" else "Belum Ada Data Company",
@@ -1390,7 +1457,12 @@ fun AnggotaInputDialog(
                         Card(
                             modifier = Modifier.fillMaxWidth(),
                             colors = CardDefaults.cardColors(
-                                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+                                containerColor = if (karyawanIsLight()) KaryawanSunken
+                                else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+                            ),
+                            border = BorderStroke(
+                                1.dp,
+                                if (karyawanIsLight()) karyawanBorderColor() else Color.Transparent
                             ),
                             shape = RoundedCornerShape(16.dp)
                         ) {
@@ -1707,12 +1779,14 @@ fun AnggotaInputDialog(
                                     modifier = Modifier
                                         .size(54.dp)
                                         .background(
-                                            color = MaterialTheme.colorScheme.primaryContainer,
+                                            color = if (karyawanIsLight()) KaryawanAccentSoft
+                                            else MaterialTheme.colorScheme.primaryContainer,
                                             shape = RoundedCornerShape(12.dp)
                                         )
                                         .border(
                                             width = 1.dp,
-                                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f),
+                                            color = if (karyawanIsLight()) KaryawanAccentBorder
+                                            else MaterialTheme.colorScheme.primary.copy(alpha = 0.5f),
                                             shape = RoundedCornerShape(12.dp)
                                         )
                                         .testTag("btn_masa_berlaku_calendar")
@@ -1720,7 +1794,8 @@ fun AnggotaInputDialog(
                                     Icon(
                                         imageVector = Icons.Default.CalendarMonth,
                                         contentDescription = "Pilih Kalender Masa Berlaku",
-                                        tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                                        tint = if (karyawanIsLight()) KaryawanAccentDeep
+                                        else MaterialTheme.colorScheme.onPrimaryContainer,
                                         modifier = Modifier.size(24.dp)
                                     )
                                 }
@@ -1761,9 +1836,10 @@ fun AnggotaInputDialog(
                             modifier = Modifier.fillMaxWidth(),
                             shape = RoundedCornerShape(16.dp),
                             colors = CardDefaults.cardColors(
-                                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+                                containerColor = if (karyawanIsLight()) KaryawanSunken
+                                else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
                             ),
-                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+                            border = BorderStroke(1.dp, karyawanBorderColor())
                         ) {
                             Column(
                                 modifier = Modifier.padding(14.dp),
@@ -1912,9 +1988,14 @@ fun AnggotaInputDialog(
                             modifier = Modifier.fillMaxWidth(),
                             shape = RoundedCornerShape(16.dp),
                             colors = CardDefaults.cardColors(
-                                containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f)
+                                containerColor = if (karyawanIsLight()) KaryawanAccentSoft
+                                else MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f)
                             ),
-                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.3f))
+                            border = BorderStroke(
+                                1.dp,
+                                if (karyawanIsLight()) KaryawanAccentBorder
+                                else MaterialTheme.colorScheme.primary.copy(alpha = 0.3f)
+                            )
                         ) {
                             Column(
                                 modifier = Modifier.padding(14.dp),
@@ -2208,8 +2289,13 @@ fun IdCardPreviewDialog(
                 // Ringkasan Detail Profil Pengguna (Muncul saat klik profil user)
                 Surface(
                     shape = RoundedCornerShape(12.dp),
-                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
+                    color = if (karyawanIsLight()) KaryawanSunken
+                    else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f),
+                    border = BorderStroke(
+                        1.dp,
+                        if (karyawanIsLight()) karyawanBorderColor()
+                        else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+                    ),
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(vertical = 4.dp)
@@ -2325,8 +2411,9 @@ fun IdCardPreviewDialog(
                 ) {
                     Surface(
                         shape = RoundedCornerShape(20.dp),
-                        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
-                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+                        color = if (karyawanIsLight()) KaryawanSunken
+                        else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+                        border = BorderStroke(1.dp, karyawanBorderColor())
                     ) {
                         Row(modifier = Modifier.padding(3.dp)) {
                             Surface(
@@ -2637,7 +2724,12 @@ fun AttendanceQrScannerDialog(
                     if (member != null) {
                         Surface(
                             shape = RoundedCornerShape(12.dp),
-                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                            color = if (karyawanIsLight()) KaryawanSunken
+                            else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                            border = BorderStroke(
+                                1.dp,
+                                if (karyawanIsLight()) karyawanBorderColor() else Color.Transparent
+                            ),
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             Column(modifier = Modifier.padding(12.dp)) {
@@ -2901,8 +2993,16 @@ fun RiwayatPresensiDialog(
                             Card(
                                 modifier = Modifier.fillMaxWidth(),
                                 shape = RoundedCornerShape(12.dp),
-                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)),
-                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                                colors = CardDefaults.cardColors(
+                                    containerColor = if (karyawanIsLight()) karyawanPanelColor()
+                                    else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+                                ),
+                                border = BorderStroke(
+                                    1.dp,
+                                    if (karyawanIsLight()) karyawanBorderColor()
+                                    else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+                                ),
+                                elevation = CardDefaults.cardElevation(defaultElevation = karyawanCardElevation())
                             ) {
                                 Row(
                                     modifier = Modifier
@@ -3421,7 +3521,11 @@ fun TandaTanganDialog(
                 .fillMaxWidth(0.95f)
                 .padding(vertical = 16.dp),
             shape = RoundedCornerShape(20.dp),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            colors = CardDefaults.cardColors(containerColor = karyawanPanelColor()),
+            border = BorderStroke(
+                1.dp,
+                if (karyawanIsLight()) karyawanBorderColor() else Color.Transparent
+            ),
             elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
         ) {
             Column(
@@ -3444,7 +3548,16 @@ fun TandaTanganDialog(
                         Box(
                             modifier = Modifier
                                 .size(36.dp)
-                                .background(MaterialTheme.colorScheme.primaryContainer, RoundedCornerShape(10.dp)),
+                                .background(
+                                    if (karyawanIsLight()) KaryawanAccentSoft
+                                    else MaterialTheme.colorScheme.primaryContainer,
+                                    RoundedCornerShape(10.dp)
+                                )
+                                .border(
+                                    width = 1.dp,
+                                    color = if (karyawanIsLight()) KaryawanAccentBorder else Color.Transparent,
+                                    shape = RoundedCornerShape(10.dp)
+                                ),
                             contentAlignment = Alignment.Center
                         ) {
                             Icon(
@@ -3495,8 +3608,13 @@ fun TandaTanganDialog(
 
                 // Info banner
                 Surface(
-                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f),
+                    color = if (karyawanIsLight()) KaryawanAccentSoft
+                    else MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f),
                     shape = RoundedCornerShape(10.dp),
+                    border = BorderStroke(
+                        1.dp,
+                        if (karyawanIsLight()) KaryawanAccentBorder else Color.Transparent
+                    ),
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Row(
@@ -3849,7 +3967,11 @@ fun PinVerificationDialog(
     Dialog(onDismissRequest = onDismiss) {
         Card(
             shape = RoundedCornerShape(20.dp),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            colors = CardDefaults.cardColors(containerColor = karyawanPanelColor()),
+            border = BorderStroke(
+                1.dp,
+                if (karyawanIsLight()) karyawanBorderColor() else Color.Transparent
+            ),
             elevation = CardDefaults.cardElevation(defaultElevation = 8.dp),
             modifier = Modifier.fillMaxWidth(0.9f)
         ) {
@@ -3957,8 +4079,14 @@ fun PinVerificationDialog(
                                         }
                                     },
                                     shape = RoundedCornerShape(10.dp),
-                                    color = if (key == "DEL" || key == "C") MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
-                                    else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
+                                    color = if (karyawanIsLight()) {
+                                        if (key == "DEL" || key == "C") KaryawanAccentSoft
+                                        else KaryawanSunken
+                                    } else {
+                                        if (key == "DEL" || key == "C") MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                                        else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
+                                    },
+                                    border = if (karyawanIsLight()) BorderStroke(1.dp, karyawanBorderColor()) else null,
                                     modifier = Modifier
                                         .weight(1f)
                                         .height(42.dp)

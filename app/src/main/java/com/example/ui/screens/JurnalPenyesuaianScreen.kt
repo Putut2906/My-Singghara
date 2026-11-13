@@ -27,12 +27,15 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.AdjustmentEntry
@@ -40,6 +43,25 @@ import com.example.JournalEntry
 import com.example.ui.MainViewModel
 import java.text.SimpleDateFormat
 import java.util.*
+
+// --- ADAPTIVE LIGHT THEME PALETTE (JURNAL PENYESUAIAN) ---
+private val KeuanganAccentDeep = Color(0xFF0F766E)
+private val KeuanganAccentSoft = Color(0xFFF0FDFA)
+private val KeuanganAccentBorder = Color(0xFF99F6E4)
+private val KeuanganHairline = Color(0xFFE2E8F0)
+private val KeuanganSunken = Color(0xFFF1F5F9)
+
+@Composable
+private fun jurnalPenyesuaianIsLight(): Boolean = MaterialTheme.colorScheme.surface.luminance() > 0.5f
+
+@Composable
+private fun jurnalPenyesuaianPanelColor(): Color = if (jurnalPenyesuaianIsLight()) Color.White else MaterialTheme.colorScheme.surface
+
+@Composable
+private fun jurnalPenyesuaianBorderColor(): Color = if (jurnalPenyesuaianIsLight()) KeuanganHairline else MaterialTheme.colorScheme.outlineVariant
+
+@Composable
+private fun jurnalPenyesuaianCardElevation(): Dp = if (jurnalPenyesuaianIsLight()) 2.dp else 0.dp
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -248,13 +270,21 @@ fun JurnalPenyesuaianScreen(
     ) {
         // --- HERO SUMMARY CARD ---
         val totalAdjNominal = remember(adjustmentEntries) { adjustmentEntries.sumOf { it.nominal } }
+        val heroIsLight = jurnalPenyesuaianIsLight()
         Card(
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(20.dp))
+                .background(
+                    if (heroIsLight) Brush.linearGradient(listOf(Color(0xFFF0FDFA), Color(0xFFCCFBF1)))
+                    else Brush.linearGradient(listOf(Color.Transparent, Color.Transparent))
+                ),
             shape = RoundedCornerShape(20.dp),
             colors = CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f)
+                containerColor = if (heroIsLight) Color.Transparent else MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f)
             ),
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.2f))
+            border = BorderStroke(1.dp, if (heroIsLight) KeuanganAccentBorder else MaterialTheme.colorScheme.primary.copy(alpha = 0.2f)),
+            elevation = CardDefaults.cardElevation(defaultElevation = jurnalPenyesuaianCardElevation())
         ) {
             Column(
                 modifier = Modifier.padding(16.dp),
@@ -285,12 +315,12 @@ fun JurnalPenyesuaianScreen(
                                 text = "Jurnal Penyesuaian",
                                 style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.Black,
-                                color = MaterialTheme.colorScheme.onPrimaryContainer
+                                color = if (heroIsLight) KeuanganAccentDeep else MaterialTheme.colorScheme.onPrimaryContainer
                             )
                             Text(
                                 text = "${adjustmentEntries.size} Entri Penyesuaian Recorded",
                                 fontSize = 11.sp,
-                                color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
+                                color = if (heroIsLight) KeuanganAccentDeep.copy(alpha = 0.72f) else MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f)
                             )
                         }
                     }
@@ -384,14 +414,15 @@ fun JurnalPenyesuaianScreen(
                     .fillMaxWidth()
                     .weight(1f),
                 shape = RoundedCornerShape(16.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+                colors = CardDefaults.cardColors(containerColor = jurnalPenyesuaianPanelColor()),
+                border = BorderStroke(1.dp, jurnalPenyesuaianBorderColor()),
+                elevation = CardDefaults.cardElevation(defaultElevation = jurnalPenyesuaianCardElevation())
             ) {
                 Column(modifier = Modifier.fillMaxSize()) {
                     // Header Tabel
                     Surface(
                         modifier = Modifier.fillMaxWidth(),
-                        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f)
+                        color = if (jurnalPenyesuaianIsLight()) KeuanganSunken else MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f)
                     ) {
                         Row(
                             modifier = Modifier
@@ -431,7 +462,23 @@ fun JurnalPenyesuaianScreen(
                             contentAlignment = Alignment.Center
                         ) {
                             Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                Icon(Icons.Default.PlaylistAdd, contentDescription = null, modifier = Modifier.size(48.dp), tint = Color.Gray)
+                                Box(
+                                    modifier = Modifier
+                                        .size(76.dp)
+                                        .clip(RoundedCornerShape(38.dp))
+                                        .background(
+                                            if (jurnalPenyesuaianIsLight()) KeuanganAccentSoft
+                                            else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                                        ),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.PlaylistAdd,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(38.dp),
+                                        tint = if (jurnalPenyesuaianIsLight()) KeuanganAccentDeep else Color.Gray
+                                    )
+                                }
                                 Spacer(modifier = Modifier.height(12.dp))
                                 Text("Belum ada entri penyesuaian.", fontSize = 13.sp, color = Color.Gray, textAlign = TextAlign.Center)
                             }
@@ -535,7 +582,10 @@ fun JurnalPenyesuaianScreen(
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f))
+                                .background(
+                                    if (jurnalPenyesuaianIsLight()) KeuanganSunken
+                                    else MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
+                                )
                                 .height(IntrinsicSize.Min),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
@@ -568,14 +618,15 @@ fun JurnalPenyesuaianScreen(
                     .fillMaxWidth()
                     .weight(1f),
                 shape = RoundedCornerShape(16.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+                colors = CardDefaults.cardColors(containerColor = jurnalPenyesuaianPanelColor()),
+                border = BorderStroke(1.dp, jurnalPenyesuaianBorderColor()),
+                elevation = CardDefaults.cardElevation(defaultElevation = jurnalPenyesuaianCardElevation())
             ) {
                 Column(modifier = Modifier.fillMaxSize()) {
                     // Header Tabel yang sangat informatif (Tiga lapis)
                     Surface(
                         modifier = Modifier.fillMaxWidth(),
-                        color = MaterialTheme.colorScheme.secondaryContainer
+                        color = if (jurnalPenyesuaianIsLight()) KeuanganSunken else MaterialTheme.colorScheme.secondaryContainer
                     ) {
                         Column {
                             // Row Utama Judul Kolom
@@ -586,19 +637,19 @@ fun JurnalPenyesuaianScreen(
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Box(modifier = Modifier.weight(2.5f).padding(8.dp)) {
-                                    Text("Nama Rekening", fontWeight = FontWeight.Black, fontSize = 10.sp, color = MaterialTheme.colorScheme.onSecondaryContainer)
+                                    Text("Nama Rekening", fontWeight = FontWeight.Black, fontSize = 10.sp, color = if (jurnalPenyesuaianIsLight()) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSecondaryContainer)
                                 }
                                 Box(modifier = Modifier.fillMaxHeight().width(1.dp).background(MaterialTheme.colorScheme.outlineVariant))
                                 Box(modifier = Modifier.weight(2.2f).padding(8.dp)) {
-                                    Text("Neraca Saldo", fontWeight = FontWeight.Black, fontSize = 10.sp, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.onSecondaryContainer)
+                                    Text("Neraca Saldo", fontWeight = FontWeight.Black, fontSize = 10.sp, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth(), color = if (jurnalPenyesuaianIsLight()) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSecondaryContainer)
                                 }
                                 Box(modifier = Modifier.fillMaxHeight().width(1.dp).background(MaterialTheme.colorScheme.outlineVariant))
                                 Box(modifier = Modifier.weight(2.2f).padding(8.dp)) {
-                                    Text("Penyesuaian", fontWeight = FontWeight.Black, fontSize = 10.sp, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.onSecondaryContainer)
+                                    Text("Penyesuaian", fontWeight = FontWeight.Black, fontSize = 10.sp, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth(), color = if (jurnalPenyesuaianIsLight()) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSecondaryContainer)
                                 }
                                 Box(modifier = Modifier.fillMaxHeight().width(1.dp).background(MaterialTheme.colorScheme.outlineVariant))
                                 Box(modifier = Modifier.weight(2.5f).padding(8.dp)) {
-                                    Text("Setelah Penyesuaian", fontWeight = FontWeight.Black, fontSize = 10.sp, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.onSecondaryContainer)
+                                    Text("Setelah Penyesuaian", fontWeight = FontWeight.Black, fontSize = 10.sp, textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth(), color = if (jurnalPenyesuaianIsLight()) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSecondaryContainer)
                                 }
                             }
                             Divider(color = MaterialTheme.colorScheme.outlineVariant, thickness = 1.dp)
@@ -719,7 +770,10 @@ fun JurnalPenyesuaianScreen(
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f))
+                                .background(
+                                    if (jurnalPenyesuaianIsLight()) KeuanganSunken
+                                    else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.7f)
+                                )
                                 .height(IntrinsicSize.Min),
                             verticalAlignment = Alignment.CenterVertically
                         ) {

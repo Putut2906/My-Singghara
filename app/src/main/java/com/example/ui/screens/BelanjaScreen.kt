@@ -8,6 +8,7 @@ import android.webkit.WebViewClient
 import androidx.compose.animation.*
 import androidx.compose.animation.core.tween
 import kotlinx.coroutines.delay
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -28,12 +29,14 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -41,6 +44,29 @@ import com.example.data.ShoppingItem
 import com.example.ui.MainViewModel
 import java.text.SimpleDateFormat
 import java.util.*
+
+// --- ADAPTIVE LIGHT THEME PALETTE (BELANJA) ---
+private val BelanjaAccentDeep = Color(0xFF4338CA)
+private val BelanjaAccentSoft = Color(0xFFEEF2FF)
+private val BelanjaAccentBorder = Color(0xFFC7D2FE)
+private val BelanjaHairline = Color(0xFFE2E8F0)
+private val BelanjaSunken = Color(0xFFF1F5F9)
+
+@Composable
+private fun belanjaIsLight(): Boolean =
+    MaterialTheme.colorScheme.surface.luminance() > 0.5f
+
+@Composable
+private fun belanjaPanelColor(): Color =
+    if (belanjaIsLight()) Color.White else MaterialTheme.colorScheme.surface
+
+@Composable
+private fun belanjaBorderColor(): Color =
+    if (belanjaIsLight()) BelanjaHairline else MaterialTheme.colorScheme.outlineVariant
+
+@Composable
+private fun belanjaCardElevation(): Dp =
+    if (belanjaIsLight()) 2.dp else 0.dp
 
 // Category Free Vector Icon Mapping Helper
 fun getCategoryIcon(jenis: String): androidx.compose.ui.graphics.vector.ImageVector {
@@ -181,11 +207,22 @@ fun BelanjaScreen(viewModel: MainViewModel) {
                 verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
                 // Main Grand Card (Total Belanja) with modern primary gradient
+                val heroIsLight = belanjaIsLight()
+                val heroContent = if (heroIsLight) BelanjaAccentDeep else MaterialTheme.colorScheme.onPrimary
+                val heroContentMuted = if (heroIsLight) BelanjaAccentDeep.copy(alpha = 0.72f) else MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.7f)
                 val gradientBrush = Brush.linearGradient(
-                    colors = listOf(
-                        MaterialTheme.colorScheme.primary,
-                        MaterialTheme.colorScheme.primary.copy(alpha = 0.85f)
-                    )
+                    colors = if (heroIsLight) {
+                        listOf(
+                            Color(0xFFEEF2FF),
+                            Color(0xFFE0E7FF),
+                            Color(0xFFC7D2FE)
+                        )
+                    } else {
+                        listOf(
+                            MaterialTheme.colorScheme.primary,
+                            MaterialTheme.colorScheme.primary.copy(alpha = 0.85f)
+                        )
+                    }
                 )
 
                 Card(
@@ -194,7 +231,11 @@ fun BelanjaScreen(viewModel: MainViewModel) {
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(20.dp))
                         .background(gradientBrush),
-                    elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+                    border = androidx.compose.foundation.BorderStroke(
+                        1.dp,
+                        if (heroIsLight) BelanjaAccentBorder else Color.Transparent
+                    ),
+                    elevation = CardDefaults.cardElevation(defaultElevation = if (heroIsLight) 3.dp else 2.dp)
                 ) {
                     Column(
                         modifier = Modifier.padding(20.dp)
@@ -212,14 +253,14 @@ fun BelanjaScreen(viewModel: MainViewModel) {
                                     modifier = Modifier
                                         .weight(1f)
                                         .height(48.dp),
-                                    placeholder = { Text("Cari...", fontSize = 11.sp, color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.6f)) },
+                                    placeholder = { Text("Cari...", fontSize = 11.sp, color = heroContent.copy(alpha = 0.6f)) },
                                     singleLine = true,
-                                    textStyle = androidx.compose.ui.text.TextStyle(fontSize = 12.sp, color = MaterialTheme.colorScheme.onPrimary),
+                                    textStyle = androidx.compose.ui.text.TextStyle(fontSize = 12.sp, color = heroContent),
                                     leadingIcon = {
                                         Icon(
                                             imageVector = Icons.Default.Search,
                                             contentDescription = null,
-                                            tint = MaterialTheme.colorScheme.onPrimary,
+                                            tint = heroContent,
                                             modifier = Modifier.size(16.dp)
                                         )
                                     },
@@ -232,19 +273,19 @@ fun BelanjaScreen(viewModel: MainViewModel) {
                                                 Icon(
                                                     imageVector = Icons.Default.Clear,
                                                     contentDescription = "Hapus",
-                                                    tint = MaterialTheme.colorScheme.onPrimary,
+                                                    tint = heroContent,
                                                     modifier = Modifier.size(14.dp)
                                                 )
                                             }
                                         }
                                     },
                                     colors = OutlinedTextFieldDefaults.colors(
-                                        focusedContainerColor = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.15f),
-                                        unfocusedContainerColor = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.1f),
+                                        focusedContainerColor = heroContent.copy(alpha = 0.12f),
+                                        unfocusedContainerColor = heroContent.copy(alpha = 0.08f),
                                         disabledContainerColor = Color.Transparent,
-                                        focusedBorderColor = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.5f),
-                                        unfocusedBorderColor = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.3f),
-                                        cursorColor = MaterialTheme.colorScheme.onPrimary
+                                        focusedBorderColor = heroContent.copy(alpha = 0.45f),
+                                        unfocusedBorderColor = heroContent.copy(alpha = 0.28f),
+                                        cursorColor = heroContent
                                     ),
                                     shape = RoundedCornerShape(10.dp)
                                 )
@@ -254,7 +295,7 @@ fun BelanjaScreen(viewModel: MainViewModel) {
                                     text = "TOTAL BELANJA",
                                     fontSize = 11.sp,
                                     fontWeight = FontWeight.Black,
-                                    color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.7f),
+                                    color = heroContentMuted,
                                     letterSpacing = 1.sp,
                                     modifier = Modifier.weight(1f, fill = false)
                                 )
@@ -275,7 +316,7 @@ fun BelanjaScreen(viewModel: MainViewModel) {
                                         Icon(
                                             imageVector = Icons.Default.FilterList,
                                             contentDescription = "Filter",
-                                            tint = MaterialTheme.colorScheme.onPrimary
+                                            tint = heroContent
                                         )
                                     }
                                     DropdownMenu(
@@ -309,7 +350,7 @@ fun BelanjaScreen(viewModel: MainViewModel) {
                                     Icon(
                                         imageVector = Icons.Default.Print,
                                         contentDescription = "Cetak",
-                                        tint = MaterialTheme.colorScheme.onPrimary
+                                        tint = heroContent
                                     )
                                 }
 
@@ -324,7 +365,7 @@ fun BelanjaScreen(viewModel: MainViewModel) {
                                     Icon(
                                         imageVector = Icons.Default.Add,
                                         contentDescription = "Tambah",
-                                        tint = MaterialTheme.colorScheme.onPrimary
+                                        tint = heroContent
                                     )
                                 }
 
@@ -341,7 +382,7 @@ fun BelanjaScreen(viewModel: MainViewModel) {
                                     Icon(
                                         imageVector = if (isSearchActive) Icons.Default.Close else Icons.Default.Search,
                                         contentDescription = "Cari",
-                                        tint = MaterialTheme.colorScheme.onPrimary
+                                        tint = heroContent
                                     )
                                 }
                             }
@@ -353,13 +394,13 @@ fun BelanjaScreen(viewModel: MainViewModel) {
                             text = String.format("Rp %,.0f", totalBelanja),
                             fontSize = 28.sp,
                             fontWeight = FontWeight.Black,
-                            color = MaterialTheme.colorScheme.onPrimary,
+                            color = heroContent,
                             letterSpacing = (-0.5).sp
                         )
 
                         Spacer(modifier = Modifier.height(12.dp))
 
-                        HorizontalDivider(color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.15f))
+                        HorizontalDivider(color = heroContent.copy(alpha = 0.18f))
 
                         Spacer(modifier = Modifier.height(10.dp))
 
@@ -369,7 +410,7 @@ fun BelanjaScreen(viewModel: MainViewModel) {
                             Icon(
                                 imageVector = Icons.Default.TrendingUp,
                                 contentDescription = null,
-                                tint = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.8f),
+                                tint = heroContent.copy(alpha = 0.8f),
                                 modifier = Modifier.size(14.dp)
                             )
                             Spacer(modifier = Modifier.width(6.dp))
@@ -377,7 +418,7 @@ fun BelanjaScreen(viewModel: MainViewModel) {
                                 text = "Kategori Terbanyak: $maxCategory",
                                 fontSize = 12.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.9f)
+                                color = heroContent.copy(alpha = 0.9f)
                             )
                         }
                     }
@@ -390,12 +431,12 @@ fun BelanjaScreen(viewModel: MainViewModel) {
                 ) {
                     // Supporting Card 1: Jumlah Item
                     Card(
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                        colors = CardDefaults.cardColors(containerColor = belanjaPanelColor()),
                         modifier = Modifier
                             .weight(1f)
                             .clip(RoundedCornerShape(16.dp)),
-                        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)),
-                        elevation = CardDefaults.cardElevation(defaultElevation = 0.5.dp)
+                        border = androidx.compose.foundation.BorderStroke(1.dp, belanjaBorderColor()),
+                        elevation = CardDefaults.cardElevation(defaultElevation = belanjaCardElevation())
                     ) {
                         Row(
                             modifier = Modifier
@@ -407,13 +448,16 @@ fun BelanjaScreen(viewModel: MainViewModel) {
                                 modifier = Modifier
                                     .size(36.dp)
                                     .clip(CircleShape)
-                                    .background(MaterialTheme.colorScheme.secondaryContainer),
+                                    .background(
+                                        if (belanjaIsLight()) BelanjaAccentSoft
+                                        else MaterialTheme.colorScheme.secondaryContainer
+                                    ),
                                 contentAlignment = Alignment.Center
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.ShoppingBag,
                                     contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.primary,
+                                    tint = if (belanjaIsLight()) BelanjaAccentDeep else MaterialTheme.colorScheme.primary,
                                     modifier = Modifier.size(18.dp)
                                 )
                             }
@@ -436,12 +480,12 @@ fun BelanjaScreen(viewModel: MainViewModel) {
 
                     // Supporting Card 2: Total Pajak
                     Card(
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                        colors = CardDefaults.cardColors(containerColor = belanjaPanelColor()),
                         modifier = Modifier
                             .weight(1f)
                             .clip(RoundedCornerShape(16.dp)),
-                        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)),
-                        elevation = CardDefaults.cardElevation(defaultElevation = 0.5.dp)
+                        border = androidx.compose.foundation.BorderStroke(1.dp, belanjaBorderColor()),
+                        elevation = CardDefaults.cardElevation(defaultElevation = belanjaCardElevation())
                     ) {
                         Row(
                             modifier = Modifier
@@ -453,13 +497,16 @@ fun BelanjaScreen(viewModel: MainViewModel) {
                                 modifier = Modifier
                                     .size(36.dp)
                                     .clip(CircleShape)
-                                    .background(MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.4f)),
+                                    .background(
+                                        if (belanjaIsLight()) BelanjaSunken
+                                        else MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.4f)
+                                    ),
                                 contentAlignment = Alignment.Center
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.Percent,
                                     contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.tertiary,
+                                    tint = if (belanjaIsLight()) BelanjaAccentDeep else MaterialTheme.colorScheme.tertiary,
                                     modifier = Modifier.size(18.dp)
                                 )
                             }
@@ -494,9 +541,10 @@ fun BelanjaScreen(viewModel: MainViewModel) {
             item {
                 Card(
                     modifier = Modifier.fillMaxWidth(),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.2f)),
+                    colors = CardDefaults.cardColors(containerColor = belanjaPanelColor()),
                     shape = RoundedCornerShape(16.dp),
-                    border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+                    border = androidx.compose.foundation.BorderStroke(1.dp, belanjaBorderColor()),
+                    elevation = CardDefaults.cardElevation(defaultElevation = belanjaCardElevation())
                 ) {
                     Column(
                         modifier = Modifier
@@ -505,12 +553,23 @@ fun BelanjaScreen(viewModel: MainViewModel) {
                         horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.Center
                     ) {
-                        Icon(
-                            imageVector = Icons.Default.Inventory,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
-                            modifier = Modifier.size(54.dp)
-                        )
+                        Box(
+                            modifier = Modifier
+                                .size(76.dp)
+                                .clip(CircleShape)
+                                .background(
+                                    if (belanjaIsLight()) BelanjaAccentSoft
+                                    else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                                ),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Inventory,
+                                contentDescription = null,
+                                tint = if (belanjaIsLight()) BelanjaAccentDeep else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
+                                modifier = Modifier.size(38.dp)
+                            )
+                        }
                         Spacer(modifier = Modifier.height(14.dp))
                         Text(
                             text = "Belum ada belanjaan yang ditambahkan.",
@@ -743,7 +802,14 @@ fun BelanjaScreen(viewModel: MainViewModel) {
                     Spacer(modifier = Modifier.height(16.dp))
 
                     Card(
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.25f)),
+                        colors = CardDefaults.cardColors(
+                            containerColor = if (belanjaIsLight()) BelanjaAccentSoft
+                            else MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.25f)
+                        ),
+                        border = androidx.compose.foundation.BorderStroke(
+                            1.dp,
+                            if (belanjaIsLight()) BelanjaAccentBorder else Color.Transparent
+                        ),
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(12.dp)
                     ) {
@@ -753,14 +819,14 @@ fun BelanjaScreen(viewModel: MainViewModel) {
                                 horizontalArrangement = Arrangement.SpaceBetween
                             ) {
                                 Text("Subtotal:", fontSize = 12.sp, color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f))
-                                Text("Rp " + String.format("%,.0f", subTotal), fontSize = 12.sp, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                                Text("Rp " + String.format("%,.0f", subTotal), fontSize = 12.sp, fontWeight = FontWeight.Medium, color = if (belanjaIsLight()) BelanjaAccentDeep else MaterialTheme.colorScheme.onPrimaryContainer)
                             }
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.SpaceBetween
                             ) {
                                 Text("Pajak:", fontSize = 12.sp, color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f))
-                                Text("Rp " + String.format("%,.0f", calculatedPajak), fontSize = 12.sp, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                                Text("Rp " + String.format("%,.0f", calculatedPajak), fontSize = 12.sp, fontWeight = FontWeight.Medium, color = if (belanjaIsLight()) BelanjaAccentDeep else MaterialTheme.colorScheme.onPrimaryContainer)
                             }
                             HorizontalDivider(modifier = Modifier.padding(vertical = 6.dp), color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.15f))
                             Row(
@@ -768,12 +834,12 @@ fun BelanjaScreen(viewModel: MainViewModel) {
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Text("Estimasi Total:", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                                Text("Estimasi Total:", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = if (belanjaIsLight()) BelanjaAccentDeep else MaterialTheme.colorScheme.onPrimaryContainer)
                                 Text(
                                     text = "Rp " + String.format("%,.0f", calculatedTotal),
                                     fontSize = 16.sp,
                                     fontWeight = FontWeight.Black,
-                                    color = MaterialTheme.colorScheme.primary
+                                    color = if (belanjaIsLight()) BelanjaAccentDeep else MaterialTheme.colorScheme.primary
                                 )
                             }
                         }
@@ -1019,8 +1085,9 @@ fun ShoppingTable(
         Card(
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(12.dp),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-            border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+            colors = CardDefaults.cardColors(containerColor = belanjaPanelColor()),
+            border = androidx.compose.foundation.BorderStroke(1.dp, belanjaBorderColor()),
+            elevation = CardDefaults.cardElevation(defaultElevation = belanjaCardElevation())
         ) {
             Box(
                 modifier = Modifier
@@ -1031,27 +1098,30 @@ fun ShoppingTable(
                     // Header Row
                     Row(
                         modifier = Modifier
-                            .background(MaterialTheme.colorScheme.primaryContainer)
+                            .background(
+                                if (belanjaIsLight()) BelanjaSunken
+                                else MaterialTheme.colorScheme.primaryContainer
+                            )
                             .height(IntrinsicSize.Min),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Box(modifier = Modifier.width(110.dp).fillMaxHeight().border(0.5.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)).padding(horizontal = 12.dp, vertical = 12.dp), contentAlignment = Alignment.CenterStart) {
-                            Text("Tanggal", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                            Text("Tanggal", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = if (belanjaIsLight()) BelanjaAccentDeep else MaterialTheme.colorScheme.onPrimaryContainer)
                         }
                         Box(modifier = Modifier.width(160.dp).fillMaxHeight().border(0.5.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)).padding(horizontal = 12.dp, vertical = 12.dp), contentAlignment = Alignment.CenterStart) {
-                            Text("Barang/Produk", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                            Text("Barang/Produk", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = if (belanjaIsLight()) BelanjaAccentDeep else MaterialTheme.colorScheme.onPrimaryContainer)
                         }
                         Box(modifier = Modifier.width(140.dp).fillMaxHeight().border(0.5.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)).padding(horizontal = 12.dp, vertical = 12.dp), contentAlignment = Alignment.CenterStart) {
-                            Text("Kategori", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                            Text("Kategori", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = if (belanjaIsLight()) BelanjaAccentDeep else MaterialTheme.colorScheme.onPrimaryContainer)
                         }
                         Box(modifier = Modifier.width(60.dp).fillMaxHeight().border(0.5.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)).padding(horizontal = 12.dp, vertical = 12.dp), contentAlignment = Alignment.Center) {
-                            Text("Qty", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                            Text("Qty", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = if (belanjaIsLight()) BelanjaAccentDeep else MaterialTheme.colorScheme.onPrimaryContainer)
                         }
                         Box(modifier = Modifier.width(120.dp).fillMaxHeight().border(0.5.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)).padding(horizontal = 12.dp, vertical = 12.dp), contentAlignment = Alignment.CenterEnd) {
-                            Text("Harga per Satuan", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                            Text("Harga per Satuan", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = if (belanjaIsLight()) BelanjaAccentDeep else MaterialTheme.colorScheme.onPrimaryContainer)
                         }
                         Box(modifier = Modifier.width(100.dp).fillMaxHeight().border(0.5.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)).padding(horizontal = 12.dp, vertical = 12.dp), contentAlignment = Alignment.Center) {
-                            Text("Aksi", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                            Text("Aksi", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = if (belanjaIsLight()) BelanjaAccentDeep else MaterialTheme.colorScheme.onPrimaryContainer)
                         }
                     }
 
@@ -1165,13 +1235,13 @@ fun ShoppingItemCard(
             .fillMaxWidth()
             .clip(RoundedCornerShape(16.dp)),
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surface
+            containerColor = belanjaPanelColor()
         ),
         border = androidx.compose.foundation.BorderStroke(
             width = 1.dp,
-            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
+            color = belanjaBorderColor()
         ),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.5.dp)
+        elevation = CardDefaults.cardElevation(defaultElevation = belanjaCardElevation())
     ) {
         Row(
             modifier = Modifier
@@ -1252,7 +1322,7 @@ fun ShoppingItemCard(
                     text = String.format("Rp %,.0f", item.total),
                     fontSize = 15.sp,
                     fontWeight = FontWeight.Black,
-                    color = MaterialTheme.colorScheme.primary
+                    color = if (belanjaIsLight()) BelanjaAccentDeep else MaterialTheme.colorScheme.primary
                 )
 
                 if (item.pajak > 0) {
@@ -1283,14 +1353,15 @@ fun ShoppingItemCard(
                         modifier = Modifier
                             .size(28.dp)
                             .background(
-                                MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.15f),
+                                if (belanjaIsLight()) BelanjaAccentSoft
+                                else MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.15f),
                                 CircleShape
                             )
                     ) {
                         Icon(
                             imageVector = Icons.Default.Edit,
                             contentDescription = "Edit",
-                            tint = MaterialTheme.colorScheme.primary,
+                            tint = if (belanjaIsLight()) BelanjaAccentDeep else MaterialTheme.colorScheme.primary,
                             modifier = Modifier.size(13.dp)
                         )
                     }
