@@ -44,39 +44,35 @@ fun DriveUpdateAvailableDialog(
 ) {
     val context = LocalContext.current
     val session = UpdateDownloadCenter.drive
-    val downloadKey = remember(latestApk.id, latestApk.name, latestApk.size) {
-        "drive:${latestApk.id}|${latestApk.size}|${latestApk.name}"
+    val downloadKey = remember(latestApk.id, latestApk.name, latestApk.size, latestApk.timestampMillis) {
+        "drive:${latestApk.id}|${latestApk.size}|${latestApk.name}|${latestApk.timestampMillis}"
     }
-    // Sesi unduh hidup di scope aplikasi, jadi saat aplikasi terkunci dialog boleh
-    // hilang dari komposisi tanpa membatalkan unduhan atau mengulangnya dari awal.
-    LaunchedEffect(downloadKey) { session.prepare(downloadKey) }
-    val downloadState by session.state.collectAsState()
-    val downloadedApk by session.downloadedApk.collectAsState()
-    val signatureConflict by session.signatureConflict.collectAsState()
-
-    // Auto-start download if requested by user preference
-    LaunchedEffect(Unit) {
+    // Prepare and auto-start share one key so an old asset cannot start after a switch.
+    LaunchedEffect(downloadKey, autoStartDownload) {
+        session.prepare(downloadKey)
         if (autoStartDownload) {
             session.startDriveDownload(context, latestApk)
         }
     }
-
-    LaunchedEffect(downloadState) {
-        if (downloadState is DownloadState.Completed) {
-            session.reset()
-            onDismiss()
-        }
-    }
+    val sessionAssetKey by session.currentAssetKey.collectAsState()
+    val sessionState by session.state.collectAsState()
+    val sessionApk by session.downloadedApk.collectAsState()
+    val sessionSignatureConflict by session.signatureConflict.collectAsState()
+    val isCurrentAsset = sessionAssetKey == downloadKey
+    val downloadState = if (isCurrentAsset) sessionState else DownloadState.Idle
+    val downloadedApk = if (isCurrentAsset) sessionApk else null
+    val signatureConflict = isCurrentAsset && sessionSignatureConflict
+    val isBusy = downloadState is DownloadState.Downloading || downloadState is DownloadState.Installing
 
     Dialog(
         onDismissRequest = {
-            if (downloadState !is DownloadState.Downloading) {
+            if (!isBusy) {
                 onDismiss()
             }
         },
         properties = DialogProperties(
-            dismissOnBackPress = downloadState !is DownloadState.Downloading,
-            dismissOnClickOutside = downloadState !is DownloadState.Downloading,
+            dismissOnBackPress = !isBusy,
+            dismissOnClickOutside = !isBusy,
             usePlatformDefaultWidth = false
         )
     ) {
@@ -91,6 +87,7 @@ fun DriveUpdateAvailableDialog(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
                     .padding(20.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
@@ -316,26 +313,17 @@ fun DriveUpdateAvailableDialog(
                                     }
                                 }
                             }
-                            is DownloadState.Completed -> {
-                                Text(
-                                    text = "Unduhan selesai. Silakan pasang pembaruan.",
-                                    fontSize = 12.sp,
-                                    color = Color(0xFF16A34A),
-                                    fontWeight = FontWeight.Bold
-                                )
-                            }
                             else -> {}
                         }
                     }
                 }
 
                 // Action Buttons
-                val isDownloading = downloadState is DownloadState.Downloading || downloadState is DownloadState.Installing
                 val readyToInstall = downloadedApk?.exists() == true
 
                 Button(
                     onClick = {
-                        if (!isDownloading) {
+                        if (!isBusy) {
                             if (readyToInstall) {
                                 session.installDownloaded(context, latestApk)
                             } else {
@@ -343,7 +331,7 @@ fun DriveUpdateAvailableDialog(
                             }
                         }
                     },
-                    enabled = !isDownloading,
+                    enabled = !isBusy,
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(12.dp),
                     colors = ButtonDefaults.buttonColors(
@@ -437,7 +425,7 @@ fun DriveUpdateAvailableDialog(
                     // Dismiss Button
                     TextButton(
                         onClick = onDismiss,
-                        enabled = !isDownloading,
+                        enabled = !isBusy,
                         shape = RoundedCornerShape(10.dp),
                         modifier = Modifier.weight(0.8f)
                     ) {

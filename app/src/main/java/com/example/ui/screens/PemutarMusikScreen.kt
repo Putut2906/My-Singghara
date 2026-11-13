@@ -37,7 +37,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.lerp
@@ -239,6 +238,7 @@ fun PemutarMusikScreen(viewModel: MainViewModel, onOpenDrawer: () -> Unit) {
     var isLyricsMode by remember { mutableStateOf(false) }
     var lyricsEditMode by remember { mutableStateOf(false) }
     var manualLyricsText by remember { mutableStateOf("") }
+    var lyricsImportRevision by remember { mutableIntStateOf(0) }
     var isLyricsFullScreen by remember { mutableStateOf(false) }
     var fileLyricsText by remember { mutableStateOf("") }
 
@@ -253,6 +253,35 @@ fun PemutarMusikScreen(viewModel: MainViewModel, onOpenDrawer: () -> Unit) {
         // agar memakai tombol Sinkron untuk menyesuaikan.
         fileLyricsText.isNotBlank() -> "Lirik tanpa timestamp"
         else -> "Lirik"
+    }
+
+    val importLrcLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) {
+            try {
+                val importedText = context.contentResolver.openInputStream(uri)?.bufferedReader(Charsets.UTF_8)?.use { reader ->
+                    val result = StringBuilder()
+                    val buffer = CharArray(8192)
+                    while (true) {
+                        val count = reader.read(buffer)
+                        if (count < 0) break
+                        result.append(buffer, 0, count)
+                        if (result.length > 2_000_000) throw IllegalArgumentException("File LRC terlalu besar")
+                    }
+                    result.toString().removePrefix("\uFEFF")
+                }
+                if (importedText.isNullOrBlank()) {
+                    viewModel.showToastPopup("File LRC kosong atau tidak dapat dibaca")
+                } else {
+                    manualLyricsText = importedText
+                    lyricsImportRevision++
+                    viewModel.showToastPopup("File LRC berhasil dimuat. Tekan Simpan untuk menerapkan.")
+                }
+            } catch (e: Exception) {
+                viewModel.showToastPopup("Gagal mengimpor LRC: ${e.message}")
+            }
+        }
     }
 
     val backupLyricsLauncher = rememberLauncherForActivityResult(
@@ -536,80 +565,54 @@ fun PemutarMusikScreen(viewModel: MainViewModel, onOpenDrawer: () -> Unit) {
                                 // Render folder list view as requested
                                 groupedByFolder.forEach { (folderName, tracksInFolder) ->
                                     item {
-                                        // Di mode terang kartu diberi latar solid + bayangan agar
-                                        // tidak menyatu dengan latar; mode gelap tetap tint tipis.
-                                        val isLightTheme = MaterialTheme.colorScheme.surface.luminance() > 0.5f
-                                        Card(
-                                            shape = RoundedCornerShape(12.dp),
-                                            colors = CardDefaults.cardColors(
-                                                containerColor = if (isLightTheme) {
-                                                    MaterialTheme.colorScheme.surface
-                                                } else {
-                                                    MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.12f)
-                                                }
-                                            ),
-                                            elevation = CardDefaults.cardElevation(
-                                                defaultElevation = if (isLightTheme) 3.dp else 0.dp
-                                            ),
+                                        Row(
                                             modifier = Modifier
                                                 .fillMaxWidth()
                                                 .clickable { if (canHandleItemClick()) selectedFolder = folderName }
-                                                .border(
-                                                    width = 1.dp,
-                                                    color = MaterialTheme.colorScheme.outlineVariant.copy(
-                                                        alpha = if (isLightTheme) 0.35f else 0.15f
-                                                    ),
-                                                    shape = RoundedCornerShape(12.dp)
-                                                )
+                                                .padding(horizontal = 16.dp, vertical = 14.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.SpaceBetween
                                         ) {
                                             Row(
-                                                modifier = Modifier
-                                                    .fillMaxWidth()
-                                                    .padding(horizontal = 16.dp, vertical = 14.dp),
                                                 verticalAlignment = Alignment.CenterVertically,
-                                                horizontalArrangement = Arrangement.SpaceBetween
+                                                modifier = Modifier.weight(1f)
                                             ) {
-                                                Row(
-                                                    verticalAlignment = Alignment.CenterVertically,
-                                                    modifier = Modifier.weight(1f)
+                                                Box(
+                                                    modifier = Modifier
+                                                        .size(40.dp)
+                                                        .clip(CircleShape)
+                                                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)),
+                                                    contentAlignment = Alignment.Center
                                                 ) {
-                                                    Box(
-                                                        modifier = Modifier
-                                                            .size(40.dp)
-                                                            .clip(CircleShape)
-                                                            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)),
-                                                        contentAlignment = Alignment.Center
-                                                    ) {
-                                                        Icon(
-                                                            imageVector = Icons.Default.Folder,
-                                                            contentDescription = null,
-                                                            tint = MaterialTheme.colorScheme.primary,
-                                                            modifier = Modifier.size(20.dp)
-                                                        )
-                                                    }
-                                                    Spacer(modifier = Modifier.width(12.dp))
-                                                    Column {
-                                                        Text(
-                                                            text = folderName,
-                                                            fontSize = 14.sp,
-                                                            fontWeight = FontWeight.Bold,
-                                                            color = MaterialTheme.colorScheme.onSurface,
-                                                            maxLines = 1,
-                                                            overflow = TextOverflow.Ellipsis
-                                                        )
-                                                        Text(
-                                                            text = "${tracksInFolder.size} Lagu",
-                                                            fontSize = 11.sp,
-                                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                                        )
-                                                    }
+                                                    Icon(
+                                                        imageVector = Icons.Default.Folder,
+                                                        contentDescription = null,
+                                                        tint = MaterialTheme.colorScheme.primary,
+                                                        modifier = Modifier.size(20.dp)
+                                                    )
                                                 }
-                                                Icon(
-                                                    imageVector = Icons.Default.ChevronRight,
-                                                    contentDescription = "Buka folder",
-                                                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
-                                                )
+                                                Spacer(modifier = Modifier.width(12.dp))
+                                                Column {
+                                                    Text(
+                                                        text = folderName,
+                                                        fontSize = 14.sp,
+                                                        fontWeight = FontWeight.Bold,
+                                                        color = MaterialTheme.colorScheme.onSurface,
+                                                        maxLines = 1,
+                                                        overflow = TextOverflow.Ellipsis
+                                                    )
+                                                    Text(
+                                                        text = "${tracksInFolder.size} Lagu",
+                                                        fontSize = 11.sp,
+                                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                    )
+                                                }
                                             }
+                                            Icon(
+                                                imageVector = Icons.Default.ChevronRight,
+                                                contentDescription = "Buka folder",
+                                                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
+                                            )
                                         }
                                     }
                                 }
@@ -1048,7 +1051,7 @@ fun PemutarMusikScreen(viewModel: MainViewModel, onOpenDrawer: () -> Unit) {
                                         if (lyricsEditMode) {
                                             // Sesi editor dibuat sekali per lagu agar posisi kursor
                                             // tidak melompat saat teks diketik.
-                                            var editorValue by remember(activeTrack, lyricsEditMode) {
+                                            var editorValue by remember(activeTrack, lyricsEditMode, lyricsImportRevision) {
                                                 mutableStateOf(
                                                     androidx.compose.ui.text.input.TextFieldValue(
                                                         manualLyricsText.ifBlank { fileLyricsText }
@@ -1211,6 +1214,23 @@ fun PemutarMusikScreen(viewModel: MainViewModel, onOpenDrawer: () -> Unit) {
                                                     }
                                                 }
                                                 
+                                                OutlinedButton(
+                                                    onClick = {
+                                                        importLrcLauncher.launch(
+                                                            arrayOf("application/x-subrip", "text/plain", "application/octet-stream")
+                                                        )
+                                                    },
+                                                    modifier = Modifier.fillMaxWidth()
+                                                ) {
+                                                    Icon(
+                                                        imageVector = Icons.Default.UploadFile,
+                                                        contentDescription = null,
+                                                        modifier = Modifier.size(16.dp)
+                                                    )
+                                                    Spacer(modifier = Modifier.width(6.dp))
+                                                    Text("Import File .LRC", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                                }
+
                                                 OutlinedTextField(
                                                     value = editorValue,
                                                     onValueChange = { 
@@ -1650,7 +1670,16 @@ fun PemutarMusikScreen(viewModel: MainViewModel, onOpenDrawer: () -> Unit) {
                                     ),
                                     thumb = {
                                         Box(
-                                            modifier = Modifier.size(0.dp)
+                                            modifier = Modifier
+                                                .size(12.dp)
+                                                .background(
+                                                    color = if (MaterialTheme.colorScheme.surface.luminance() > 0.5f) {
+                                                        Color.Black
+                                                    } else {
+                                                        MaterialTheme.colorScheme.primary
+                                                    },
+                                                    shape = CircleShape
+                                                )
                                         )
                                     },
                                     track = { sliderState ->
@@ -1925,27 +1954,9 @@ fun PemutarMusikScreen(viewModel: MainViewModel, onOpenDrawer: () -> Unit) {
                             ) {
                                 itemsIndexed(currentFolderTracks) { _, track ->
                                     val isPlaying = activeTrack != null && activeTrack.uriStr == track.uriStr
-                                    val isLightTheme = MaterialTheme.colorScheme.surface.luminance() > 0.5f
-                                    val queueShape = RoundedCornerShape(10.dp)
                                     Row(
                                         modifier = Modifier
                                             .fillMaxWidth()
-                                            .shadow(
-                                                elevation = if (isLightTheme) 2.dp else 0.dp,
-                                                shape = queueShape
-                                            )
-                                            .clip(queueShape)
-                                            .background(
-                                                when {
-                                                    isPlaying -> if (isLightTheme) {
-                                                        MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
-                                                    } else {
-                                                        MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f)
-                                                    }
-                                                    isLightTheme -> MaterialTheme.colorScheme.surface
-                                                    else -> Color.Transparent
-                                                }
-                                            )
                                             .clickable {
                                                 val globalIndex = viewModel.musicPlaylist.indexOfFirst { it.uriStr == track.uriStr }
                                                 if (globalIndex != -1) {
@@ -2407,26 +2418,9 @@ fun TrackListItem(
     onPlayClick: () -> Unit,
     onFavoriteClick: () -> Unit
 ) {
-    val isLightTheme = MaterialTheme.colorScheme.surface.luminance() > 0.5f
-    val itemShape = RoundedCornerShape(12.dp)
-    val itemBgColor = when {
-        isActive -> if (isLightTheme) {
-            MaterialTheme.colorScheme.primary.copy(alpha = 0.10f)
-        } else {
-            MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f)
-        }
-        isLightTheme -> MaterialTheme.colorScheme.surface
-        else -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.12f)
-    }
-
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            // Kartu lagu diberi bayangan hanya di mode terang agar tetap kontras
-            // dengan latar; mode gelap tetap rata tanpa bayangan.
-            .shadow(elevation = if (isLightTheme) 2.dp else 0.dp, shape = itemShape)
-            .clip(itemShape)
-            .background(itemBgColor)
             .clickable { onPlayClick() }
             .padding(horizontal = 12.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically

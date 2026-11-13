@@ -526,6 +526,8 @@ object GoogleDriveUpdateManager {
      */
     fun evaluateDriveApk(context: Context, apkItem: DriveApkItem): DriveApkEvaluation {
         val lastInstalledFileId = getLastInstalledFileId(context)
+        val lastInstalledTimestamp = getLastInstalledTimestamp(context)
+        val lastInstalledFileSize = getLastInstalledFileSize(context)
 
         // Install / Update timestamp from PackageManager
         val installedAppTime = try {
@@ -541,7 +543,11 @@ object GoogleDriveUpdateManager {
         }
 
         // 1. CHECK IF THIS EXACT FILE WAS ALREADY INSTALLED FROM DRIVE
-        if (lastInstalledFileId.isNotBlank() && apkItem.id == lastInstalledFileId) {
+        val matchesInstalledDriveFile = lastInstalledFileId.isNotBlank() &&
+            apkItem.id == lastInstalledFileId &&
+            (lastInstalledFileSize <= 0L || apkItem.size == lastInstalledFileSize) &&
+            (lastInstalledTimestamp <= 0L || apkItem.timestampMillis <= lastInstalledTimestamp)
+        if (matchesInstalledDriveFile) {
             return DriveApkEvaluation(
                 isNewer = false,
                 isNewerByTimestamp = false,
@@ -806,16 +812,9 @@ object GoogleDriveUpdateManager {
     /**
      * Launches the system package installer for the downloaded APK.
      */
-    fun installApk(context: Context, apkFile: File, fileItem: DriveApkItem? = null): Boolean {
+    fun installApk(context: Context, apkFile: File): Boolean {
         return try {
             if (!apkFile.exists()) return false
-
-            if (fileItem != null) {
-                val effectiveTimestamp = if (fileItem.timestampMillis > 0L) fileItem.timestampMillis else System.currentTimeMillis()
-                saveInstalledApkInfo(context, fileItem.id, effectiveTimestamp, fileItem.size)
-            } else {
-                saveInstalledApkInfo(context, "", System.currentTimeMillis(), apkFile.length())
-            }
 
             // Check Unknown Sources permission on Android 8.0+
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -826,6 +825,7 @@ object GoogleDriveUpdateManager {
                         flags = Intent.FLAG_ACTIVITY_NEW_TASK
                     }
                     context.startActivity(settingsIntent)
+                    return false
                 }
             }
 
@@ -941,7 +941,7 @@ object GoogleDriveUpdateManager {
      * Extracts semantic version string from APK name (e.g. MySingghara-v1.2.apk -> 1.2).
      */
     private fun extractVersionName(fileName: String): String {
-        val regex = Pattern.compile("[vV](\\d+(\\.\\d+)+)")
+        val regex = Pattern.compile("(?:^|[-_\\s])[vV]?(\\d+(?:\\.\\d+)+)(?=[^\\d]|$)")
         val matcher = regex.matcher(fileName)
         if (matcher.find()) {
             return matcher.group(1) ?: ""

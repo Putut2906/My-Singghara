@@ -2959,7 +2959,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                     }?.firstOrNull()?.let { Uri.fromFile(it).toString() }
                     val files = mp3Folder.listFiles { f -> f.isFile && com.example.util.AudioFormats.isSupported(f.name) }
                     files?.forEach { f ->
-                        knownPaths.add(f.absolutePath.lowercase(Locale.ROOT))
+                        knownPaths.add(com.example.MusicService.normalizedAudioPath(f.absolutePath))
                         appFolderNames.add(f.name.lowercase(Locale.ROOT))
                         tracks.add(
                             MusicTrack(
@@ -2968,7 +2968,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                                 artist = "My Singghara",
                                 uriStr = Uri.fromFile(f).toString(),
                                 coverUriStr = mp3CoverUri,
-                                folder = "My Singghara"
+                                folder = "My Singghara",
+                                sourcePath = f.absolutePath
                             )
                         )
                         folderTracks++
@@ -3030,7 +3031,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                                 ?.takeIf { it.isNotBlank() && it != "<unknown>" }
                                 ?: "Penyimpanan Perangkat"
                             val dataPath = cursor.textAt(dataIdx)
-                            val pathKey = dataPath?.lowercase(Locale.ROOT)
+                            val pathKey = dataPath?.let(com.example.MusicService::normalizedAudioPath)
                             val sizeBytes = if (sizeIdx >= 0) cursor.getLong(sizeIdx) else 0L
                             val fileKey = displayName
                                 ?.lowercase(Locale.ROOT)
@@ -3058,7 +3059,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                                     artist = artist,
                                     uriStr = uri.toString(),
                                     durationMs = if (durationIdx >= 0) cursor.getLong(durationIdx) else 0L,
-                                    folder = folderName
+                                    folder = folderName,
+                                    sourcePath = dataPath
                                 )
                             )
                         }
@@ -3142,7 +3144,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                             emptyList()
                         }
                         files.forEach { file ->
-                            if (!knownPaths.add(file.absolutePath.lowercase(Locale.ROOT))) return@forEach
+                            if (!knownPaths.add(com.example.MusicService.normalizedAudioPath(file.absolutePath))) return@forEach
                             // Baris MediaStore tanpa DATA hanya cocok lewat nama + ukuran.
                             val fileKey = "${file.name.lowercase(Locale.ROOT)}|${file.length()}"
                             if (knownFileKeys.contains(fileKey)) return@forEach
@@ -3158,7 +3160,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                                     artist = "Penyimpanan Perangkat",
                                     uriStr = Uri.fromFile(file).toString(),
                                     coverUriStr = cover,
-                                    folder = parent?.name?.takeIf { it.isNotBlank() } ?: "Musik"
+                                    folder = parent?.name?.takeIf { it.isNotBlank() } ?: "Musik",
+                                    sourcePath = file.absolutePath
                                 )
                             )
                             fallbackTracks++
@@ -3199,19 +3202,15 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 isMusicLoading = false
                 com.example.MusicService.instance?.let { service ->
                     service.syncPlaylist(musicPlaylist)
-                    com.example.MusicService.currentTrackIndex = currentTrackIndex
+                    currentTrackIndex = com.example.MusicService.currentTrackIndex
                 }
             }
         }
     }
 
     /** Kunci identitas berkas untuk membuang baris ganda hasil pemindaian. */
-    private fun musicLibraryKey(track: MusicTrack): String {
-        val folder = (track.folder ?: track.artist).trim().lowercase(Locale.ROOT)
-        val title = track.title.trim().lowercase(Locale.ROOT)
-        // Durasi 0L berarti belum diketahui (pemindaian folder); URI jadi pembeda.
-        return if (track.durationMs > 0L) "$folder|$title|${track.durationMs}" else track.uriStr
-    }
+    private fun musicLibraryKey(track: MusicTrack): String =
+        com.example.MusicService.audioIdentity(track)
 
     private fun android.database.Cursor.textAt(index: Int): String? =
         if (index >= 0 && !isNull(index)) getString(index) else null
@@ -3384,5 +3383,6 @@ data class MusicTrack(
     // cover.jpg/folder.jpg di folder yang sama; dipakai bila lagu tidak punya tag sampul.
     val coverUriStr: String? = null,
     // Nama folder asal berkas, dipakai tab "Folder" pada pemutar musik.
-    val folder: String? = null
+    val folder: String? = null,
+    val sourcePath: String? = null
 )

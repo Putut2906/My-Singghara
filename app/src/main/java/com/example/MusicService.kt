@@ -94,21 +94,33 @@ class MusicService : Service() {
         fun folderKeyOf(track: MusicTrack): String =
             track.folder?.takeIf { it.isNotBlank() } ?: track.artist
 
-        /**
-         * Identitas berkas audio. Satu lagu bisa masuk pustaka lebih dari sekali
-         * (baris ganda MediaStore, path alias, atau gabungan pemindaian folder),
-         * dan duplikat itulah yang membuat Next terasa memutar ulang lagu yang sama.
-         */
+        fun normalizedAudioPath(path: String): String {
+            val normalized = java.io.File(path).absolutePath
+                .replace('\\', '/').trimEnd('/').lowercase(java.util.Locale.ROOT)
+            return normalized.replace(
+                Regex("^/(?:sdcard|mnt/sdcard|storage/self/primary|storage/emulated/legacy)(?=/|$)"),
+                "/storage/emulated/0"
+            )
+        }
+
+        private fun audioPath(track: MusicTrack): String? {
+            val path = track.sourcePath?.takeIf { it.isNotBlank() } ?: runCatching {
+                val uri = java.net.URI(track.uriStr)
+                if (uri.scheme == "file") uri.path else null
+            }.getOrNull()
+            return path?.let(::normalizedAudioPath)
+        }
+
         fun audioIdentity(track: MusicTrack): String {
-            val folder = folderKeyOf(track).trim().lowercase(java.util.Locale.ROOT)
-            val title = track.title.trim().lowercase(java.util.Locale.ROOT)
-            // Durasi 0L berarti belum diketahui (hasil pemindaian folder); URI dipakai
-            // sebagai pembeda agar dua berkas berbeda tidak dianggap sama.
-            return if (track.durationMs > 0L) "$folder|$title|${track.durationMs}" else track.uriStr
+            audioPath(track)?.let { return "path:$it" }
+            return track.uriStr
         }
 
         fun isSameAudio(a: MusicTrack, b: MusicTrack): Boolean {
             if (a.uriStr == b.uriStr) return true
+            val aPath = audioPath(a)
+            val bPath = audioPath(b)
+            if (aPath != null && bPath != null) return aPath == bPath
             val sameName = a.title.trim().equals(b.title.trim(), ignoreCase = true) &&
                 folderKeyOf(a).trim().equals(folderKeyOf(b).trim(), ignoreCase = true)
             if (!sameName) return false
@@ -427,8 +439,15 @@ class MusicService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     fun syncPlaylist(newList: List<MusicTrack>) {
+        val activeTrack = musicPlaylist.getOrNull(currentTrackIndex)
+        val tracks = newList.toList()
         musicPlaylist.clear()
-        musicPlaylist.addAll(newList)
+        musicPlaylist.addAll(tracks)
+        currentTrackIndex = activeTrack?.let { active ->
+            tracks.indexOfFirst { it.uriStr == active.uriStr }.takeIf { it >= 0 }
+                ?: tracks.indexOfFirst { isSameAudio(it, active) }
+        } ?: -1
+        MainViewModel.instance?.currentTrackIndex = currentTrackIndex
         shuffleRemainingIndices.clear()
         shuffleHistoryIndices.clear()
         if (isMusicShuffle) {

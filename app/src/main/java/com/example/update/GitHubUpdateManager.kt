@@ -302,13 +302,10 @@ object GitHubUpdateManager {
             val cleanLocal = localVer.removePrefix("v").removePrefix("V").trim()
             val cleanRemote = remoteTag.removePrefix("v").removePrefix("V").trim()
 
-            if (cleanLocal.equals(cleanRemote, ignoreCase = true)) {
-                return false
-            }
+            if (cleanLocal.equals(cleanRemote, ignoreCase = true)) return false
 
-            val localParts = cleanLocal.split(".", "-", "_").mapNotNull { it.toIntOrNull() }
-            val remoteParts = cleanRemote.split(".", "-", "_").mapNotNull { it.toIntOrNull() }
-
+            val localParts = cleanLocal.substringBefore('-').split('.').map { it.toIntOrNull() ?: return false }
+            val remoteParts = cleanRemote.substringBefore('-').split('.').map { it.toIntOrNull() ?: return false }
             val maxLen = maxOf(localParts.size, remoteParts.size)
             for (i in 0 until maxLen) {
                 val localPart = localParts.getOrElse(i) { 0 }
@@ -317,8 +314,9 @@ object GitHubUpdateManager {
                 if (remotePart < localPart) return false
             }
 
-            // Fallback: If numeric comparison is identical but remote has extra text, check string comparison
-            return cleanRemote > cleanLocal
+            val localPreRelease = cleanLocal.substringAfter('-', "")
+            val remotePreRelease = cleanRemote.substringAfter('-', "")
+            return localPreRelease.isNotBlank() && remotePreRelease.isBlank()
         } catch (e: Exception) {
             return remoteTag.trim() != localVer.trim()
         }
@@ -371,7 +369,13 @@ object GitHubUpdateManager {
             downloadDir.mkdirs()
         }
 
-        val targetFile = File(downloadDir, fileName.ifBlank { "MySingghara-update.apk" })
+        val safeName = fileName.ifBlank { "MySingghara-update.apk" }
+            .substringAfterLast('/').substringAfterLast('\\')
+        val sourceId = java.security.MessageDigest.getInstance("SHA-256")
+            .digest(downloadUrl.toByteArray())
+            .take(8)
+            .joinToString("") { "%02x".format(it) }
+        val targetFile = File(downloadDir, "$sourceId-$safeName")
         if (targetFile.exists() && targetFile.length() <= 0L) {
             targetFile.delete()
         }
@@ -500,6 +504,7 @@ object GitHubUpdateManager {
                         flags = Intent.FLAG_ACTIVITY_NEW_TASK
                     }
                     context.startActivity(settingsIntent)
+                    return false
                 }
             }
 

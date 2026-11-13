@@ -52,26 +52,25 @@ fun AppUpdateAvailableDialog(
     // Sesi unduh hidup di scope aplikasi, jadi saat aplikasi terkunci dialog boleh
     // hilang dari komposisi tanpa membatalkan unduhan atau menghapus progres.
     LaunchedEffect(downloadKey) { session.prepare(downloadKey) }
-    val downloadState by session.state.collectAsState()
-    val downloadedApk by session.downloadedApk.collectAsState()
-    val signatureConflict by session.signatureConflict.collectAsState()
-
-    LaunchedEffect(downloadState) {
-        if (downloadState is DownloadState.Completed) {
-            session.reset()
-            onDismiss()
-        }
-    }
+    val sessionAssetKey by session.currentAssetKey.collectAsState()
+    val sessionState by session.state.collectAsState()
+    val sessionApk by session.downloadedApk.collectAsState()
+    val sessionSignatureConflict by session.signatureConflict.collectAsState()
+    val isCurrentAsset = sessionAssetKey == downloadKey
+    val downloadState = if (isCurrentAsset) sessionState else DownloadState.Idle
+    val downloadedApk = if (isCurrentAsset) sessionApk else null
+    val signatureConflict = isCurrentAsset && sessionSignatureConflict
+    val isBusy = downloadState is DownloadState.Downloading || downloadState is DownloadState.Installing
 
     Dialog(
         onDismissRequest = {
-            if (downloadState !is DownloadState.Downloading) {
+            if (!isBusy) {
                 onDismiss()
             }
         },
         properties = DialogProperties(
-            dismissOnBackPress = downloadState !is DownloadState.Downloading,
-            dismissOnClickOutside = downloadState !is DownloadState.Downloading,
+            dismissOnBackPress = !isBusy,
+            dismissOnClickOutside = !isBusy,
             usePlatformDefaultWidth = false
         )
     ) {
@@ -86,6 +85,7 @@ fun AppUpdateAvailableDialog(
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
                     .padding(20.dp),
                 horizontalAlignment = Alignment.CenterHorizontally
             ) {
@@ -334,12 +334,11 @@ fun AppUpdateAvailableDialog(
                     modifier = Modifier.fillMaxWidth(),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    val isDownloading = downloadState is DownloadState.Downloading || downloadState is DownloadState.Installing
                     val readyToInstall = downloadedApk?.exists() == true
 
                     Button(
                         onClick = {
-                            if (!isDownloading) {
+                            if (!isBusy) {
                                 if (downloadedApk?.exists() == true) {
                                     session.installDownloaded(context)
                                 } else {
@@ -347,7 +346,7 @@ fun AppUpdateAvailableDialog(
                                 }
                             }
                         },
-                        enabled = !isDownloading,
+                        enabled = !isBusy,
                         modifier = Modifier.fillMaxWidth(),
                         shape = RoundedCornerShape(12.dp),
                         colors = ButtonDefaults.buttonColors(
@@ -434,7 +433,7 @@ fun AppUpdateAvailableDialog(
 
                         TextButton(
                             onClick = onDismiss,
-                            enabled = !isDownloading,
+                            enabled = !isBusy,
                             modifier = Modifier.weight(1f),
                             shape = RoundedCornerShape(12.dp)
                         ) {

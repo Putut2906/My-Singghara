@@ -161,7 +161,7 @@ fun TentangAplikasiScreen(
                 }
 
                 inlineDownloadState = DriveDownloadProgressState.Installing(apkItem.name)
-                val success = GoogleDriveUpdateManager.installApk(context, downloadedFile, apkItem)
+                val success = GoogleDriveUpdateManager.installApk(context, downloadedFile)
                 if (success) {
                     inlineDownloadState = DriveDownloadProgressState.Idle
                     viewModel.showToastPopup("Membuka installer paket APK...")
