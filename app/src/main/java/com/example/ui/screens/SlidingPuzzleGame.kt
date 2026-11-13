@@ -41,6 +41,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
@@ -53,6 +54,32 @@ import kotlinx.coroutines.launch
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.random.Random
+
+// --- ADAPTIVE LIGHT THEME PALETTE (SLIDING PUZZLE) ---
+private val PuzzleAccentDeep = Color(0xFFB45309)
+private val PuzzleAccentSoft = Color(0xFFFFF7ED)
+private val PuzzleAccentBorder = Color(0xFFFED7AA)
+private val PuzzleHairline = Color(0xFFE2E8F0)
+private val PuzzleSunken = Color(0xFFF1F5F9)
+private val PuzzleGoldSoft = Color(0xFFFFFBEB)
+private val PuzzleGoldBorder = Color(0xFFFDE68A)
+private val PuzzleBrownDeep = Color(0xFF7C2D12)
+
+@Composable
+private fun puzzleIsLight(): Boolean =
+    MaterialTheme.colorScheme.surface.luminance() > 0.5f
+
+@Composable
+private fun puzzlePanelColor(): Color =
+    if (puzzleIsLight()) Color.White else MaterialTheme.colorScheme.surface
+
+@Composable
+private fun puzzleBorderColor(): Color =
+    if (puzzleIsLight()) PuzzleHairline else MaterialTheme.colorScheme.outlineVariant
+
+@Composable
+private fun puzzleCardElevation(): Dp =
+    if (puzzleIsLight()) 2.dp else 0.dp
 
 /**
  * Pilihan Layar dalam Permainan Puzzle Geser
@@ -411,7 +438,8 @@ fun SlidingPuzzleGame(
                         .fillMaxWidth(0.92f)
                         .clip(RoundedCornerShape(22.dp)),
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                    elevation = CardDefaults.cardElevation(8.dp)
+                    elevation = CardDefaults.cardElevation(8.dp),
+                    border = if (puzzleIsLight()) BorderStroke(1.dp, PuzzleHairline) else null
                 ) {
                     Column(
                         modifier = Modifier
@@ -458,7 +486,8 @@ fun SlidingPuzzleGame(
                                     .fillMaxWidth()
                                     .aspectRatio(1f),
                                 shape = RoundedCornerShape(16.dp),
-                                color = MaterialTheme.colorScheme.surfaceVariant
+                                color = if (puzzleIsLight()) PuzzleSunken else MaterialTheme.colorScheme.surfaceVariant,
+                                border = if (puzzleIsLight()) BorderStroke(1.dp, PuzzleHairline) else null
                             ) {
                                 Box(contentAlignment = Alignment.Center) {
                                     Text(
@@ -496,7 +525,8 @@ fun SlidingPuzzleGame(
                         .fillMaxWidth(0.92f)
                         .clip(RoundedCornerShape(26.dp)),
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                    elevation = CardDefaults.cardElevation(12.dp)
+                    elevation = CardDefaults.cardElevation(12.dp),
+                    border = if (puzzleIsLight()) BorderStroke(1.dp, PuzzleHairline) else null
                 ) {
                     Column(
                         modifier = Modifier
@@ -551,7 +581,11 @@ fun SlidingPuzzleGame(
                         Card(
                             modifier = Modifier.fillMaxWidth(),
                             shape = RoundedCornerShape(14.dp),
-                            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                            colors = CardDefaults.cardColors(
+                                containerColor = if (puzzleIsLight()) PuzzleSunken
+                                else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                            ),
+                            border = if (puzzleIsLight()) BorderStroke(1.dp, PuzzleHairline) else null
                         ) {
                             Row(
                                 modifier = Modifier
@@ -697,23 +731,33 @@ private fun SlidingPuzzleLobbyView(
             Spacer(modifier = Modifier.height(10.dp))
 
             // 1. HERO SHOWCASE CARD (BANNER)
+            val lobbyIsLight = puzzleIsLight()
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp),
                 shape = RoundedCornerShape(20.dp),
-                colors = CardDefaults.cardColors(containerColor = Color.Transparent)
+                colors = CardDefaults.cardColors(containerColor = Color.Transparent),
+                border = if (lobbyIsLight) BorderStroke(1.dp, PuzzleAccentBorder) else null
             ) {
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
                         .background(
                             Brush.linearGradient(
-                                listOf(
-                                    Color(0xFFE65100),
-                                    Color(0xFFF57C00),
-                                    Color(0xFFFFB300)
-                                )
+                                if (lobbyIsLight) {
+                                    listOf(
+                                        Color(0xFFFFF7ED),
+                                        Color(0xFFFFEDD5),
+                                        Color(0xFFFDE68A)
+                                    )
+                                } else {
+                                    listOf(
+                                        Color(0xFFE65100),
+                                        Color(0xFFF57C00),
+                                        Color(0xFFFFB300)
+                                    )
+                                }
                             )
                         )
                         .padding(20.dp)
@@ -726,13 +770,14 @@ private fun SlidingPuzzleLobbyView(
                         Column(modifier = Modifier.weight(1f)) {
                             Surface(
                                 shape = RoundedCornerShape(6.dp),
-                                color = Color(0x33000000)
+                                color = if (lobbyIsLight) Color.White.copy(alpha = 0.85f) else Color(0x33000000),
+                                border = if (lobbyIsLight) BorderStroke(1.dp, PuzzleAccentBorder) else null
                             ) {
                                 Text(
                                     text = "SLIDING PUZZLE NUSANTARA",
                                     fontSize = 9.sp,
                                     fontWeight = FontWeight.Black,
-                                    color = Color.White,
+                                    color = if (lobbyIsLight) PuzzleAccentDeep else Color.White,
                                     modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                                 )
                             }
@@ -741,13 +786,13 @@ private fun SlidingPuzzleLobbyView(
                                 text = "Permainan Puzzle Geser",
                                 fontSize = 20.sp,
                                 fontWeight = FontWeight.Black,
-                                color = Color.White
+                                color = if (lobbyIsLight) PuzzleBrownDeep else Color.White
                             )
                             Spacer(modifier = Modifier.height(4.dp))
                             Text(
                                 text = "Tantang logika dengan geseran beruntun multi-tile dan susun puzzle hingga sempurna!",
                                 fontSize = 11.sp,
-                                color = Color.White.copy(alpha = 0.92f)
+                                color = if (lobbyIsLight) Color(0xFF92400E) else Color.White.copy(alpha = 0.92f)
                             )
                         }
 
@@ -757,13 +802,13 @@ private fun SlidingPuzzleLobbyView(
                             modifier = Modifier
                                 .size(54.dp)
                                 .clip(RoundedCornerShape(16.dp))
-                                .background(Color(0x33FFFFFF)),
+                                .background(if (lobbyIsLight) Color.White.copy(alpha = 0.8f) else Color(0x33FFFFFF)),
                             contentAlignment = Alignment.Center
                         ) {
                             Icon(
                                 imageVector = Icons.Default.DashboardCustomize,
                                 contentDescription = null,
-                                tint = Color.White,
+                                tint = if (lobbyIsLight) PuzzleAccentDeep else Color.White,
                                 modifier = Modifier.size(30.dp)
                             )
                         }
@@ -792,8 +837,9 @@ private fun SlidingPuzzleLobbyView(
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp),
                 shape = RoundedCornerShape(16.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+                colors = CardDefaults.cardColors(containerColor = puzzlePanelColor()),
+                border = BorderStroke(1.dp, puzzleBorderColor()),
+                elevation = CardDefaults.cardElevation(defaultElevation = puzzleCardElevation())
             ) {
                 Row(
                     modifier = Modifier
@@ -810,14 +856,16 @@ private fun SlidingPuzzleLobbyView(
                             modifier = Modifier
                                 .size(46.dp)
                                 .clip(RoundedCornerShape(12.dp))
-                                .background(MaterialTheme.colorScheme.primaryContainer),
+                                .background(
+                                    if (puzzleIsLight()) PuzzleAccentSoft else MaterialTheme.colorScheme.primaryContainer
+                                ),
                             contentAlignment = Alignment.Center
                         ) {
                             Text(
                                 text = selectedDifficulty.label,
                                 fontSize = 16.sp,
                                 fontWeight = FontWeight.Black,
-                                color = MaterialTheme.colorScheme.primary
+                                color = if (puzzleIsLight()) PuzzleAccentDeep else MaterialTheme.colorScheme.primary
                             )
                         }
 
@@ -870,8 +918,9 @@ private fun SlidingPuzzleLobbyView(
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp),
                 shape = RoundedCornerShape(16.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+                colors = CardDefaults.cardColors(containerColor = puzzlePanelColor()),
+                border = BorderStroke(1.dp, puzzleBorderColor()),
+                elevation = CardDefaults.cardElevation(defaultElevation = puzzleCardElevation())
             ) {
                 Row(
                     modifier = Modifier
@@ -888,7 +937,9 @@ private fun SlidingPuzzleLobbyView(
                             modifier = Modifier
                                 .size(46.dp)
                                 .clip(RoundedCornerShape(12.dp))
-                                .background(MaterialTheme.colorScheme.secondaryContainer),
+                                .background(
+                                    if (puzzleIsLight()) Color(0xFFFFEDD5) else MaterialTheme.colorScheme.secondaryContainer
+                                ),
                             contentAlignment = Alignment.Center
                         ) {
                             if (selectedTheme == SlidingPuzzleTheme.FOTO_PRIBADI && customPhotoBitmap != null) {
@@ -902,7 +953,7 @@ private fun SlidingPuzzleLobbyView(
                                 Icon(
                                     imageVector = selectedTheme.icon,
                                     contentDescription = selectedTheme.title,
-                                    tint = MaterialTheme.colorScheme.secondary,
+                                    tint = if (puzzleIsLight()) Color(0xFFC2410C) else MaterialTheme.colorScheme.secondary,
                                     modifier = Modifier.size(24.dp)
                                 )
                             }
@@ -957,8 +1008,15 @@ private fun SlidingPuzzleLobbyView(
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp),
                 shape = RoundedCornerShape(16.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)),
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f))
+                colors = CardDefaults.cardColors(
+                    containerColor = if (puzzleIsLight()) PuzzleGoldSoft
+                    else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+                ),
+                border = BorderStroke(
+                    1.dp,
+                    if (puzzleIsLight()) PuzzleGoldBorder else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)
+                ),
+                elevation = CardDefaults.cardElevation(defaultElevation = if (puzzleIsLight()) 1.dp else 0.dp)
             ) {
                 Row(
                     modifier = Modifier
@@ -987,13 +1045,13 @@ private fun SlidingPuzzleLobbyView(
                                 text = "$bestMoves Langkah",
                                 fontSize = 13.sp,
                                 fontWeight = FontWeight.ExtraBold,
-                                color = MaterialTheme.colorScheme.primary
+                                color = if (puzzleIsLight()) PuzzleBrownDeep else MaterialTheme.colorScheme.primary
                             )
                             Text(
                                 text = formatTime(bestTime),
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.Medium,
-                                color = MaterialTheme.colorScheme.secondary
+                                color = if (puzzleIsLight()) Color(0xFF92400E) else MaterialTheme.colorScheme.secondary
                             )
                         }
                     } else {
@@ -1030,7 +1088,8 @@ private fun DifficultySelectionDialog(
                 .fillMaxWidth(0.92f)
                 .clip(RoundedCornerShape(22.dp)),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-            elevation = CardDefaults.cardElevation(8.dp)
+            elevation = CardDefaults.cardElevation(8.dp),
+            border = if (puzzleIsLight()) BorderStroke(1.dp, PuzzleHairline) else null
         ) {
             Column(
                 modifier = Modifier
@@ -1071,10 +1130,18 @@ private fun DifficultySelectionDialog(
                             .clip(RoundedCornerShape(14.dp))
                             .clickable { onSelectDifficulty(diff) },
                         shape = RoundedCornerShape(14.dp),
-                        color = if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+                        color = if (isSelected) {
+                            if (puzzleIsLight()) PuzzleAccentSoft else MaterialTheme.colorScheme.primaryContainer
+                        } else {
+                            if (puzzleIsLight()) Color.White else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+                        },
                         border = BorderStroke(
                             if (isSelected) 2.dp else 1.dp,
-                            if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)
+                            if (isSelected) {
+                                if (puzzleIsLight()) PuzzleAccentDeep else MaterialTheme.colorScheme.primary
+                            } else {
+                                if (puzzleIsLight()) PuzzleHairline else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)
+                            }
                         )
                     ) {
                         Row(
@@ -1088,8 +1155,11 @@ private fun DifficultySelectionDialog(
                                     .size(42.dp)
                                     .clip(RoundedCornerShape(10.dp))
                                     .background(
-                                        if (isSelected) MaterialTheme.colorScheme.primary
-                                        else MaterialTheme.colorScheme.surfaceVariant
+                                        if (isSelected) {
+                                            if (puzzleIsLight()) PuzzleAccentDeep else MaterialTheme.colorScheme.primary
+                                        } else {
+                                            if (puzzleIsLight()) PuzzleSunken else MaterialTheme.colorScheme.surfaceVariant
+                                        }
                                     ),
                                 contentAlignment = Alignment.Center
                             ) {
@@ -1160,7 +1230,8 @@ private fun ThemeSelectionDialog(
                 .fillMaxWidth(0.92f)
                 .clip(RoundedCornerShape(22.dp)),
             colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-            elevation = CardDefaults.cardElevation(8.dp)
+            elevation = CardDefaults.cardElevation(8.dp),
+            border = if (puzzleIsLight()) BorderStroke(1.dp, PuzzleHairline) else null
         ) {
             Column(
                 modifier = Modifier
@@ -1201,10 +1272,18 @@ private fun ThemeSelectionDialog(
                             .clip(RoundedCornerShape(14.dp))
                             .clickable { onSelectTheme(theme) },
                         shape = RoundedCornerShape(14.dp),
-                        color = if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+                        color = if (isSelected) {
+                            if (puzzleIsLight()) PuzzleAccentSoft else MaterialTheme.colorScheme.primaryContainer
+                        } else {
+                            if (puzzleIsLight()) Color.White else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+                        },
                         border = BorderStroke(
                             if (isSelected) 2.dp else 1.dp,
-                            if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)
+                            if (isSelected) {
+                                if (puzzleIsLight()) PuzzleAccentDeep else MaterialTheme.colorScheme.primary
+                            } else {
+                                if (puzzleIsLight()) PuzzleHairline else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)
+                            }
                         )
                     ) {
                         Row(
@@ -1218,8 +1297,11 @@ private fun ThemeSelectionDialog(
                                     .size(46.dp)
                                     .clip(RoundedCornerShape(10.dp))
                                     .background(
-                                        if (isSelected) MaterialTheme.colorScheme.primary.copy(alpha = 0.2f)
-                                        else MaterialTheme.colorScheme.surfaceVariant
+                                        if (isSelected) {
+                                            if (puzzleIsLight()) Color(0xFFFFEDD5) else MaterialTheme.colorScheme.primary.copy(alpha = 0.2f)
+                                        } else {
+                                            if (puzzleIsLight()) PuzzleSunken else MaterialTheme.colorScheme.surfaceVariant
+                                        }
                                     ),
                                 contentAlignment = Alignment.Center
                             ) {
@@ -1234,7 +1316,7 @@ private fun ThemeSelectionDialog(
                                     Icon(
                                         imageVector = theme.icon,
                                         contentDescription = theme.title,
-                                        tint = MaterialTheme.colorScheme.primary,
+                                        tint = if (puzzleIsLight()) PuzzleAccentDeep else MaterialTheme.colorScheme.primary,
                                         modifier = Modifier.size(24.dp)
                                     )
                                 }
@@ -1331,14 +1413,17 @@ private fun SlidingPuzzleGameplayCleanView(
                 // Badge Ukuran & Tema Aktif
                 Surface(
                     shape = RoundedCornerShape(10.dp),
-                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.7f),
-                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.4f))
+                    color = if (puzzleIsLight()) PuzzleAccentSoft else MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.7f),
+                    border = BorderStroke(
+                        1.dp,
+                        if (puzzleIsLight()) PuzzleAccentBorder else MaterialTheme.colorScheme.primary.copy(alpha = 0.4f)
+                    )
                 ) {
                     Text(
                         text = "${difficulty.label} • ${currentTheme.title}",
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.primary,
+                        color = if (puzzleIsLight()) PuzzleAccentDeep else MaterialTheme.colorScheme.primary,
                         modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
                     )
                 }
@@ -1384,8 +1469,9 @@ private fun SlidingPuzzleGameplayCleanView(
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp),
                 shape = RoundedCornerShape(16.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+                colors = CardDefaults.cardColors(containerColor = puzzlePanelColor()),
+                border = BorderStroke(1.dp, puzzleBorderColor()),
+                elevation = CardDefaults.cardElevation(defaultElevation = puzzleCardElevation())
             ) {
                 Row(
                     modifier = Modifier
@@ -1402,13 +1488,15 @@ private fun SlidingPuzzleGameplayCleanView(
                             modifier = Modifier
                                 .size(32.dp)
                                 .clip(RoundedCornerShape(8.dp))
-                                .background(MaterialTheme.colorScheme.primaryContainer),
+                                .background(
+                                    if (puzzleIsLight()) PuzzleAccentSoft else MaterialTheme.colorScheme.primaryContainer
+                                ),
                             contentAlignment = Alignment.Center
                         ) {
                             Icon(
                                 imageVector = Icons.Default.DirectionsWalk,
                                 contentDescription = null,
-                                tint = MaterialTheme.colorScheme.primary,
+                                tint = if (puzzleIsLight()) PuzzleAccentDeep else MaterialTheme.colorScheme.primary,
                                 modifier = Modifier.size(16.dp)
                             )
                         }
@@ -1432,13 +1520,15 @@ private fun SlidingPuzzleGameplayCleanView(
                             modifier = Modifier
                                 .size(32.dp)
                                 .clip(RoundedCornerShape(8.dp))
-                                .background(MaterialTheme.colorScheme.secondaryContainer),
+                                .background(
+                                    if (puzzleIsLight()) Color(0xFFFFEDD5) else MaterialTheme.colorScheme.secondaryContainer
+                                ),
                             contentAlignment = Alignment.Center
                         ) {
                             Icon(
                                 imageVector = Icons.Default.Timer,
                                 contentDescription = null,
-                                tint = MaterialTheme.colorScheme.secondary,
+                                tint = if (puzzleIsLight()) Color(0xFFC2410C) else MaterialTheme.colorScheme.secondary,
                                 modifier = Modifier.size(16.dp)
                             )
                         }
@@ -1477,11 +1567,18 @@ private fun SlidingPuzzleGameplayCleanView(
                                 .clip(RoundedCornerShape(8.dp))
                                 .clickable(onClick = onToggleTileNumbers),
                             shape = RoundedCornerShape(8.dp),
-                            color = if (showTileNumbers) MaterialTheme.colorScheme.primaryContainer
-                            else MaterialTheme.colorScheme.surfaceVariant,
+                            color = if (showTileNumbers) {
+                                if (puzzleIsLight()) PuzzleAccentSoft else MaterialTheme.colorScheme.primaryContainer
+                            } else {
+                                if (puzzleIsLight()) PuzzleSunken else MaterialTheme.colorScheme.surfaceVariant
+                            },
                             border = BorderStroke(
                                 1.dp,
-                                if (showTileNumbers) MaterialTheme.colorScheme.primary else Color.Transparent
+                                if (showTileNumbers) {
+                                    if (puzzleIsLight()) PuzzleAccentBorder else MaterialTheme.colorScheme.primary
+                                } else {
+                                    if (puzzleIsLight()) PuzzleHairline else Color.Transparent
+                                }
                             )
                         ) {
                             Row(
@@ -1491,7 +1588,11 @@ private fun SlidingPuzzleGameplayCleanView(
                                 Icon(
                                     imageVector = Icons.Default.Tag,
                                     contentDescription = null,
-                                    tint = if (showTileNumbers) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                    tint = if (showTileNumbers) {
+                                        if (puzzleIsLight()) PuzzleAccentDeep else MaterialTheme.colorScheme.primary
+                                    } else {
+                                        MaterialTheme.colorScheme.onSurfaceVariant
+                                    },
                                     modifier = Modifier.size(14.dp)
                                 )
                                 Spacer(modifier = Modifier.width(2.dp))
@@ -1499,7 +1600,11 @@ private fun SlidingPuzzleGameplayCleanView(
                                     text = if (showTileNumbers) "No. ON" else "No. OFF",
                                     fontSize = 10.sp,
                                     fontWeight = FontWeight.Bold,
-                                    color = if (showTileNumbers) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant
+                                    color = if (showTileNumbers) {
+                                        if (puzzleIsLight()) PuzzleAccentDeep else MaterialTheme.colorScheme.onPrimaryContainer
+                                    } else {
+                                        MaterialTheme.colorScheme.onSurfaceVariant
+                                    }
                                 )
                             }
                         }

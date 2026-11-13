@@ -31,6 +31,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
@@ -41,12 +42,37 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.launch
 import kotlin.math.cos
 import kotlin.math.sin
 import kotlin.random.Random
+
+// --- ADAPTIVE LIGHT THEME PALETTE (SPINNER) ---
+private val SpinnerAccentDeep = Color(0xFF4338CA)
+private val SpinnerAccentSoft = Color(0xFFEEF2FF)
+private val SpinnerHairline = Color(0xFFE2E8F0)
+private val SpinnerGoldSoft = Color(0xFFFFFBEB)
+private val SpinnerGoldBorder = Color(0xFFFCD34D)
+private val SpinnerGoldText = Color(0xFF92400E)
+
+@Composable
+private fun spinnerIsLight(): Boolean =
+    MaterialTheme.colorScheme.surface.luminance() > 0.5f
+
+@Composable
+private fun spinnerPanelColor(): Color =
+    if (spinnerIsLight()) Color.White else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
+
+@Composable
+private fun spinnerBorderColor(): Color =
+    if (spinnerIsLight()) SpinnerHairline else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)
+
+@Composable
+private fun spinnerCardElevation(): Dp =
+    if (spinnerIsLight()) 2.dp else 0.dp
 
 // Robust, ultra-low latency synthetic sound player for realistic "tek tek" sounds
 object TickSoundPlayer {
@@ -602,7 +628,11 @@ fun UndianSpinnerScreen(
                                 ),
                                 CircleShape
                             )
-                            .border(8.dp, MaterialTheme.colorScheme.primaryContainer, CircleShape)
+                            .border(
+                                8.dp,
+                                if (spinnerIsLight()) Color.White else MaterialTheme.colorScheme.primaryContainer,
+                                CircleShape
+                            )
                     )
 
                     // Rotatable Wheel Canvas drawing actual parts or a placeholder
@@ -827,12 +857,13 @@ fun UndianSpinnerScreen(
                         .weight(1f),
                     shape = RoundedCornerShape(16.dp),
                     colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
+                        containerColor = spinnerPanelColor()
                     ),
                     border = androidx.compose.foundation.BorderStroke(
                         1.dp,
-                        MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)
-                    )
+                        spinnerBorderColor()
+                    ),
+                    elevation = CardDefaults.cardElevation(defaultElevation = spinnerCardElevation())
                 ) {
                     if (optionsList.isEmpty()) {
                         Box(
@@ -844,12 +875,22 @@ fun UndianSpinnerScreen(
                                 verticalArrangement = Arrangement.spacedBy(8.dp),
                                 modifier = Modifier.padding(24.dp)
                             ) {
-                                Icon(
-                                    imageVector = Icons.Default.List,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
-                                    modifier = Modifier.size(48.dp)
-                                )
+                                Box(
+                                    modifier = Modifier
+                                        .size(72.dp)
+                                        .clip(CircleShape)
+                                        .background(
+                                            if (spinnerIsLight()) SpinnerAccentSoft else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                                        ),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.List,
+                                        contentDescription = null,
+                                        tint = if (spinnerIsLight()) SpinnerAccentDeep else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                                        modifier = Modifier.size(36.dp)
+                                    )
+                                }
                                 Text(
                                     text = "Daftar kosong.\nSilakan klik + Tambah Opsi di bawah!",
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -870,12 +911,14 @@ fun UndianSpinnerScreen(
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .background(
-                                            MaterialTheme.colorScheme.surface,
+                                            if (spinnerIsLight()) segmentColors[index % segmentColors.size].copy(alpha = 0.10f)
+                                            else MaterialTheme.colorScheme.surface,
                                             RoundedCornerShape(10.dp)
                                         )
                                         .border(
                                             1.dp,
-                                            segmentColors[index % segmentColors.size].copy(alpha = 0.4f),
+                                            if (spinnerIsLight()) segmentColors[index % segmentColors.size].copy(alpha = 0.38f)
+                                            else segmentColors[index % segmentColors.size].copy(alpha = 0.4f),
                                             RoundedCornerShape(10.dp)
                                         )
                                         .padding(horizontal = 12.dp, vertical = 10.dp),
@@ -1108,11 +1151,16 @@ fun UndianSpinnerScreen(
                     Card(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .border(2.dp, Color(0xFFFFD700), RoundedCornerShape(16.dp))
+                            .border(
+                                2.dp,
+                                if (spinnerIsLight()) SpinnerGoldBorder else Color(0xFFFFD700),
+                                RoundedCornerShape(16.dp)
+                            )
                             .shadow(4.dp, RoundedCornerShape(16.dp)),
                         shape = RoundedCornerShape(16.dp),
                         colors = CardDefaults.cardColors(
-                            containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
+                            containerColor = if (spinnerIsLight()) SpinnerGoldSoft
+                            else MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
                         )
                     ) {
                         Box(
@@ -1125,7 +1173,7 @@ fun UndianSpinnerScreen(
                                 text = winnerName,
                                 fontSize = 24.sp,
                                 fontWeight = FontWeight.Black,
-                                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                color = if (spinnerIsLight()) SpinnerGoldText else MaterialTheme.colorScheme.onPrimaryContainer,
                                 textAlign = TextAlign.Center,
                                 style = TextStyle(lineHeight = 32.sp)
                             )

@@ -26,6 +26,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -33,6 +34,7 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.pointerInput
@@ -43,6 +45,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -77,6 +80,29 @@ import android.graphics.Paint
 import android.graphics.RectF
 import java.io.File
 import java.io.FileOutputStream
+
+// --- ADAPTIVE LIGHT THEME PALETTE (MINDMAP AI) ---
+private val MindMapAccentDeep = Color(0xFF1D4ED8)
+private val MindMapAccentSoft = Color(0xFFEFF6FF)
+private val MindMapAccentBorder = Color(0xFFBFDBFE)
+private val MindMapHairline = Color(0xFFE2E8F0)
+private val MindMapSunken = Color(0xFFF1F5F9)
+
+@Composable
+private fun mindMapIsLight(): Boolean =
+    MaterialTheme.colorScheme.surface.luminance() > 0.5f
+
+@Composable
+private fun mindMapPanelColor(): Color =
+    if (mindMapIsLight()) Color.White else MaterialTheme.colorScheme.surface
+
+@Composable
+private fun mindMapBorderColor(): Color =
+    if (mindMapIsLight()) MindMapHairline else MaterialTheme.colorScheme.outline.copy(alpha = 0.12f)
+
+@Composable
+private fun mindMapCardElevation(): Dp =
+    if (mindMapIsLight()) 2.dp else 0.dp
 
 // --- RECURSIVE NODE MODEL ---
 @JsonClass(generateAdapter = true)
@@ -268,15 +294,22 @@ fun MindMapScreen(
                             Card(
                                 modifier = Modifier.fillMaxWidth(),
                                 shape = RoundedCornerShape(20.dp),
-                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)),
-                                border = BorderStroke(
-                                    1.dp,
-                                    Brush.horizontalGradient(
-                                        listOf(
-                                            MaterialTheme.colorScheme.primary.copy(alpha = 0.4f),
-                                            MaterialTheme.colorScheme.tertiary.copy(alpha = 0.2f)
+                                colors = CardDefaults.cardColors(containerColor = mindMapPanelColor()),
+                                border = if (mindMapIsLight()) {
+                                    BorderStroke(1.dp, MindMapAccentBorder)
+                                } else {
+                                    BorderStroke(
+                                        1.dp,
+                                        Brush.horizontalGradient(
+                                            listOf(
+                                                MaterialTheme.colorScheme.primary.copy(alpha = 0.4f),
+                                                MaterialTheme.colorScheme.tertiary.copy(alpha = 0.2f)
+                                            )
                                         )
                                     )
+                                },
+                                elevation = CardDefaults.cardElevation(
+                                    defaultElevation = if (mindMapIsLight()) 3.dp else 0.dp
                                 )
                             ) {
                                 Column(
@@ -324,12 +357,12 @@ fun MindMapScreen(
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .background(
-                                            color = MaterialTheme.colorScheme.surface,
+                                            color = if (mindMapIsLight()) MindMapSunken else MaterialTheme.colorScheme.surface,
                                             shape = RoundedCornerShape(14.dp)
                                         )
                                         .border(
                                             width = 1.dp,
-                                            color = MaterialTheme.colorScheme.outline.copy(alpha = 0.25f),
+                                            color = if (mindMapIsLight()) MindMapHairline else MaterialTheme.colorScheme.outline.copy(alpha = 0.25f),
                                             shape = RoundedCornerShape(14.dp)
                                         )
                                 ) {
@@ -367,8 +400,14 @@ fun MindMapScreen(
                                                 modifier = Modifier
                                                     .padding(horizontal = 12.dp, vertical = 2.dp)
                                                     .background(
-                                                        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f),
+                                                        color = if (mindMapIsLight()) MindMapAccentSoft
+                                                        else MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f),
                                                         shape = RoundedCornerShape(8.dp)
+                                                    )
+                                                    .border(
+                                                        1.dp,
+                                                        if (mindMapIsLight()) MindMapAccentBorder else Color.Transparent,
+                                                        RoundedCornerShape(8.dp)
                                                     )
                                                     .padding(horizontal = 8.dp, vertical = 4.dp),
                                                 verticalAlignment = Alignment.CenterVertically,
@@ -377,20 +416,21 @@ fun MindMapScreen(
                                                 Icon(
                                                     imageVector = Icons.Default.AttachFile,
                                                     contentDescription = null,
-                                                    tint = MaterialTheme.colorScheme.primary,
+                                                    tint = if (mindMapIsLight()) MindMapAccentDeep else MaterialTheme.colorScheme.primary,
                                                     modifier = Modifier.size(12.dp)
                                                 )
                                                 Text(
                                                     text = selectedFileName ?: "",
                                                     fontSize = 10.sp,
                                                     fontWeight = FontWeight.Medium,
-                                                    color = MaterialTheme.colorScheme.onPrimaryContainer
+                                                    color = if (mindMapIsLight()) MindMapAccentDeep else MaterialTheme.colorScheme.onPrimaryContainer
                                                 )
                                                 Spacer(modifier = Modifier.width(2.dp))
                                                 Icon(
                                                     imageVector = Icons.Default.Close,
                                                     contentDescription = "Hapus File",
-                                                    tint = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f),
+                                                    tint = if (mindMapIsLight()) MindMapAccentDeep.copy(alpha = 0.7f)
+                                                    else MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f),
                                                     modifier = Modifier
                                                         .size(12.dp)
                                                         .clickable { selectedFileName = null }
@@ -543,14 +583,16 @@ fun MindMapScreen(
                                 Box(
                                     modifier = Modifier
                                         .clip(RoundedCornerShape(12.dp))
-                                        .background(MaterialTheme.colorScheme.secondaryContainer)
+                                        .background(
+                                            if (mindMapIsLight()) MindMapAccentSoft else MaterialTheme.colorScheme.secondaryContainer
+                                        )
                                         .padding(horizontal = 8.dp, vertical = 2.dp)
                                 ) {
                                     Text(
                                         text = "${mindMaps.size} Tersimpan",
                                         fontSize = 10.sp,
                                         fontWeight = FontWeight.Bold,
-                                        color = MaterialTheme.colorScheme.onSecondaryContainer
+                                        color = if (mindMapIsLight()) MindMapAccentDeep else MaterialTheme.colorScheme.onSecondaryContainer
                                     )
                                 }
                             }
@@ -572,8 +614,12 @@ fun MindMapScreen(
                                         .fillMaxWidth()
                                         .padding(horizontal = 8.dp),
                                     shape = RoundedCornerShape(16.dp),
-                                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.2f)),
-                                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.1f))
+                                    colors = CardDefaults.cardColors(
+                                        containerColor = if (mindMapIsLight()) Color.White
+                                        else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.2f)
+                                    ),
+                                    border = BorderStroke(1.dp, mindMapBorderColor()),
+                                    elevation = CardDefaults.cardElevation(defaultElevation = mindMapCardElevation())
                                 ) {
                                     Column(
                                         modifier = Modifier.padding(16.dp),
@@ -624,8 +670,9 @@ fun MindMapScreen(
                                     }
                                     .testTag("saved_mindmap_${map.id}"),
                                 shape = RoundedCornerShape(16.dp),
-                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.12f))
+                                colors = CardDefaults.cardColors(containerColor = mindMapPanelColor()),
+                                border = BorderStroke(1.dp, mindMapBorderColor()),
+                                elevation = CardDefaults.cardElevation(defaultElevation = mindMapCardElevation())
                             ) {
                                 Row(
                                     modifier = Modifier
@@ -638,19 +685,25 @@ fun MindMapScreen(
                                             .size(44.dp)
                                             .clip(RoundedCornerShape(12.dp))
                                             .background(
-                                                Brush.linearGradient(
-                                                    listOf(
-                                                        MaterialTheme.colorScheme.primaryContainer,
-                                                        MaterialTheme.colorScheme.secondaryContainer
+                                                if (mindMapIsLight()) {
+                                                    Brush.linearGradient(
+                                                        listOf(Color(0xFFEFF6FF), Color(0xFFDBEAFE))
                                                     )
-                                                )
+                                                } else {
+                                                    Brush.linearGradient(
+                                                        listOf(
+                                                            MaterialTheme.colorScheme.primaryContainer,
+                                                            MaterialTheme.colorScheme.secondaryContainer
+                                                        )
+                                                    )
+                                                }
                                             ),
                                         contentAlignment = Alignment.Center
                                     ) {
                                         Icon(
                                             imageVector = Icons.Default.AccountTree,
                                             contentDescription = null,
-                                            tint = MaterialTheme.colorScheme.primary,
+                                            tint = if (mindMapIsLight()) MindMapAccentDeep else MaterialTheme.colorScheme.primary,
                                             modifier = Modifier.size(22.dp)
                                         )
                                     }
@@ -974,7 +1027,11 @@ fun MindMapScreen(
                                     Card(
                                         modifier = Modifier.fillMaxWidth(),
                                         shape = RoundedCornerShape(12.dp),
-                                        colors = CardDefaults.cardColors(containerColor = Color.White)
+                                        colors = CardDefaults.cardColors(
+                                            containerColor = if (mindMapIsLight()) Color.White else MaterialTheme.colorScheme.surface
+                                        ),
+                                        border = BorderStroke(1.dp, mindMapBorderColor()),
+                                        elevation = CardDefaults.cardElevation(defaultElevation = mindMapCardElevation())
                                     ) {
                                         Column(modifier = Modifier.padding(16.dp)) {
                                             Row(
@@ -986,12 +1043,12 @@ fun MindMapScreen(
                                                     text = "Struktur Hierarki Peta Konsep",
                                                     fontWeight = FontWeight.Bold,
                                                     fontSize = 13.sp,
-                                                    color = Color.DarkGray
+                                                    color = MaterialTheme.colorScheme.onSurface
                                                 )
                                                 Text(
                                                     text = "Salin",
                                                     fontSize = 11.sp,
-                                                    color = Color(0xFF1976D2),
+                                                    color = if (mindMapIsLight()) MindMapAccentDeep else MaterialTheme.colorScheme.primary,
                                                     fontWeight = FontWeight.Bold,
                                                     modifier = Modifier
                                                         .clickable {
@@ -1011,7 +1068,7 @@ fun MindMapScreen(
                                                 text = formatTextOutline(root, 0),
                                                 fontSize = 12.sp,
                                                 lineHeight = 18.sp,
-                                                color = Color.Black
+                                                color = MaterialTheme.colorScheme.onSurface
                                             )
                                         }
                                     }
@@ -1056,7 +1113,8 @@ fun MindMapScreen(
                     Card(
                         shape = RoundedCornerShape(16.dp),
                         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                        elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
+                        elevation = CardDefaults.cardElevation(defaultElevation = 8.dp),
+                        border = if (mindMapIsLight()) BorderStroke(1.dp, MindMapHairline) else null
                     ) {
                         Row(
                             modifier = Modifier.padding(24.dp),
@@ -1739,7 +1797,14 @@ fun MindMapCanvasView(
         modifier = Modifier
             .fillMaxSize()
             .clip(RoundedCornerShape(12.dp))
-            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.15f))
+            .background(
+                if (mindMapIsLight()) MindMapSunken else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.15f)
+            )
+            .border(
+                1.dp,
+                if (mindMapIsLight()) MindMapHairline else Color.Transparent,
+                RoundedCornerShape(12.dp)
+            )
             .pointerInput(Unit) {
                 detectTransformGestures { centroid: Offset, pan: Offset, zoom: Float, rotation: Float ->
                     scale = (scale * zoom).coerceIn(0.1f, 3.0f)
@@ -2199,8 +2264,16 @@ fun MindMapCanvasView(
             modifier = Modifier
                 .align(Alignment.TopStart)
                 .padding(12.dp)
-                .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.9f), RoundedCornerShape(12.dp))
-                .border(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.12f), RoundedCornerShape(12.dp))
+                .shadow(3.dp, RoundedCornerShape(12.dp))
+                .background(
+                    if (mindMapIsLight()) Color.White else MaterialTheme.colorScheme.surface.copy(alpha = 0.9f),
+                    RoundedCornerShape(12.dp)
+                )
+                .border(
+                    1.dp,
+                    if (mindMapIsLight()) MindMapHairline else MaterialTheme.colorScheme.outline.copy(alpha = 0.12f),
+                    RoundedCornerShape(12.dp)
+                )
                 .padding(horizontal = 12.dp, vertical = 6.dp),
             horizontalArrangement = Arrangement.spacedBy(10.dp),
             verticalAlignment = Alignment.CenterVertically
@@ -2337,8 +2410,11 @@ fun MindMapCanvasView(
                     .fillMaxWidth()
                     .padding(12.dp),
                 shape = RoundedCornerShape(16.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.12f))
+                colors = CardDefaults.cardColors(containerColor = mindMapPanelColor()),
+                border = BorderStroke(1.dp, mindMapBorderColor()),
+                elevation = CardDefaults.cardElevation(
+                    defaultElevation = if (mindMapIsLight()) 3.dp else 0.dp
+                )
             ) {
                 Column(
                     modifier = Modifier
@@ -2853,14 +2929,33 @@ fun MindMapCanvasView(
                             modifier = Modifier
                                 .size(36.dp)
                                 .clip(CircleShape)
-                                .background(if (editIconName == null) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                                .background(
+                                    if (editIconName == null) {
+                                        if (mindMapIsLight()) MindMapAccentSoft else MaterialTheme.colorScheme.primaryContainer
+                                    } else {
+                                        if (mindMapIsLight()) Color.White else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                                    }
+                                )
+                                .border(
+                                    1.dp,
+                                    if (editIconName == null) {
+                                        if (mindMapIsLight()) MindMapAccentDeep else Color.Transparent
+                                    } else {
+                                        if (mindMapIsLight()) MindMapHairline else Color.Transparent
+                                    },
+                                    CircleShape
+                                )
                                 .clickable { editIconName = null }
                                 .testTag("icon_none"),
                             contentAlignment = Alignment.Center
                         ) {
                             Text(
                                 text = "X",
-                                color = if (editIconName == null) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
+                                color = if (editIconName == null) {
+                                    if (mindMapIsLight()) MindMapAccentDeep else MaterialTheme.colorScheme.onPrimaryContainer
+                                } else {
+                                    MaterialTheme.colorScheme.onSurfaceVariant
+                                },
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 12.sp
                             )
@@ -2883,7 +2978,22 @@ fun MindMapCanvasView(
                                 modifier = Modifier
                                     .size(36.dp)
                                     .clip(CircleShape)
-                                    .background(if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                                    .background(
+                                        if (isSelected) {
+                                            if (mindMapIsLight()) MindMapAccentSoft else MaterialTheme.colorScheme.primaryContainer
+                                        } else {
+                                            if (mindMapIsLight()) Color.White else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                                        }
+                                    )
+                                    .border(
+                                        1.dp,
+                                        if (isSelected) {
+                                            if (mindMapIsLight()) MindMapAccentDeep else Color.Transparent
+                                        } else {
+                                            if (mindMapIsLight()) MindMapHairline else Color.Transparent
+                                        },
+                                        CircleShape
+                                    )
                                     .clickable { editIconName = name }
                                     .testTag("icon_$name"),
                                 contentAlignment = Alignment.Center
@@ -2891,7 +3001,11 @@ fun MindMapCanvasView(
                                 Icon(
                                     imageVector = icon,
                                     contentDescription = name,
-                                    tint = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
+                                    tint = if (isSelected) {
+                                        if (mindMapIsLight()) MindMapAccentDeep else MaterialTheme.colorScheme.onPrimaryContainer
+                                    } else {
+                                        MaterialTheme.colorScheme.onSurfaceVariant
+                                    },
                                     modifier = Modifier.size(18.dp)
                                 )
                             }
@@ -2914,8 +3028,8 @@ fun MindMapCanvasView(
                             },
                             modifier = Modifier.fillMaxWidth().testTag("toggle_collapse_button"),
                             colors = ButtonDefaults.buttonColors(
-                                containerColor = MaterialTheme.colorScheme.secondaryContainer,
-                                contentColor = MaterialTheme.colorScheme.onSecondaryContainer
+                                containerColor = if (mindMapIsLight()) MindMapAccentSoft else MaterialTheme.colorScheme.secondaryContainer,
+                                contentColor = if (mindMapIsLight()) MindMapAccentDeep else MaterialTheme.colorScheme.onSecondaryContainer
                             ),
                             shape = RoundedCornerShape(10.dp)
                         ) {
@@ -3101,8 +3215,11 @@ fun MindMapCanvasView(
                     .fillMaxWidth()
                     .padding(16.dp),
                 shape = RoundedCornerShape(16.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.12f))
+                colors = CardDefaults.cardColors(containerColor = mindMapPanelColor()),
+                border = BorderStroke(1.dp, mindMapBorderColor()),
+                elevation = CardDefaults.cardElevation(
+                    defaultElevation = if (mindMapIsLight()) 3.dp else 0.dp
+                )
             ) {
                 Column(
                     modifier = Modifier.padding(20.dp),
@@ -3213,8 +3330,11 @@ fun MindMapCanvasView(
                     .fillMaxWidth()
                     .padding(16.dp),
                 shape = RoundedCornerShape(16.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.12f))
+                colors = CardDefaults.cardColors(containerColor = mindMapPanelColor()),
+                border = BorderStroke(1.dp, mindMapBorderColor()),
+                elevation = CardDefaults.cardElevation(
+                    defaultElevation = if (mindMapIsLight()) 3.dp else 0.dp
+                )
             ) {
                 Column(
                     modifier = Modifier.padding(20.dp),
@@ -3282,17 +3402,17 @@ fun MindMapCanvasView(
                                     shape = RoundedCornerShape(8.dp),
                                     colors = CardDefaults.cardColors(
                                         containerColor = if (isCurrentParent) {
-                                            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+                                            if (mindMapIsLight()) MindMapSunken else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
                                         } else {
-                                            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.15f)
+                                            if (mindMapIsLight()) Color.White else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.15f)
                                         }
                                     ),
                                     border = BorderStroke(
                                         width = 1.dp,
                                         color = if (isCurrentParent) {
-                                            MaterialTheme.colorScheme.outline.copy(alpha = 0.15f)
+                                            if (mindMapIsLight()) MindMapHairline else MaterialTheme.colorScheme.outline.copy(alpha = 0.15f)
                                         } else {
-                                            MaterialTheme.colorScheme.outline.copy(alpha = 0.05f)
+                                            if (mindMapIsLight()) MindMapHairline else MaterialTheme.colorScheme.outline.copy(alpha = 0.05f)
                                         }
                                     )
                                 ) {
@@ -3372,8 +3492,11 @@ fun MindMapCanvasView(
                     .fillMaxWidth()
                     .padding(16.dp),
                 shape = RoundedCornerShape(16.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.12f))
+                colors = CardDefaults.cardColors(containerColor = mindMapPanelColor()),
+                border = BorderStroke(1.dp, mindMapBorderColor()),
+                elevation = CardDefaults.cardElevation(
+                    defaultElevation = if (mindMapIsLight()) 3.dp else 0.dp
+                )
             ) {
                 Column(
                     modifier = Modifier.padding(20.dp),
@@ -3442,17 +3565,17 @@ fun MindMapCanvasView(
                                     shape = RoundedCornerShape(8.dp),
                                     colors = CardDefaults.cardColors(
                                         containerColor = if (isSelected) {
-                                            MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.25f)
+                                            if (mindMapIsLight()) MindMapAccentSoft else MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.25f)
                                         } else {
-                                            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.15f)
+                                            if (mindMapIsLight()) Color.White else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.15f)
                                         }
                                     ),
                                     border = BorderStroke(
                                         width = 1.dp,
                                         color = if (isSelected) {
-                                            MaterialTheme.colorScheme.secondary.copy(alpha = 0.4f)
+                                            if (mindMapIsLight()) MindMapAccentBorder else MaterialTheme.colorScheme.secondary.copy(alpha = 0.4f)
                                         } else {
-                                            MaterialTheme.colorScheme.outline.copy(alpha = 0.05f)
+                                            if (mindMapIsLight()) MindMapHairline else MaterialTheme.colorScheme.outline.copy(alpha = 0.05f)
                                         }
                                     )
                                 ) {
@@ -3529,8 +3652,11 @@ fun MindMapCanvasView(
                     .fillMaxWidth()
                     .padding(16.dp),
                 shape = RoundedCornerShape(16.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.12f))
+                colors = CardDefaults.cardColors(containerColor = mindMapPanelColor()),
+                border = BorderStroke(1.dp, mindMapBorderColor()),
+                elevation = CardDefaults.cardElevation(
+                    defaultElevation = if (mindMapIsLight()) 3.dp else 0.dp
+                )
             ) {
                 Column(
                     modifier = Modifier.padding(20.dp),
@@ -4179,13 +4305,19 @@ private fun ExportOrientationDialog(
                             .clickable { selectedOrientation = key },
                         shape = RoundedCornerShape(12.dp),
                         colors = CardDefaults.cardColors(
-                            containerColor = if (isSelected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
-                            else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
+                            containerColor = if (isSelected) {
+                                if (mindMapIsLight()) MindMapAccentSoft else MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
+                            } else {
+                                if (mindMapIsLight()) Color.White else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
+                            }
                         ),
                         border = BorderStroke(
                             width = if (isSelected) 1.5.dp else 1.dp,
-                            color = if (isSelected) MaterialTheme.colorScheme.primary
-                            else MaterialTheme.colorScheme.outline.copy(alpha = 0.2f)
+                            color = if (isSelected) {
+                                if (mindMapIsLight()) MindMapAccentDeep else MaterialTheme.colorScheme.primary
+                            } else {
+                                if (mindMapIsLight()) MindMapHairline else MaterialTheme.colorScheme.outline.copy(alpha = 0.2f)
+                            }
                         )
                     ) {
                         Row(
@@ -4678,9 +4810,9 @@ fun AllSavedMapsView(
             singleLine = true,
             colors = OutlinedTextFieldDefaults.colors(
                 focusedBorderColor = MaterialTheme.colorScheme.primary,
-                unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.2f),
-                focusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
-                unfocusedContainerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
+                unfocusedBorderColor = if (mindMapIsLight()) MindMapHairline else MaterialTheme.colorScheme.outline.copy(alpha = 0.2f),
+                focusedContainerColor = if (mindMapIsLight()) MindMapSunken else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
+                unfocusedContainerColor = if (mindMapIsLight()) MindMapSunken else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
             )
         )
 
@@ -4693,12 +4825,23 @@ fun AllSavedMapsView(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.Center
             ) {
-                Icon(
-                    imageVector = Icons.AutoMirrored.Filled.MenuBook,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
-                    modifier = Modifier.size(64.dp)
-                )
+                Box(
+                    modifier = Modifier
+                        .size(88.dp)
+                        .clip(CircleShape)
+                        .background(
+                            if (mindMapIsLight()) MindMapSunken else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+                        ),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.MenuBook,
+                        contentDescription = null,
+                        tint = if (mindMapIsLight()) MindMapAccentDeep.copy(alpha = 0.55f)
+                        else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f),
+                        modifier = Modifier.size(44.dp)
+                    )
+                }
                 Spacer(modifier = Modifier.height(16.dp))
                 Text(
                     text = "Tidak Ada Hasil Ditemukan",
@@ -4727,8 +4870,9 @@ fun AllSavedMapsView(
                             .fillMaxWidth()
                             .clickable { onSelectMap(map) },
                         shape = RoundedCornerShape(16.dp),
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.12f))
+                        colors = CardDefaults.cardColors(containerColor = mindMapPanelColor()),
+                        border = BorderStroke(1.dp, mindMapBorderColor()),
+                        elevation = CardDefaults.cardElevation(defaultElevation = mindMapCardElevation())
                     ) {
                         Row(
                             modifier = Modifier
@@ -4741,19 +4885,25 @@ fun AllSavedMapsView(
                                     .size(44.dp)
                                     .clip(RoundedCornerShape(12.dp))
                                     .background(
-                                        Brush.linearGradient(
-                                            listOf(
-                                                MaterialTheme.colorScheme.primaryContainer,
-                                                MaterialTheme.colorScheme.secondaryContainer
+                                        if (mindMapIsLight()) {
+                                            Brush.linearGradient(
+                                                listOf(Color(0xFFEFF6FF), Color(0xFFDBEAFE))
                                             )
-                                        )
+                                        } else {
+                                            Brush.linearGradient(
+                                                listOf(
+                                                    MaterialTheme.colorScheme.primaryContainer,
+                                                    MaterialTheme.colorScheme.secondaryContainer
+                                                )
+                                            )
+                                        }
                                     ),
                                 contentAlignment = Alignment.Center
                             ) {
                                 Icon(
                                     imageVector = Icons.Default.AccountTree,
                                     contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.primary,
+                                    tint = if (mindMapIsLight()) MindMapAccentDeep else MaterialTheme.colorScheme.primary,
                                     modifier = Modifier.size(22.dp)
                                 )
                             }

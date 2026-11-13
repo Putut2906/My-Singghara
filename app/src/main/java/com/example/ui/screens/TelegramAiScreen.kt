@@ -34,6 +34,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
@@ -41,6 +42,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.telegram.TelegramAiEngine
@@ -52,6 +54,31 @@ import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+
+// --- ADAPTIVE LIGHT THEME PALETTE (TELEGRAM AI) ---
+private val TelegramBlueDeep = Color(0xFF0369A1)
+private val TelegramBlueSoft = Color(0xFFE0F2FE)
+private val TelegramBlueBorder = Color(0xFFBAE6FD)
+private val TelegramHairline = Color(0xFFE2E8F0)
+private val TelegramSunken = Color(0xFFF1F5F9)
+private val TelegramUserBubbleSoft = Color(0xFFEFFDDE)
+private val TelegramUserBubbleBorder = Color(0xFFD9F0B5)
+
+@Composable
+private fun telegramIsLight(): Boolean =
+    MaterialTheme.colorScheme.surface.luminance() > 0.5f
+
+@Composable
+private fun telegramPanelColor(): Color =
+    if (telegramIsLight()) Color.White else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+
+@Composable
+private fun telegramBorderColor(): Color =
+    if (telegramIsLight()) TelegramHairline else MaterialTheme.colorScheme.outlineVariant
+
+@Composable
+private fun telegramCardElevation(): Dp =
+    if (telegramIsLight()) 2.dp else 0.dp
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -465,7 +492,8 @@ fun InAppChatTestTab(
         // Info Badge
         Surface(
             shape = RoundedCornerShape(12.dp),
-            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+            color = if (telegramIsLight()) TelegramBlueSoft else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+            border = if (telegramIsLight()) BorderStroke(1.dp, TelegramBlueBorder) else null,
             modifier = Modifier
                 .align(Alignment.CenterHorizontally)
                 .padding(bottom = 6.dp)
@@ -473,7 +501,7 @@ fun InAppChatTestTab(
             Text(
                 text = "Sticky Bottom Aktif • Input tetap di bawah saat scrolling riwayat",
                 fontSize = 10.5.sp,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                color = if (telegramIsLight()) TelegramBlueDeep else MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(horizontal = 10.dp, vertical = 3.dp)
             )
         }
@@ -570,9 +598,15 @@ fun InAppChatTestTab(
                             onClick = { onSendMessage(q) },
                             label = { Text(q, fontSize = 11.sp) },
                             colors = SuggestionChipDefaults.suggestionChipColors(
-                                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f)
+                                containerColor = if (telegramIsLight()) TelegramBlueSoft
+                                else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+                                labelColor = if (telegramIsLight()) TelegramBlueDeep
+                                else MaterialTheme.colorScheme.onSurfaceVariant
                             ),
-                            border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant)
+                            border = BorderStroke(
+                                1.dp,
+                                if (telegramIsLight()) TelegramBlueBorder else MaterialTheme.colorScheme.outlineVariant
+                            )
                         )
                     }
                 }
@@ -608,9 +642,9 @@ fun ChatBubble(isUser: Boolean, text: String) {
     val isDark = androidx.compose.foundation.isSystemInDarkTheme()
 
     val bgColor = if (isUser) {
-        if (isDark) Color(0xFF2B5278) else Color(0xFFEFFDDE)
+        if (isDark) Color(0xFF2B5278) else TelegramUserBubbleSoft
     } else {
-        if (isDark) Color(0xFF212D3B) else MaterialTheme.colorScheme.surface
+        if (isDark) Color(0xFF212D3B) else Color.White
     }
 
     val textColor = if (isUser) {
@@ -619,9 +653,11 @@ fun ChatBubble(isUser: Boolean, text: String) {
         MaterialTheme.colorScheme.onSurface
     }
 
-    val borderStroke = if (!isUser && !isDark) {
-        BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant)
-    } else null
+    val borderStroke = when {
+        isUser && !isDark -> BorderStroke(1.dp, TelegramUserBubbleBorder)
+        !isUser && !isDark -> BorderStroke(1.dp, TelegramHairline)
+        else -> null
+    }
 
     val shape = if (isUser) {
         RoundedCornerShape(topStart = 16.dp, topEnd = 4.dp, bottomStart = 16.dp, bottomEnd = 16.dp)
@@ -637,7 +673,7 @@ fun ChatBubble(isUser: Boolean, text: String) {
             shape = shape,
             color = bgColor,
             border = borderStroke,
-            shadowElevation = if (!isDark) 1.dp else 0.dp,
+            shadowElevation = if (!isDark) 1.5.dp else 0.dp,
             modifier = Modifier
                 .widthIn(max = 330.dp)
                 .clickable {
@@ -714,9 +750,10 @@ fun SettingsTab(
             Card(
                 shape = RoundedCornerShape(16.dp),
                 colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surface
+                    containerColor = telegramPanelColor()
                 ),
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+                border = BorderStroke(1.dp, telegramBorderColor()),
+                elevation = CardDefaults.cardElevation(defaultElevation = telegramCardElevation())
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -791,9 +828,10 @@ fun SettingsTab(
             Card(
                 shape = RoundedCornerShape(16.dp),
                 colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surface
+                    containerColor = telegramPanelColor()
                 ),
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+                border = BorderStroke(1.dp, telegramBorderColor()),
+                elevation = CardDefaults.cardElevation(defaultElevation = telegramCardElevation())
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -900,9 +938,10 @@ fun SettingsTab(
             Card(
                 shape = RoundedCornerShape(16.dp),
                 colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surface
+                    containerColor = telegramPanelColor()
                 ),
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+                border = BorderStroke(1.dp, telegramBorderColor()),
+                elevation = CardDefaults.cardElevation(defaultElevation = telegramCardElevation())
             ) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     Row(
@@ -971,12 +1010,23 @@ fun ActivityLogTab(
                 contentAlignment = Alignment.Center
             ) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Icon(
-                        imageVector = Icons.Default.History,
-                        contentDescription = null,
-                        modifier = Modifier.size(48.dp),
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
-                    )
+                    Box(
+                        modifier = Modifier
+                            .size(76.dp)
+                            .clip(CircleShape)
+                            .background(
+                                if (telegramIsLight()) TelegramSunken else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+                            ),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.History,
+                            contentDescription = null,
+                            modifier = Modifier.size(36.dp),
+                            tint = if (telegramIsLight()) TelegramBlueDeep.copy(alpha = 0.6f)
+                            else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
+                        )
+                    }
                     Spacer(modifier = Modifier.height(8.dp))
                     Text(
                         text = "Belum ada pesan Telegram masuk atau keluar.",
@@ -1011,9 +1061,10 @@ fun LogItemCard(log: TelegramLogItem, timeStr: String) {
     Card(
         shape = RoundedCornerShape(12.dp),
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+            containerColor = telegramPanelColor()
         ),
-        border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant)
+        border = BorderStroke(1.dp, telegramBorderColor()),
+        elevation = CardDefaults.cardElevation(defaultElevation = if (telegramIsLight()) 1.dp else 0.dp)
     ) {
         Column(modifier = Modifier.padding(12.dp)) {
             Row(
