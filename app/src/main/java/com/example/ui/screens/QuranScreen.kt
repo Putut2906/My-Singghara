@@ -21,6 +21,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.AnnotatedString
@@ -31,11 +32,61 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.unit.Dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.data.*
 import com.example.ui.MainViewModel
 import java.text.SimpleDateFormat
 import java.util.*
+
+private val QuranAccentDeep = Color(0xFF1D4ED8)
+private val QuranAccentSoft = Color(0xFFDBEAFE)
+private val QuranAccentBorder = Color(0xFFBFDBFE)
+private val QuranGold = Color(0xFFB45309)
+private val QuranGoldSoft = Color(0xFFFEF3C7)
+private val QuranHairline = Color(0xFFE2E8F0)
+private val QuranSunken = Color(0xFFF1F5F9)
+private val QuranHeaderStart = Color(0xFFEFF6FF)
+private val QuranHeaderEnd = Color(0xFFDBEAFE)
+
+@Composable
+private fun quranIsLight(): Boolean =
+    MaterialTheme.colorScheme.surface.luminance() > 0.5f
+
+@Composable
+private fun quranAccent(): Color =
+    if (quranIsLight()) QuranAccentDeep else MaterialTheme.colorScheme.primary
+
+@Composable
+private fun quranSoftAccent(): Color =
+    if (quranIsLight()) QuranAccentSoft else MaterialTheme.colorScheme.primary.copy(alpha = 0.16f)
+
+@Composable
+private fun quranBorderColor(): Color =
+    if (quranIsLight()) QuranHairline else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+
+@Composable
+private fun quranPanelColor(): Color =
+    if (quranIsLight()) Color.White else MaterialTheme.colorScheme.surface
+
+@Composable
+private fun quranSunkenColor(): Color =
+    if (quranIsLight()) QuranSunken else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+
+@Composable
+private fun quranCardElevation(): Dp =
+    if (quranIsLight()) 2.dp else 0.dp
+
+@Composable
+private fun quranHeaderBrush(): Brush =
+    if (quranIsLight()) Brush.linearGradient(listOf(QuranHeaderStart, QuranHeaderEnd))
+    else Brush.linearGradient(
+        listOf(MaterialTheme.colorScheme.primary, MaterialTheme.colorScheme.tertiary)
+    )
+
+@Composable
+private fun quranHeaderForeground(): Color =
+    if (quranIsLight()) Color(0xFF0F172A) else Color.White
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -110,23 +161,20 @@ fun QuranScreen(viewModel: MainViewModel) {
             ) {
                 // Header Surah Card
                 item {
+                    val light = quranIsLight()
+                    val headerFg = quranHeaderForeground()
                     Card(
                         shape = RoundedCornerShape(16.dp),
                         colors = CardDefaults.cardColors(containerColor = Color.Transparent),
+                        border = if (light) BorderStroke(1.dp, QuranAccentBorder) else null,
+                        elevation = CardDefaults.cardElevation(defaultElevation = if (light) 2.dp else 0.dp),
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(vertical = 12.dp)
                     ) {
                         Box(
                             modifier = Modifier
-                                .background(
-                                    brush = Brush.linearGradient(
-                                        colors = listOf(
-                                            MaterialTheme.colorScheme.primary,
-                                            MaterialTheme.colorScheme.tertiary
-                                        )
-                                    )
-                                )
+                                .background(brush = quranHeaderBrush())
                                 .padding(20.dp)
                                 .fillMaxWidth()
                         ) {
@@ -139,8 +187,9 @@ fun QuranScreen(viewModel: MainViewModel) {
                                 // Title Surah diklik untuk pop up detail surah
                                 Surface(
                                     onClick = { showSurahDetailDialog = true },
-                                    color = Color.White.copy(alpha = 0.2f),
+                                    color = if (light) Color.White else Color.White.copy(alpha = 0.2f),
                                     shape = RoundedCornerShape(20.dp),
+                                    border = if (light) BorderStroke(1.dp, QuranAccentBorder) else null,
                                     modifier = Modifier.padding(bottom = 8.dp)
                                 ) {
                                     Row(
@@ -149,7 +198,7 @@ fun QuranScreen(viewModel: MainViewModel) {
                                     ) {
                                         Text(
                                             text = "Surah ${surah.nameIndonesian}",
-                                            color = Color.White,
+                                            color = headerFg,
                                             fontWeight = FontWeight.ExtraBold,
                                             fontSize = 20.sp
                                         )
@@ -157,7 +206,7 @@ fun QuranScreen(viewModel: MainViewModel) {
                                         Icon(
                                             imageVector = Icons.Default.Info,
                                             contentDescription = "Detail Surah",
-                                            tint = Color.White,
+                                            tint = headerFg,
                                             modifier = Modifier.size(18.dp)
                                         )
                                     }
@@ -183,7 +232,7 @@ fun QuranScreen(viewModel: MainViewModel) {
                                             Icon(
                                                 imageVector = Icons.Default.Search,
                                                 contentDescription = "Cari Ayat",
-                                                tint = MaterialTheme.colorScheme.primary
+                                                tint = quranAccent()
                                             )
                                         },
                                         trailingIcon = {
@@ -200,8 +249,8 @@ fun QuranScreen(viewModel: MainViewModel) {
                                         singleLine = true,
                                         shape = RoundedCornerShape(12.dp),
                                         colors = OutlinedTextFieldDefaults.colors(
-                                            focusedBorderColor = Color.Transparent,
-                                            unfocusedBorderColor = Color.Transparent,
+                                            focusedBorderColor = if (quranIsLight()) QuranAccentBorder else Color.Transparent,
+                                            unfocusedBorderColor = if (quranIsLight()) QuranAccentBorder else Color.Transparent,
                                             focusedContainerColor = MaterialTheme.colorScheme.surface,
                                             unfocusedContainerColor = MaterialTheme.colorScheme.surface
                                         ),
@@ -226,7 +275,7 @@ fun QuranScreen(viewModel: MainViewModel) {
                                     Icon(
                                         imageVector = Icons.Default.ZoomIn,
                                         contentDescription = "Perbesar Font Arab",
-                                        tint = Color.White
+                                        tint = headerFg
                                     )
                                 }
 
@@ -239,7 +288,7 @@ fun QuranScreen(viewModel: MainViewModel) {
                                     Icon(
                                         imageVector = Icons.Default.ZoomOut,
                                         contentDescription = "Perkecil Font Arab",
-                                        tint = Color.White
+                                        tint = headerFg
                                     )
                                 }
 
@@ -256,7 +305,7 @@ fun QuranScreen(viewModel: MainViewModel) {
                                     Icon(
                                         imageVector = Icons.Default.Search,
                                         contentDescription = "Cari Ayat",
-                                        tint = Color.White
+                                        tint = headerFg
                                     )
                                 }
 
@@ -268,7 +317,7 @@ fun QuranScreen(viewModel: MainViewModel) {
                                         Icon(
                                             imageVector = Icons.Default.MoreVert,
                                             contentDescription = "Menu Pengaturan",
-                                            tint = Color.White
+                                            tint = headerFg
                                         )
                                     }
 
@@ -288,7 +337,7 @@ fun QuranScreen(viewModel: MainViewModel) {
                                                     Icon(
                                                         imageVector = Icons.Default.RecordVoiceOver,
                                                         contentDescription = null,
-                                                        tint = MaterialTheme.colorScheme.primary,
+                                                        tint = quranAccent(),
                                                         modifier = Modifier.size(20.dp)
                                                     )
                                                     Spacer(modifier = Modifier.width(12.dp))
@@ -323,7 +372,7 @@ fun QuranScreen(viewModel: MainViewModel) {
                                                     Icon(
                                                         imageVector = Icons.Default.Info,
                                                         contentDescription = null,
-                                                        tint = MaterialTheme.colorScheme.primary,
+                                                        tint = quranAccent(),
                                                         modifier = Modifier.size(20.dp)
                                                     )
                                                     Spacer(modifier = Modifier.width(12.dp))
@@ -356,7 +405,7 @@ fun QuranScreen(viewModel: MainViewModel) {
                             ) {
                                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                                     CircularProgressIndicator(
-                                        color = MaterialTheme.colorScheme.primary,
+                                        color = quranAccent(),
                                         modifier = Modifier.size(44.dp)
                                     )
                                     Spacer(modifier = Modifier.height(16.dp))
@@ -364,7 +413,7 @@ fun QuranScreen(viewModel: MainViewModel) {
                                         text = "Menyelaraskan dengan mushaf Al-Qur'an fisik...",
                                         style = MaterialTheme.typography.bodyMedium,
                                         fontWeight = FontWeight.Medium,
-                                        color = MaterialTheme.colorScheme.primary
+                                        color = quranAccent()
                                     )
                                     Spacer(modifier = Modifier.height(4.dp))
                                     Text(
@@ -382,11 +431,12 @@ fun QuranScreen(viewModel: MainViewModel) {
                         item {
                             Card(
                                 shape = RoundedCornerShape(12.dp),
-                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.2f)),
+                                colors = CardDefaults.cardColors(containerColor = quranPanelColor()),
+                                elevation = CardDefaults.cardElevation(defaultElevation = quranCardElevation()),
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .padding(bottom = 16.dp),
-                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
+                                border = BorderStroke(1.dp, quranBorderColor())
                             ) {
                                 Text(
                                     text = "بِسْمِ اللَّهِ الرَّحْمَنِ الرَّحِيمِ",
@@ -411,16 +461,17 @@ fun QuranScreen(viewModel: MainViewModel) {
                         Card(
                             shape = RoundedCornerShape(16.dp),
                             colors = CardDefaults.cardColors(
-                                containerColor = if (isPlayingThisVerse) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
-                                else MaterialTheme.colorScheme.surface
+                                containerColor = if (isPlayingThisVerse) quranSoftAccent() else quranPanelColor()
                             ),
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(vertical = 8.dp),
+                            elevation = CardDefaults.cardElevation(
+                                defaultElevation = if (isPlayingThisVerse) 0.dp else quranCardElevation()
+                            ),
                             border = BorderStroke(
                                 1.dp,
-                                if (isPlayingThisVerse) MaterialTheme.colorScheme.primary
-                                else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+                                if (isPlayingThisVerse) quranAccent() else quranBorderColor()
                             )
                         ) {
                             Column(modifier = Modifier.padding(16.dp)) {
@@ -428,10 +479,7 @@ fun QuranScreen(viewModel: MainViewModel) {
                                 Row(
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .background(
-                                            MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
-                                            RoundedCornerShape(8.dp)
-                                        )
+                                        .background(quranSunkenColor(), RoundedCornerShape(8.dp))
                                         .padding(horizontal = 10.dp, vertical = 6.dp),
                                     horizontalArrangement = Arrangement.SpaceBetween,
                                     verticalAlignment = Alignment.CenterVertically
@@ -440,12 +488,12 @@ fun QuranScreen(viewModel: MainViewModel) {
                                     Box(
                                         modifier = Modifier
                                             .size(28.dp)
-                                            .background(MaterialTheme.colorScheme.primary, CircleShape),
+                                            .background(quranAccent(), CircleShape),
                                         contentAlignment = Alignment.Center
                                     ) {
                                         Text(
                                             text = verse.verseNumber.toString(),
-                                            color = MaterialTheme.colorScheme.onPrimary,
+                                            color = if (quranIsLight()) Color.White else MaterialTheme.colorScheme.onPrimary,
                                             fontSize = 11.sp,
                                             fontWeight = FontWeight.Bold
                                         )
@@ -468,7 +516,7 @@ fun QuranScreen(viewModel: MainViewModel) {
                                             Icon(
                                                 imageVector = if (isPlayingThisVerse) Icons.Default.StopCircle else Icons.Default.PlayCircle,
                                                 contentDescription = "Dengarkan Ayat",
-                                                tint = MaterialTheme.colorScheme.primary,
+                                                tint = quranAccent(),
                                                 modifier = Modifier.size(20.dp)
                                             )
                                         }
@@ -483,7 +531,11 @@ fun QuranScreen(viewModel: MainViewModel) {
                                             Icon(
                                                 imageVector = if (isBookmarked) Icons.Default.Bookmark else Icons.Default.BookmarkBorder,
                                                 contentDescription = "Simpan Bookmark",
-                                                tint = if (isBookmarked) MaterialTheme.colorScheme.tertiary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                                tint = if (isBookmarked) {
+                                                    if (quranIsLight()) QuranGold else MaterialTheme.colorScheme.tertiary
+                                                } else {
+                                                    MaterialTheme.colorScheme.onSurfaceVariant
+                                                },
                                                 modifier = Modifier.size(20.dp)
                                             )
                                         }
@@ -494,6 +546,7 @@ fun QuranScreen(viewModel: MainViewModel) {
                                                 activeTafsirVerseNumber = if (activeTafsirVerseNumber == verse.verseNumber) null else verse.verseNumber
                                             },
                                             modifier = Modifier.height(32.dp),
+                                            colors = ButtonDefaults.textButtonColors(contentColor = quranAccent()),
                                             contentPadding = PaddingValues(horizontal = 8.dp)
                                         ) {
                                             Text(
@@ -543,17 +596,14 @@ fun QuranScreen(viewModel: MainViewModel) {
                                         modifier = Modifier
                                             .fillMaxWidth()
                                             .padding(top = 12.dp)
-                                            .background(
-                                                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
-                                                RoundedCornerShape(8.dp)
-                                            )
+                                            .background(quranSunkenColor(), RoundedCornerShape(8.dp))
                                             .padding(12.dp)
                                     ) {
                                         Text(
                                             text = "Tafsir Ringkas Kemenag RI:",
                                             fontSize = 10.sp,
                                             fontWeight = FontWeight.Bold,
-                                            color = MaterialTheme.colorScheme.primary
+                                            color = quranAccent()
                                         )
                                         Spacer(modifier = Modifier.height(4.dp))
                                         Text(
@@ -582,7 +632,7 @@ fun QuranScreen(viewModel: MainViewModel) {
                 TabRow(
                     selectedTabIndex = viewModel.selectedQuranTab,
                     containerColor = Color.Transparent,
-                    contentColor = MaterialTheme.colorScheme.primary,
+                    contentColor = quranAccent(),
                     modifier = Modifier.padding(top = 4.dp)
                 ) {
                     Tab(
@@ -722,7 +772,7 @@ fun QuranScreen(viewModel: MainViewModel) {
                                                         text = "Riwayat Bacaan Terakhir",
                                                         fontWeight = FontWeight.ExtraBold,
                                                         fontSize = 13.sp,
-                                                        color = MaterialTheme.colorScheme.primary
+                                                        color = quranAccent()
                                                     )
                                                     TextButton(
                                                         onClick = { viewModel.clearQuranHistory() },
@@ -748,7 +798,7 @@ fun QuranScreen(viewModel: MainViewModel) {
                                                     text = "Daftar Penanda Buku",
                                                     fontWeight = FontWeight.ExtraBold,
                                                     fontSize = 13.sp,
-                                                    color = MaterialTheme.colorScheme.primary,
+                                                    color = quranAccent(),
                                                     modifier = Modifier.padding(vertical = 12.dp)
                                                 )
                                             }
@@ -779,7 +829,7 @@ fun QuranScreen(viewModel: MainViewModel) {
                     Icon(
                         imageVector = Icons.Default.Info,
                         contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary,
+                        tint = quranAccent(),
                         modifier = Modifier.padding(end = 8.dp)
                     )
                     Text(
@@ -804,7 +854,8 @@ fun QuranScreen(viewModel: MainViewModel) {
 
                     // Ghunnah
                     Card(
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)),
+                        colors = CardDefaults.cardColors(containerColor = quranSunkenColor()),
+                        border = if (quranIsLight()) BorderStroke(1.dp, QuranHairline) else null,
                         shape = RoundedCornerShape(10.dp)
                     ) {
                         Row(
@@ -831,7 +882,8 @@ fun QuranScreen(viewModel: MainViewModel) {
 
                     // Qalqalah
                     Card(
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)),
+                        colors = CardDefaults.cardColors(containerColor = quranSunkenColor()),
+                        border = if (quranIsLight()) BorderStroke(1.dp, QuranHairline) else null,
                         shape = RoundedCornerShape(10.dp)
                     ) {
                         Row(
@@ -858,7 +910,8 @@ fun QuranScreen(viewModel: MainViewModel) {
 
                     // Ikhfa / Idgham
                     Card(
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)),
+                        colors = CardDefaults.cardColors(containerColor = quranSunkenColor()),
+                        border = if (quranIsLight()) BorderStroke(1.dp, QuranHairline) else null,
                         shape = RoundedCornerShape(10.dp)
                     ) {
                         Row(
@@ -885,7 +938,8 @@ fun QuranScreen(viewModel: MainViewModel) {
 
                     // Mad
                     Card(
-                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)),
+                        colors = CardDefaults.cardColors(containerColor = quranSunkenColor()),
+                        border = if (quranIsLight()) BorderStroke(1.dp, QuranHairline) else null,
                         shape = RoundedCornerShape(10.dp)
                     ) {
                         Row(
@@ -928,7 +982,7 @@ fun QuranScreen(viewModel: MainViewModel) {
                     Icon(
                         imageVector = Icons.Default.RecordVoiceOver,
                         contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary,
+                        tint = quranAccent(),
                         modifier = Modifier.padding(end = 8.dp)
                     )
                     Text(
@@ -948,9 +1002,11 @@ fun QuranScreen(viewModel: MainViewModel) {
                     // Section 1: Putar Murattal Lengkap
                     Card(
                         colors = CardDefaults.cardColors(
-                            containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f)
+                            containerColor = if (quranIsLight()) quranSoftAccent()
+                            else MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f)
                         ),
                         shape = RoundedCornerShape(12.dp),
+                        border = if (quranIsLight()) BorderStroke(1.dp, QuranAccentBorder) else null,
                         modifier = Modifier.fillMaxWidth()
                     ) {
                         Row(
@@ -983,14 +1039,14 @@ fun QuranScreen(viewModel: MainViewModel) {
                                     }
                                 },
                                 modifier = Modifier
-                                    .background(MaterialTheme.colorScheme.primary, CircleShape)
+                                    .background(quranAccent(), CircleShape)
                                     .size(40.dp)
                             ) {
                                 Icon(
                                     imageVector = if (viewModel.isQuranPlaying && viewModel.currentQuranVerseNumberForAudio == null)
                                         Icons.Default.Pause else Icons.Default.PlayArrow,
                                     contentDescription = "Play/Pause Murattal",
-                                    tint = MaterialTheme.colorScheme.onPrimary
+                                    tint = if (quranIsLight()) Color.White else MaterialTheme.colorScheme.onPrimary
                                 )
                             }
                         }
@@ -1003,7 +1059,7 @@ fun QuranScreen(viewModel: MainViewModel) {
                         text = "DAFTAR QARI (PEMBERI SUARA)",
                         fontSize = 11.sp,
                         fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.primary
+                        color = quranAccent()
                     )
 
                     val qaris = listOf(
@@ -1023,12 +1079,12 @@ fun QuranScreen(viewModel: MainViewModel) {
                                 }
                             },
                             colors = CardDefaults.cardColors(
-                                containerColor = if (isSelected)
-                                    MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
-                                else
-                                    MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
+                                containerColor = if (isSelected) quranSoftAccent() else quranSunkenColor()
                             ),
                             shape = RoundedCornerShape(10.dp),
+                            border = if (quranIsLight()) {
+                                BorderStroke(1.dp, if (isSelected) QuranAccentBorder else QuranHairline)
+                            } else null,
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             Row(
@@ -1042,7 +1098,7 @@ fun QuranScreen(viewModel: MainViewModel) {
                                     Icon(
                                         imageVector = if (isSelected) Icons.Default.RadioButtonChecked else Icons.Default.RadioButtonUnchecked,
                                         contentDescription = null,
-                                        tint = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant,
+                                        tint = if (isSelected) quranAccent() else MaterialTheme.colorScheme.onSurfaceVariant,
                                         modifier = Modifier.size(20.dp)
                                     )
                                     Spacer(modifier = Modifier.width(12.dp))
@@ -1050,14 +1106,14 @@ fun QuranScreen(viewModel: MainViewModel) {
                                         text = qari,
                                         fontSize = 13.sp,
                                         fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                                        color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface
+                                        color = if (isSelected) quranAccent() else MaterialTheme.colorScheme.onSurface
                                     )
                                 }
                                 if (isSelected) {
                                     Icon(
                                         imageVector = Icons.Default.Check,
                                         contentDescription = null,
-                                        tint = MaterialTheme.colorScheme.primary,
+                                        tint = quranAccent(),
                                         modifier = Modifier.size(18.dp)
                                     )
                                 }
@@ -1084,7 +1140,7 @@ fun QuranScreen(viewModel: MainViewModel) {
                         Icon(
                             imageVector = Icons.Default.Info,
                             contentDescription = null,
-                            tint = MaterialTheme.colorScheme.primary,
+                            tint = quranAccent(),
                             modifier = Modifier.padding(end = 8.dp)
                         )
                         Text(
@@ -1106,7 +1162,7 @@ fun QuranScreen(viewModel: MainViewModel) {
                             text = detailSurah.nameArabic,
                             fontSize = 36.sp,
                             fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.primary,
+                            color = quranAccent(),
                             textAlign = TextAlign.Center
                         )
 
@@ -1118,10 +1174,9 @@ fun QuranScreen(viewModel: MainViewModel) {
                         )
 
                         Card(
-                            colors = CardDefaults.cardColors(
-                                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
-                            ),
+                            colors = CardDefaults.cardColors(containerColor = quranSunkenColor()),
                             shape = RoundedCornerShape(12.dp),
+                            border = if (quranIsLight()) BorderStroke(1.dp, QuranHairline) else null,
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             Column(
@@ -1195,12 +1250,19 @@ fun EmptyStateView(text: String) {
         contentAlignment = Alignment.Center
     ) {
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Icon(
-                imageVector = Icons.Default.MenuBook,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.4f),
-                modifier = Modifier.size(64.dp)
-            )
+            Box(
+                modifier = Modifier
+                    .size(64.dp)
+                    .background(quranSoftAccent(), CircleShape),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Default.MenuBook,
+                    contentDescription = null,
+                    tint = quranAccent(),
+                    modifier = Modifier.size(32.dp)
+                )
+            }
             Spacer(modifier = Modifier.height(12.dp))
             Text(
                 text = text,
@@ -1221,8 +1283,9 @@ fun SurahListItem(surah: Surah, onClick: () -> Unit) {
             .padding(vertical = 4.dp)
             .clickable { onClick() },
         shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+        colors = CardDefaults.cardColors(containerColor = quranPanelColor()),
+        elevation = CardDefaults.cardElevation(defaultElevation = quranCardElevation()),
+        border = BorderStroke(1.dp, quranBorderColor())
     ) {
         Row(
             modifier = Modifier
@@ -1236,14 +1299,17 @@ fun SurahListItem(surah: Surah, onClick: () -> Unit) {
                 Box(
                     modifier = Modifier
                         .size(36.dp)
-                        .background(MaterialTheme.colorScheme.primaryContainer, RoundedCornerShape(8.dp)),
+                        .background(
+                            if (quranIsLight()) quranSoftAccent() else MaterialTheme.colorScheme.primaryContainer,
+                            RoundedCornerShape(8.dp)
+                        ),
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
                         text = surah.id.toString(),
                         fontSize = 13.sp,
                         fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.primary
+                        color = quranAccent()
                     )
                 }
 
@@ -1271,7 +1337,7 @@ fun SurahListItem(surah: Surah, onClick: () -> Unit) {
                 fontSize = 20.sp,
                 fontWeight = FontWeight.Bold,
                 fontFamily = FontFamily.Serif,
-                color = MaterialTheme.colorScheme.primary
+                color = quranAccent()
             )
         }
     }
@@ -1285,8 +1351,9 @@ fun JuzListItem(juz: JuzInfo, onClick: () -> Unit) {
             .padding(vertical = 4.dp)
             .clickable { onClick() },
         shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+        colors = CardDefaults.cardColors(containerColor = quranPanelColor()),
+        elevation = CardDefaults.cardElevation(defaultElevation = quranCardElevation()),
+        border = BorderStroke(1.dp, quranBorderColor())
     ) {
         Row(
             modifier = Modifier
@@ -1299,14 +1366,17 @@ fun JuzListItem(juz: JuzInfo, onClick: () -> Unit) {
                 Box(
                     modifier = Modifier
                         .size(36.dp)
-                        .background(MaterialTheme.colorScheme.tertiaryContainer, RoundedCornerShape(8.dp)),
+                        .background(
+                            if (quranIsLight()) QuranGoldSoft else MaterialTheme.colorScheme.tertiaryContainer,
+                            RoundedCornerShape(8.dp)
+                        ),
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
                         text = "Juz\n${juz.number}",
                         fontSize = 10.sp,
                         fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.tertiary,
+                        color = if (quranIsLight()) QuranGold else MaterialTheme.colorScheme.tertiary,
                         textAlign = TextAlign.Center,
                         lineHeight = 11.sp
                     )
@@ -1346,8 +1416,9 @@ fun BookmarkListItem(bookmark: QuranBookmark, onDelete: () -> Unit, onClick: () 
             .padding(vertical = 4.dp)
             .clickable { onClick() },
         shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+        colors = CardDefaults.cardColors(containerColor = quranPanelColor()),
+        elevation = CardDefaults.cardElevation(defaultElevation = quranCardElevation()),
+        border = BorderStroke(1.dp, quranBorderColor())
     ) {
         Row(
             modifier = Modifier
@@ -1360,7 +1431,7 @@ fun BookmarkListItem(bookmark: QuranBookmark, onDelete: () -> Unit, onClick: () 
                 Icon(
                     imageVector = Icons.Default.Bookmark,
                     contentDescription = null,
-                    tint = MaterialTheme.colorScheme.tertiary,
+                    tint = if (quranIsLight()) QuranGold else MaterialTheme.colorScheme.tertiary,
                     modifier = Modifier.size(24.dp)
                 )
                 Spacer(modifier = Modifier.width(12.dp))
@@ -1398,8 +1469,10 @@ fun HistoryListItem(hist: QuranHistory, onClick: () -> Unit) {
             .padding(vertical = 4.dp)
             .clickable { onClick() },
         shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f))
+        colors = CardDefaults.cardColors(
+            containerColor = if (quranIsLight()) QuranSunken else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
+        ),
+        border = BorderStroke(1.dp, quranBorderColor())
     ) {
         Row(
             modifier = Modifier
@@ -1412,7 +1485,7 @@ fun HistoryListItem(hist: QuranHistory, onClick: () -> Unit) {
                 Icon(
                     imageVector = Icons.Default.History,
                     contentDescription = null,
-                    tint = MaterialTheme.colorScheme.primary,
+                    tint = quranAccent(),
                     modifier = Modifier.size(22.dp)
                 )
                 Spacer(modifier = Modifier.width(12.dp))

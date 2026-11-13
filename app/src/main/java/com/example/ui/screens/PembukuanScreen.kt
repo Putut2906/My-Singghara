@@ -24,6 +24,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -32,6 +33,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.window.Dialog
 import com.example.ui.MainViewModel
 import java.text.NumberFormat
@@ -42,6 +44,27 @@ import android.webkit.WebView
 import android.webkit.WebViewClient
 import java.text.SimpleDateFormat
 import java.util.Date
+
+private val PembukuanAccentDeep = Color(0xFF1D4ED8)
+private val PembukuanHeroSoft = Color(0xFFEFF6FF)
+private val PembukuanAccentBorder = Color(0xFFBFDBFE)
+private val PembukuanHairline = Color(0xFFE2E8F0)
+private val PembukuanGreen = Color(0xFF047857)
+private val PembukuanGreenSoft = Color(0xFFD1FAE5)
+private val PembukuanRed = Color(0xFFB91C1C)
+private val PembukuanRedSoft = Color(0xFFFEE2E2)
+
+@Composable
+private fun pembukuanIsLight(): Boolean =
+    MaterialTheme.colorScheme.surface.luminance() > 0.5f
+
+@Composable
+private fun pembukuanTitleColor(): Color =
+    if (pembukuanIsLight()) Color(0xFF0F172A) else MaterialTheme.colorScheme.onSurfaceVariant
+
+@Composable
+private fun pembukuanCardElevation(): Dp =
+    if (pembukuanIsLight()) 2.dp else 0.dp
 
 // Data Models
 data class KebutuhanBarang(
@@ -794,13 +817,16 @@ fun BusinessIdentityCard(
     selectedTabIndex: Int,
     onTabSelected: (Int) -> Unit
 ) {
+    val light = pembukuanIsLight()
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.primaryContainer,
-            contentColor = MaterialTheme.colorScheme.onPrimaryContainer
-        )
+            containerColor = if (light) PembukuanHeroSoft else MaterialTheme.colorScheme.primaryContainer,
+            contentColor = if (light) Color(0xFF0F172A) else MaterialTheme.colorScheme.onPrimaryContainer
+        ),
+        border = if (light) BorderStroke(1.dp, PembukuanAccentBorder) else null,
+        elevation = CardDefaults.cardElevation(defaultElevation = if (light) 3.dp else 0.dp)
     ) {
         Column(
             modifier = Modifier.padding(16.dp)
@@ -822,7 +848,8 @@ fun BusinessIdentityCard(
                     Text(
                         text = "Modal Usaha: " + toRupiah(modalUsaha),
                         fontSize = 15.sp,
-                        fontWeight = FontWeight.Medium
+                        fontWeight = FontWeight.Medium,
+                        color = if (light) PembukuanAccentDeep else MaterialTheme.colorScheme.onPrimaryContainer
                     )
                 }
                 Row(
@@ -836,15 +863,15 @@ fun BusinessIdentityCard(
                         Icon(
                             imageVector = Icons.Default.Print,
                             contentDescription = "Cetak",
-                            tint = MaterialTheme.colorScheme.primary,
+                            tint = if (light) PembukuanAccentDeep else MaterialTheme.colorScheme.primary,
                             modifier = Modifier.size(20.dp)
                         )
                     }
                     Button(
                         onClick = onEditModal,
                         colors = ButtonDefaults.buttonColors(
-                            containerColor = MaterialTheme.colorScheme.primary,
-                            contentColor = MaterialTheme.colorScheme.onPrimary
+                            containerColor = if (light) PembukuanAccentDeep else MaterialTheme.colorScheme.primary,
+                            contentColor = if (light) Color.White else MaterialTheme.colorScheme.onPrimary
                         ),
                         shape = RoundedCornerShape(8.dp),
                         contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
@@ -862,7 +889,7 @@ fun BusinessIdentityCard(
                             Icon(
                                 imageVector = Icons.Default.MoreVert,
                                 contentDescription = "Pilihan Laporan",
-                                tint = MaterialTheme.colorScheme.primary,
+                                tint = if (light) PembukuanAccentDeep else MaterialTheme.colorScheme.primary,
                                 modifier = Modifier.size(20.dp)
                             )
                         }
@@ -905,14 +932,20 @@ fun OverviewTab(
     balikModalBulan: String,
     toRupiah: (Double) -> String
 ) {
+    val light = pembukuanIsLight()
+    val titleColor = if (light) Color(0xFF0F172A) else MaterialTheme.colorScheme.onPrimary
+    val labelColor = if (light) Color(0xFF475569) else MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.9f)
+    val dividerColor = if (light) PembukuanAccentBorder else MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.2f)
+
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.primary,
-            contentColor = MaterialTheme.colorScheme.onPrimary
+            containerColor = if (light) PembukuanHeroSoft else MaterialTheme.colorScheme.primary,
+            contentColor = titleColor
         ),
-        elevation = CardDefaults.cardElevation(defaultElevation = 6.dp)
+        border = if (light) BorderStroke(1.dp, PembukuanAccentBorder) else null,
+        elevation = CardDefaults.cardElevation(defaultElevation = if (light) 3.dp else 6.dp)
     ) {
         Column(
             modifier = Modifier.padding(18.dp),
@@ -922,10 +955,10 @@ fun OverviewTab(
                 "Kalkulasi Kelayakan & ROI Usaha",
                 fontSize = 16.sp,
                 fontWeight = FontWeight.ExtraBold,
-                color = MaterialTheme.colorScheme.onPrimary
+                color = titleColor
             )
 
-            HorizontalDivider(color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.2f))
+            HorizontalDivider(color = dividerColor)
 
             // Pendapatan Kotor
             Row(
@@ -933,7 +966,7 @@ fun OverviewTab(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text("Total Pendapatan Kotor (Bulan)", fontSize = 13.sp, color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.9f))
+                Text("Total Pendapatan Kotor (Bulan)", fontSize = 13.sp, color = labelColor)
                 Text(toRupiah(totalPendapatanKotorPerBulan), fontSize = 14.sp, fontWeight = FontWeight.Bold)
             }
 
@@ -943,7 +976,7 @@ fun OverviewTab(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text("Investasi Barang & Alat", fontSize = 13.sp, color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.9f))
+                Text("Investasi Barang & Alat", fontSize = 13.sp, color = labelColor)
                 Text(toRupiah(totalExpenseKebutuhan), fontSize = 14.sp, fontWeight = FontWeight.Bold)
             }
 
@@ -953,11 +986,11 @@ fun OverviewTab(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Text("Pengeluaran Operasional", fontSize = 13.sp, color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.9f))
+                Text("Pengeluaran Operasional", fontSize = 13.sp, color = labelColor)
                 Text(toRupiah(totalExpenseOperasional), fontSize = 14.sp, fontWeight = FontWeight.Bold)
             }
 
-            HorizontalDivider(color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.2f))
+            HorizontalDivider(color = dividerColor)
 
             // Laba Bersih
             Row(
@@ -966,19 +999,24 @@ fun OverviewTab(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text("Laba Bersih Per Bulan", fontSize = 14.sp, fontWeight = FontWeight.Bold)
-                val colorLaba = if (labaBersihPerBulan >= 0) Color.White else Color(0xFFFFD1D1)
+                val colorLaba = when {
+                    light && labaBersihPerBulan >= 0 -> PembukuanGreen
+                    light -> PembukuanRed
+                    labaBersihPerBulan >= 0 -> Color.White
+                    else -> Color(0xFFFFD1D1)
+                }
                 Text(toRupiah(labaBersihPerBulan), fontSize = 16.sp, fontWeight = FontWeight.Black, color = colorLaba)
             }
 
             // Estimasi Balik Modal
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.15f), RoundedCornerShape(8.dp))
-                    .padding(12.dp)
+            Surface(
+                color = if (light) Color.White else MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.15f),
+                shape = RoundedCornerShape(8.dp),
+                border = if (light) BorderStroke(1.dp, PembukuanAccentBorder) else null,
+                modifier = Modifier.fillMaxWidth()
             ) {
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier.padding(12.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
@@ -986,13 +1024,18 @@ fun OverviewTab(
                         "Estimasi Balik Modal (ROI)",
                         fontSize = 13.sp,
                         fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onPrimary
+                        color = titleColor
                     )
                     Text(
                         balikModalBulan,
                         fontSize = 15.sp,
                         fontWeight = FontWeight.Black,
-                        color = if (labaBersihPerBulan > 0.0) Color(0xFFC4E538) else Color.White
+                        color = when {
+                            light && labaBersihPerBulan > 0.0 -> PembukuanAccentDeep
+                            light -> PembukuanRed
+                            labaBersihPerBulan > 0.0 -> Color(0xFFC4E538)
+                            else -> Color.White
+                        }
                     )
                 }
             }
@@ -1007,10 +1050,15 @@ fun InvestasiTab(
     onDeleteClick: (Int) -> Unit,
     toRupiah: (Double) -> String
 ) {
+    val light = pembukuanIsLight()
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+        colors = CardDefaults.cardColors(
+            containerColor = if (light) Color.White else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+        ),
+        border = if (light) BorderStroke(1.dp, PembukuanHairline) else null,
+        elevation = CardDefaults.cardElevation(defaultElevation = pembukuanCardElevation())
     ) {
         Column(modifier = Modifier.padding(14.dp)) {
             Row(
@@ -1022,7 +1070,7 @@ fun InvestasiTab(
                     Icon(
                         Icons.Default.Inventory2,
                         contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary,
+                        tint = if (light) PembukuanAccentDeep else MaterialTheme.colorScheme.primary,
                         modifier = Modifier.size(20.dp)
                     )
                     Spacer(modifier = Modifier.width(8.dp))
@@ -1030,11 +1078,15 @@ fun InvestasiTab(
                         "Kebutuhan Barang",
                         fontSize = 15.sp,
                         fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        color = pembukuanTitleColor()
                     )
                 }
                 IconButton(onClick = onAddClick) {
-                    Icon(Icons.Default.AddCircle, contentDescription = "Tambah Kebutuhan", tint = MaterialTheme.colorScheme.primary)
+                    Icon(
+                        Icons.Default.AddCircle,
+                        contentDescription = "Tambah Kebutuhan",
+                        tint = if (light) PembukuanAccentDeep else MaterialTheme.colorScheme.primary
+                    )
                 }
             }
 
@@ -1042,7 +1094,7 @@ fun InvestasiTab(
                 Text(
                     "Belum ada kebutuhan barang diinput.",
                     fontSize = 12.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                    color = if (light) Color(0xFF64748B) else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(vertical = 12.dp),
@@ -1059,7 +1111,10 @@ fun InvestasiTab(
                     // Header
                     Row(
                         modifier = Modifier
-                            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.1f), RoundedCornerShape(4.dp))
+                            .background(
+                                if (light) PembukuanHeroSoft else MaterialTheme.colorScheme.primary.copy(alpha = 0.1f),
+                                RoundedCornerShape(4.dp)
+                            )
                             .padding(horizontal = 8.dp, vertical = 6.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
@@ -1104,10 +1159,15 @@ fun PendapatanTab(
     onDeleteClick: (Int) -> Unit,
     toRupiah: (Double) -> String
 ) {
+    val light = pembukuanIsLight()
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+        colors = CardDefaults.cardColors(
+            containerColor = if (light) Color.White else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+        ),
+        border = if (light) BorderStroke(1.dp, PembukuanHairline) else null,
+        elevation = CardDefaults.cardElevation(defaultElevation = pembukuanCardElevation())
     ) {
         Column(modifier = Modifier.padding(14.dp)) {
             Row(
@@ -1119,7 +1179,7 @@ fun PendapatanTab(
                     Icon(
                         Icons.Default.TrendingUp,
                         contentDescription = null,
-                        tint = Color(0xFF11998E),
+                        tint = if (light) PembukuanGreen else Color(0xFF11998E),
                         modifier = Modifier.size(20.dp)
                     )
                     Spacer(modifier = Modifier.width(8.dp))
@@ -1127,11 +1187,15 @@ fun PendapatanTab(
                         "Estimasi Pendapatan",
                         fontSize = 15.sp,
                         fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        color = pembukuanTitleColor()
                     )
                 }
                 IconButton(onClick = onAddClick) {
-                    Icon(Icons.Default.AddCircle, contentDescription = "Tambah Estimasi", tint = Color(0xFF11998E))
+                    Icon(
+                        Icons.Default.AddCircle,
+                        contentDescription = "Tambah Estimasi",
+                        tint = if (light) PembukuanGreen else Color(0xFF11998E)
+                    )
                 }
             }
 
@@ -1139,7 +1203,7 @@ fun PendapatanTab(
                 Text(
                     "Belum ada estimasi pendapatan diinput.",
                     fontSize = 12.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                    color = if (light) Color(0xFF64748B) else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(vertical = 12.dp),
@@ -1155,7 +1219,10 @@ fun PendapatanTab(
                     // Header
                     Row(
                         modifier = Modifier
-                            .background(Color(0xFF11998E).copy(alpha = 0.1f), RoundedCornerShape(4.dp))
+                            .background(
+                                if (light) PembukuanGreenSoft else Color(0xFF11998E).copy(alpha = 0.1f),
+                                RoundedCornerShape(4.dp)
+                            )
                             .padding(horizontal = 8.dp, vertical = 6.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
@@ -1202,10 +1269,15 @@ fun OperasionalTab(
     onDeleteClick: (Int) -> Unit,
     toRupiah: (Double) -> String
 ) {
+    val light = pembukuanIsLight()
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+        colors = CardDefaults.cardColors(
+            containerColor = if (light) Color.White else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+        ),
+        border = if (light) BorderStroke(1.dp, PembukuanHairline) else null,
+        elevation = CardDefaults.cardElevation(defaultElevation = pembukuanCardElevation())
     ) {
         Column(modifier = Modifier.padding(14.dp)) {
             Row(
@@ -1217,7 +1289,7 @@ fun OperasionalTab(
                     Icon(
                         Icons.Default.MoneyOff,
                         contentDescription = null,
-                        tint = Color(0xFFFF5E62),
+                        tint = if (light) PembukuanRed else Color(0xFFFF5E62),
                         modifier = Modifier.size(20.dp)
                     )
                     Spacer(modifier = Modifier.width(8.dp))
@@ -1225,11 +1297,15 @@ fun OperasionalTab(
                         "Pengeluaran Operasional",
                         fontSize = 15.sp,
                         fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        color = pembukuanTitleColor()
                     )
                 }
                 IconButton(onClick = onAddClick) {
-                    Icon(Icons.Default.AddCircle, contentDescription = "Tambah Operasional", tint = Color(0xFFFF5E62))
+                    Icon(
+                        Icons.Default.AddCircle,
+                        contentDescription = "Tambah Operasional",
+                        tint = if (light) PembukuanRed else Color(0xFFFF5E62)
+                    )
                 }
             }
 
@@ -1237,7 +1313,7 @@ fun OperasionalTab(
                 Text(
                     "Belum ada pengeluaran operasional diinput.",
                     fontSize = 12.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                    color = if (light) Color(0xFF64748B) else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(vertical = 12.dp),
@@ -1253,7 +1329,10 @@ fun OperasionalTab(
                     // Header
                     Row(
                         modifier = Modifier
-                            .background(Color(0xFFFF5E62).copy(alpha = 0.1f), RoundedCornerShape(4.dp))
+                            .background(
+                                if (light) PembukuanRedSoft else Color(0xFFFF5E62).copy(alpha = 0.1f),
+                                RoundedCornerShape(4.dp)
+                            )
                             .padding(horizontal = 8.dp, vertical = 6.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
