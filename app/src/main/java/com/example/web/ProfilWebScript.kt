@@ -52,28 +52,7 @@ object ProfilWebScript {
             }
         }
 
-        // --- SUNTIK STYLE KARTU PROFIL: BAYANGAN TEGAS BIAR TIDAK MENYATU DI MODE TERANG ---
-        function ensureProfileStylesInjected() {
-            if (document.getElementById('profile-custom-styles')) return;
-            const styleEl = document.createElement('style');
-            styleEl.id = 'profile-custom-styles';
-            styleEl.textContent = `
-                .profile-card {
-                    background: var(--card-bg) !important;
-                    border: 1px solid var(--border-color) !important;
-                    border-radius: 18px !important;
-                    box-shadow: 0 6px 18px rgba(15, 23, 42, 0.10), 0 2px 6px rgba(15, 23, 42, 0.06) !important;
-                }
-                body.dark .profile-card, [data-theme="dark"] .profile-card,
-                :root:not([data-theme="light"]):not(.dark) .profile-card {
-                    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45), 0 2px 8px rgba(0, 0, 0, 0.35) !important;
-                }
-            `;
-            document.head.appendChild(styleEl);
-        }
-
         function renderProfileUI() {
-            ensureProfileStylesInjected();
             const container = document.getElementById('tab-content');
             if (!container) return;
 
@@ -152,8 +131,8 @@ object ProfilWebScript {
                 // --- TAMPILAN MENU UTAMA PROFIL PERSIS ---
                 // ==========================================
                 mainSectionContentHtml = `
-                    <!-- HEADER PROFIL (KARTU + BAYANGAN: NAMA, MEMBERSHIP, EMAIL & KELUAR BIAR RAPIH) -->
-                    <div class="profile-card text-center py-3 px-3 mb-4">
+                    <!-- HEADER PROFIL (TANPA WRAPPER CARD, PERSIS ANDROID) -->
+                    <div class="text-center py-2 mb-3">
                         <!-- AVATAR CONTAINER DENGAN DUA TOMBOL POJOK -->
                         <div class="position-relative d-inline-block mx-auto mb-2">
                             <!-- FOTO / AVATAR UTAMA (KLIK DETAIL MEMBERSHIP) -->
@@ -213,7 +192,7 @@ object ProfilWebScript {
                     </div>
 
                     <!-- CARD CONTAINER MENU UTAMA -->
-                    <div class="card card-custom profile-card p-0 mb-4 overflow-hidden" style="border-radius: 18px; border: 1px solid var(--border-color); background: var(--card-bg);">
+                    <div class="card card-custom p-0 mb-4 overflow-hidden shadow-sm" style="border-radius: 18px; border: 1px solid var(--border-color); background: var(--card-bg);">
                         <div class="list-group list-group-flush">
                             <!-- 1. KEAMANAN DAN DATA -->
                             <div class="list-group-item list-group-item-action d-flex align-items-center gap-3 py-3 px-3 border-bottom" role="button" onclick="navigateToProfileSection('keamanan_dan_data')" style="background: transparent; color: var(--text-main); border-color: var(--border-color); cursor: pointer;">
@@ -301,7 +280,7 @@ object ProfilWebScript {
                     </div>
 
                     <!-- CARD LIST MENU KEAMANAN DAN DATA -->
-                    <div class="card card-custom profile-card p-0 mb-4 overflow-hidden" style="border-radius: 18px; border: 1px solid var(--border-color); background: var(--card-bg);">
+                    <div class="card card-custom p-0 mb-4 overflow-hidden shadow-sm" style="border-radius: 18px; border: 1px solid var(--border-color); background: var(--card-bg);">
                         <div class="list-group list-group-flush">
                             <!-- a. KEAMANAN & PENGUNCIAN (APP LOCK) -->
                             <div class="list-group-item list-group-item-action d-flex align-items-center gap-3 py-3 px-3 border-bottom" role="button" onclick="openAppLockModal()" style="background: transparent; color: var(--text-main); border-color: var(--border-color); cursor: pointer;">
@@ -363,7 +342,7 @@ object ProfilWebScript {
                     </div>
 
                     <!-- CARD LIST MENU PENGATURAN SHARE -->
-                    <div class="card card-custom profile-card p-0 mb-4 overflow-hidden" style="border-radius: 18px; border: 1px solid var(--border-color); background: var(--card-bg);">
+                    <div class="card card-custom p-0 mb-4 overflow-hidden shadow-sm" style="border-radius: 18px; border: 1px solid var(--border-color); background: var(--card-bg);">
                         <div class="list-group list-group-flush">
                             <!-- 1. SETING SHARE -->
                             <div class="list-group-item list-group-item-action d-flex align-items-center gap-3 py-3 px-3 border-bottom" role="button" onclick="openShareUrlModal()" style="background: transparent; color: var(--text-main); border-color: var(--border-color); cursor: pointer;">
