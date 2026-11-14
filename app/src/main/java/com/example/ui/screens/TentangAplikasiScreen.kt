@@ -735,20 +735,20 @@ fun TentangAplikasiScreen(
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
             // -----------------------------------------------------------------
-            // 1. HERO IDENTITAS APLIKASI (gradien, serasi dengan Profil)
+            // 1. KARTU IDENTITAS APLIKASI (putih + shadow, serasi dengan Profil)
             // -----------------------------------------------------------------
-            val aboutHeroBrush = Brush.verticalGradient(
-                listOf(Color(0xFF4F46E5), Color(0xFF4338CA), Color(0xFF0EA5E9))
-            )
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(24.dp))
-                    .background(aboutHeroBrush)
-                    .padding(24.dp)
+            val aboutLightMode = !isSystemInDarkTheme()
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(24.dp),
+                colors = CardDefaults.cardColors(containerColor = if (aboutLightMode) Color.White else MaterialTheme.colorScheme.surface),
+                border = BorderStroke(1.dp, if (aboutLightMode) Color(0x140F172A) else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)),
+                elevation = CardDefaults.cardElevation(defaultElevation = if (aboutLightMode) 12.dp else 2.dp)
             ) {
                 Column(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(24.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
                     // App Logo Badge: memakai ikon launcher aplikasi agar seragam
@@ -756,7 +756,7 @@ fun TentangAplikasiScreen(
                         modifier = Modifier
                             .size(88.dp)
                             .clip(RoundedCornerShape(22.dp))
-                            .border(2.dp, Color.White.copy(alpha = 0.65f), RoundedCornerShape(22.dp)),
+                            .border(2.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.45f), RoundedCornerShape(22.dp)),
                         contentDescription = "Logo My Singghara"
                     )
 
@@ -766,12 +766,12 @@ fun TentangAplikasiScreen(
                         text = "My Singghara",
                         fontSize = 24.sp,
                         fontWeight = FontWeight.Black,
-                        color = Color.White
+                        color = MaterialTheme.colorScheme.onSurface
                     )
                     Text(
                         text = "Suite Aplikasi Produktivitas",
                         fontSize = 12.sp,
-                        color = Color.White.copy(alpha = 0.85f),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.padding(top = 2.dp)
                     )
 
@@ -781,8 +781,8 @@ fun TentangAplikasiScreen(
                     val isCheckingInstalledVersion = installedVersionCheck?.isChecking == true
                     Surface(
                         shape = RoundedCornerShape(20.dp),
-                        color = Color.White.copy(alpha = 0.16f),
-                        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.5f)),
+                        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.55f),
+                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.3f)),
                         modifier = Modifier
                             .clip(RoundedCornerShape(20.dp))
                             .clickable(enabled = !isCheckingInstalledVersion) { checkInstalledVersion() }
@@ -795,13 +795,13 @@ fun TentangAplikasiScreen(
                                 CircularProgressIndicator(
                                     modifier = Modifier.size(12.dp),
                                     strokeWidth = 2.dp,
-                                    color = Color.White
+                                    color = MaterialTheme.colorScheme.primary
                                 )
                             } else {
                                 Icon(
                                     imageVector = Icons.Default.Verified,
                                     contentDescription = null,
-                                    tint = Color(0xFFFFD700),
+                                    tint = MaterialTheme.colorScheme.primary,
                                     modifier = Modifier.size(14.dp)
                                 )
                             }
@@ -814,13 +814,13 @@ fun TentangAplikasiScreen(
                                 },
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = Color.White
+                                color = MaterialTheme.colorScheme.onPrimaryContainer
                             )
                             Spacer(modifier = Modifier.width(5.dp))
                             Icon(
                                 imageVector = Icons.Default.Refresh,
                                 contentDescription = "Periksa versi terbaru",
-                                tint = Color.White.copy(alpha = 0.85f),
+                                tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.85f),
                                 modifier = Modifier.size(12.dp)
                             )
                         }
