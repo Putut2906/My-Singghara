@@ -542,8 +542,9 @@ fun ProfilScreen(
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(16.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                    elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+                    colors = CardDefaults.cardColors(containerColor = if (!isSystemInDarkTheme()) Color.White else MaterialTheme.colorScheme.surface),
+                    border = BorderStroke(1.dp, if (!isSystemInDarkTheme()) Color(0x140F172A) else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
+                    elevation = CardDefaults.cardElevation(defaultElevation = if (!isSystemInDarkTheme()) 10.dp else 1.dp)
                 ) {
                     Column {
                         MenuItem(
@@ -597,8 +598,9 @@ fun ProfilScreen(
                 Card(
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(16.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                    elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
+                    colors = CardDefaults.cardColors(containerColor = if (!isSystemInDarkTheme()) Color.White else MaterialTheme.colorScheme.surface),
+                    border = BorderStroke(1.dp, if (!isSystemInDarkTheme()) Color(0x140F172A) else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)),
+                    elevation = CardDefaults.cardElevation(defaultElevation = if (!isSystemInDarkTheme()) 10.dp else 1.dp)
                 ) {
                     Column {
                         // State for Popup Dialogs
@@ -3089,12 +3091,13 @@ fun ProfileGroupCard(label: String, content: @Composable ColumnScope.() -> Unit)
             letterSpacing = 1.sp,
             modifier = Modifier.padding(start = 6.dp, bottom = 6.dp)
         )
+        val lightMode = !isSystemInDarkTheme()
         Card(
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(18.dp),
-            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)),
-            elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+            colors = CardDefaults.cardColors(containerColor = if (lightMode) Color.White else MaterialTheme.colorScheme.surface),
+            border = BorderStroke(1.dp, if (lightMode) Color(0x140F172A) else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)),
+            elevation = CardDefaults.cardElevation(defaultElevation = if (lightMode) 10.dp else 0.dp)
         ) {
             Column(content = content)
         }
