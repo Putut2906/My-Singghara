@@ -1333,7 +1333,7 @@ function doPost(e) {
                                     Aplikasi manajemen usaha, kasir barcode, pembukuan keuangan, rekap absensi, jadwal harian, dan Web Connect mandiri tanpa kuota internet.
                                 </p>
                                 <div class="text-uppercase mb-2" style="font-size: 11px; font-weight: 800; letter-spacing: 0.6px; color: var(--brand-green);">INFORMASI</div>
-                                <div class="rounded-4 p-3 small text-main" style="background: var(--bg-hover); border: 1px solid var(--border-color);">
+                                <div class="rounded-4 p-3 small text-main" style="background: var(--card-bg); border: 1px solid var(--border-color); box-shadow: 0 2px 10px rgba(15,23,42,0.10);">
                                     <div class="d-flex align-items-center gap-2 mb-2"><i class="bi bi-person-badge-fill text-primary"></i><span><strong>Pengembang:</strong> Putut Singgih Pamungkas</span></div>
                                     <div class="d-flex align-items-center gap-2 mb-2"><i class="bi bi-phone-fill text-success"></i><span><strong>Platform:</strong> Android (Kotlin/Compose) &amp; Web Connect PC</span></div>
                                     <div class="d-flex align-items-center gap-2"><i class="bi bi-c-circle text-secondary"></i><span><strong>Hak Cipta:</strong> &copy; ${dol}{new Date().getFullYear()} My Singghara. All Rights Reserved.</span></div>
