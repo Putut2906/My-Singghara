@@ -7,6 +7,8 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.media.AudioAttributes
+import android.media.AudioFocusRequest
+import android.media.AudioManager
 import android.media.MediaPlayer
 import android.os.Build
 import android.os.IBinder
@@ -26,6 +28,49 @@ import java.util.Locale
 class AzanService : Service() {
 
     private var player: MediaPlayer? = null
+
+    // Audio focus: memegang fokus saat azan agar routed ke perangkat aktif (termasuk headset
+    // Bluetooth A2DP) dan aplikasi pemutar lain (YouTube/TikTok/musik) ter-pause otomatis.
+    private var audioManager: AudioManager? = null
+    private var audioFocusRequest: AudioFocusRequest? = null
+    private var hasAudioFocus = false
+    private var isPausedByFocusLoss = false
+
+    private val focusChangeListener = AudioManager.OnAudioFocusChangeListener { change ->
+        when (change) {
+            AudioManager.AUDIOFOCUS_LOSS -> {
+                // Kehilangan fokus permanen: hentikan azan & bersihkan.
+                hasAudioFocus = false
+                finishPlayback()
+            }
+            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> {
+                // Kehilangan sementara (mis. telepon masuk): jeda lalu lanjutkan saat fokus kembali.
+                hasAudioFocus = false
+                try {
+                    if (player?.isPlaying == true) {
+                        player?.pause()
+                        isPausedByFocusLoss = true
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "Gagal menjeda azan saat fokus hilang: ${e.message}")
+                }
+            }
+            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> {
+                // Sumber lain boleh duck; azan tetap pada volume penuh.
+            }
+            AudioManager.AUDIOFOCUS_GAIN -> {
+                hasAudioFocus = true
+                try {
+                    if (isPausedByFocusLoss) {
+                        player?.start()
+                        isPausedByFocusLoss = false
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "Gagal melanjutkan azan saat fokus kembali: ${e.message}")
+                }
+            }
+        }
+    }
 
     private var activePrayerName: String = ""
     private var activePrayerTime: String = ""
@@ -75,6 +120,7 @@ class AzanService : Service() {
 
     override fun onDestroy() {
         releasePlayer()
+        abandonAudioFocus()
         super.onDestroy()
     }
 
@@ -132,6 +178,10 @@ class AzanService : Service() {
             .setUsage(AudioAttributes.USAGE_ALARM)
             .setContentType(AudioAttributes.CONTENT_TYPE_MUSIC)
             .build()
+
+        // Aktifkan audio focus SEBELUM memutar: ini yang membuat suara keluar di perangkat
+        // audio aktif (headset Bluetooth A2DP) dan menghentikan aplikasi pemutar lain.
+        requestAudioFocus(attributes)
 
         val setting = prefs.getInt("azan_sound_setting_$prayerKey", if (prayerName == "Imsak") 1 else 2)
         if (setting >= 3) {
@@ -242,8 +292,59 @@ class AzanService : Service() {
             }
         }
 
+    /**
+     * Meminta audio focus bersifat eksklusif (AUDIOFOCUS_GAIN) dengan atribusi USAGE_ALARM.
+     * USAGE_ALARM tetap berbunyi meski mode senyap/Jangan Ganggu aktif, dan fokus membuat
+     * perangkat audio aktif (termasuk headset Bluetooth) digunakan serta aplikasi lain ter-pause.
+     */
+    private fun requestAudioFocus(attributes: AudioAttributes) {
+        val am = (getSystemService(Context.AUDIO_SERVICE) as? AudioManager) ?: return
+        audioManager = am
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                val request = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
+                    .setAudioAttributes(attributes)
+                    .setWillPauseWhenDucked(false)
+                    .setOnAudioFocusChangeListener(focusChangeListener)
+                    .build()
+                audioFocusRequest = request
+                hasAudioFocus =
+                    am.requestAudioFocus(request) == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
+            } else {
+                @Suppress("DEPRECATION")
+                hasAudioFocus = am.requestAudioFocus(
+                    focusChangeListener,
+                    AudioManager.STREAM_ALARM,
+                    AudioManager.AUDIOFOCUS_GAIN
+                ) == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
+            }
+        } catch (t: Throwable) {
+            Log.e(TAG, "Gagal meminta audio focus: ${t.message}")
+        }
+    }
+
+    /** Melepas audio focus agar aplikasi lain dapat melanjutkan pemutarannya. */
+    private fun abandonAudioFocus() {
+        val am = audioManager ?: return
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                audioFocusRequest?.let { am.abandonAudioFocusRequest(it) }
+            } else {
+                @Suppress("DEPRECATION")
+                am.abandonAudioFocus(focusChangeListener)
+            }
+        } catch (t: Throwable) {
+            Log.e(TAG, "Gagal melepas audio focus: ${t.message}")
+        } finally {
+            audioFocusRequest = null
+            hasAudioFocus = false
+            isPausedByFocusLoss = false
+        }
+    }
+
     private fun finishPlayback() {
         releasePlayer()
+        abandonAudioFocus()
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
                 stopForeground(STOP_FOREGROUND_REMOVE)
