@@ -49,10 +49,22 @@ jobs:
         run: |
           # Keep BuildConfig.VERSION_NAME in sync with the release tag (v1.0.<run>)
           # and bump versionCode monotonically so updates are accepted.
+          set +e
           gradle assembleDebug \
             -PappVersionName="1.0.${GITHUB_RUN_NUMBER}" \
             -PappVersionCode="${GITHUB_RUN_NUMBER}" \
-            --no-daemon --stacktrace
+            --no-daemon --stacktrace 2>&1 | tee /tmp/catbuild.log
+          STATUS=${PIPESTATUS[0]}
+          exit $STATUS
+
+      - name: 🔎 Tampilkan error kompilasi (hanya bila gagal)
+        if: failure()
+        run: |
+          if [ -f /tmp/catbuild.log ]; then
+            grep -E "^e: |error:|FAILURE:|What went wrong" /tmp/catbuild.log | head -60 | sed 's/^/::error::/' || echo "Tidak ada baris error yang cocok."
+          else
+            echo "::error::Log build tidak ditemukan."
+          fi
 
       - name: 🏷️ Generate Version Tag & Changelog
         id: vars
