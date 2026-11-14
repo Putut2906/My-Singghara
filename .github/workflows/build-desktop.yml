@@ -1,0 +1,150 @@
+# Membangun aplikasi PC "My Singghara Desktop" langsung dari repo ini (My-Singghara),
+# memakai modul desktop mandiri di folder /desktop (proyek Gradle terpisah, TIDAK di-include
+# ke build Android sehingga tidak memengaruhi APK). Menghasilkan Windows .exe/.msi + portabel,
+# macOS .dmg, Linux .deb, lalu menerbitkan GitHub Release ber-tag "desktop-v<run_number>".
+name: Build Desktop PC
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - 'desktop/**'
+      - 'app/src/main/java/com/example/web/**'
+      - 'app/src/main/assets/web/**'
+      - '.github/workflows/build-desktop.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  package:
+    name: Paket ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Windows
+            os: windows-latest
+            tasks: packageExe packageMsi
+            artifact_path: |
+              desktop/build/compose/binaries/main/exe/*.exe
+              desktop/build/compose/binaries/main/msi/*.msi
+          - name: macOS
+            os: macos-latest
+            tasks: packageDmg
+            artifact_path: desktop/build/compose/binaries/main/dmg/*.dmg
+          - name: Linux
+            os: ubuntu-latest
+            tasks: packageDeb
+            artifact_path: desktop/build/compose/binaries/main/deb/*.deb
+    defaults:
+      run:
+        shell: bash
+        working-directory: desktop
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      # Windows: versi portabel dulu (tanpa WiX) supaya launcher .exe tetap ada walau installer gagal.
+      - name: Build versi portabel (Windows)
+        if: matrix.name == 'Windows'
+        run: ./gradlew createDistributable -PappVersionName=1.0.${{ github.run_number }} --no-daemon
+
+      - name: Unggah versi portabel (Windows)
+        if: matrix.name == 'Windows'
+        uses: actions/upload-artifact@v4
+        with:
+          name: my-singghara-desktop-Windows-portable
+          path: desktop/build/compose/binaries/main/app/
+          if-no-files-found: error
+
+      - name: Build installer
+        run: ./gradlew ${{ matrix.tasks }} -PappVersionName=1.0.${{ github.run_number }} --no-daemon --stacktrace
+
+      - name: Tampilkan ekor log bila build installer gagal
+        if: failure()
+        continue-on-error: true
+        shell: bash
+        run: |
+          echo "Perintah: ./gradlew ${{ matrix.tasks }} -PappVersionName=1.0.${{ github.run_number }} --no-daemon --stacktrace"
+          LOG="$(find . -path '*/compose/logs/*' -type f 2>/dev/null | head -n 1 || true)"
+          if [ -n "$LOG" ]; then
+            echo "Log jpackage: $LOG"
+            MSG="$(tail -n 40 "$LOG" | sed 's/%/%25/g; s/\r/%0D/g; s/"/%22/g; s/#/%23/g' | tr '\n' '|' | sed 's/|/%0A/g')"
+          else
+            MSG="Log jpackage tidak ditemukan; cari 'error:'/'e: ' di log mentah langkah Build installer."
+          fi
+          echo "::error::[desktop ${{ matrix.name }}] $MSG"
+          # Tampilkan juga error kompilasi Kotlin dari output gradle bila ada.
+          echo "::error::[desktop ${{ matrix.name }}] (lihat log langkah Build installer untuk baris 'e:' kompilator)"
+
+      - name: Unggah artefak installer
+        uses: actions/upload-artifact@v4
+        with:
+          name: my-singghara-desktop-${{ matrix.name }}
+          path: ${{ matrix.artifact_path }}
+          if-no-files-found: error
+
+  release:
+    name: Terbitkan Release PC
+    needs: package
+    if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Unduh semua artefak desktop
+        uses: actions/download-artifact@v4
+        with:
+          pattern: my-singghara-desktop-*
+          path: dl
+          merge-multiple: false
+
+      - name: Rakit aset rilis (installer + portable zip)
+        run: |
+          set -euo pipefail
+          TAG="desktop-v${{ github.run_number }}"
+          mkdir -p release-assets
+          find dl -type f \( -iname '*.exe' -o -iname '*.msi' -o -iname '*.deb' -o -iname '*.dmg' \) \
+            -not -path '*/My Singghara/*' \
+            -exec cp -v {} release-assets/ \;
+          PORT_DIR="$(find dl -type d -name 'My Singghara' | head -n 1 || true)"
+          if [ -n "$PORT_DIR" ]; then
+            ( cd "$(dirname "$PORT_DIR")" && zip -rq "$GITHUB_WORKSPACE/release-assets/MySingghara-${TAG}-Windows-portable.zip" "$(basename "$PORT_DIR")" )
+          fi
+          echo "=== Isi release-assets ==="; ls -lh release-assets/
+
+      - name: Generate tag & changelog
+        id: vars
+        run: |
+          RUN_NUM="${{ github.run_number }}"
+          SHORT_SHA=$(echo ${{ github.sha }} | cut -c1-7)
+          echo "tag_name=desktop-v${RUN_NUM}" >> "$GITHUB_OUTPUT"
+          echo "short_sha=$SHORT_SHA" >> "$GITHUB_OUTPUT"
+
+      - name: Terbitkan GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.vars.outputs.tag_name }}
+          name: My Singghara Desktop ${{ steps.vars.outputs.tag_name }}
+          body: |
+            ## 🖥️ My Singghara Desktop ${{ steps.vars.outputs.tag_name }}
+            Dibangun langsung dari repo My-Singghara (modul /desktop) via GitHub Actions.
+            Windows .exe/.msi + portabel, macOS .dmg, Linux .deb. Semua belum ditandatangani (unsigned).
+            - **Commit**: `${{ steps.vars.outputs.short_sha }}` · **Run**: `${{ github.run_number }}`
+          draft: false
+          prerelease: false
+          files: release-assets/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
