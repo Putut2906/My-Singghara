@@ -12,6 +12,15 @@ object ProfilWebScript {
         window.profileStatusMessage = '';
         window.profileIsStatusError = false;
 
+        // Gaya responsif ringan untuk hero profil (diinjeksikan sekali).
+        (function () {
+            if (document.getElementById('profil-hero-style')) return;
+            var st = document.createElement('style');
+            st.id = 'profil-hero-style';
+            st.textContent = '.profile-hero h4{font-size:1.3rem;}@media (max-width:420px){.profile-hero h4{font-size:1.12rem;}}';
+            document.head.appendChild(st);
+        })();
+
         const PROFIL_AVATAR_PRESETS = [
             { bg: 'linear-gradient(135deg, #6200EE, #BB86FC)', icon: 'bi-person-fill', label: 'Persona Ungu' },
             { bg: 'linear-gradient(135deg, #03DAC6, #018786)', icon: 'bi-emoji-smile-fill', label: 'Teal Ceria' },
@@ -131,68 +140,53 @@ object ProfilWebScript {
                 // --- TAMPILAN MENU UTAMA PROFIL PERSIS ---
                 // ==========================================
                 mainSectionContentHtml = `
-                    <!-- HEADER PROFIL (TANPA WRAPPER CARD, PERSIS ANDROID) -->
-                    <div class="text-center py-2 mb-3">
-                        <!-- AVATAR CONTAINER DENGAN DUA TOMBOL POJOK -->
-                        <div class="position-relative d-inline-block mx-auto mb-2">
-                            <!-- FOTO / AVATAR UTAMA (KLIK DETAIL MEMBERSHIP) -->
-                            <div class="profile-avatar-box rounded-circle shadow-sm" onclick="openMembershipVipModal()" role="button" title="Foto Profil (Klik untuk Detail Membership)" style="width: 88px; height: 88px; border-radius: 50%; padding: 2px; background: var(--border-color); cursor: pointer; transition: transform 0.2s ease;">
-                                ${dol}{avatarContentHtml}
-                            </div>
-
-                            <!-- TOMBOL PENGATURAN DI POJOK KANAN ATAS FOTO -->
-                            <button type="button" class="btn btn-sm btn-profile-action-corner shadow-sm position-absolute" onclick="openEditProfileModal()" title="Kustomisasi Profil (Ubah Nama & Avatar)" style="top: -4px; right: -6px; width: 28px; height: 28px; border-radius: 50%; padding: 0; display: flex; align-items: center; justify-content: center; background: var(--card-bg); border: 1px solid var(--border-color); color: var(--brand-green);">
-                                <i class="bi bi-gear-fill" style="font-size: 13px;"></i>
-                            </button>
-
-                            <!-- TOMBOL KAMERA / CROP DI POJOK KANAN BAWAH FOTO -->
-                            <button type="button" class="btn btn-sm btn-profile-action-corner shadow-sm position-absolute" onclick="openPhotoOptionsModal()" title="Atur Foto Profil (Pilih Foto / Ganti)" style="bottom: -2px; right: -4px; width: 30px; height: 30px; border-radius: 50%; padding: 0; display: flex; align-items: center; justify-content: center; background: #2563EB; border: 2px solid var(--card-bg); color: #ffffff;">
-                                <i class="bi ${dol}{hasCustomImg ? 'bi-crop' : 'bi-camera-fill'}" style="font-size: 13px;"></i>
-                            </button>
-                        </div>
-
-                        <!-- NAMA PENGGUNA -->
-                        <h4 class="fw-bold mb-1 mt-1 text-main text-truncate px-2" role="button" onclick="openMembershipVipModal()" title="Klik untuk Detail Membership" style="cursor: pointer; font-size: 1.25rem;">
-                            ${dol}{escapeHtml(profName)}
-                        </h4>
-
-                        <!-- BADGE KARTU MEMBERSHIP VIP INTERAKTIF (HANYA TAMPIL SETELAH LOGIN) -->
-                        ${dol}{isLoggedIn ? `
-                        <div class="d-inline-flex align-items-center gap-2 px-3 py-1 mt-1 rounded-pill shadow-sm" role="button" onclick="openMembershipVipModal()" title="Klik untuk melihat Detail Kartu Membership VIP" style="background: rgba(255, 215, 0, 0.12); border: 1px solid rgba(255, 215, 0, 0.65); cursor: pointer; transition: all 0.2s ease;">
-                            <i class="bi bi-star-fill" style="color: #FFD700; font-size: 13px;"></i>
-                            <span class="fw-bold text-main" style="font-size: 12px; letter-spacing: 0.3px;">Kartu Membership VIP (Klik Detail)</span>
-                            <i class="bi bi-chevron-right text-primary" style="font-size: 12px;"></i>
-                        </div>
-                        ` : ''}
-
-                        <!-- INFO AKUN (JIKA LOGIN) -->
-                        ${dol}{isLoggedIn ? `
-                            <div class="small text-secondary mt-2 mb-2 text-truncate px-3">${dol}{escapeHtml(userEmail)}</div>
-                            <div class="d-flex flex-wrap justify-content-center align-items-center gap-2 mt-2">
-                                <button type="button" class="btn btn-sm btn-outline-danger rounded-3 px-3 py-1 fw-semibold d-inline-flex align-items-center gap-1 shadow-sm" onclick="confirmLogoutAccount()">
-                                    <i class="bi bi-box-arrow-right"></i> Keluar
+                    <!-- ===== HERO HEADER PROFIL (gradien modern) ===== -->
+                    <div class="profile-hero mb-4" style="border-radius: 22px; padding: 22px 18px; background: linear-gradient(135deg, #4F46E5 0%, #4338CA 55%, #0EA5E9 100%); box-shadow: 0 10px 30px rgba(79, 70, 229, 0.28); color: #ffffff;">
+                        <div class="text-center">
+                            <div class="position-relative d-inline-block mb-2">
+                                <div class="rounded-circle d-flex align-items-center justify-content-center" onclick="openMembershipVipModal()" role="button" title="Foto Profil (Klik untuk Detail Membership)" style="width: 100px; height: 100px; border-radius: 50%; padding: 4px; background: rgba(255,255,255,0.18); border: 2px solid rgba(255,255,255,0.65); cursor: pointer;">
+                                    ${dol}{avatarContentHtml}
+                                </div>
+                                <button type="button" class="btn btn-sm position-absolute d-flex align-items-center justify-content-center" onclick="openEditProfileModal()" title="Kustomisasi Profil (Ubah Nama & Avatar)" style="top: -2px; right: -4px; width: 28px; height: 28px; border-radius: 50%; padding: 0; background: #ffffff; color: #4F46E5; border: none;">
+                                    <i class="bi bi-gear-fill" style="font-size: 13px;"></i>
+                                </button>
+                                <button type="button" class="btn btn-sm position-absolute d-flex align-items-center justify-content-center" onclick="openPhotoOptionsModal()" title="Atur Foto Profil (Pilih Foto / Ganti)" style="bottom: -2px; right: -4px; width: 30px; height: 30px; border-radius: 50%; padding: 0; background: #ffffff; color: #0EA5E9; border: none;">
+                                    <i class="bi ${dol}{hasCustomImg ? 'bi-crop' : 'bi-camera-fill'}" style="font-size: 13px;"></i>
                                 </button>
                             </div>
-                        ` : ''}
 
-                        <!-- APLIKASI PC NATIVE & PASANG PWA (PENGGANTI MASUK & DAFTAR) -->
-                        <div class="d-flex flex-wrap justify-content-center align-items-center gap-2 mt-3">
-                            <a href="/pc-installer.exe" download="MySingghara-Pc-Installer.exe" class="btn btn-sm btn-primary rounded-pill px-3 py-1.5 fw-bold d-inline-flex align-items-center gap-1.5 shadow-sm" style="font-size: 12px;" title="Unduh Aplikasi PC Native (.exe) - satu jendela mandiri tanpa browser dan tanpa terminal">
-                                <i class="bi bi-window-desktop"></i> Aplikasi PC Native (.exe)
-                            </a>
-                            <button type="button" class="btn btn-sm btn-outline-primary rounded-pill px-3 py-1.5 fw-bold d-inline-flex align-items-center gap-1.5 shadow-sm pwa-install-trigger" onclick="triggerPwaInstall()" style="font-size: 12px;" title="Pasang Progressive Web App langsung dari browser">
-                                <i class="bi bi-box-arrow-in-down"></i> Pasang PWA
-                            </button>
+                            <h4 class="fw-bold mb-0 text-truncate px-2" role="button" onclick="openMembershipVipModal()" title="Klik untuk Detail Membership" style="color: #ffffff; font-size: 1.3rem; cursor: pointer;">
+                                ${dol}{escapeHtml(profName)}
+                            </h4>
+
+                            ${dol}{isLoggedIn ? `
+                                <div class="small text-truncate px-3 mt-1" style="color: rgba(255,255,255,0.85);">${dol}{escapeHtml(userEmail)}</div>
+                                <div class="d-inline-flex align-items-center gap-2 px-3 py-1 mt-2 rounded-pill" role="button" onclick="openMembershipVipModal()" title="Klik untuk melihat Detail Kartu Membership VIP" style="background: rgba(255,215,0,0.16); border: 1px solid rgba(255,215,0,0.75); cursor: pointer;">
+                                    <i class="bi bi-star-fill" style="color: #FFD700; font-size: 13px;"></i>
+                                    <span class="fw-bold" style="font-size: 12px; color: #ffffff;">Kartu Membership VIP</span>
+                                    <i class="bi bi-chevron-right" style="font-size: 12px; color: #ffffff;"></i>
+                                </div>
+                            ` : ''}
+
+                            <div class="d-flex flex-wrap justify-content-center align-items-center gap-2 mt-3">
+                                ${dol}{isLoggedIn ? `
+                                    <button type="button" class="btn btn-sm rounded-pill d-inline-flex align-items-center gap-1 fw-bold" onclick="confirmLogoutAccount()" style="font-size: 12px; background: rgba(255,255,255,0.18); border: 1px solid rgba(255,255,255,0.45); color: #ffffff;">
+                                        <i class="bi bi-box-arrow-right"></i> Keluar
+                                    </button>
+                                ` : ''}
+                                <a href="/pc-installer.exe" download="MySingghara-Pc-Installer.exe" class="btn btn-sm rounded-pill d-inline-flex align-items-center gap-1 fw-bold" style="font-size: 12px; background: rgba(255,255,255,0.18); border: 1px solid rgba(255,255,255,0.45); color: #ffffff;" title="Unduh Aplikasi PC Native (.exe)">
+                                    <i class="bi bi-window-desktop"></i> Aplikasi PC Native (.exe)
+                                </a>
+                                <button type="button" class="btn btn-sm rounded-pill d-inline-flex align-items-center gap-1 fw-bold pwa-install-trigger" onclick="triggerPwaInstall()" style="font-size: 12px; background: rgba(255,255,255,0.18); border: 1px solid rgba(255,255,255,0.45); color: #ffffff;" title="Pasang Progressive Web App langsung dari browser">
+                                    <i class="bi bi-box-arrow-in-down"></i> Pasang PWA
+                                </button>
+                            </div>
                         </div>
                     </div>
 
-                    <!-- LABEL MENU UTAMA PROFIL -->
-                    <div class="text-uppercase fw-extrabold text-primary px-2 mb-2" style="font-size: 12px; letter-spacing: 0.6px; font-weight: 800;">
-                        MENU UTAMA PROFIL
-                    </div>
-
-                    <!-- CARD CONTAINER MENU UTAMA -->
-                    <div class="card card-custom p-0 mb-4 overflow-hidden shadow-sm" style="border-radius: 18px; border: 1px solid var(--border-color); background: var(--card-bg);">
+                    <!-- ===== MENU UTAMA (KARTU BERGRUP) ===== -->
+                    <div class="text-uppercase px-2 mb-2" style="font-size: 12px; letter-spacing: 0.6px; font-weight: 800; color: var(--brand-green);">AKUN &amp; KEAMANAN</div>
+                    <div class="card p-0 mb-4 overflow-hidden" style="border-radius: 18px; border: 1px solid var(--border-color); background: var(--card-bg); box-shadow: 0 1px 3px rgba(15,23,42,0.08);">
                         <div class="list-group list-group-flush">
                             <!-- 1. KEAMANAN DAN DATA -->
                             <div class="list-group-item list-group-item-action d-flex align-items-center gap-3 py-3 px-3 border-bottom" role="button" onclick="navigateToProfileSection('keamanan_dan_data')" style="background: transparent; color: var(--text-main); border-color: var(--border-color); cursor: pointer;">
@@ -205,34 +199,9 @@ object ProfilWebScript {
                                 </div>
                                 <i class="bi bi-chevron-right text-secondary opacity-75"></i>
                             </div>
-
-                            <!-- 2. PENGATURAN SHARE -->
-                            <div class="list-group-item list-group-item-action d-flex align-items-center gap-3 py-3 px-3 border-bottom" role="button" onclick="navigateToProfileSection('pengaturan_share')" style="background: transparent; color: var(--text-main); border-color: var(--border-color); cursor: pointer;">
-                                <div class="rounded-circle d-flex align-items-center justify-content-center flex-shrink-0" style="width: 42px; height: 42px; background: rgba(37, 99, 235, 0.12); color: #2563EB;">
-                                    <i class="bi bi-cloud-fill fs-5"></i>
-                                </div>
-                                <div class="flex-grow-1 min-w-0">
-                                    <div class="fw-bold text-main" style="font-size: 14px;">Pengaturan Share</div>
-                                    <div class="text-secondary small text-truncate" style="font-size: 12px;">Seting Share &amp; Bantuan</div>
-                                </div>
-                                <i class="bi bi-chevron-right text-secondary opacity-75"></i>
-                            </div>
-
-                            <!-- 3. TELEGRAM AI ASSISTANT (TEPAT DI BAWAH PENGATURAN SHARE) -->
-                            <div class="list-group-item list-group-item-action profile-menu-item-tg d-flex align-items-center gap-3 py-3 px-3 ${dol}{isAdmin ? 'border-bottom' : ''}" role="button" onclick="openProfileTelegramAi()" style="background: transparent; color: var(--text-main); border-color: var(--border-color); cursor: pointer;">
-                                <div class="rounded-circle d-flex align-items-center justify-content-center flex-shrink-0 profile-menu-tg-icon" style="width: 42px; height: 42px;">
-                                    <i class="bi bi-telegram fs-5"></i>
-                                </div>
-                                <div class="flex-grow-1 min-w-0">
-                                    <div class="fw-bold text-main" style="font-size: 14px;">Telegram AI Assistant</div>
-                                    <div class="text-secondary small text-truncate" style="font-size: 12px;">Asisten bot @My_Singghara_bot: cek libur, agenda &amp; database</div>
-                                </div>
-                                <i class="bi bi-chevron-right text-secondary opacity-75"></i>
-                            </div>
-
-                            <!-- 4. MANAJEMEN AKUN (KHUSUS ADMIN) -->
+                            <!-- 2. MANAJEMEN AKUN (KHUSUS ADMIN) -->
                             ${dol}{isAdmin ? `
-                                <div class="list-group-item list-group-item-action d-flex align-items-center gap-3 py-3 px-3 border-bottom" role="button" onclick="switchTabByName('manajemen_akun')" style="background: transparent; color: var(--text-main); border-color: var(--border-color); cursor: pointer;">
+                                <div class="list-group-item list-group-item-action d-flex align-items-center gap-3 py-3 px-3" role="button" onclick="switchTabByName('manajemen_akun')" style="background: transparent; color: var(--text-main); border-color: var(--border-color); cursor: pointer;">
                                     <div class="rounded-circle d-flex align-items-center justify-content-center flex-shrink-0" style="width: 42px; height: 42px; background: rgba(4, 120, 87, 0.12); color: #047857;">
                                         <i class="bi bi-shield-shaded fs-5"></i>
                                     </div>
@@ -243,8 +212,40 @@ object ProfilWebScript {
                                     <span class="badge" style="background: rgba(4, 120, 87, 0.15); color: #047857; font-size: 10px; font-weight: 700; border: 1px solid rgba(4, 120, 87, 0.3);">ADMIN</span>
                                 </div>
                             ` : ''}
+                        </div>
+                    </div>
 
-                            <!-- 5. TENTANG APLIKASI -->
+                    <div class="text-uppercase px-2 mb-2" style="font-size: 12px; letter-spacing: 0.6px; font-weight: 800; color: var(--brand-green);">KONEKSI &amp; SHARE</div>
+                    <div class="card p-0 mb-4 overflow-hidden" style="border-radius: 18px; border: 1px solid var(--border-color); background: var(--card-bg); box-shadow: 0 1px 3px rgba(15,23,42,0.08);">
+                        <div class="list-group list-group-flush">
+                            <!-- 1. PENGATURAN SHARE -->
+                            <div class="list-group-item list-group-item-action d-flex align-items-center gap-3 py-3 px-3 border-bottom" role="button" onclick="navigateToProfileSection('pengaturan_share')" style="background: transparent; color: var(--text-main); border-color: var(--border-color); cursor: pointer;">
+                                <div class="rounded-circle d-flex align-items-center justify-content-center flex-shrink-0" style="width: 42px; height: 42px; background: rgba(37, 99, 235, 0.12); color: #2563EB;">
+                                    <i class="bi bi-cloud-fill fs-5"></i>
+                                </div>
+                                <div class="flex-grow-1 min-w-0">
+                                    <div class="fw-bold text-main" style="font-size: 14px;">Pengaturan Share</div>
+                                    <div class="text-secondary small text-truncate" style="font-size: 12px;">Seting Share &amp; Bantuan</div>
+                                </div>
+                                <i class="bi bi-chevron-right text-secondary opacity-75"></i>
+                            </div>
+                            <!-- 2. TELEGRAM AI ASSISTANT -->
+                            <div class="list-group-item list-group-item-action profile-menu-item-tg d-flex align-items-center gap-3 py-3 px-3" role="button" onclick="openProfileTelegramAi()" style="background: transparent; color: var(--text-main); border-color: var(--border-color); cursor: pointer;">
+                                <div class="rounded-circle d-flex align-items-center justify-content-center flex-shrink-0 profile-menu-tg-icon" style="width: 42px; height: 42px;">
+                                    <i class="bi bi-telegram fs-5"></i>
+                                </div>
+                                <div class="flex-grow-1 min-w-0">
+                                    <div class="fw-bold text-main" style="font-size: 14px;">Telegram AI Assistant</div>
+                                    <div class="text-secondary small text-truncate" style="font-size: 12px;">Asisten bot @My_Singghara_bot: cek libur, agenda &amp; database</div>
+                                </div>
+                                <i class="bi bi-chevron-right text-secondary opacity-75"></i>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="text-uppercase px-2 mb-2" style="font-size: 12px; letter-spacing: 0.6px; font-weight: 800; color: var(--brand-green);">TENTANG</div>
+                    <div class="card p-0 mb-4 overflow-hidden" style="border-radius: 18px; border: 1px solid var(--border-color); background: var(--card-bg); box-shadow: 0 1px 3px rgba(15,23,42,0.08);">
+                        <div class="list-group list-group-flush">
                             <div class="list-group-item list-group-item-action d-flex align-items-center gap-3 py-3 px-3" role="button" onclick="openAboutAppModal()" style="background: transparent; color: var(--text-main); border-color: var(--border-color); cursor: pointer;">
                                 <div class="rounded-circle d-flex align-items-center justify-content-center flex-shrink-0" style="width: 42px; height: 42px; background: rgba(15, 118, 110, 0.12); color: #0F766E;">
                                     <i class="bi bi-info-circle-fill fs-5"></i>

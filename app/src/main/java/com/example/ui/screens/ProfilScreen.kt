@@ -271,170 +271,146 @@ fun ProfilScreen(
                     )
                 }
 
-                // Profile Header (Without card wrapper)
-                Column(
+                // ===== HERO HEADER PROFIL (gradien modern) =====
+                val currentFirebaseUser = viewModel.currentFirebaseUser
+                val heroBrush = Brush.verticalGradient(
+                    listOf(Color(0xFF4F46E5), Color(0xFF4338CA), Color(0xFF0EA5E9))
+                )
+                Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(vertical = 12.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
+                        .clip(RoundedCornerShape(24.dp))
+                        .background(heroBrush)
+                        .padding(20.dp)
                 ) {
-                    val currentFirebaseUser = viewModel.currentFirebaseUser
-
-                    // Avatar with Settings Icon at Top Right Corner
-                    Box(
-                        contentAlignment = Alignment.TopEnd
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalAlignment = Alignment.CenterHorizontally
                     ) {
-                        // Profile Avatar - Klik untuk membuka Pop up Detail Membership
-                        AppUserAvatar(
-                            name = viewModel.profileName,
-                            imageUri = viewModel.profileImageUri,
-                            avatarIndex = viewModel.profileAvatarIndex,
-                            size = 88.dp,
-                            textSize = 28.sp,
-                            isLoggedIn = viewModel.currentFirebaseUser != null,
-                            contentDescription = if (currentFirebaseUser != null) "Foto Profil (Klik untuk Detail Membership)" else "Foto Profil",
-                            onClick = {
-                                if (viewModel.currentFirebaseUser != null) {
-                                    showMembershipDialogInProfile = true
-                                } else {
-                                    authDialogModeInProfile = AuthMode.LOGIN
-                                    showAuthDialogInProfile = true
+                        // Avatar dengan ring + badge pengaturan & kamera
+                        Box(contentAlignment = Alignment.TopEnd) {
+                            Box(
+                                modifier = Modifier
+                                    .size(100.dp)
+                                    .clip(CircleShape)
+                                    .background(Color.White.copy(alpha = 0.18f))
+                                    .border(2.dp, Color.White.copy(alpha = 0.65f), CircleShape)
+                                    .padding(5.dp)
+                            ) {
+                                AppUserAvatar(
+                                    name = viewModel.profileName,
+                                    imageUri = viewModel.profileImageUri,
+                                    avatarIndex = viewModel.profileAvatarIndex,
+                                    size = 90.dp,
+                                    textSize = 28.sp,
+                                    isLoggedIn = currentFirebaseUser != null,
+                                    contentDescription = if (currentFirebaseUser != null) "Foto Profil (Klik untuk Detail Membership)" else "Foto Profil",
+                                    modifier = Modifier.align(Alignment.Center),
+                                    onClick = {
+                                        if (currentFirebaseUser != null) {
+                                            showMembershipDialogInProfile = true
+                                        } else {
+                                            authDialogModeInProfile = AuthMode.LOGIN
+                                            showAuthDialogInProfile = true
+                                        }
+                                    }
+                                )
+                            }
+
+                            // Pengaturan (pojok kanan atas)
+                            Box(
+                                modifier = Modifier
+                                    .offset(x = 4.dp, y = (-2).dp)
+                                    .size(28.dp)
+                                    .background(Color.White, CircleShape)
+                                    .clip(CircleShape)
+                                    .clickable { onEditProfileClick?.invoke() },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Settings,
+                                    contentDescription = "Pengaturan",
+                                    tint = Color(0xFF4F46E5),
+                                    modifier = Modifier.size(17.dp)
+                                )
+                            }
+
+                            // Kamera / atur foto (pojok kanan bawah)
+                            Box(
+                                modifier = Modifier
+                                    .align(Alignment.BottomEnd)
+                                    .offset(x = 4.dp, y = 4.dp)
+                                    .size(30.dp)
+                                    .background(Color.White, CircleShape)
+                                    .clip(CircleShape)
+                                    .clickable { showPhotoOptionsDialog = true },
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = if (viewModel.profileAvatarIndex == -1 && viewModel.profileImageUri.isNotEmpty()) Icons.Default.Crop else Icons.Default.CameraAlt,
+                                    contentDescription = "Atur Posisi Foto Profil",
+                                    tint = Color(0xFF0EA5E9),
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        // Nama Pengguna
+                        Text(
+                            text = viewModel.profileName.ifEmpty { "Pengguna Setia" },
+                            fontSize = 20.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White,
+                            textAlign = TextAlign.Center,
+                            maxLines = 1,
+                            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                            modifier = if (currentFirebaseUser != null) {
+                                Modifier.clickable { showMembershipDialogInProfile = true }
+                            } else Modifier
+                        )
+
+                        if (currentFirebaseUser != null) {
+                            // Email
+                            Text(
+                                text = currentFirebaseUser.email ?: currentFirebaseUser.displayName ?: "",
+                                fontSize = 12.sp,
+                                color = Color.White.copy(alpha = 0.85f),
+                                textAlign = TextAlign.Center,
+                                modifier = Modifier.padding(top = 2.dp)
+                            )
+
+                            // Chip Membership VIP
+                            Surface(
+                                shape = RoundedCornerShape(20.dp),
+                                color = Color.White.copy(alpha = 0.16f),
+                                border = BorderStroke(1.dp, Color(0xFFFFD700).copy(alpha = 0.75f)),
+                                modifier = Modifier
+                                    .padding(top = 10.dp)
+                                    .clickable { showMembershipDialogInProfile = true }
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Icon(Icons.Default.Star, null, tint = Color(0xFFFFD700), modifier = Modifier.size(14.dp))
+                                    Text("Kartu Membership VIP", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                                    Icon(Icons.Default.ChevronRight, null, tint = Color.White, modifier = Modifier.size(14.dp))
                                 }
                             }
-                        )
-
-                        // Icon Pengaturan di pojok kanan atas foto avatar
-                        Box(
-                            modifier = Modifier
-                                .offset(x = 6.dp, y = (-4).dp)
-                                .size(28.dp)
-                                .background(MaterialTheme.colorScheme.surface, CircleShape)
-                                .border(1.dp, MaterialTheme.colorScheme.outlineVariant, CircleShape)
-                                .clip(CircleShape)
-                                .clickable {
-                                    onEditProfileClick?.invoke()
-                                },
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Settings,
-                                contentDescription = "Pengaturan",
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(18.dp)
-                            )
                         }
 
-                        // Icon Kamera / Atur Posisi Foto di pojok kanan bawah foto avatar
-                        Box(
-                            modifier = Modifier
-                                .align(Alignment.BottomEnd)
-                                .offset(x = 4.dp, y = 4.dp)
-                                .size(30.dp)
-                                .background(MaterialTheme.colorScheme.primary, CircleShape)
-                                .border(2.dp, MaterialTheme.colorScheme.surface, CircleShape)
-                                .clip(CircleShape)
-                                .clickable {
-                                    showPhotoOptionsDialog = true
-                                },
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                imageVector = if (viewModel.profileAvatarIndex == -1 && viewModel.profileImageUri.isNotEmpty()) Icons.Default.Crop else Icons.Default.CameraAlt,
-                                contentDescription = "Atur Posisi Foto Profil",
-                                tint = MaterialTheme.colorScheme.onPrimary,
-                                modifier = Modifier.size(16.dp)
-                            )
-                        }
-                    }
+                        Spacer(modifier = Modifier.height(16.dp))
 
-                    Spacer(modifier = Modifier.height(10.dp))
-
-                    // Nama Pengguna - Klik untuk membuka Pop up Detail Membership
-                    Text(
-                        text = viewModel.profileName.ifEmpty { "Pengguna Setia" },
-                        fontSize = 18.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        textAlign = TextAlign.Center,
-                        maxLines = 1,
-                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
-                        modifier = if (viewModel.currentFirebaseUser != null) {
-                            Modifier.clickable { showMembershipDialogInProfile = true }
-                        } else Modifier
-                    )
-
-                    // Badge Kartu Membership VIP Interaktif (Klik Untuk Melihat Pop Up Kartu)
-                    // Hanya tampil setelah pengguna login
-                    if (currentFirebaseUser != null) {
-                        Surface(
-                            shape = RoundedCornerShape(20.dp),
-                            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                            border = BorderStroke(1.dp, Color(0xFFFFD700).copy(alpha = 0.6f)),
-                            modifier = Modifier
-                                .padding(top = 6.dp)
-                                .clickable { showMembershipDialogInProfile = true }
-                        ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 5.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Star,
-                                    contentDescription = null,
-                                    tint = Color(0xFFFFD700),
-                                    modifier = Modifier.size(14.dp)
-                                )
-                                Text(
-                                    text = "Kartu Membership VIP (Klik Detail)",
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.onSurface
-                                )
-                                Icon(
-                                    imageVector = Icons.Default.ChevronRight,
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.primary,
-                                    modifier = Modifier.size(14.dp)
-                                )
-                            }
-                        }
-                    }
-
-                    if (currentFirebaseUser != null) {
-                        // Info Akun saat pengguna telah login
-                        Spacer(modifier = Modifier.height(6.dp))
-                        Text(
-                            text = currentFirebaseUser.email ?: currentFirebaseUser.displayName ?: "",
-                            fontSize = 12.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            textAlign = TextAlign.Center
-                        )
-                        Spacer(modifier = Modifier.height(10.dp))
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            // Sinkronkan Profil dari Akun Google / Facebook
-                            OutlinedButton(
-                                onClick = {
+                        if (currentFirebaseUser != null) {
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                                HeroChip(Icons.Default.Sync, "Sinkron") {
                                     viewModel.refreshAuthUser()
                                     viewModel.showToastPopup("Profil berhasil disinkronkan!")
-                                },
-                                shape = RoundedCornerShape(8.dp),
-                                colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.primary),
-                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)),
-                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
-                                modifier = Modifier.height(34.dp)
-                            ) {
-                                Icon(Icons.Default.Sync, null, modifier = Modifier.size(14.dp))
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text("Sinkron", fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
-                            }
-
-                            // Atur Kata Sandi Email (dilindungi proteksi OTP ke Admin)
-                            OutlinedButton(
-                                onClick = {
+                                }
+                                HeroChip(Icons.Default.Key, "Sandi Email") {
                                     profilePasswordInput = ""
                                     profilePasswordConfirm = ""
                                     profilePasswordError = null
@@ -444,159 +420,93 @@ fun ProfilScreen(
                                     profileOtpSentSuccess = false
                                     lastGeneratedOtpRequest = null
                                     showSetPasswordDialogInProfile = true
-                                },
-                                shape = RoundedCornerShape(8.dp),
-                                colors = ButtonDefaults.outlinedButtonColors(contentColor = Color(0xFF0F766E)),
-                                border = BorderStroke(1.dp, Color(0xFF0F766E).copy(alpha = 0.5f)),
-                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
-                                modifier = Modifier.height(34.dp)
-                            ) {
-                                Icon(Icons.Default.Key, null, modifier = Modifier.size(14.dp))
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text("Sandi Email", fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
-                            }
-
-                            // Keluar Akun
-                            OutlinedButton(
-                                onClick = {
+                                }
+                                HeroChip(Icons.Default.Logout, "Keluar") {
                                     viewModel.requestLogoutConfirmation()
-                                },
-                                shape = RoundedCornerShape(8.dp),
-                                colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
-                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.5f)),
-                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
-                                modifier = Modifier.height(34.dp)
-                            ) {
-                                Icon(Icons.Default.Logout, null, modifier = Modifier.size(14.dp))
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text("Keluar", fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                                }
                             }
-                        }
-                    } else {
-                        // Tombol Login dan Daftar langsung di bawah profil (bukan menu)
-                        Spacer(modifier = Modifier.height(10.dp))
-                        Row(
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            // Tombol Masuk / Login
-                            Button(
-                                onClick = {
+                        } else {
+                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                                HeroChip(Icons.Default.Login, "Masuk") {
                                     authDialogModeInProfile = AuthMode.LOGIN
                                     showAuthDialogInProfile = true
-                                },
-                                shape = RoundedCornerShape(8.dp),
-                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
-                                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
-                                modifier = Modifier.height(34.dp)
-                            ) {
-                                Icon(Icons.Default.Login, null, modifier = Modifier.size(14.dp))
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text("Masuk", fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
-                            }
-
-                            // Tombol Daftar
-                            Button(
-                                onClick = {
+                                }
+                                HeroChip(Icons.Default.PersonAdd, "Daftar") {
                                     authDialogModeInProfile = AuthMode.REGISTER
                                     showAuthDialogInProfile = true
-                                },
-                                shape = RoundedCornerShape(8.dp),
-                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0F766E)),
-                                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
-                                modifier = Modifier.height(34.dp)
-                            ) {
-                                Icon(Icons.Default.PersonAdd, null, modifier = Modifier.size(14.dp))
-                                Spacer(modifier = Modifier.width(4.dp))
-                                Text("Daftar", fontSize = 11.5.sp, fontWeight = FontWeight.Bold)
+                                }
                             }
                         }
                     }
                 }
 
-                Text(
-                    text = "MENU UTAMA PROFIL",
-                    style = MaterialTheme.typography.titleSmall,
-                    fontWeight = FontWeight.ExtraBold,
-                    color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier
-                        .align(Alignment.Start)
-                        .padding(start = 4.dp, top = 8.dp)
+                // ===== MENU UTAMA (KARTU BERGRUP) =====
+                val isDark = isSystemInDarkTheme()
+                val webConnectTint = if (isDark) Color(0xFF34D399) else Color(0xFF00A884)
+                val shareTint = if (isDark) Color(0xFF60A5FA) else MaterialTheme.colorScheme.primary
+                val telegramTint = if (isDark) Color(0xFF38BDF8) else Color(0xFF229ED9)
+
+                // Deteksi admin otomatis: hanya akun dengan UID admin yang melihat menu ini.
+                val adminUids by com.example.firebase.AdminUidStore.adminUids.collectAsState()
+                val isUserAdmin = com.example.firebase.AdminUidStore.isAdminIn(
+                    adminUids,
+                    currentFirebaseUser?.uid
                 )
 
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(16.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                    elevation = CardDefaults.cardElevation(defaultElevation = 1.dp)
-                ) {
-                    Column {
-                        MenuItem(
-                            icon = Icons.Default.Lock,
-                            iconTint = MaterialTheme.colorScheme.primary,
-                            title = "Keamanan dan Data",
-                            subtitle = "App Lock, Backup & Restore, & GPS",
-                            onClick = { activeSection = "keamanan_dan_data" }
-                        )
+                ProfileGroupCard(label = "KONEKSI") {
+                    MenuItem(
+                        icon = Icons.Default.Devices,
+                        iconTint = webConnectTint,
+                        title = "Web Connect (Akses PC)",
+                        subtitle = "Hubungkan & kelola aplikasi dari browser Laptop / PC",
+                        onClick = { viewModel.currentRoute = "web_connect" }
+                    )
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                    MenuItem(
+                        icon = Icons.Default.Forum,
+                        iconTint = telegramTint,
+                        title = "Telegram AI Assistant",
+                        subtitle = "Asisten bot @My_Singghara_bot: cek libur, agenda & database",
+                        onClick = { viewModel.currentRoute = "telegram_ai" }
+                    )
+                }
 
-                        val isDark = isSystemInDarkTheme()
-                        val webConnectTint = if (isDark) Color(0xFF34D399) else Color(0xFF00A884)
-                        val shareTint = if (isDark) Color(0xFF60A5FA) else MaterialTheme.colorScheme.primary
-                        val telegramTint = if (isDark) Color(0xFF38BDF8) else Color(0xFF229ED9)
-
+                ProfileGroupCard(label = "KEAMANAN & DATA") {
+                    MenuItem(
+                        icon = Icons.Default.Lock,
+                        iconTint = MaterialTheme.colorScheme.primary,
+                        title = "Keamanan dan Data",
+                        subtitle = "App Lock, Backup & Restore, & GPS",
+                        onClick = { activeSection = "keamanan_dan_data" }
+                    )
+                    if (isUserAdmin) {
                         HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
                         MenuItem(
-                            icon = Icons.Default.Devices,
-                            iconTint = webConnectTint,
-                            title = "Web Connect (Akses PC)",
-                            subtitle = "Hubungkan & kelola aplikasi dari browser Laptop / PC",
-                            onClick = { viewModel.currentRoute = "web_connect" }
-                        )
-
-                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
-                        MenuItem(
-                            icon = Icons.Default.Cloud,
-                            iconTint = shareTint,
-                            title = "Pengaturan Share",
-                            subtitle = "Seting Share & Bantuan",
-                            onClick = { activeSection = "pengaturan_share" }
-                        )
-
-                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
-                        MenuItem(
-                            icon = Icons.Default.Forum,
-                            iconTint = telegramTint,
-                            title = "Telegram AI Assistant",
-                            subtitle = "Asisten bot @My_Singghara_bot: cek libur, agenda & database",
-                            onClick = { viewModel.currentRoute = "telegram_ai" }
-                        )
-
-                        // Deteksi admin otomatis: hanya akun dengan UID admin yang melihat menu ini.
-                        val adminUids by com.example.firebase.AdminUidStore.adminUids.collectAsState()
-                        val isUserAdmin = com.example.firebase.AdminUidStore.isAdminIn(
-                            adminUids,
-                            viewModel.currentFirebaseUser?.uid
-                        )
-                        if (isUserAdmin) {
-                            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
-                            MenuItem(
-                                icon = Icons.Default.AdminPanelSettings,
-                                iconTint = if (isDark) Color(0xFF34D399) else Color(0xFF047857),
-                                title = "Manajemen Akun (Khusus Admin)",
-                                subtitle = "Panel Admin: Pengguna, Pesan & Token FCM",
-                                onClick = { viewModel.currentRoute = "manajemen_akun" }
-                            )
-                        }
-
-                        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
-                        MenuItem(
-                            icon = Icons.Default.Info,
-                            iconTint = Color(0xFF0F766E),
-                            title = "Tentang Aplikasi",
-                            subtitle = "Versi v${com.example.BuildConfig.VERSION_NAME}",
-                            onClick = { viewModel.currentRoute = "tentang_aplikasi" }
+                            icon = Icons.Default.AdminPanelSettings,
+                            iconTint = if (isDark) Color(0xFF34D399) else Color(0xFF047857),
+                            title = "Manajemen Akun (Khusus Admin)",
+                            subtitle = "Panel Admin: Pengguna, Pesan & Token FCM",
+                            onClick = { viewModel.currentRoute = "manajemen_akun" }
                         )
                     }
+                }
+
+                ProfileGroupCard(label = "BANTUAN") {
+                    MenuItem(
+                        icon = Icons.Default.Cloud,
+                        iconTint = shareTint,
+                        title = "Pengaturan Share",
+                        subtitle = "Seting Share & Bantuan",
+                        onClick = { activeSection = "pengaturan_share" }
+                    )
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                    MenuItem(
+                        icon = Icons.Default.Info,
+                        iconTint = Color(0xFF0F766E),
+                        title = "Tentang Aplikasi",
+                        subtitle = "Versi v${com.example.BuildConfig.VERSION_NAME}",
+                        onClick = { viewModel.currentRoute = "tentang_aplikasi" }
+                    )
                 }
             }
             "pengaturan_share" -> {
@@ -3159,6 +3069,53 @@ fun MenuItem(
                 modifier = Modifier.size(20.dp)
             )
         }
+    }
+}
+
+// Kartu menu bergrup dengan label kecil di atasnya (gaya "grouped cards").
+@Composable
+fun ProfileGroupCard(label: String, content: @Composable ColumnScope.() -> Unit) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 4.dp),
+        horizontalAlignment = Alignment.Start
+    ) {
+        Text(
+            text = label,
+            style = MaterialTheme.typography.labelMedium,
+            fontWeight = FontWeight.ExtraBold,
+            color = MaterialTheme.colorScheme.primary,
+            letterSpacing = 1.sp,
+            modifier = Modifier.padding(start = 6.dp, bottom = 6.dp)
+        )
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(18.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)),
+            elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+        ) {
+            Column(content = content)
+        }
+    }
+}
+
+// Tombol "chip" translusen di atas hero bergradien (teks putih, konsisten terang/gelap).
+@Composable
+fun HeroChip(icon: ImageVector, label: String, onClick: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .clip(RoundedCornerShape(20.dp))
+            .background(Color.White.copy(alpha = 0.18f))
+            .border(BorderStroke(1.dp, Color.White.copy(alpha = 0.45f)), RoundedCornerShape(20.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 7.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(5.dp)
+    ) {
+        Icon(icon, null, tint = Color.White, modifier = Modifier.size(14.dp))
+        Text(label, fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color.White)
     }
 }
 
