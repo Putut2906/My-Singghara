@@ -271,25 +271,20 @@ fun ProfilScreen(
                     )
                 }
 
-                // ===== HERO HEADER PROFIL (gradien modern) =====
+                // ===== KARTU IDENTITAS PROFIL (putih + shadow) =====
                 val currentFirebaseUser = viewModel.currentFirebaseUser
-                val heroBrush = Brush.verticalGradient(
-                    listOf(Color(0xFF4F46E5), Color(0xFF4338CA), Color(0xFF0EA5E9))
-                )
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .shadow(
-                            elevation = if (isSystemInDarkTheme()) 6.dp else 16.dp,
-                            shape = RoundedCornerShape(24.dp),
-                            clip = false
-                        )
-                        .clip(RoundedCornerShape(24.dp))
-                        .background(heroBrush)
-                        .padding(20.dp)
+                val identityLightMode = !isSystemInDarkTheme()
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(24.dp),
+                    colors = CardDefaults.cardColors(containerColor = if (identityLightMode) Color.White else MaterialTheme.colorScheme.surface),
+                    border = BorderStroke(1.dp, if (identityLightMode) Color(0x140F172A) else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)),
+                    elevation = CardDefaults.cardElevation(defaultElevation = if (identityLightMode) 12.dp else 2.dp)
                 ) {
                     Column(
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(20.dp),
                         horizontalAlignment = Alignment.CenterHorizontally
                     ) {
                         // Avatar dengan ring + badge pengaturan & kamera
@@ -298,8 +293,8 @@ fun ProfilScreen(
                                 modifier = Modifier
                                     .size(100.dp)
                                     .clip(CircleShape)
-                                    .background(Color.White.copy(alpha = 0.18f))
-                                    .border(2.dp, Color.White.copy(alpha = 0.65f), CircleShape)
+                                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.10f))
+                                    .border(2.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.45f), CircleShape)
                                     .padding(5.dp)
                             ) {
                                 AppUserAvatar(
@@ -327,7 +322,8 @@ fun ProfilScreen(
                                 modifier = Modifier
                                     .offset(x = 4.dp, y = (-2).dp)
                                     .size(28.dp)
-                                    .background(Color.White, CircleShape)
+                                    .background(MaterialTheme.colorScheme.surface, CircleShape)
+                                    .border(1.dp, MaterialTheme.colorScheme.outlineVariant, CircleShape)
                                     .clip(CircleShape)
                                     .clickable { onEditProfileClick?.invoke() },
                                 contentAlignment = Alignment.Center
@@ -335,7 +331,7 @@ fun ProfilScreen(
                                 Icon(
                                     imageVector = Icons.Default.Settings,
                                     contentDescription = "Pengaturan",
-                                    tint = Color(0xFF4F46E5),
+                                    tint = MaterialTheme.colorScheme.primary,
                                     modifier = Modifier.size(17.dp)
                                 )
                             }
@@ -346,7 +342,8 @@ fun ProfilScreen(
                                     .align(Alignment.BottomEnd)
                                     .offset(x = 4.dp, y = 4.dp)
                                     .size(30.dp)
-                                    .background(Color.White, CircleShape)
+                                    .background(MaterialTheme.colorScheme.primary, CircleShape)
+                                    .border(2.dp, if (identityLightMode) Color.White else MaterialTheme.colorScheme.surface, CircleShape)
                                     .clip(CircleShape)
                                     .clickable { showPhotoOptionsDialog = true },
                                 contentAlignment = Alignment.Center
@@ -354,7 +351,7 @@ fun ProfilScreen(
                                 Icon(
                                     imageVector = if (viewModel.profileAvatarIndex == -1 && viewModel.profileImageUri.isNotEmpty()) Icons.Default.Crop else Icons.Default.CameraAlt,
                                     contentDescription = "Atur Posisi Foto Profil",
-                                    tint = Color(0xFF0EA5E9),
+                                    tint = MaterialTheme.colorScheme.onPrimary,
                                     modifier = Modifier.size(16.dp)
                                 )
                             }
@@ -367,7 +364,7 @@ fun ProfilScreen(
                             text = viewModel.profileName.ifEmpty { "Pengguna Setia" },
                             fontSize = 20.sp,
                             fontWeight = FontWeight.Bold,
-                            color = Color.White,
+                            color = MaterialTheme.colorScheme.onSurface,
                             textAlign = TextAlign.Center,
                             maxLines = 1,
                             overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
@@ -381,7 +378,7 @@ fun ProfilScreen(
                             Text(
                                 text = currentFirebaseUser.email ?: currentFirebaseUser.displayName ?: "",
                                 fontSize = 12.sp,
-                                color = Color.White.copy(alpha = 0.85f),
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 textAlign = TextAlign.Center,
                                 modifier = Modifier.padding(top = 2.dp)
                             )
@@ -389,8 +386,8 @@ fun ProfilScreen(
                             // Chip Membership VIP
                             Surface(
                                 shape = RoundedCornerShape(20.dp),
-                                color = Color.White.copy(alpha = 0.16f),
-                                border = BorderStroke(1.dp, Color(0xFFFFD700).copy(alpha = 0.75f)),
+                                color = Color(0xFFFFD700).copy(alpha = 0.14f),
+                                border = BorderStroke(1.dp, Color(0xFFFFD700).copy(alpha = 0.6f)),
                                 modifier = Modifier
                                     .padding(top = 10.dp)
                                     .clickable { showMembershipDialogInProfile = true }
@@ -400,9 +397,9 @@ fun ProfilScreen(
                                     verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.spacedBy(6.dp)
                                 ) {
-                                    Icon(Icons.Default.Star, null, tint = Color(0xFFFFD700), modifier = Modifier.size(14.dp))
-                                    Text("Kartu Membership VIP", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color.White)
-                                    Icon(Icons.Default.ChevronRight, null, tint = Color.White, modifier = Modifier.size(14.dp))
+                                    Icon(Icons.Default.Star, null, tint = Color(0xFFB8860B), modifier = Modifier.size(14.dp))
+                                    Text("Kartu Membership VIP", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
+                                    Icon(Icons.Default.ChevronRight, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(14.dp))
                                 }
                             }
                         }
@@ -3109,21 +3106,21 @@ fun ProfileGroupCard(label: String, content: @Composable ColumnScope.() -> Unit)
     }
 }
 
-// Tombol "chip" translusen di atas hero bergradien (teks putih, konsisten terang/gelap).
+// Tombol "chip" tonal untuk kartu identitas (terbaca di putih maupun surface).
 @Composable
 fun HeroChip(icon: ImageVector, label: String, onClick: () -> Unit) {
     Row(
         modifier = Modifier
             .clip(RoundedCornerShape(20.dp))
-            .background(Color.White.copy(alpha = 0.18f))
-            .border(BorderStroke(1.dp, Color.White.copy(alpha = 0.45f)), RoundedCornerShape(20.dp))
+            .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.55f))
+            .border(BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.3f)), RoundedCornerShape(20.dp))
             .clickable(onClick = onClick)
             .padding(horizontal = 12.dp, vertical = 7.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(5.dp)
     ) {
-        Icon(icon, null, tint = Color.White, modifier = Modifier.size(14.dp))
-        Text(label, fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color.White)
+        Icon(icon, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(14.dp))
+        Text(label, fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimaryContainer)
     }
 }
 
