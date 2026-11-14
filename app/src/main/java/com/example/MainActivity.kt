@@ -99,6 +99,8 @@ import androidx.compose.material.icons.outlined.Palette as OutlinedPalette
 import androidx.compose.foundation.border
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.material.icons.filled.Schedule
+import androidx.compose.material.icons.filled.Timer
+import androidx.compose.material.icons.outlined.Timer
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -2347,6 +2349,20 @@ fun MainAppContent(viewModel: MainViewModel, desktopMode: Boolean = false) {
                         }
                     }
 
+                    // Menu mandiri: Stopwatch (top-level, di bawah Manajemen Mandiri)
+                    val isStopwatchSelected = viewModel.currentRoute == "stopwatch"
+                    DrawerMenuCard {
+                        PrimaryDrawerEntry(
+                            label = "Stopwatch",
+                            icon = if (isStopwatchSelected) Icons.Default.Timer else Icons.Outlined.Timer,
+                            selected = isStopwatchSelected,
+                            onClick = {
+                                viewModel.currentRoute = "stopwatch"
+                                scope.launch { drawerState.close() }
+                            }
+                        )
+                    }
+
                     // Group 3: AKUNTANSI & KEUANGAN (Boxed Group Card)
                     DrawerMenuCard {
                         // Header Clickable
@@ -3819,6 +3835,11 @@ fun MainAppContent(viewModel: MainViewModel, desktopMode: Boolean = false) {
                             onOpenDrawer = { if (desktopMode) isDesktopSidebarExpanded = true else scope.launch { drawerState.open() } }
                         )
                         "kalkulator" -> KalkulatorScreen(
+                            viewModel = viewModel,
+                            onBack = { viewModel.currentRoute = "home" },
+                            onOpenDrawer = { if (desktopMode) isDesktopSidebarExpanded = true else scope.launch { drawerState.open() } }
+                        )
+                        "stopwatch" -> com.example.ui.screens.StopwatchScreen(
                             viewModel = viewModel,
                             onBack = { viewModel.currentRoute = "home" },
                             onOpenDrawer = { if (desktopMode) isDesktopSidebarExpanded = true else scope.launch { drawerState.open() } }
