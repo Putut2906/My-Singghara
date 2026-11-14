@@ -23,10 +23,48 @@ object CatWebScript {
             var nav = '';
             tabs.forEach(function(t){ var on=(t[0]===window.catActiveTab)?' active':''; nav += '<button class="nav-link'+on+'" data-cattab="'+t[0]+'" onclick="catSetTab('+t[0]+')"><i class="bi '+t[2]+' me-1"></i>'+t[1]+'</button>'; });
             el.innerHTML = '<div class="container-fluid py-3" style="max-width:960px;">'
-                + '<h4 class="fw-bold mb-3"><i class="bi bi-pencil-square me-2" style="color:#7C3AED;"></i>Simulasi CAT BKN</h4>'
+                + '<h4 class="fw-bold mb-2"><i class="bi bi-pencil-square me-2" style="color:#7C3AED;"></i>Simulasi CAT BKN</h4>'
+                + '<div id="catPaketBar" class="mb-2"></div>'
                 + '<ul class="nav nav-pills mb-3 gap-2">'+nav+'</ul>'
                 + '<div id="catBody"></div></div>';
+            catRenderPaketBar();
             catRenderTab();
+        };
+
+        async function catRenderPaketBar(){
+            var bar=document.getElementById('catPaketBar'); if(!bar) return;
+            var d; try{ d=await (await fetch('/api/cat/paket')).json(); }catch(e){ return; }
+            var list=d.list||[]; var aktif=d.aktif||'';
+            var opts=list.map(function(p){ return '<option value="'+p.id+'"'+(p.id===aktif?' selected':'')+'>'+catEsc(p.nama)+'</option>'; }).join('');
+            bar.innerHTML='<div class="d-flex align-items-center gap-2 flex-wrap">'
+                + '<label class="small fw-bold mb-0"><i class="bi bi-folder2-open me-1"></i>Paket Tryout:</label>'
+                + '<select id="catPaketSel" class="form-select form-select-sm" style="max-width:240px;" onchange="catPaketChanged()">'+opts+'</select>'
+                + '<button class="btn btn-sm btn-outline-primary" onclick="catBuatPaket()"><i class="bi bi-plus-lg"></i></button>'
+                + '<button class="btn btn-sm btn-outline-secondary" onclick="catRenamePaket()"><i class="bi bi-pencil"></i></button>'
+                + '<button class="btn btn-sm btn-outline-danger" onclick="catHapusPaket()"><i class="bi bi-trash"></i></button>'
+                + '</div>';
+        }
+        window.catPaketChanged = async function(){
+            var sel=document.getElementById('catPaketSel'); if(!sel) return;
+            await fetch('/api/cat/paket',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'select',id:sel.value})});
+            catRenderTab();
+        };
+        window.catBuatPaket = async function(){
+            var nama=prompt('Nama paket baru (mis. Tryout 2):',''); if(nama===null) return;
+            await fetch('/api/cat/paket',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'create',nama:nama})});
+            await catRenderPaketBar(); catRenderTab();
+        };
+        window.catRenamePaket = async function(){
+            var sel=document.getElementById('catPaketSel'); if(!sel) return;
+            var nama=prompt('Ganti nama paket:', sel.options[sel.selectedIndex].text); if(nama===null) return;
+            await fetch('/api/cat/paket',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'rename',id:sel.value,nama:nama})});
+            await catRenderPaketBar(); catRenderTab();
+        };
+        window.catHapusPaket = async function(){
+            var sel=document.getElementById('catPaketSel'); if(!sel) return;
+            if(!confirm('Hapus paket ini beserta soal di dalamnya?')) return;
+            await fetch('/api/cat/paket',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'delete',id:sel.value})});
+            await catRenderPaketBar(); catRenderTab();
         };
 
         window.catSetTab = function(n){
@@ -262,7 +300,31 @@ object CatWebScript {
                     + '<div data-bs-toggle="collapse" data-bs-target="#catU'+u.nomor+'" style="cursor:pointer;">'+head+'</div>'
                     + '<div class="collapse" id="catU'+u.nomor+'">'+body+'</div></div>';
             }).join('');
-            b.innerHTML = banner + rekap + '<div class="fw-bold mb-2">Ulasan &amp; Pembahasan</div>' + ulasan;
+            b.innerHTML = banner + rekap + '<div id="catChart"></div>' + '<div class="fw-bold mb-2">Ulasan &amp; Pembahasan</div>' + ulasan;
+            catRenderChart();
+        }
+
+        async function catRenderChart(){
+            var host=document.getElementById('catChart'); if(!host) return;
+            var riw; try{ riw=await (await fetch('/api/cat/riwayat')).json(); }catch(e){ return; }
+            if(!riw || riw.length===0) return;
+            var W=560, H=200, padL=40, padR=14, padT=14, padB=28;
+            var cw=W-padL-padR, ch=H-padT-padB, maxY=550, n=riw.length;
+            function xAt(i){ return n===1?(padL+cw/2):(padL+cw*(i/(n-1))); }
+            function yAt(v){ return padT+ch*(1-Math.max(0,Math.min(1,v/maxY))); }
+            var grid=''; for(var g=0; g<=4; g++){ var gy=padT+ch*(g/4); grid+='<line x1="'+padL+'" y1="'+gy+'" x2="'+(padL+cw)+'" y2="'+gy+'" stroke="var(--border-color)" stroke-width="1"/><text x="4" y="'+(gy+4)+'" font-size="10" fill="#64748b">'+Math.round(maxY*(1-g/4))+'</text>'; }
+            var pts=riw.map(function(r,i){ return xAt(i)+','+yAt(r.total); }).join(' ');
+            var dots=riw.map(function(r,i){ return '<circle cx="'+xAt(i)+'" cy="'+yAt(r.total)+'" r="3.5" fill="#7C3AED"/>'; }).join('');
+            var xl=riw.map(function(r,i){ return (i<14)?('<text x="'+xAt(i)+'" y="'+(H-8)+'" font-size="9" text-anchor="middle" fill="#64748b">'+(i+1)+'</text>'):''; }).join('');
+            host.innerHTML='<div class="card p-3 mb-3" style="border-radius:16px;border:1px solid var(--border-color);background:var(--card-bg);box-shadow:0 2px 10px rgba(15,23,42,0.08);">'
+                +'<div class="fw-bold mb-2">Grafik Perkembangan (Skor Total)</div>'
+                +'<svg viewBox="0 0 '+W+' '+H+'" style="width:100%;height:auto;">'
+                +grid
+                +'<polyline fill="none" stroke="#7C3AED" stroke-width="2.5" points="'+pts+'"/>'
+                +dots+xl
+                +'</svg>'
+                +'<div class="small text-secondary mt-1">Jumlah percobaan: '+n+' (X = urutan percobaan, Y = skor total /550)</div>'
+                +'</div>';
         }
         """
     }

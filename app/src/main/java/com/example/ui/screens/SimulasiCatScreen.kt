@@ -2,6 +2,7 @@ package com.example.ui.screens
 
 import android.content.Context
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -29,6 +30,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -69,7 +73,25 @@ data class CatSesi(
     val order: List<String>,       // id soal urut sesi (stabil walau di-reload)
     val jawaban: Map<Int, Int>,    // index soal -> index opsi
     val currentIndex: Int,
-    val selesai: Boolean
+    val selesai: Boolean,
+    val paketId: String = ""       // paket tryout yang dipakai
+)
+
+data class CatPaket(
+    val id: String,
+    val nama: String
+)
+
+data class RiwayatItem(
+    val id: String,
+    val paketId: String,
+    val paketNama: String,
+    val tanggal: Long,
+    val twk: Int,
+    val tiu: Int,
+    val tkp: Int,
+    val total: Int,
+    val lulus: Boolean
 )
 
 data class UlasanSoal(
@@ -99,9 +121,11 @@ data class CatHasil(
 
 object CatStore {
     private const val PREFS = "cat_prefs"
-    private const val KEY_BANK = "cat_soal_bank"
+    private const val KEY_BANK_LEGACY = "cat_soal_bank"
+    private const val KEY_PAKET = "cat_paket_list"
+    private const val KEY_AKTIF = "cat_aktif_paket"
     private const val KEY_SESI = "cat_sesi_aktif"
-    private const val KEY_HASIL = "cat_hasil_terakhir"
+    private const val KEY_RIWAYAT = "cat_riwayat"
 
     const val DURASI_MS = 100L * 60L * 1000L // 100 menit
     const val TARGET_TWK = 30
@@ -115,10 +139,83 @@ object CatStore {
     const val PG_TKP = 156
 
     private fun prefs(ctx: Context) = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+    private fun bankKey(paketId: String) = "cat_bank_" + paketId
 
-    // ---- Bank soal ----
-    fun loadBank(ctx: Context): MutableList<SoalCat> {
-        val raw = prefs(ctx).getString(KEY_BANK, "[]") ?: "[]"
+    // ------------------------- PAKET (tryout) -------------------------
+
+    fun paketList(ctx: Context): MutableList<CatPaket> {
+        val raw = prefs(ctx).getString(KEY_PAKET, null) ?: return mutableListOf()
+        val out = mutableListOf<CatPaket>()
+        try {
+            val arr = JSONArray(raw)
+            for (i in 0 until arr.length()) {
+                val o = arr.getJSONObject(i)
+                out.add(CatPaket(o.getString("id"), o.getString("nama")))
+            }
+        } catch (_: Exception) {
+        }
+        return out
+    }
+
+    private fun savePaketList(ctx: Context, list: List<CatPaket>) {
+        val arr = JSONArray()
+        list.forEach { arr.put(JSONObject().put("id", it.id).put("nama", it.nama)) }
+        prefs(ctx).edit().putString(KEY_PAKET, arr.toString()).apply()
+    }
+
+    /** Pastikan ada minimal 1 paket; migrasikan bank lama (global) ke paket pertama. */
+    fun ensureInit(ctx: Context) {
+        val list = paketList(ctx)
+        if (list.isNotEmpty()) return
+        val p = CatPaket(UUID.randomUUID().toString(), "Tryout 1")
+        savePaketList(ctx, listOf(p))
+        prefs(ctx).edit().putString(KEY_AKTIF, p.id).apply()
+        val legacy = prefs(ctx).getString(KEY_BANK_LEGACY, null)
+        if (!legacy.isNullOrEmpty() && legacy != "[]") {
+            prefs(ctx).edit().putString(bankKey(p.id), legacy).remove(KEY_BANK_LEGACY).apply()
+        }
+    }
+
+    fun aktifPaketId(ctx: Context): String {
+        ensureInit(ctx)
+        val stored = prefs(ctx).getString(KEY_AKTIF, null)
+        val list = paketList(ctx)
+        return if (stored != null && list.any { it.id == stored }) stored else (list.firstOrNull()?.id ?: "")
+    }
+
+    fun setAktifPaket(ctx: Context, id: String) {
+        prefs(ctx).edit().putString(KEY_AKTIF, id).apply()
+    }
+
+    fun buatPaket(ctx: Context, nama: String): CatPaket {
+        ensureInit(ctx)
+        val list = paketList(ctx)
+        val p = CatPaket(UUID.randomUUID().toString(), nama.ifBlank { "Tryout ${list.size + 1}" })
+        list.add(p)
+        savePaketList(ctx, list)
+        setAktifPaket(ctx, p.id)
+        return p
+    }
+
+    fun renamePaket(ctx: Context, id: String, nama: String) {
+        val list = paketList(ctx)
+        val idx = list.indexOfFirst { it.id == id }
+        if (idx >= 0) { list[idx] = list[idx].copy(nama = nama.ifBlank { list[idx].nama }); savePaketList(ctx, list) }
+    }
+
+    fun hapusPaket(ctx: Context, id: String) {
+        val list = paketList(ctx)
+        if (list.size <= 1) return // sisakan minimal satu paket
+        list.removeAll { it.id == id }
+        savePaketList(ctx, list)
+        prefs(ctx).edit().remove(bankKey(id)).apply()
+        if (prefs(ctx).getString(KEY_AKTIF, null) == id) setAktifPaket(ctx, list.first().id)
+    }
+
+    // ------------------------- BANK SOAL (per paket) -------------------------
+
+    fun loadBank(ctx: Context, paketId: String = aktifPaketId(ctx)): MutableList<SoalCat> {
+        val raw = prefs(ctx).getString(bankKey(paketId), "[]") ?: "[]"
         val out = mutableListOf<SoalCat>()
         try {
             val arr = JSONArray(raw)
@@ -155,31 +252,32 @@ object CatStore {
         put("pembahasan", s.pembahasan)
     }
 
-    fun saveBank(ctx: Context, list: List<SoalCat>) {
+    fun saveBank(ctx: Context, list: List<SoalCat>, paketId: String = aktifPaketId(ctx)) {
         val arr = JSONArray()
         list.forEach { arr.put(soalToJson(it)) }
-        prefs(ctx).edit().putString(KEY_BANK, arr.toString()).apply()
+        prefs(ctx).edit().putString(bankKey(paketId), arr.toString()).apply()
     }
 
-    fun addSoal(ctx: Context, soal: SoalCat) {
-        val list = loadBank(ctx)
+    fun addSoal(ctx: Context, soal: SoalCat, paketId: String = aktifPaketId(ctx)) {
+        val list = loadBank(ctx, paketId)
         list.add(soal)
-        saveBank(ctx, list)
+        saveBank(ctx, list, paketId)
     }
 
-    fun deleteSoal(ctx: Context, id: String) {
-        val list = loadBank(ctx)
+    fun deleteSoal(ctx: Context, id: String, paketId: String = aktifPaketId(ctx)) {
+        val list = loadBank(ctx, paketId)
         list.removeAll { it.id == id }
-        saveBank(ctx, list)
+        saveBank(ctx, list, paketId)
     }
 
-    fun countByKategori(ctx: Context): Map<String, Int> {
+    fun countByKategori(ctx: Context, paketId: String = aktifPaketId(ctx)): Map<String, Int> {
         val map = mutableMapOf(CAT_TWK to 0, CAT_TIU to 0, CAT_TKP to 0)
-        loadBank(ctx).forEach { s -> map[s.kategori] = (map[s.kategori] ?: 0) + 1 }
+        loadBank(ctx, paketId).forEach { s -> map[s.kategori] = (map[s.kategori] ?: 0) + 1 }
         return map
     }
 
-    // ---- Sesi ----
+    // ------------------------- SESI -------------------------
+
     fun loadSesi(ctx: Context): CatSesi? {
         val raw = prefs(ctx).getString(KEY_SESI, null) ?: return null
         return try {
@@ -195,7 +293,8 @@ object CatStore {
                 order = order,
                 jawaban = jawaban,
                 currentIndex = o.getInt("currentIndex"),
-                selesai = o.getBoolean("selesai")
+                selesai = o.getBoolean("selesai"),
+                paketId = o.optString("paketId", "")
             )
         } catch (_: Exception) {
             null
@@ -209,6 +308,7 @@ object CatStore {
             put("order", JSONArray(s.order))
             put("currentIndex", s.currentIndex)
             put("selesai", s.selesai)
+            put("paketId", s.paketId)
             val j = JSONObject()
             s.jawaban.forEach { (k, v) -> j.put(k.toString(), v) }
             put("jawaban", j)
@@ -223,9 +323,9 @@ object CatStore {
     /** Sisa waktu (ms) dihitung dari jam sistem sehingga menutup/membuka ulang tidak mereset. */
     fun sisaMs(sesi: CatSesi, now: Long): Long = (sesi.endTime - now).coerceAtLeast(0L)
 
-    /** Mulai sesi baru: acak 30/35/45 dari bank (seadanya bila kurang), simpan urutan. */
-    fun mulaiSesi(ctx: Context): CatSesi? {
-        val bank = loadBank(ctx)
+    /** Mulai sesi baru dari paket tertentu: acak 30/35/45 (seadanya bila kurang). */
+    fun mulaiSesi(ctx: Context, paketId: String = aktifPaketId(ctx)): CatSesi? {
+        val bank = loadBank(ctx, paketId)
         val twk = bank.filter { it.kategori == CAT_TWK }.shuffled().take(TARGET_TWK)
         val tiu = bank.filter { it.kategori == CAT_TIU }.shuffled().take(TARGET_TIU)
         val tkp = bank.filter { it.kategori == CAT_TKP }.shuffled().take(TARGET_TKP)
@@ -238,13 +338,15 @@ object CatStore {
             order = chosen.map { it.id },
             jawaban = emptyMap(),
             currentIndex = 0,
-            selesai = false
+            selesai = false,
+            paketId = paketId
         )
         saveSesi(ctx, sesi)
         return sesi
     }
 
-    // ---- Penilaian ----
+    // ------------------------- PENILAIAN -------------------------
+
     private fun poinSoal(soal: SoalCat, jawab: Int): Int {
         if (jawab < 0) return 0
         return when (soal.kategori) {
@@ -254,7 +356,8 @@ object CatStore {
     }
 
     fun hitungHasil(ctx: Context, sesi: CatSesi): CatHasil {
-        val bank = loadBank(ctx).associateBy { it.id }
+        val pid = sesi.paketId.ifBlank { aktifPaketId(ctx) }
+        val bank = loadBank(ctx, pid).associateBy { it.id }
         var twk = 0; var tiu = 0; var tkp = 0
         var dijawab = 0
         val ulasan = mutableListOf<UlasanSoal>()
@@ -291,9 +394,59 @@ object CatStore {
         )
     }
 
-    fun simpanHasil(ctx: Context, hasil: CatHasil) {
-        // Simpan ringkas (hanya untuk deteksi ketersediaan; hasil dihitung ulang dari sesi).
-        prefs(ctx).edit().putLong(KEY_HASIL, System.currentTimeMillis()).apply()
+    // ------------------------- RIWAYAT (untuk grafik garis) -------------------------
+
+    fun riwayatList(ctx: Context): MutableList<RiwayatItem> {
+        val raw = prefs(ctx).getString(KEY_RIWAYAT, "[]") ?: "[]"
+        val out = mutableListOf<RiwayatItem>()
+        try {
+            val arr = JSONArray(raw)
+            for (i in 0 until arr.length()) {
+                val o = arr.getJSONObject(i)
+                out.add(
+                    RiwayatItem(
+                        id = o.getString("id"),
+                        paketId = o.optString("paketId", ""),
+                        paketNama = o.optString("paketNama", ""),
+                        tanggal = o.getLong("tanggal"),
+                        twk = o.getInt("twk"), tiu = o.getInt("tiu"), tkp = o.getInt("tkp"),
+                        total = o.getInt("total"), lulus = o.getBoolean("lulus")
+                    )
+                )
+            }
+        } catch (_: Exception) {
+        }
+        return out
+    }
+
+    private fun saveRiwayat(ctx: Context, list: List<RiwayatItem>) {
+        val arr = JSONArray()
+        list.forEach {
+            arr.put(
+                JSONObject().put("id", it.id).put("paketId", it.paketId).put("paketNama", it.paketNama)
+                    .put("tanggal", it.tanggal).put("twk", it.twk).put("tiu", it.tiu).put("tkp", it.tkp)
+                    .put("total", it.total).put("lulus", it.lulus)
+            )
+        }
+        prefs(ctx).edit().putString(KEY_RIWAYAT, arr.toString()).apply()
+    }
+
+    fun tambahRiwayat(ctx: Context, sesi: CatSesi, hasil: CatHasil) {
+        val pid = sesi.paketId.ifBlank { aktifPaketId(ctx) }
+        val nama = paketList(ctx).firstOrNull { it.id == pid }?.nama ?: "Tryout"
+        val list = riwayatList(ctx)
+        list.add(
+            RiwayatItem(
+                id = UUID.randomUUID().toString(), paketId = pid, paketNama = nama,
+                tanggal = System.currentTimeMillis(), twk = hasil.twk, tiu = hasil.tiu,
+                tkp = hasil.tkp, total = hasil.total, lulus = hasil.lulus
+            )
+        )
+        saveRiwayat(ctx, list)
+    }
+
+    fun hapusRiwayat(ctx: Context) {
+        prefs(ctx).edit().remove(KEY_RIWAYAT).apply()
     }
 }
 
@@ -310,9 +463,18 @@ fun SimulasiCatScreen(
     val context = LocalContext.current
     val tabTitles = listOf("Input Soal", "Simulasi Ujian", "Hasil & Live Score")
     var selectedTab by remember { mutableIntStateOf(initialTab.coerceIn(0, 2)) }
+    var paketList by remember { mutableStateOf(CatStore.paketList(context)) }
+    var paketId by remember { mutableStateOf(CatStore.aktifPaketId(context)) }
     var bank by remember { mutableStateOf(CatStore.loadBank(context)) }
     var sesi by remember { mutableStateOf(CatStore.loadSesi(context)) }
     var hasil by remember { mutableStateOf<CatHasil?>(null) }
+
+    fun reload() {
+        paketList = CatStore.paketList(context)
+        paketId = CatStore.aktifPaketId(context)
+        bank = CatStore.loadBank(context)
+        sesi = CatStore.loadSesi(context)
+    }
 
     Column(Modifier.fillMaxSize()) {
         Row(
@@ -329,6 +491,14 @@ fun SimulasiCatScreen(
                 color = MaterialTheme.colorScheme.onSurface
             )
         }
+        PaketBar(
+            paketList = paketList,
+            aktifId = paketId,
+            onSelect = { id -> CatStore.setAktifPaket(context, id); reload() },
+            onCreate = { nama -> CatStore.buatPaket(context, nama); reload() },
+            onRename = { id, nama -> CatStore.renamePaket(context, id, nama); reload() },
+            onDelete = { id -> CatStore.hapusPaket(context, id); reload() }
+        )
         TabRow(selectedTabIndex = selectedTab) {
             tabTitles.forEachIndexed { i, t ->
                 Tab(
@@ -344,7 +514,13 @@ fun SimulasiCatScreen(
                 1 -> TabSimulasi(
                     sesi = sesi,
                     onSesiChanged = { sesi = CatStore.loadSesi(context) },
-                    onFinish = { h -> hasil = h; sesi = CatStore.loadSesi(context); selectedTab = 2 },
+                    onFinish = { h ->
+                        val done = CatStore.loadSesi(context)
+                        if (done != null) CatStore.tambahRiwayat(context, done, h)
+                        hasil = h
+                        reload()
+                        selectedTab = 2
+                    },
                     onGoInput = { selectedTab = 0 }
                 )
                 else -> TabHasil(
@@ -906,6 +1082,7 @@ private fun TabHasil(
     onCompute: (CatSesi) -> CatHasil,
     onRestart: () -> Unit
 ) {
+    val context = LocalContext.current
     val h = hasil ?: sesi?.takeIf { it.selesai }?.let { onCompute(it) }
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
@@ -946,6 +1123,23 @@ private fun TabHasil(
             KategoriScore("TIU", h.tiu, 175, CatStore.PG_TIU, h.tiuLulus)
             Spacer(Modifier.height(6.dp))
             KategoriScore("TKP", h.tkp, 225, CatStore.PG_TKP, h.tkpLulus)
+        }
+
+        // Grafik perkembangan skor total antar percobaan
+        val riwayat = remember { CatStore.riwayatList(context).sortedBy { it.tanggal } }
+        if (riwayat.isNotEmpty()) {
+            CatKartu {
+                Text("Grafik Perkembangan (Skor Total)", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                Spacer(Modifier.height(8.dp))
+                LineChart(
+                    values = riwayat.map { it.total.toFloat() },
+                    labels = riwayat.mapIndexed { i, _ -> "${i + 1}" },
+                    maxValue = 550f,
+                    modifier = Modifier.fillMaxWidth().height(180.dp)
+                )
+                Spacer(Modifier.height(6.dp))
+                Text("Jumlah percobaan tercatat: ${riwayat.size}", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
         }
 
         Text("Ulasan & Pembahasan", fontWeight = FontWeight.Bold, fontSize = 15.sp)
@@ -1020,5 +1214,131 @@ private fun catQueryFileName(context: android.content.Context, uri: android.net.
         }
     } catch (e: Exception) {
         null
+    }
+}
+
+// ---------------------- PEMILIH PAKET TRYOUT ----------------------
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun PaketBar(
+    paketList: List<CatPaket>,
+    aktifId: String,
+    onSelect: (String) -> Unit,
+    onCreate: (String) -> Unit,
+    onRename: (String, String) -> Unit,
+    onDelete: (String) -> Unit
+) {
+    var expanded by remember { mutableStateOf(false) }
+    var showDialog by remember { mutableStateOf(false) }
+    var dialogMode by remember { mutableStateOf("create") }
+    var input by remember { mutableStateOf("") }
+    val aktifNama = paketList.firstOrNull { it.id == aktifId }?.nama ?: "Paket"
+
+    Row(
+        Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        Icon(Icons.Default.Folder, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
+        ExposedDropdownMenuBox(expanded = expanded, onExpandedChange = { expanded = it }, modifier = Modifier.weight(1f)) {
+            OutlinedTextField(
+                value = aktifNama,
+                onValueChange = {},
+                readOnly = true,
+                singleLine = true,
+                label = { Text("Paket Tryout") },
+                trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded) },
+                modifier = Modifier.menuAnchor().fillMaxWidth()
+            )
+            ExposedDropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+                paketList.forEach { p ->
+                    DropdownMenuItem(text = { Text(p.nama) }, onClick = { onSelect(p.id); expanded = false })
+                }
+            }
+        }
+        IconButton(onClick = { dialogMode = "create"; input = ""; showDialog = true }) {
+            Icon(Icons.Default.Add, "Buat paket", tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
+        }
+        IconButton(onClick = { dialogMode = "rename"; input = aktifNama; showDialog = true }) {
+            Icon(Icons.Default.Edit, "Ganti nama", tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(18.dp))
+        }
+        IconButton(onClick = { onDelete(aktifId) }, enabled = paketList.size > 1) {
+            Icon(Icons.Default.Delete, "Hapus paket", tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(18.dp))
+        }
+    }
+
+    if (showDialog) {
+        AlertDialog(
+            onDismissRequest = { showDialog = false },
+            title = { Text(if (dialogMode == "create") "Buat Paket Baru" else "Ganti Nama Paket") },
+            text = {
+                Column {
+                    Text("Contoh: Tryout 1, Tryout 2, atau nama lain.", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Spacer(Modifier.height(8.dp))
+                    OutlinedTextField(value = input, onValueChange = { input = it }, singleLine = true, label = { Text("Nama paket") })
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    if (input.isNotBlank()) {
+                        if (dialogMode == "create") onCreate(input.trim()) else onRename(aktifId, input.trim())
+                    }
+                    showDialog = false
+                }) { Text("Simpan") }
+            },
+            dismissButton = { TextButton(onClick = { showDialog = false }) { Text("Batal") } }
+        )
+    }
+}
+
+// ---------------------- GRAFIK GARIS (perkembangan skor) ----------------------
+
+@Composable
+private fun LineChart(
+    values: List<Float>,
+    labels: List<String>,
+    maxValue: Float,
+    modifier: Modifier = Modifier
+) {
+    val lineColor = MaterialTheme.colorScheme.primary
+    val gridColor = MaterialTheme.colorScheme.outlineVariant
+    val fillColor = lineColor.copy(alpha = 0.12f)
+
+    Canvas(modifier) {
+        val w = size.width
+        val h = size.height
+        val padL = 44f
+        val padR = 12f
+        val padT = 12f
+        val padB = 12f
+        val chartW = (w - padL - padR).coerceAtLeast(1f)
+        val chartH = (h - padT - padB).coerceAtLeast(1f)
+        val maxY = maxValue.coerceAtLeast(1f)
+        for (i in 0..4) {
+            val yy = padT + chartH * (i / 4f)
+            drawLine(gridColor.copy(alpha = 0.5f), Offset(padL, yy), Offset(padL + chartW, yy), 1f)
+        }
+        if (values.isEmpty()) return@Canvas
+        val n = values.size
+        fun xAt(i: Int): Float = if (n == 1) padL + chartW / 2f else padL + chartW * (i.toFloat() / (n - 1))
+        fun yAt(v: Float): Float = padT + chartH * (1f - (v / maxY).coerceIn(0f, 1f))
+        val pts = values.mapIndexed { i, v -> Offset(xAt(i), yAt(v)) }
+        if (pts.size >= 2) {
+            val path = Path()
+            path.moveTo(pts.first().x, padT + chartH)
+            pts.forEach { path.lineTo(it.x, it.y) }
+            path.lineTo(pts.last().x, padT + chartH)
+            path.close()
+            drawPath(path, fillColor)
+        }
+        for (i in 0 until pts.size - 1) drawLine(lineColor, pts[i], pts[i + 1], strokeWidth = 4f, cap = StrokeCap.Round)
+        pts.forEach { drawCircle(lineColor, radius = 5f, center = it) }
+    }
+
+    if (labels.isNotEmpty() && labels.size <= 14) {
+        Row(Modifier.fillMaxWidth().padding(start = 44.dp, end = 12.dp, top = 2.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+            labels.forEach { Text(it, fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+        }
     }
 }
