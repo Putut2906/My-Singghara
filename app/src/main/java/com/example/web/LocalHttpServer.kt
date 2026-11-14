@@ -19,6 +19,7 @@ import com.example.network.HolidayClient
 import com.example.ui.screens.HijriCalendarHelper
 import com.example.ui.screens.JavaneseCalendarHelper
 import com.example.ui.screens.CatStore
+import com.example.ui.screens.CatImport
 import com.example.ui.screens.SoalCat
 import com.example.ui.screens.CatSesi
 import com.example.ui.screens.CatHasil
@@ -2029,6 +2030,15 @@ class LocalHttpServer(
                     }
                 }
                 path == "/api/cat/hasil" && method == "GET" -> sendJsonResponse(output, catHasilJson())
+                path == "/api/cat/import" && method == "POST" -> {
+                    val o = JSONObject(body)
+                    val filename = o.optString("filename", "")
+                    val dataB64 = o.optString("data", "")
+                    val bytes = android.util.Base64.decode(dataB64, android.util.Base64.DEFAULT)
+                    val imported = CatImport.importFromBytes(filename, bytes)
+                    imported.forEach { CatStore.addSoal(context, it) }
+                    sendJsonResponse(output, JSONObject().put("success", true).put("count", imported.size).toString())
+                }
                 else -> sendJsonResponse(output, JSONObject().put("success", false).put("message", "Rute CAT tidak dikenal").toString(), 404)
             }
         } catch (e: Exception) {

@@ -38,6 +38,9 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.input.KeyboardType
 import com.example.ui.MainViewModel
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import android.provider.OpenableColumns
 import kotlinx.coroutines.delay
 import org.json.JSONArray
 import org.json.JSONObject
@@ -368,6 +371,25 @@ private fun TabInputSoal(bank: List<SoalCat>, onChanged: () -> Unit) {
     var bobot by remember { mutableStateOf(listOf(5, 4, 3, 2)) }
     var pembahasan by remember { mutableStateOf("") }
     val counts = remember(bank) { CatStore.countByKategori(context) }
+    var importMsg by remember { mutableStateOf("") }
+    val importLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) {
+            try {
+                val bytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() } ?: ByteArray(0)
+                val name = catQueryFileName(context, uri) ?: "soal.txt"
+                val imported = CatImport.importFromBytes(name, bytes)
+                imported.forEach { CatStore.addSoal(context, it) }
+                importMsg = if (imported.isEmpty())
+                    "Tidak ada soal terbaca (cek format/ekstensi: .md/.txt/.docx/.xlsx)."
+                else "Berhasil impor ${imported.size} soal."
+                onChanged()
+            } catch (e: Exception) {
+                importMsg = "Gagal impor: ${e.message}"
+            }
+        }
+    }
 
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
@@ -380,6 +402,26 @@ private fun TabInputSoal(bank: List<SoalCat>, onChanged: () -> Unit) {
                 CountChip("TWK ${counts[CAT_TWK] ?: 0}/${CatStore.TARGET_TWK}")
                 CountChip("TIU ${counts[CAT_TIU] ?: 0}/${CatStore.TARGET_TIU}")
                 CountChip("TKP ${counts[CAT_TKP] ?: 0}/${CatStore.TARGET_TKP}")
+            }
+        }
+
+        CatKartu {
+            Text("Impor Soal dari File", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+            Spacer(Modifier.height(6.dp))
+            Text(
+                "Format didukung: .md, .txt, .docx, .xlsx. Contoh tiap soal: baris \"1. Soal\", lalu \"A. opsi\"..\"E. opsi\", \"KUNCI: B\", \"PEMBAHASAN: ...\" (TKP: \"BOBOT: 5,4,3,2,1\").",
+                fontSize = 11.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Spacer(Modifier.height(8.dp))
+            OutlinedButton(onClick = { importLauncher.launch(arrayOf("*/*")) }, modifier = Modifier.fillMaxWidth()) {
+                Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+                Spacer(Modifier.width(6.dp))
+                Text("Pilih File & Impor")
+            }
+            if (importMsg.isNotEmpty()) {
+                Spacer(Modifier.height(6.dp))
+                Text(importMsg, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.primary)
             }
         }
 
@@ -968,5 +1010,15 @@ private fun UlasanCard(u: UlasanSoal) {
                 Text("Pembahasan: ${u.soal.pembahasan}", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
+    }
+}
+
+private fun catQueryFileName(context: android.content.Context, uri: android.net.Uri): String? {
+    return try {
+        context.contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { c ->
+            if (c.moveToFirst()) c.getString(0) else null
+        }
+    } catch (e: Exception) {
+        null
     }
 }

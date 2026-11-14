@@ -80,8 +80,32 @@ object CatWebScript {
             var listCard = '<div class="card p-0 overflow-hidden" style="border-radius:16px;border:1px solid var(--border-color);background:var(--card-bg);box-shadow:0 2px 10px rgba(15,23,42,0.08);">'
                 + '<div class="p-3 fw-bold border-bottom" style="border-color:var(--border-color);">Daftar Soal ('+bank.length+')</div>'
                 + '<div>'+rows+'</div></div>';
-            b.innerHTML = form + listCard;
+            var importCard = catCard(
+                '<div class="fw-bold mb-1">Impor Soal dari File</div>'
+                + '<div class="small text-secondary mb-2">Format: .md, .txt, .docx, .xlsx. Tiap soal: baris "1. Soal", opsi "A." s/d "E.", "KUNCI: B", "PEMBAHASAN: ..." (TKP: "BOBOT: 5,4,3,2,1").</div>'
+                + '<input type="file" id="catFile" accept=".md,.txt,.docx,.xlsx" class="form-control form-control-sm mb-2">'
+                + '<button class="btn btn-sm btn-outline-primary" onclick="catImportFile()"><i class="bi bi-upload me-1"></i>Impor File</button>'
+                + '<span id="catImportMsg" class="small ms-2"></span>'
+            );
+            b.innerHTML = importCard + form + listCard;
         }
+
+        window.catImportFile = function(){
+            var inp=document.getElementById('catFile'); var f=inp&&inp.files[0]; if(!f){ alert('Pilih file dulu.'); return; }
+            var msg=document.getElementById('catImportMsg');
+            var reader=new FileReader();
+            reader.onload=function(){
+                var bytes=new Uint8Array(reader.result); var bin=''; var chunk=0x8000;
+                for(var i=0;i<bytes.length;i+=chunk){ bin+=String.fromCharCode.apply(null,bytes.subarray(i,i+chunk)); }
+                var b64=btoa(bin);
+                if(msg) msg.textContent='Mengimpor...';
+                fetch('/api/cat/import',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({filename:f.name,data:b64})})
+                    .then(function(r){return r.json();})
+                    .then(function(j){ if(j&&j.success){ if(msg) msg.textContent='Berhasil impor '+(j.count||0)+' soal.'; setTimeout(function(){catRenderInput();},700); } else { if(msg) msg.textContent='Gagal: '+((j&&j.message)||''); } })
+                    .catch(function(e){ if(msg) msg.textContent='Error: '+e; });
+            };
+            reader.readAsArrayBuffer(f);
+        };
 
         window.catToggleBobot = function(){
             var isTkp = document.getElementById('catKategori').value==='TKP';
