@@ -734,88 +734,94 @@ fun TentangAplikasiScreen(
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
             // -----------------------------------------------------------------
-            // 1. HEADER IDENTITAS APLIKASI
+            // 1. HERO IDENTITAS APLIKASI (gradien, serasi dengan Profil)
             // -----------------------------------------------------------------
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(20.dp),
-                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-                elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+            val aboutHeroBrush = Brush.verticalGradient(
+                listOf(Color(0xFF4F46E5), Color(0xFF4338CA), Color(0xFF0EA5E9))
+            )
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(24.dp))
+                    .background(aboutHeroBrush)
+                    .padding(24.dp)
             ) {
-                Box(modifier = Modifier.fillMaxWidth()) {
-                    Column(
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    // App Logo Badge: memakai ikon launcher aplikasi agar seragam
+                    AppLauncherIcon(
                         modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(20.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally
+                            .size(88.dp)
+                            .clip(RoundedCornerShape(22.dp))
+                            .border(2.dp, Color.White.copy(alpha = 0.65f), RoundedCornerShape(22.dp)),
+                        contentDescription = "Logo My Singghara"
+                    )
+
+                    Spacer(modifier = Modifier.height(14.dp))
+
+                    Text(
+                        text = "My Singghara",
+                        fontSize = 24.sp,
+                        fontWeight = FontWeight.Black,
+                        color = Color.White
+                    )
+                    Text(
+                        text = "Suite Aplikasi Produktivitas",
+                        fontSize = 12.sp,
+                        color = Color.White.copy(alpha = 0.85f),
+                        modifier = Modifier.padding(top = 2.dp)
+                    )
+
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    // Versi aplikasi yang terinstal; ketuk untuk memeriksa ketersediaan versi baru.
+                    val isCheckingInstalledVersion = installedVersionCheck?.isChecking == true
+                    Surface(
+                        shape = RoundedCornerShape(20.dp),
+                        color = Color.White.copy(alpha = 0.16f),
+                        border = BorderStroke(1.dp, Color.White.copy(alpha = 0.5f)),
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(20.dp))
+                            .clickable(enabled = !isCheckingInstalledVersion) { checkInstalledVersion() }
                     ) {
-                        // App Logo Badge: memakai ikon launcher aplikasi agar seragam
-                        AppLauncherIcon(
-                            modifier = Modifier
-                                .size(76.dp)
-                                .shadow(6.dp, RoundedCornerShape(20.dp))
-                                .clip(RoundedCornerShape(20.dp)),
-                            contentDescription = "Logo My Singghara"
-                        )
-
-                        Spacer(modifier = Modifier.height(12.dp))
-
-                        Text(
-                            text = "My Singghara",
-                            fontSize = 22.sp,
-                            fontWeight = FontWeight.Black,
-                            color = MaterialTheme.colorScheme.onSurface
-                        )
-
-                        Spacer(modifier = Modifier.height(8.dp))
-
-                        // Versi aplikasi yang terinstal; ketuk untuk memeriksa ketersediaan versi baru.
-                        val isCheckingInstalledVersion = installedVersionCheck?.isChecking == true
-                        Surface(
-                            shape = RoundedCornerShape(8.dp),
-                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
-                            border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.3f)),
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(8.dp))
-                                .clickable(enabled = !isCheckingInstalledVersion) { checkInstalledVersion() }
+                        Row(
+                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp),
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                if (isCheckingInstalledVersion) {
-                                    CircularProgressIndicator(
-                                        modifier = Modifier.size(12.dp),
-                                        strokeWidth = 2.dp,
-                                        color = MaterialTheme.colorScheme.primary
-                                    )
-                                } else {
-                                    Icon(
-                                        imageVector = Icons.Default.Verified,
-                                        contentDescription = null,
-                                        tint = MaterialTheme.colorScheme.primary,
-                                        modifier = Modifier.size(13.dp)
-                                    )
-                                }
-                                Spacer(modifier = Modifier.width(6.dp))
-                                Text(
-                                    text = if (isCheckingInstalledVersion) {
-                                        "Memeriksa versi..."
-                                    } else {
-                                        "Versi Aplikasi v${BuildConfig.VERSION_NAME}"
-                                    },
-                                    fontSize = 11.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.primary
+                            if (isCheckingInstalledVersion) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(12.dp),
+                                    strokeWidth = 2.dp,
+                                    color = Color.White
                                 )
-                                Spacer(modifier = Modifier.width(5.dp))
+                            } else {
                                 Icon(
-                                    imageVector = Icons.Default.Refresh,
-                                    contentDescription = "Periksa versi terbaru",
-                                    tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.85f),
-                                    modifier = Modifier.size(12.dp)
+                                    imageVector = Icons.Default.Verified,
+                                    contentDescription = null,
+                                    tint = Color(0xFFFFD700),
+                                    modifier = Modifier.size(14.dp)
                                 )
                             }
+                            Spacer(modifier = Modifier.width(6.dp))
+                            Text(
+                                text = if (isCheckingInstalledVersion) {
+                                    "Memeriksa versi..."
+                                } else {
+                                    "Versi Aplikasi v${BuildConfig.VERSION_NAME}"
+                                },
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = Color.White
+                            )
+                            Spacer(modifier = Modifier.width(5.dp))
+                            Icon(
+                                imageVector = Icons.Default.Refresh,
+                                contentDescription = "Periksa versi terbaru",
+                                tint = Color.White.copy(alpha = 0.85f),
+                                modifier = Modifier.size(12.dp)
+                            )
                         }
                     }
                 }

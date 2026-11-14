@@ -1318,21 +1318,28 @@ function doPost(e) {
             const modalHtml = `
                 <div class="modal fade" id="aboutAppCustomModal" tabindex="-1" aria-hidden="true">
                     <div class="modal-dialog modal-dialog-centered" style="max-width: 440px;">
-                        <div class="modal-content card-custom p-4 text-center" style="border-radius: 24px; border: 1px solid var(--border-color); background: var(--card-bg);">
-                            <div class="mb-3">
-                                <img src="/app-logo.png" alt="My Singghara" class="rounded-circle shadow-sm" style="width: 72px; height: 72px; object-fit: contain; border: 2px solid var(--brand-green);" onerror="this.src='/favicon-32x32.png'">
+                        <div class="modal-content p-0 overflow-hidden" style="border-radius: 24px; border: 1px solid var(--border-color); background: var(--card-bg);">
+                            <!-- HERO -->
+                            <div class="text-center px-4 pt-4 pb-4" style="background: linear-gradient(135deg, #4F46E5 0%, #4338CA 55%, #0EA5E9 100%); color: #ffffff;">
+                                <img src="/app-logo.png" alt="My Singghara" class="mb-2" style="width: 84px; height: 84px; object-fit: contain; border-radius: 20px; border: 2px solid rgba(255,255,255,0.65); background: rgba(255,255,255,0.14); padding: 6px;" onerror="this.src='/favicon-32x32.png'">
+                                <h4 class="fw-bold mb-2" style="color: #ffffff; font-size: 1.4rem;">My Singghara Suite</h4>
+                                <span class="d-inline-flex align-items-center gap-1 px-3 py-1 rounded-pill" style="background: rgba(255,255,255,0.16); border: 1px solid rgba(255,255,255,0.45); color: #ffffff; font-size: 12px; font-weight: 700;">
+                                    <i class="bi bi-check-circle-fill" style="color: #FFD700;"></i> Versi v${dol}{escapeHtml(ver)} &bull; 100% Offline PC &amp; Mobile
+                                </span>
                             </div>
-                            <h4 class="fw-bold text-main mb-1" style="font-size: 1.35rem;">My Singghara Suite</h4>
-                            <div class="text-primary fw-bold small mb-2">Versi v${dol}{escapeHtml(ver)} &bull; 100% Offline PC &amp; Mobile</div>
-                            <p class="text-secondary small mb-3">
-                                Aplikasi manajemen usaha, kasir barcode, pembukuan keuangan, rekap absensi, jadwal harian, dan Web Connect mandiri tanpa kuota internet.
-                            </p>
-                            <div class="p-3 rounded-3 mb-3 text-start small text-secondary" style="background: var(--bg-hover); border: 1px solid var(--border-color); font-size: 11.5px;">
-                                <div class="mb-1"><strong>Pengembang:</strong> Putut Singgih Pamungkas</div>
-                                <div class="mb-1"><strong>Platform:</strong> Android (Kotlin/Compose) &amp; Web Connect PC</div>
-                                <div><strong>Hak Cipta:</strong> &copy; ${dol}{new Date().getFullYear()} My Singghara. All Rights Reserved.</div>
+                            <!-- BODY -->
+                            <div class="p-4 text-start">
+                                <p class="text-secondary small mb-3">
+                                    Aplikasi manajemen usaha, kasir barcode, pembukuan keuangan, rekap absensi, jadwal harian, dan Web Connect mandiri tanpa kuota internet.
+                                </p>
+                                <div class="text-uppercase mb-2" style="font-size: 11px; font-weight: 800; letter-spacing: 0.6px; color: var(--brand-green);">INFORMASI</div>
+                                <div class="rounded-4 p-3 small text-main" style="background: var(--bg-hover); border: 1px solid var(--border-color);">
+                                    <div class="d-flex align-items-center gap-2 mb-2"><i class="bi bi-person-badge-fill text-primary"></i><span><strong>Pengembang:</strong> Putut Singgih Pamungkas</span></div>
+                                    <div class="d-flex align-items-center gap-2 mb-2"><i class="bi bi-phone-fill text-success"></i><span><strong>Platform:</strong> Android (Kotlin/Compose) &amp; Web Connect PC</span></div>
+                                    <div class="d-flex align-items-center gap-2"><i class="bi bi-c-circle text-secondary"></i><span><strong>Hak Cipta:</strong> &copy; ${dol}{new Date().getFullYear()} My Singghara. All Rights Reserved.</span></div>
+                                </div>
+                                <button type="button" class="btn w-100 py-2 rounded-3 fw-semibold mt-3" data-bs-dismiss="modal" style="background: linear-gradient(135deg, #4F46E5, #0EA5E9); color: #ffffff; border: none;">Tutup</button>
                             </div>
-                            <button type="button" class="btn btn-outline-secondary w-100 py-2 rounded-3 fw-semibold" data-bs-dismiss="modal">Tutup</button>
                         </div>
                     </div>
                 </div>
