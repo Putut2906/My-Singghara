@@ -18,6 +18,10 @@ import com.example.data.QuranHistory
 import com.example.network.HolidayClient
 import com.example.ui.screens.HijriCalendarHelper
 import com.example.ui.screens.JavaneseCalendarHelper
+import com.example.ui.screens.CatStore
+import com.example.ui.screens.SoalCat
+import com.example.ui.screens.CatSesi
+import com.example.ui.screens.CatHasil
 import java.util.Calendar
 import java.util.Date
 import java.util.Locale
@@ -772,6 +776,9 @@ class LocalHttpServer(
                     }
                     path.startsWith("/api/admin") || path.startsWith("/api/manajemen_akun") -> {
                         handleAdminRoute(method, queryParams, body, output)
+                    }
+                    path.startsWith("/api/cat") -> {
+                        handleCatRoute(path, method, queryParams, body, output)
                     }
                     else -> {
                         sendResponse(output, 404, "Not Found", "text/plain", "404 Not Found")
@@ -1889,6 +1896,143 @@ class LocalHttpServer(
                 }
                 sendJsonResponse(output, JSONObject().put("success", false).put("message", "ID tidak ditemukan").toString(), 400)
             }
+        }
+    }
+
+    // ===================== SIMULASI CAT (memakai CatStore yang sama dengan layar Compose) =====================
+
+    private fun catSoalJson(s: SoalCat): JSONObject = JSONObject().apply {
+        put("id", s.id)
+        put("kategori", s.kategori)
+        put("teks", s.teks)
+        put("opsi", JSONArray(s.opsi))
+        put("kunci", s.kunci)
+        put("bobot", JSONArray(s.bobotOpsi))
+        put("pembahasan", s.pembahasan)
+    }
+
+    private fun catHasilObj(h: CatHasil): JSONObject = JSONObject().apply {
+        put("twk", h.twk); put("tiu", h.tiu); put("tkp", h.tkp); put("total", h.total)
+        put("twkLulus", h.twkLulus); put("tiuLulus", h.tiuLulus); put("tkpLulus", h.tkpLulus); put("lulus", h.lulus)
+        put("jumlahDijawab", h.jumlahDijawab); put("jumlahSoal", h.jumlahSoal)
+        put("pg", JSONObject().put("twk", CatStore.PG_TWK).put("tiu", CatStore.PG_TIU).put("tkp", CatStore.PG_TKP))
+        val ulasan = JSONArray()
+        h.ulasan.forEach { u ->
+            ulasan.put(JSONObject().apply {
+                put("nomor", u.nomor); put("kategori", u.kategori)
+                put("jawaban", u.jawaban); put("poin", u.poin); put("benar", u.benar)
+                put("teks", u.soal.teks); put("opsi", JSONArray(u.soal.opsi)); put("kunci", u.soal.kunci)
+                put("pembahasan", u.soal.pembahasan)
+            })
+        }
+        put("ulasan", ulasan)
+    }
+
+    private fun catSesiJson(): String {
+        val s = CatStore.loadSesi(context) ?: return JSONObject().put("active", false).toString()
+        val now = System.currentTimeMillis()
+        val jw = JSONObject(); s.jawaban.forEach { (k, v) -> jw.put(k.toString(), v) }
+        return JSONObject().apply {
+            put("active", true)
+            put("selesai", s.selesai)
+            put("startTime", s.startTime)
+            put("endTime", s.endTime)
+            put("sisaMs", CatStore.sisaMs(s, now))
+            put("currentIndex", s.currentIndex)
+            put("durasiMs", CatStore.DURASI_MS)
+            put("order", JSONArray(s.order))
+            put("jawaban", jw)
+            put("pg", JSONObject().put("twk", CatStore.PG_TWK).put("tiu", CatStore.PG_TIU).put("tkp", CatStore.PG_TKP))
+            put("counts", JSONObject().put("twk", CatStore.TARGET_TWK).put("tiu", CatStore.TARGET_TIU).put("tkp", CatStore.TARGET_TKP))
+        }.toString()
+    }
+
+    private fun catHasilJson(): String {
+        val s = CatStore.loadSesi(context)
+        return if (s == null || !s.selesai) JSONObject().put("available", false).toString()
+        else JSONObject().put("available", true).put("hasil", catHasilObj(CatStore.hitungHasil(context, s))).toString()
+    }
+
+    private suspend fun handleCatRoute(path: String, method: String, queryParams: Map<String, String>, body: String, output: OutputStream) {
+        try {
+            when {
+                path == "/api/cat/bank" && method == "GET" -> {
+                    val arr = JSONArray(); CatStore.loadBank(context).forEach { arr.put(catSoalJson(it)) }
+                    sendJsonResponse(output, arr.toString())
+                }
+                path == "/api/cat/bank" && method == "POST" -> {
+                    val o = JSONObject(body)
+                    val opsiArr = o.getJSONArray("opsi")
+                    val opsi = (0 until opsiArr.length()).map { opsiArr.getString(it) }
+                    val bobArr = o.optJSONArray("bobot") ?: JSONArray()
+                    val bobot = (0 until bobArr.length()).map { bobArr.getInt(it) }
+                    CatStore.addSoal(
+                        context,
+                        SoalCat(
+                            id = o.optString("id").ifBlank { java.util.UUID.randomUUID().toString() },
+                            kategori = o.optString("kategori", "TWK"),
+                            teks = o.optString("teks", ""),
+                            opsi = opsi,
+                            kunci = o.optInt("kunci", 0),
+                            bobotOpsi = bobot,
+                            pembahasan = o.optString("pembahasan", "")
+                        )
+                    )
+                    sendJsonResponse(output, JSONObject().put("success", true).toString())
+                }
+                path == "/api/cat/bank" && method == "DELETE" -> {
+                    val id = queryParams["id"] ?: if (body.isNotEmpty()) JSONObject(body).optString("id") else null
+                    if (!id.isNullOrBlank()) CatStore.deleteSoal(context, id)
+                    sendJsonResponse(output, JSONObject().put("success", true).toString())
+                }
+                path == "/api/cat/sesi" && method == "GET" -> sendJsonResponse(output, catSesiJson())
+                path == "/api/cat/sesi" && method == "POST" -> {
+                    val o = JSONObject(body)
+                    when (o.optString("action")) {
+                        "start" -> {
+                            val s = CatStore.mulaiSesi(context)
+                            if (s == null) sendJsonResponse(output, JSONObject().put("success", false).put("message", "Bank soal kosong").toString(), 400)
+                            else sendJsonResponse(output, JSONObject().put("success", true).toString())
+                        }
+                        "answer" -> {
+                            val s = CatStore.loadSesi(context)
+                            if (s == null || s.selesai) {
+                                sendJsonResponse(output, JSONObject().put("success", false).put("expired", true).toString(), 400)
+                            } else if (System.currentTimeMillis() > s.endTime) {
+                                CatStore.saveSesi(context, s.copy(selesai = true))
+                                sendJsonResponse(output, JSONObject().put("success", false).put("expired", true).toString())
+                            } else {
+                                val idx = o.getInt("index"); val ops = o.getInt("opsi")
+                                CatStore.saveSesi(context, s.copy(jawaban = s.jawaban + (idx to ops)))
+                                sendJsonResponse(output, JSONObject().put("success", true).put("sisaMs", CatStore.sisaMs(s, System.currentTimeMillis())).toString())
+                            }
+                        }
+                        "navigate" -> {
+                            val s = CatStore.loadSesi(context)
+                            if (s != null && !s.selesai) CatStore.saveSesi(context, s.copy(currentIndex = o.optInt("current", s.currentIndex)))
+                            sendJsonResponse(output, JSONObject().put("success", true).toString())
+                        }
+                        "finish" -> {
+                            val s = CatStore.loadSesi(context)
+                            if (s != null) {
+                                val done = s.copy(selesai = true)
+                                CatStore.saveSesi(context, done)
+                                CatStore.simpanHasil(context, CatStore.hitungHasil(context, done))
+                            }
+                            sendJsonResponse(output, JSONObject().put("success", true).toString())
+                        }
+                        "reset" -> {
+                            CatStore.clearSesi(context)
+                            sendJsonResponse(output, JSONObject().put("success", true).toString())
+                        }
+                        else -> sendJsonResponse(output, JSONObject().put("success", false).put("message", "aksi tidak dikenal").toString(), 400)
+                    }
+                }
+                path == "/api/cat/hasil" && method == "GET" -> sendJsonResponse(output, catHasilJson())
+                else -> sendJsonResponse(output, JSONObject().put("success", false).put("message", "Rute CAT tidak dikenal").toString(), 404)
+            }
+        } catch (e: Exception) {
+            sendJsonResponse(output, JSONObject().put("success", false).put("message", e.message ?: "error").toString(), 500)
         }
     }
 
@@ -11529,6 +11673,33 @@ class LocalHttpServer(
 
                 <hr class="my-2 border-secondary opacity-25 sidebar-divider">
 
+                <!-- MENU SIMULASI CAT -->
+                <div class="sidebar-group">
+                    <div class="sidebar-group-header d-flex align-items-center justify-content-between text-uppercase fw-bold mb-1" onclick="toggleSidebarGroup('grp-cat')" title="Simulasi CAT">
+                        <span class="d-flex align-items-center gap-2">
+                            <i class="bi bi-pencil-square fs-5 sidebar-group-icon" style="color: #7C3AED;"></i>
+                            <span class="nav-text">Simulasi CAT</span>
+                        </span>
+                        <i class="bi bi-chevron-right nav-text group-chevron" id="chevron-grp-cat"></i>
+                    </div>
+                    <div class="sidebar-sub-items ps-2" id="grp-cat" style="display: none;">
+                        <div class="nav-link-item" onclick="switchTab('cat_input_soal', this)" data-title="Input Soal">
+                            <i class="bi bi-ui-checks fs-5" style="color: #7C3AED;"></i>
+                            <span class="nav-text">Input Soal</span>
+                        </div>
+                        <div class="nav-link-item" onclick="switchTab('cat_simulasi_ujian', this)" data-title="Simulasi Ujian">
+                            <i class="bi bi-clock-history fs-5" style="color: #7C3AED;"></i>
+                            <span class="nav-text">Simulasi Ujian</span>
+                        </div>
+                        <div class="nav-link-item" onclick="switchTab('cat_hasil', this)" data-title="Hasil & Live Score">
+                            <i class="bi bi-bar-chart-line-fill fs-5" style="color: #7C3AED;"></i>
+                            <span class="nav-text">Hasil & Live Score</span>
+                        </div>
+                    </div>
+                </div>
+
+                <hr class="my-2 border-secondary opacity-25 sidebar-divider">
+
                 <!-- MENU COMPANY -->
                 <div class="sidebar-group">
                     <div class="sidebar-group-header d-flex align-items-center justify-content-between text-uppercase fw-bold mb-1" onclick="toggleSidebarGroup('grp-company')" title="Company">
@@ -13054,6 +13225,9 @@ class LocalHttpServer(
             else if (currentTab === 'kalkulator') {
                 if (window.loadKalkulator) window.loadKalkulator();
             }
+            else if (currentTab === 'cat_input_soal') { if (window.loadCat) window.loadCat(0); }
+            else if (currentTab === 'cat_simulasi_ujian') { if (window.loadCat) window.loadCat(1); }
+            else if (currentTab === 'cat_hasil') { if (window.loadCat) window.loadCat(2); }
             else if (currentTab === 'my_apps') loadMyApps();
             else if (currentTab === 'quran') loadQuran();
             else if (currentTab === 'pembukuan') loadPembukuan();
@@ -14344,7 +14518,8 @@ class LocalHttpServer(
         ${VideoWebScript.getScript(dol)}
         ${MindMapWebScript.getScript(dol)}
         ${ProfilWebScript.getScript(dol)}
-        ${KalkulatorWebScript.getScript(dol)}
+                        ${KalkulatorWebScript.getScript(dol)}
+                        ${CatWebScript.getScript(dol)}
 
         // ==========================================
         // --- 4. BLOCK PUZZLE CLASSIC (8x8) ---

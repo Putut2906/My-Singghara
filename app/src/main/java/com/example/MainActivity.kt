@@ -847,6 +847,7 @@ fun MainAppContent(viewModel: MainViewModel, desktopMode: Boolean = false) {
     var isKeuanganExpanded by remember { mutableStateOf(false) }
     var isKasirExpanded by remember { mutableStateOf(false) }
     var isKoneksiBerbagiExpanded by remember { mutableStateOf(false) }
+    var isCatExpanded by remember { mutableStateOf(false) }
 
     // Otomatis tutup semua sub menu saat sidebar/drawer di-collapse (tertutup)
     LaunchedEffect(drawerState.targetValue) {
@@ -2363,6 +2364,91 @@ fun MainAppContent(viewModel: MainViewModel, desktopMode: Boolean = false) {
                         )
                     }
 
+                    // Group: SIMULASI CAT (Boxed Group Card)
+                    DrawerMenuCard {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    val next = !isCatExpanded
+                                    if (next) {
+                                        isCompanyExpanded = false
+                                        isManajemenExpanded = false
+                                        isPeopleExpanded = false
+                                        isMediaExpanded = false
+                                        isKeuanganExpanded = false
+                                        isKoneksiBerbagiExpanded = false
+                                        isMyAplikasiExpanded = false
+                                    }
+                                    isCatExpanded = next
+                                }
+                                .padding(horizontal = 14.dp, vertical = 6.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Schedule,
+                                    contentDescription = "Simulasi CAT",
+                                    tint = Color(0xFF7C3AED),
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Text(
+                                    text = "SIMULASI CAT",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    letterSpacing = 1.sp
+                                )
+                            }
+                            Icon(
+                                imageVector = if (isCatExpanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                                contentDescription = if (isCatExpanded) "Sembunyikan" else "Tampilkan",
+                                tint = Color(0xFF7C3AED),
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+
+                        AnimatedVisibility(
+                            visible = isCatExpanded,
+                            enter = expandVertically() + fadeIn(),
+                            exit = shrinkVertically() + fadeOut()
+                        ) {
+                            Column(modifier = Modifier.fillMaxWidth()) {
+                                val catEntries = listOf(
+                                    Triple("cat_input_soal", "Input Soal", Icons.Default.Edit),
+                                    Triple("cat_simulasi_ujian", "Simulasi Ujian", Icons.Default.Timer),
+                                    Triple("cat_hasil", "Hasil & Live Score", Icons.Default.TrendingUp)
+                                )
+                                catEntries.forEach { (route, title, iconVec) ->
+                                    val isSelected = viewModel.currentRoute == route
+                                    NavigationDrawerItem(
+                                        icon = { Icon(imageVector = iconVec, contentDescription = title) },
+                                        label = { Text(text = title, fontWeight = FontWeight.Medium, fontSize = 13.sp) },
+                                        selected = isSelected,
+                                        onClick = {
+                                            viewModel.currentRoute = route
+                                            scope.launch { drawerState.close() }
+                                        },
+                                        shape = RoundedCornerShape(8.dp),
+                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 2.dp),
+                                        colors = NavigationDrawerItemDefaults.colors(
+                                            selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                                            selectedTextColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                                            selectedIconColor = MaterialTheme.colorScheme.primary,
+                                            unselectedContainerColor = Color.Transparent,
+                                            unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                                        )
+                                    )
+                                }
+                            }
+                        }
+                    }
+
                     // Group 3: AKUNTANSI & KEUANGAN (Boxed Group Card)
                     DrawerMenuCard {
                         // Header Clickable
@@ -3842,6 +3928,24 @@ fun MainAppContent(viewModel: MainViewModel, desktopMode: Boolean = false) {
                         "stopwatch" -> com.example.ui.screens.StopwatchScreen(
                             viewModel = viewModel,
                             onBack = { viewModel.currentRoute = "home" },
+                            onOpenDrawer = { if (desktopMode) isDesktopSidebarExpanded = true else scope.launch { drawerState.open() } }
+                        )
+                        "cat_input_soal" -> com.example.ui.screens.SimulasiCatScreen(
+                            viewModel = viewModel,
+                            initialTab = 0,
+                            onNavigateBack = { viewModel.currentRoute = "home" },
+                            onOpenDrawer = { if (desktopMode) isDesktopSidebarExpanded = true else scope.launch { drawerState.open() } }
+                        )
+                        "cat_simulasi_ujian" -> com.example.ui.screens.SimulasiCatScreen(
+                            viewModel = viewModel,
+                            initialTab = 1,
+                            onNavigateBack = { viewModel.currentRoute = "home" },
+                            onOpenDrawer = { if (desktopMode) isDesktopSidebarExpanded = true else scope.launch { drawerState.open() } }
+                        )
+                        "cat_hasil" -> com.example.ui.screens.SimulasiCatScreen(
+                            viewModel = viewModel,
+                            initialTab = 2,
+                            onNavigateBack = { viewModel.currentRoute = "home" },
                             onOpenDrawer = { if (desktopMode) isDesktopSidebarExpanded = true else scope.launch { drawerState.open() } }
                         )
                         "arisan_keluarga" -> ArisanKeluargaScreen(
