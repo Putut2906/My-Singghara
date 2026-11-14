@@ -279,6 +279,11 @@ fun ProfilScreen(
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
+                        .shadow(
+                            elevation = if (isSystemInDarkTheme()) 6.dp else 16.dp,
+                            shape = RoundedCornerShape(24.dp),
+                            clip = false
+                        )
                         .clip(RoundedCornerShape(24.dp))
                         .background(heroBrush)
                         .padding(20.dp)
