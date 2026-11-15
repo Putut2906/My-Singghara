@@ -6,12 +6,18 @@ name: Build Desktop PC
 
 on:
   workflow_dispatch:
+    inputs:
+      version:
+        description: 'Versi rilis eksplisit, mis. v1.0.216 (kosong = pakai 1.0.<run> / nama tag)'
+        required: false
+        default: ''
   push:
+    tags:
+      - 'v*'
     paths:
       - 'desktop/**'
       - 'app/src/main/java/com/example/web/**'
       - 'app/src/main/assets/web/**'
-      - '.github/workflows/build-desktop.yml'
 
 permissions:
   contents: write
@@ -53,10 +59,24 @@ jobs:
 
       - uses: gradle/actions/setup-gradle@v4
 
+      - name: Tentukan versi aplikasi (tag > input dispatch > run_number)
+        id: ver
+        shell: bash
+        run: |
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            v="${GITHUB_REF_NAME#v}"
+          elif [[ -n "${{ github.event.inputs.version }}" ]]; then
+            v="${{ github.event.inputs.version }}"; v="${v#v}"
+          else
+            v="1.0.${GITHUB_RUN_NUMBER}"
+          fi
+          echo "app_version=$v" >> "$GITHUB_OUTPUT"
+          echo "Versi aplikasi desktop: $v"
+
       # Windows: versi portabel dulu (tanpa WiX) supaya launcher .exe tetap ada walau installer gagal.
       - name: Build versi portabel (Windows)
         if: matrix.name == 'Windows'
-        run: ./gradlew createDistributable -PappVersionName=1.0.${{ github.run_number }} --no-daemon
+        run: ./gradlew createDistributable -PappVersionName=${{ steps.ver.outputs.app_version }} --no-daemon
 
       - name: Unggah versi portabel (Windows)
         if: matrix.name == 'Windows'
@@ -67,14 +87,14 @@ jobs:
           if-no-files-found: error
 
       - name: Build installer
-        run: ./gradlew ${{ matrix.tasks }} -PappVersionName=1.0.${{ github.run_number }} --no-daemon --stacktrace
+        run: ./gradlew ${{ matrix.tasks }} -PappVersionName=${{ steps.ver.outputs.app_version }} --no-daemon --stacktrace
 
       - name: Tampilkan ekor log bila build installer gagal
         if: failure()
         continue-on-error: true
         shell: bash
         run: |
-          echo "Perintah: ./gradlew ${{ matrix.tasks }} -PappVersionName=1.0.${{ github.run_number }} --no-daemon --stacktrace"
+          echo "Perintah: ./gradlew ${{ matrix.tasks }} -PappVersionName=${{ steps.ver.outputs.app_version }} --no-daemon --stacktrace"
           LOG="$(find . -path '*/compose/logs/*' -type f 2>/dev/null | head -n 1 || true)"
           if [ -n "$LOG" ]; then
             echo "Log jpackage: $LOG"
@@ -96,7 +116,7 @@ jobs:
   release:
     name: Terbitkan Release PC
     needs: package
-    if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
+    if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch' || startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -111,10 +131,27 @@ jobs:
           path: dl
           merge-multiple: false
 
+      - name: Tentukan tag & nama rilis
+        id: vars
+        shell: bash
+        run: |
+          SHORT_SHA=$(echo "${{ github.sha }}" | cut -c1-7)
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            TAG="${GITHUB_REF_NAME}"
+          elif [[ -n "${{ github.event.inputs.version }}" ]]; then
+            TAG="${{ github.event.inputs.version }}"
+          else
+            TAG="desktop-v${{ github.run_number }}"
+          fi
+          case "$TAG" in v1.0.*) NAME="My Singghara $TAG" ;; *) NAME="My Singghara Desktop $TAG" ;; esac
+          echo "tag_name=$TAG" >> "$GITHUB_OUTPUT"
+          echo "release_name=$NAME" >> "$GITHUB_OUTPUT"
+          echo "short_sha=$SHORT_SHA" >> "$GITHUB_OUTPUT"
+
       - name: Rakit aset rilis (installer + portable zip)
         run: |
           set -euo pipefail
-          TAG="desktop-v${{ github.run_number }}"
+          TAG="${{ steps.vars.outputs.tag_name }}"
           mkdir -p release-assets
           find dl -type f \( -iname '*.exe' -o -iname '*.msi' -o -iname '*.deb' -o -iname '*.dmg' \) \
             -not -path '*/My Singghara/*' \
@@ -125,21 +162,13 @@ jobs:
           fi
           echo "=== Isi release-assets ==="; ls -lh release-assets/
 
-      - name: Generate tag & changelog
-        id: vars
-        run: |
-          RUN_NUM="${{ github.run_number }}"
-          SHORT_SHA=$(echo ${{ github.sha }} | cut -c1-7)
-          echo "tag_name=desktop-v${RUN_NUM}" >> "$GITHUB_OUTPUT"
-          echo "short_sha=$SHORT_SHA" >> "$GITHUB_OUTPUT"
-
       - name: Terbitkan GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.vars.outputs.tag_name }}
-          name: My Singghara Desktop ${{ steps.vars.outputs.tag_name }}
+          name: ${{ steps.vars.outputs.release_name }}
           body: |
-            ## 🖥️ My Singghara Desktop ${{ steps.vars.outputs.tag_name }}
+            ## 🖥️ ${{ steps.vars.outputs.release_name }}
             Dibangun langsung dari repo My-Singghara (modul /desktop) via GitHub Actions.
             Windows .exe/.msi + portabel, macOS .dmg, Linux .deb. Semua belum ditandatangani (unsigned).
             - **Commit**: `${{ steps.vars.outputs.short_sha }}` · **Run**: `${{ github.run_number }}`
