@@ -76,7 +76,7 @@ jobs:
       # Windows: versi portabel dulu (tanpa WiX) supaya launcher .exe tetap ada walau installer gagal.
       - name: Build versi portabel (Windows)
         if: matrix.name == 'Windows'
-        run: ./gradlew createDistributable -PappVersionName=${{ steps.ver.outputs.app_version }} --no-daemon
+        run: ./gradlew createDistributable -PappVersionName=${{ steps.ver.outputs.app_version }} --no-daemon --stacktrace 2>&1 | tee /tmp/desk-build.log; exit "${PIPESTATUS[0]}"
 
       - name: Unggah versi portabel (Windows)
         if: matrix.name == 'Windows'
@@ -87,24 +87,24 @@ jobs:
           if-no-files-found: error
 
       - name: Build installer
-        run: ./gradlew ${{ matrix.tasks }} -PappVersionName=${{ steps.ver.outputs.app_version }} --no-daemon --stacktrace
+        run: ./gradlew ${{ matrix.tasks }} -PappVersionName=${{ steps.ver.outputs.app_version }} --no-daemon --stacktrace 2>&1 | tee -a /tmp/desk-build.log; exit "${PIPESTATUS[0]}"
 
-      - name: Tampilkan ekor log bila build installer gagal
+      - name: Tampilkan error kompilasi / ekor log bila build gagal
         if: failure()
         continue-on-error: true
         shell: bash
         run: |
-          echo "Perintah: ./gradlew ${{ matrix.tasks }} -PappVersionName=${{ steps.ver.outputs.app_version }} --no-daemon --stacktrace"
-          LOG="$(find . -path '*/compose/logs/*' -type f 2>/dev/null | head -n 1 || true)"
-          if [ -n "$LOG" ]; then
-            echo "Log jpackage: $LOG"
-            MSG="$(tail -n 40 "$LOG" | sed 's/%/%25/g; s/\r/%0D/g; s/"/%22/g; s/#/%23/g' | tr '\n' '|' | sed 's/|/%0A/g')"
+          LOG=/tmp/desk-build.log
+          if [ -f "$LOG" ]; then
+            # Baris error kompilator Kotlin / Gradle -> jadikan annotation agar terlihat tanpa buka log mentah.
+            grep -nE "^e: |error:|FAILURE:|What went wrong|Compilation error|Unresolved reference" "$LOG" | head -n 40 | sed 's/^/::error::/'
+            echo "--- 40 baris terakhir mentah ---"; tail -n 40 "$LOG"
           else
-            MSG="Log jpackage tidak ditemukan; cari 'error:'/'e: ' di log mentah langkah Build installer."
+            echo "::error::Log build tidak ditemukan."
           fi
-          echo "::error::[desktop ${{ matrix.name }}] $MSG"
-          # Tampilkan juga error kompilasi Kotlin dari output gradle bila ada.
-          echo "::error::[desktop ${{ matrix.name }}] (lihat log langkah Build installer untuk baris 'e:' kompilator)"
+          # Tambahkan ekor log jpackage bila ada (untuk kegagalan packaging installer).
+          JP="$(find . -path '*/compose/logs/*' -type f 2>/dev/null | head -n 1 || true)"
+          if [ -n "$JP" ]; then echo "Log jpackage: $JP"; tail -n 30 "$JP"; fi
 
       - name: Unggah artefak installer
         uses: actions/upload-artifact@v4
