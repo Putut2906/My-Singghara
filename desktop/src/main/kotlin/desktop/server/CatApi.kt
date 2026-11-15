@@ -8,6 +8,7 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.add
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.jsonArray
@@ -106,6 +107,15 @@ class CatApi {
     }
 
     // --- init & persist ---------------------------------------------------------------------------
+
+    private fun addSoal(o: JsonObject) {
+        val opsi = (o["opsi"] as? JsonArray)?.map { it.jsonPrimitive.content } ?: emptyList()
+        val bobot = (o["bobot"] as? JsonArray)?.mapNotNull { it.jsonPrimitive.content.toIntOrNull() } ?: emptyList()
+        val id = o.str("id").ifBlank { UUID.randomUUID().toString() }
+        val ban = Ban(id, o.str("kategori", "TWK"), o.str("teks"), opsi, o.int("kunci", 0), bobot, o.str("pembahasan"))
+        banks.getOrPut(aktif) { mutableListOf() }.add(ban)
+        save()
+    }
 
     private fun ensureInit() {
         if (paketList.isEmpty()) {
@@ -313,7 +323,7 @@ class CatApi {
 
     // --- Importer (.md/.txt/.docx/.xlsx) -----------------------------------------------------------
 
-    fun importFromBytes(filename: String, bytes: ByteArray): List<Ban> {
+    private fun importFromBytes(filename: String, bytes: ByteArray): List<Ban> {
         val n = filename.lowercase()
         return try {
             when {
