@@ -136,6 +136,19 @@ fun FirstInstallSetupScreen(
 
     LaunchedEffect(Unit) { refreshPermissionStatuses() }
 
+    // Setelah login/daftar, "Nama Pengguna" mengikuti nama akun (displayName, fallback awalan email).
+    LaunchedEffect(viewModel.currentFirebaseUser?.uid) {
+        val user = viewModel.currentFirebaseUser
+        if (user != null) {
+            val accountName = user.displayName?.takeIf { it.isNotBlank() }
+                ?: user.email?.substringBefore("@")?.takeIf { it.isNotBlank() }
+            if (!accountName.isNullOrBlank()) {
+                tempProfileName = accountName
+                if (profileNameError.isNotEmpty()) profileNameError = ""
+            }
+        }
+    }
+
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
@@ -285,7 +298,13 @@ fun FirstInstallSetupScreen(
             ) {
                 SetupBrandHeader(
                     showSkip = currentStep < TOTAL_SETUP_STEPS,
-                    onSkip = { showSkipDialog = true }
+                    onSkip = {
+                        if (viewModel.currentFirebaseUser == null) {
+                            viewModel.showToastPopup("Silakan Masuk atau Daftar akun terlebih dahulu untuk melewati pengaturan.")
+                        } else {
+                            showSkipDialog = true
+                        }
+                    }
                 )
 
                 Spacer(modifier = Modifier.height(18.dp))
