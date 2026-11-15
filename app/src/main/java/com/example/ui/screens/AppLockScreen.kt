@@ -1,5 +1,6 @@
 package com.example.ui.screens
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -10,7 +11,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Backspace
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.LockOpen
@@ -40,10 +40,16 @@ fun AppLockScreen(viewModel: MainViewModel, onBack: () -> Unit) {
     var newInput by rememberSaveable { mutableStateOf("") }
     var confirmInput by rememberSaveable { mutableStateOf("") }
     var error by rememberSaveable { mutableStateOf("") }
+    var showExitDialog by rememberSaveable { mutableStateOf(false) }
 
     val currentFlow = runCatching { PinFlow.valueOf(flow) }.getOrDefault(PinFlow.None)
     val hasPin = viewModel.appPin.isNotEmpty()
     val inFlow = currentFlow != PinFlow.None
+
+    // Tombol back OS Android memicu pop-up konfirmasi sebelum keluar (menggantikan icon <- pada header).
+    BackHandler(enabled = !showExitDialog) {
+        showExitDialog = true
+    }
 
     fun resetFlow() {
         flow = PinFlow.None.name; step = 1
@@ -117,18 +123,6 @@ fun AppLockScreen(viewModel: MainViewModel, onBack: () -> Unit) {
     }
 
     Column(modifier = Modifier.fillMaxSize().background(cs.background)) {
-        // Header
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            IconButton(onClick = onBack) {
-                Icon(Icons.Default.ArrowBack, contentDescription = "Kembali", tint = cs.onSurface)
-            }
-            Spacer(modifier = Modifier.width(4.dp))
-            Text("Kunci Aplikasi", fontSize = 20.sp, fontWeight = FontWeight.Black, color = cs.onSurface)
-        }
-
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -309,6 +303,25 @@ fun AppLockScreen(viewModel: MainViewModel, onBack: () -> Unit) {
 
             Spacer(modifier = Modifier.height(24.dp))
         }
+    }
+
+    if (showExitDialog) {
+        AlertDialog(
+            onDismissRequest = { showExitDialog = false },
+            title = { Text("Keluar dari halaman ini?") },
+            text = { Text("Perubahan PIN yang belum selesai tidak akan disimpan.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    showExitDialog = false
+                    onBack()
+                }) { Text("Ya", fontWeight = FontWeight.Bold) }
+            },
+            dismissButton = {
+                TextButton(onClick = { showExitDialog = false }) {
+                    Text("Batal", color = cs.error, fontWeight = FontWeight.Bold)
+                }
+            }
+        )
     }
 }
 
