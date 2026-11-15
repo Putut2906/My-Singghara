@@ -35,6 +35,8 @@ class Api(
     private val port: () -> Int,
 ) {
 
+    private val catApi = CatApi()
+
     suspend fun handle(path: String, method: String, query: Map<String, String>, body: String): Reply {
         val json = parseObject(body)
         return when {
@@ -48,6 +50,7 @@ class Api(
             path.startsWith("/api/agenda") -> agenda(method, query, json)
             path.startsWith("/api/jadwal") -> jadwal(method, query, json)
             path.startsWith("/api/savings") -> savings(method, query, json)
+            path.startsWith("/api/cat") -> catApi.handle(path, method, query, body)
             else -> notAvailable(path)
         }
     }
