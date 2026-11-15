@@ -2877,7 +2877,7 @@ class LocalHttpServer(
                 val indoMonths = arrayOf("Januari", "Februari", "Maret", "April", "Mei", "Juni", "Juli", "Agustus", "September", "Oktober", "November", "Desember")
                 val currentDateFormatted = "$todayDay ${indoMonths[todayMonth - 1]} $todayYear"
 
-                val clockFontSize = com.example.ui.MainViewModel.instance?.clockFontSizeSp ?: mainPrefs.getFloat("clock_font_size_sp", 52f)
+                val clockFontSize = com.example.ui.MainViewModel.instance?.clockFontSizeSp ?: (mainPrefs.all["clock_font_size_sp"] as? Number)?.toFloat() ?: 52f
                 val customClockFontPath = com.example.ui.MainViewModel.instance?.customClockFontPath?.takeIf { it.isNotEmpty() } ?: mainPrefs.getString("custom_clock_font_path", "") ?: ""
                 val customClockFontName = com.example.ui.MainViewModel.instance?.customClockFontName?.takeIf { it.isNotEmpty() } ?: mainPrefs.getString("custom_clock_font_name", "") ?: "Technology Bold"
 
@@ -5072,7 +5072,7 @@ class LocalHttpServer(
         val activeFontName = com.example.ui.MainViewModel.instance?.customClockFontName?.takeIf { it.isNotEmpty() }
             ?: mainPrefs.getString("custom_clock_font_name", "") ?: "Technology Bold"
         val clockFontSize = com.example.ui.MainViewModel.instance?.clockFontSizeSp
-            ?: mainPrefs.getFloat("clock_font_size_sp", 52f)
+            ?: (mainPrefs.all["clock_font_size_sp"] as? Number)?.toFloat() ?: 52f
 
         val availableFonts = com.example.util.SinggharaFolderManager.getAvailableFontFiles()
         val fontsArr = JSONArray()

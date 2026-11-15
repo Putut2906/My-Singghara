@@ -1049,7 +1049,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     // Custom Clock Font state
     var customClockFontPath by mutableStateOf(sharedPrefs.getString("custom_clock_font_path", "") ?: "")
     var customClockFontName by mutableStateOf(sharedPrefs.getString("custom_clock_font_name", "") ?: "")
-    var clockFontSizeSp by mutableStateOf(sharedPrefs.getFloat("clock_font_size_sp", 52f))
+    var clockFontSizeSp by mutableStateOf((sharedPrefs.all["clock_font_size_sp"] as? Number)?.toFloat() ?: 52f)
 
     fun saveClockFontSize(sizeSp: Float) {
         val clamped = sizeSp.coerceIn(24f, 96f)
@@ -1180,7 +1180,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         profileAvatarIndex = sharedPrefs.getInt("profile_avatar_index", 0)
         customClockFontPath = sharedPrefs.getString("custom_clock_font_path", "") ?: ""
         customClockFontName = sharedPrefs.getString("custom_clock_font_name", "") ?: ""
-        clockFontSizeSp = sharedPrefs.getFloat("clock_font_size_sp", 52f)
+        clockFontSizeSp = (sharedPrefs.all["clock_font_size_sp"] as? Number)?.toFloat() ?: 52f
         isAppLockEnabled = sharedPrefs.getBoolean("app_lock_enabled", false)
         if (!isAppLockEnabled) {
             isAppUnlocked = true
