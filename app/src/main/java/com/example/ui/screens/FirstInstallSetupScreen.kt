@@ -102,6 +102,8 @@ fun FirstInstallSetupScreen(
 
     var showExitDialog by rememberSaveable { mutableStateOf(false) }
     var showSkipDialog by rememberSaveable { mutableStateOf(false) }
+    var showAuthDialog by remember { mutableStateOf(false) }
+    var authDialogInitialMode by remember { mutableStateOf(com.example.ui.components.AuthMode.LOGIN) }
     var photoToRepositionUri by remember { mutableStateOf<Uri?>(null) }
 
     var rootFolderPath by rememberSaveable { mutableStateOf("") }
@@ -192,6 +194,10 @@ fun FirstInstallSetupScreen(
                 if (tempProfileName.isBlank()) {
                     profileNameError = "Nama pengguna wajib diisi."
                     viewModel.showToastPopup("Mohon isi nama pengguna Anda.")
+                    return
+                }
+                if (viewModel.currentFirebaseUser == null) {
+                    viewModel.showToastPopup("Silakan Masuk atau Daftar akun terlebih dahulu untuk melanjutkan.")
                     return
                 }
                 profileNameError = ""
@@ -317,6 +323,8 @@ fun FirstInstallSetupScreen(
                                 profileName = tempProfileName,
                                 nameError = profileNameError,
                                 avatarIndex = selectedAvatarIndex,
+                                isSignedIn = viewModel.currentFirebaseUser != null,
+                                signedInEmail = viewModel.userEmail,
                                 onNameChange = {
                                     tempProfileName = it
                                     if (profileNameError.isNotEmpty()) profileNameError = ""
@@ -325,6 +333,14 @@ fun FirstInstallSetupScreen(
                                 onPickPhoto = {
                                     viewModel.preventAutoLock = true
                                     imagePickerLauncher.launch("image/*")
+                                },
+                                onLogin = {
+                                    authDialogInitialMode = com.example.ui.components.AuthMode.LOGIN
+                                    showAuthDialog = true
+                                },
+                                onRegister = {
+                                    authDialogInitialMode = com.example.ui.components.AuthMode.REGISTER
+                                    showAuthDialog = true
                                 }
                             )
                             3 -> SetupSecurityStepView(
@@ -556,6 +572,24 @@ fun FirstInstallSetupScreen(
             dismissButton = {
                 TextButton(onClick = { showSkipDialog = false }) { Text("Kembali") }
             }
+        )
+    }
+
+    // Dialog autentikasi Firebase (Masuk / Daftar / Lupa sandi / OTP) — reuse komponen utama app
+    if (showAuthDialog) {
+        com.example.ui.components.FirebaseAuthDialog(
+            viewModel = viewModel,
+            initialMode = authDialogInitialMode,
+            onDismissRequest = { showAuthDialog = false }
+        )
+    }
+
+    // Feedback auth (sukses/gagal/konfirmasi keluar) — reuse komponen utama app
+    val currentAuthFeedback = viewModel.authFeedbackState
+    if (currentAuthFeedback != null) {
+        com.example.ui.components.AuthFeedbackDialog(
+            feedbackState = currentAuthFeedback,
+            onDismiss = { viewModel.dismissAuthFeedback() }
         )
     }
 }
@@ -888,9 +922,13 @@ private fun SetupProfileStepView(
     profileName: String,
     nameError: String,
     avatarIndex: Int,
+    isSignedIn: Boolean,
+    signedInEmail: String,
     onNameChange: (String) -> Unit,
     onAvatarSelect: (Int) -> Unit,
-    onPickPhoto: () -> Unit
+    onPickPhoto: () -> Unit,
+    onLogin: () -> Unit,
+    onRegister: () -> Unit
 ) {
     val colorScheme = MaterialTheme.colorScheme
 
@@ -1039,6 +1077,98 @@ private fun SetupProfileStepView(
             lineHeight = 16.sp,
             color = colorScheme.onSurfaceVariant
         )
+
+        Spacer(modifier = Modifier.height(22.dp))
+
+        Text(
+            text = "AKUN",
+            fontSize = 11.sp,
+            fontWeight = FontWeight.ExtraBold,
+            letterSpacing = 0.6.sp,
+            color = colorScheme.primary
+        )
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        SetupCard {
+            if (isSignedIn) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(40.dp)
+                            .clip(CircleShape)
+                            .background(colorScheme.primaryContainer),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.CheckCircle,
+                            contentDescription = null,
+                            tint = colorScheme.primary,
+                            modifier = Modifier.size(22.dp)
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        Text(
+                            text = "Masuk sebagai",
+                            fontSize = 11.sp,
+                            color = colorScheme.onSurfaceVariant
+                        )
+                        Text(
+                            text = signedInEmail.ifBlank { "Akun tertaut" },
+                            fontSize = 14.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = colorScheme.onSurface
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = "Akun aktif. Lanjutkan ke langkah berikutnya.",
+                    fontSize = 12.sp,
+                    lineHeight = 17.sp,
+                    color = colorScheme.onSurfaceVariant
+                )
+            } else {
+                Text(
+                    text = "Masuk atau daftar akun untuk melanjutkan. Akun dipakai untuk pencadangan & sinkronisasi cloud.",
+                    fontSize = 12.sp,
+                    lineHeight = 17.sp,
+                    color = colorScheme.onSurfaceVariant
+                )
+                Spacer(modifier = Modifier.height(14.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    OutlinedButton(
+                        onClick = onLogin,
+                        modifier = Modifier
+                            .weight(1f)
+                            .testTag("setup_login_button"),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Icon(Icons.Default.AccountCircle, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Masuk", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                    }
+                    Button(
+                        onClick = onRegister,
+                        modifier = Modifier
+                            .weight(1f)
+                            .testTag("setup_register_button"),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Icon(Icons.Default.PersonAdd, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("Daftar", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                    }
+                }
+            }
+        }
     }
 }
 
