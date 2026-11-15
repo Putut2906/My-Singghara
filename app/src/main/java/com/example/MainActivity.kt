@@ -3918,6 +3918,10 @@ fun MainAppContent(viewModel: MainViewModel, desktopMode: Boolean = false) {
                             onBack = { viewModel.currentRoute = "home" },
                             onOpenDrawer = { if (desktopMode) isDesktopSidebarExpanded = true else scope.launch { drawerState.open() } }
                         )
+                        "app_lock" -> com.example.ui.screens.AppLockScreen(
+                            viewModel = viewModel,
+                            onBack = { viewModel.currentRoute = "profil" }
+                        )
                         "cat_input_soal" -> com.example.ui.screens.SimulasiCatScreen(
                             viewModel = viewModel,
                             initialTab = 0,

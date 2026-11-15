@@ -614,7 +614,7 @@ fun ProfilScreen(
                             icon = Icons.Default.Lock,
                             title = "Keamanan & Penguncian",
                             subtitle = "Kunci biometrik (Sidik Jari/Wajah) atau PIN",
-                            onClick = { showAppLockDialog = true },
+                            onClick = { viewModel.currentRoute = "app_lock" },
                             trailing = {
                                 Icon(
                                     imageVector = Icons.Default.ChevronRight,
