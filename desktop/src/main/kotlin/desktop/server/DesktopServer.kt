@@ -62,7 +62,7 @@ class DesktopServer(
 
             when {
                 method == "OPTIONS" -> send(ex, 204, "text/plain", ByteArray(0))
-                path in PAGE_PATHS -> send(ex, 200, "text/html; charset=utf-8", pageHtml().toByteArray(Charsets.UTF_8), cache = false)
+                path in PAGE_PATHS -> send(ex, 200, "text/html; charset=utf-8", markDesktop(pageHtml()).toByteArray(Charsets.UTF_8), cache = false)
                 path == "/api/clock-font" -> serveClockFont(ex)
                 path.startsWith("/api/") -> serveApi(ex, path, method)
                 else -> serveAsset(ex, path)
@@ -96,6 +96,15 @@ class DesktopServer(
         val bytes = assets.read("fonts/Technology-Bold.ttf") ?: assets.read("fonts/Technology.ttf")
         if (bytes == null) send(ex, 404, "text/plain; charset=utf-8", "Font tidak ditemukan".toByteArray())
         else send(ex, 200, "font/ttf", bytes, cache = true)
+    }
+
+    // Menandai halaman sebagai versi desktop agar UI web dapat menampilkan menu khusus PC
+    // (mis. "Connect Jaringan"). Disuntik sebelum </head> supaya global tersedia sebelum skrip body jalan.
+    private fun markDesktop(html: String): String {
+        val flag = "<script>window.__SINGGHARA_PC__=true;</script>"
+        if (html.contains("__SINGGHARA_PC__")) return html
+        val headClose = html.indexOf("</head>")
+        return if (headClose >= 0) html.substring(0, headClose) + flag + html.substring(headClose) else flag + html
     }
 
     private fun serveAsset(ex: HttpExchange, rawPath: String) {

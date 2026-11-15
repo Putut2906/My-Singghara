@@ -240,6 +240,18 @@ object ProfilWebScript {
                                 </div>
                                 <i class="bi bi-chevron-right text-secondary opacity-75"></i>
                             </div>
+                            ${dol}{window.__SINGGHARA_PC__ ? `
+                                <div class="list-group-item list-group-item-action d-flex align-items-center gap-3 py-3 px-3 border-top" role="button" onclick="openConnectNetworkModal()" style="background: transparent; color: var(--text-main); border-color: var(--border-color); cursor: pointer;">
+                                    <div class="rounded-circle d-flex align-items-center justify-content-center flex-shrink-0" style="width: 42px; height: 42px; background: rgba(14, 165, 233, 0.12); color: #0EA5E9;">
+                                        <i class="bi bi-hdd-network-fill fs-5"></i>
+                                    </div>
+                                    <div class="flex-grow-1 min-w-0">
+                                        <div class="fw-bold text-main" style="font-size: 14px;">Connect Jaringan</div>
+                                        <div class="text-secondary small text-truncate" style="font-size: 12px;">Hubungkan PC ini ke aplikasi My Singghara di HP</div>
+                                    </div>
+                                    <i class="bi bi-chevron-right text-secondary opacity-75"></i>
+                                </div>
+                            ` : ''}
                         </div>
                     </div>
 
@@ -1214,6 +1226,67 @@ object ProfilWebScript {
             }
             setProfileStatus('URL Google Apps Script berhasil disimpan!');
             await loadProfile();
+        }
+
+        // =========================================================================
+        // --- 7b. CONNECT JARINGAN (KHUSUS PC): hubungkan PC ke Web Connect HP ---
+        // =========================================================================
+        function openConnectNetworkModal() {
+            let existingModal = document.getElementById('connectNetworkCustomModal');
+            if (existingModal) existingModal.remove();
+            const savedAddr = localStorage.getItem('mysingghara_pc_phone_addr') || '';
+            const savedPin = localStorage.getItem('mysingghara_pc_phone_pin') || '';
+            const modalHtml = `
+                <div class="modal fade" id="connectNetworkCustomModal" tabindex="-1" aria-hidden="true">
+                    <div class="modal-dialog modal-dialog-centered" style="max-width: 500px;">
+                        <div class="modal-content card-custom p-3" style="border-radius: 22px; border: 1px solid var(--border-color); background: var(--card-bg);">
+                            <div class="modal-header border-bottom-0 pb-1">
+                                <h5 class="modal-title fw-bold text-main" style="font-size: 16px;">
+                                    <i class="bi bi-hdd-network-fill me-2" style="color:#0EA5E9;"></i>Connect Jaringan ke HP
+                                </h5>
+                                <button type="button" class="btn-close btn-close-custom" data-bs-dismiss="modal"></button>
+                            </div>
+                            <div class="modal-body pt-2">
+                                <p class="text-secondary small mb-3">
+                                    Nyalakan <strong>Web Connect</strong> di aplikasi My Singghara pada HP, pastikan PC &amp; HP satu jaringan Wi-Fi/Hotspot, lalu masukkan alamat yang tampil di HP (contoh: <span class="font-monospace">192.168.1.20:8080</span>).
+                                </p>
+                                <div class="mb-3">
+                                    <label class="form-label text-secondary small fw-bold">Alamat HP (IP:Port)</label>
+                                    <input id="phoneAddrInput" type="text" class="form-control form-control-dark py-2 px-3 rounded-3 font-monospace small" placeholder="192.168.1.20:8080" value="${dol}{escapeHtml(savedAddr)}">
+                                </div>
+                                <div class="mb-1">
+                                    <label class="form-label text-secondary small fw-bold">PIN (opsional)</label>
+                                    <input id="phonePinInput" type="text" inputmode="numeric" class="form-control form-control-dark py-2 px-3 rounded-3 font-monospace small" placeholder="PIN Web Connect" value="${dol}{escapeHtml(savedPin)}">
+                                </div>
+                            </div>
+                            <div class="modal-footer border-top-0 pt-0 d-flex gap-2">
+                                <button type="button" class="btn btn-outline-secondary flex-grow-1 py-2 rounded-3 fw-semibold" data-bs-dismiss="modal">Batal</button>
+                                <button type="button" class="btn btn-primary flex-grow-1 py-2 rounded-3 fw-bold shadow-sm" onclick="connectToPhoneNow()">
+                                    <i class="bi bi-plug-fill me-1"></i>Hubungkan
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            `;
+            document.body.insertAdjacentHTML('beforeend', modalHtml);
+            const modalEl = document.getElementById('connectNetworkCustomModal');
+            new bootstrap.Modal(modalEl).show();
+        }
+
+        function connectToPhoneNow() {
+            let addr = (document.getElementById('phoneAddrInput') ? document.getElementById('phoneAddrInput').value : '').trim();
+            const pin = (document.getElementById('phonePinInput') ? document.getElementById('phonePinInput').value : '').trim();
+            if (!addr) { alert('Alamat HP tidak boleh kosong!'); return; }
+            addr = addr.replace(/^https?:\/\//i, '');
+            while (addr.endsWith('/')) addr = addr.slice(0, -1);
+            if (addr.indexOf(':') < 0) addr = addr + ':8080';
+            localStorage.setItem('mysingghara_pc_phone_addr', addr);
+            if (pin) localStorage.setItem('mysingghara_pc_phone_pin', pin);
+            let url = 'http://' + addr + '/';
+            if (pin) url = url + '?pin=' + encodeURIComponent(pin);
+            try { sessionStorage.setItem('mysingghara_connect_pin', pin); } catch (e) {}
+            window.location.href = url;
         }
 
         // =========================================================================
