@@ -282,14 +282,6 @@ fun FirstInstallSetupScreen(
                     onSkip = { showSkipDialog = true }
                 )
 
-                Spacer(modifier = Modifier.height(16.dp))
-
-                SetupStepperRail(
-                    currentStep = currentStep,
-                    furthestStep = furthestStep,
-                    onStepSelect = { target -> if (target < currentStep) goToStep(target) }
-                )
-
                 Spacer(modifier = Modifier.height(18.dp))
 
                 AnimatedContent(
@@ -623,80 +615,6 @@ private fun SetupBrandHeader(
                     )
                     Spacer(modifier = Modifier.width(4.dp))
                     Text("Lewati", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun SetupStepperRail(
-    currentStep: Int,
-    furthestStep: Int,
-    onStepSelect: (Int) -> Unit
-) {
-    val cs = MaterialTheme.colorScheme
-    Column(modifier = Modifier.fillMaxWidth()) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.Top
-        ) {
-            for (index in 0 until TOTAL_SETUP_STEPS) {
-                val step = index + 1
-                val completed = step < currentStep
-                val active = step == currentStep
-                val canJump = completed && step <= furthestStep
-                val indicatorColor by animateColorAsState(
-                    targetValue = when {
-                        active -> cs.primary
-                        completed -> cs.primaryContainer
-                        else -> cs.surfaceVariant
-                    },
-                    animationSpec = tween(240),
-                    label = "setupStepDot"
-                )
-                val contentColor = when {
-                    active -> cs.onPrimary
-                    completed -> cs.primary
-                    else -> cs.onSurfaceVariant
-                }
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    modifier = Modifier
-                        .weight(1f)
-                        .then(if (canJump) Modifier.clickable { onStepSelect(step) } else Modifier)
-                        .padding(horizontal = 2.dp)
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(if (active) 34.dp else 30.dp)
-                            .clip(CircleShape)
-                            .background(indicatorColor)
-                            .then(
-                                if (active) Modifier.border(
-                                    BorderStroke(2.dp, cs.primary.copy(alpha = 0.35f)),
-                                    CircleShape
-                                ) else Modifier
-                            ),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        if (completed) {
-                            Icon(
-                                imageVector = Icons.Default.Check,
-                                contentDescription = "Langkah selesai",
-                                tint = contentColor,
-                                modifier = Modifier.size(16.dp)
-                            )
-                        } else {
-                            Text(
-                                text = step.toString(),
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = contentColor
-                            )
-                        }
-                    }
                 }
             }
         }
