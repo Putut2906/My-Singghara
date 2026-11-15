@@ -860,6 +860,7 @@ fun MainAppContent(viewModel: MainViewModel, desktopMode: Boolean = false) {
             isKeuanganExpanded = false
             isKasirExpanded = false
             isKoneksiBerbagiExpanded = false
+            isCatExpanded = false
         }
     }
     LaunchedEffect(drawerState.isClosed) {
