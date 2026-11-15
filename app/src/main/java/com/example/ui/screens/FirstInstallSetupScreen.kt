@@ -464,6 +464,29 @@ fun FirstInstallSetupScreen(
                                             viewModel.showToastPopup(msg)
                                         }
                                     }
+                                },
+                                onCloudBackupClick = {
+                                    viewModel.backupToFirebaseCloud(context) { msg, success ->
+                                        backupStatusMessage = msg
+                                        isBackupStatusError = !success
+                                        viewModel.showToastPopup(msg)
+                                    }
+                                },
+                                onCloudRestoreClick = {
+                                    viewModel.restoreFromFirebaseCloud(context) { msg, success ->
+                                        backupStatusMessage = msg
+                                        isBackupStatusError = !success
+                                        if (success) {
+                                            tempProfileName = viewModel.profileName
+                                            selectedAvatarIndex = viewModel.profileAvatarIndex
+                                            pinEnabled = viewModel.isAppLockEnabled
+                                            pinAlreadySaved = viewModel.appPin.length == 4
+                                            refreshPermissionStatuses()
+                                            viewModel.showToastPopup("Data cloud berhasil dipulihkan!")
+                                        } else {
+                                            viewModel.showToastPopup(msg)
+                                        }
+                                    }
                                 }
                             )
                             else -> SetupCompletionStepView(
@@ -1752,7 +1775,9 @@ private fun SetupBackupStepView(
     backupStatusMessage: String,
     isBackupStatusError: Boolean,
     onRequestMediaClick: () -> Unit,
-    onRestoreClick: () -> Unit
+    onRestoreClick: () -> Unit,
+    onCloudBackupClick: () -> Unit,
+    onCloudRestoreClick: () -> Unit
 ) {
     val colorScheme = MaterialTheme.colorScheme
 
@@ -1884,6 +1909,48 @@ private fun SetupBackupStepView(
                     text = if (mediaGranted) "Impor / Pulihkan Sekarang" else "Izinkan akses media lebih dulu",
                     fontSize = 12.sp
                 )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(14.dp))
+
+        SetupCard {
+            Text(
+                text = "Cadangan Cloud (Firebase)",
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Bold,
+                color = colorScheme.onSurface
+            )
+            Spacer(modifier = Modifier.height(6.dp))
+            Text(
+                text = "Impor data dari cadangan cloud akun Anda, atau unggah cadangan perangkat ini ke cloud. Memerlukan login akun.",
+                fontSize = 11.sp,
+                lineHeight = 16.sp,
+                color = colorScheme.onSurfaceVariant
+            )
+            Spacer(modifier = Modifier.height(12.dp))
+            Button(
+                onClick = onCloudRestoreClick,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("setup_cloud_restore_button"),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Icon(Icons.Default.CloudDownload, contentDescription = null, modifier = Modifier.size(16.dp))
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("Pulihkan dari Cloud (Impor)", fontSize = 12.sp)
+            }
+            Spacer(modifier = Modifier.height(10.dp))
+            OutlinedButton(
+                onClick = onCloudBackupClick,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("setup_cloud_backup_button"),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Icon(Icons.Default.CloudUpload, contentDescription = null, modifier = Modifier.size(16.dp))
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("Cadangkan ke Cloud", fontSize = 12.sp)
             }
         }
 
