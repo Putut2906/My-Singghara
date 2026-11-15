@@ -324,7 +324,7 @@ fun FirstInstallSetupScreen(
                                 nameError = profileNameError,
                                 avatarIndex = selectedAvatarIndex,
                                 isSignedIn = viewModel.currentFirebaseUser != null,
-                                signedInEmail = viewModel.userEmail,
+                                signedInEmail = viewModel.currentFirebaseUser?.email ?: "",
                                 onNameChange = {
                                     tempProfileName = it
                                     if (profileNameError.isNotEmpty()) profileNameError = ""
