@@ -25,7 +25,6 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
@@ -72,7 +71,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 private const val TOTAL_SETUP_STEPS = 6
-private val SETUP_STEP_LABELS = listOf("Mulai", "Profil", "Keamanan", "Izin", "Cadangan", "Selesai")
 
 @Composable
 fun FirstInstallSetupScreen(
@@ -699,38 +697,9 @@ private fun SetupStepperRail(
                             )
                         }
                     }
-                    Spacer(modifier = Modifier.height(6.dp))
-                    Text(
-                        text = SETUP_STEP_LABELS.getOrElse(index) { "" },
-                        fontSize = 9.sp,
-                        maxLines = 2,
-                        textAlign = TextAlign.Center,
-                        lineHeight = 11.sp,
-                        fontWeight = when {
-                            active -> FontWeight.ExtraBold
-                            completed -> FontWeight.SemiBold
-                            else -> FontWeight.Normal
-                        },
-                        color = when {
-                            active -> cs.primary
-                            completed -> cs.onSurface
-                            else -> cs.onSurfaceVariant
-                        }
-                    )
                 }
             }
         }
-
-        Spacer(modifier = Modifier.height(10.dp))
-
-        Text(
-            text = "Langkah $currentStep dari $TOTAL_SETUP_STEPS",
-            fontSize = 11.sp,
-            fontWeight = FontWeight.SemiBold,
-            color = cs.onSurfaceVariant,
-            modifier = Modifier.fillMaxWidth(),
-            textAlign = TextAlign.Center
-        )
     }
 }
 
@@ -780,13 +749,12 @@ private fun SetupCard(
     borderColor: Color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.75f),
     content: @Composable ColumnScope.() -> Unit
 ) {
-    val lightTheme = !isSystemInDarkTheme()
     Card(
         modifier = modifier.fillMaxWidth(),
         shape = RoundedCornerShape(20.dp),
         border = BorderStroke(1.dp, borderColor),
         colors = CardDefaults.cardColors(containerColor = containerColor),
-        elevation = CardDefaults.cardElevation(defaultElevation = if (lightTheme) 2.dp else 0.dp)
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
     ) {
         Column(modifier = Modifier.padding(16.dp), content = content)
     }
