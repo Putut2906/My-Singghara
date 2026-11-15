@@ -11671,6 +11671,10 @@ class LocalHttpServer(
                             <i class="bi bi-music-note-beamed fs-5" style="color: #E91E63;"></i>
                             <span class="nav-text">Musik</span>
                         </div>
+                        <div class="nav-link-item" onclick="switchTab('stopwatch', this)" data-title="Stopwatch">
+                            <i class="bi bi-stopwatch fs-5" style="color: #7C3AED;"></i>
+                            <span class="nav-text">Stopwatch</span>
+                        </div>
                     </div>
                 </div>
 
@@ -13258,6 +13262,9 @@ class LocalHttpServer(
             else if (currentTab === 'kalkulator') {
                 if (window.loadKalkulator) window.loadKalkulator();
             }
+            else if (currentTab === 'stopwatch') {
+                if (window.loadStopwatch) window.loadStopwatch();
+            }
             else if (currentTab === 'cat_input_soal') { if (window.loadCat) window.loadCat(0); }
             else if (currentTab === 'cat_simulasi_ujian') { if (window.loadCat) window.loadCat(1); }
             else if (currentTab === 'cat_hasil') { if (window.loadCat) window.loadCat(2); }
@@ -14553,6 +14560,7 @@ class LocalHttpServer(
         ${ProfilWebScript.getScript(dol)}
                         ${KalkulatorWebScript.getScript(dol)}
                         ${CatWebScript.getScript(dol)}
+                        ${StopwatchWebScript.getScript(dol)}
 
         // ==========================================
         // --- 4. BLOCK PUZZLE CLASSIC (8x8) ---

@@ -1902,7 +1902,8 @@ fun MainAppContent(viewModel: MainViewModel, desktopMode: Boolean = false) {
                                 val mediaEntries = listOf(
                                     Triple("pemutar_video", "Pemutar Video", if (viewModel.currentRoute == "pemutar_video") Icons.Default.VideoLibrary else Icons.Outlined.VideoLibrary),
                                     Triple("handy_talky", "HT (Handy Talky)", Icons.Default.SettingsVoice),
-                                    Triple("pemutar_musik", "Pemutar Musik", Icons.Default.MusicNote)
+                                    Triple("pemutar_musik", "Pemutar Musik", Icons.Default.MusicNote),
+                                    Triple("stopwatch", "Stopwatch", if (viewModel.currentRoute == "stopwatch") Icons.Default.Timer else Icons.Outlined.Timer)
                                 )
 
                                 mediaEntries.forEach { (route, title, iconVec) ->
@@ -2348,20 +2349,6 @@ fun MainAppContent(viewModel: MainViewModel, desktopMode: Boolean = false) {
 
                             }
                         }
-                    }
-
-                    // Menu mandiri: Stopwatch (top-level, di bawah Manajemen Mandiri)
-                    val isStopwatchSelected = viewModel.currentRoute == "stopwatch"
-                    DrawerMenuCard {
-                        PrimaryDrawerEntry(
-                            label = "Stopwatch",
-                            icon = if (isStopwatchSelected) Icons.Default.Timer else Icons.Outlined.Timer,
-                            selected = isStopwatchSelected,
-                            onClick = {
-                                viewModel.currentRoute = "stopwatch"
-                                scope.launch { drawerState.close() }
-                            }
-                        )
                     }
 
                     // Group: SIMULASI CAT (Boxed Group Card)
