@@ -73,43 +73,6 @@ jobs:
           echo "app_version=$v" >> "$GITHUB_OUTPUT"
           echo "Versi aplikasi desktop: $v"
 
-      - name: Diag audit kurung CatApi
-        shell: bash
-        run: |
-          PY="$(command -v python3 || command -v python)"
-          OUT="$("$PY" - <<'PYEOF'
-          import hashlib
-          p = "src/main/kotlin/desktop/server/CatApi.kt"
-          b = open(p, "rb").read()
-          print("SHA256", hashlib.sha256(b).hexdigest(), "BYTES", len(b))
-          s = b.decode("utf-8"); i=0; n=len(s); line=1; brace=0; first0=None
-          ins=sc=lc=esc=False
-          while i<n:
-              c=s[i]; nx=s[i+1] if i+1<n else ""
-              if c=="\n": line+=1; lc=False; i+=1; continue
-              if lc: i+=1; continue
-              if sc:
-                  if c=="*" and nx=="/": sc=False; i+=2; continue
-                  i+=1; continue
-              if ins:
-                  if esc: esc=False
-                  elif c=="\\": esc=True
-                  elif c=='"': ins=False
-                  i+=1; continue
-              if c=="/" and nx=="/": lc=True; i+=2; continue
-              if c=="/" and nx=="*": sc=True; i+=2; continue
-              if c=='"': ins=True; i+=1; continue
-              if c=="{": brace+=1
-              elif c=="}":
-                  brace-=1
-                  if brace==0 and line>61 and first0 is None: first0=line
-              i+=1
-          print("FINAL_BRACE", brace, "FIRST_ZERO_LINE", first0)
-          PYEOF
-          )"
-          echo "$OUT"
-          echo "::warning::DIAG $(echo "$OUT" | tr '\n' ' ')"
-
       # Windows: versi portabel dulu (tanpa WiX) supaya launcher .exe tetap ada walau installer gagal.
       - name: Build versi portabel (Windows)
         if: matrix.name == 'Windows'

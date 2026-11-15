@@ -16,7 +16,7 @@ import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 
 /**
- * CAT (Simulasi SKD) untuk server desktop. Meniru persis kontrak /api/cat/* pada
+ * CAT (Simulasi SKD) untuk server desktop. Meniru persis kontrak rute api-cat pada
  * LocalHttpServer (Android) supaya CatWebScript berjalan tanpa diubah, tetapi menyimpan
  * state ke berkas JSON lokal (AppPaths/cat.json) karena desktop tidak punya SharedPreferences.
  * Timer memakai jam sistem (endTime) sehingga menutup/membuka ulang tidak mereset.
