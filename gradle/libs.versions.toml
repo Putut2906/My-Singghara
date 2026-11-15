@@ -12,6 +12,13 @@ materialIconsExtended = "1.7.2"
 ksp = "2.2.10-2.0.2"
 room = "2.7.2"
 googleServices = "4.5.0"
+# Compose Multiplatform (desktop) - verified against JetBrains compatibility page (15 Oct 2026):
+# CMP 1.12.2 stable is based on Jetpack Compose 1.12.1 and needs Kotlin >= 2.1.0, so the existing
+# Kotlin 2.2.10 is compatible without a forced upgrade.
+composeMultiplatform = "1.12.2"
+coroutines = "1.10.2"
+jetbrainsLifecycle = "2.11.0"
+jetbrainsNavigation = "2.10.0"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -33,6 +40,10 @@ androidx-material-icons-extended = { group = "androidx.compose.material", name =
 androidx-room-runtime = { group = "androidx.room", name = "room-runtime", version.ref = "room" }
 androidx-room-ktx = { group = "androidx.room", name = "room-ktx", version.ref = "room" }
 androidx-room-compiler = { group = "androidx.room", name = "room-compiler", version.ref = "room" }
+# --- KMP / desktop shared artifacts (verified from JetBrains CMP 1.12.2 release table) ---
+jetbrains-lifecycle-viewmodel-compose = { group = "org.jetbrains.androidx.lifecycle", name = "lifecycle-viewmodel-compose", version.ref = "jetbrainsLifecycle" }
+jetbrains-navigation-compose = { group = "org.jetbrains.androidx.navigation", name = "navigation-compose", version.ref = "jetbrainsNavigation" }
+kotlinx-coroutines-swing = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-swing", version.ref = "coroutines" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }
@@ -40,3 +51,7 @@ kotlin-android = { id = "org.jetbrains.kotlin.android", version.ref = "kotlin" }
 kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
 ksp = { id = "com.google.devtools.ksp", version.ref = "ksp" }
 google-services = { id = "com.google.gms.google-services", version.ref = "googleServices" }
+# --- Kotlin Multiplatform + Compose Multiplatform (desktop) ---
+kotlin-multiplatform = { id = "org.jetbrains.kotlin.multiplatform", version.ref = "kotlin" }
+android-library = { id = "com.android.library", version.ref = "agp" }
+compose-multiplatform = { id = "org.jetbrains.compose", version.ref = "composeMultiplatform" }

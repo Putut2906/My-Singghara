@@ -1,0 +1,58 @@
+name: Build Desktop (KMP)
+
+# Fase 2: proves the KMP scaffold (:shared + :desktopApp) compiles and the desktop
+# app can produce a portable image. Windows is required because jpackage / the
+# native distribution tasks only build for the host OS.
+on:
+  push:
+    branches:
+      - 'feat/**'
+  workflow_dispatch:
+    inputs:
+      package:
+        description: 'Juga jalankan packageMsi/Exe (butuh WiX)'
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  desktop:
+    name: Desktop build (Windows)
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21 (Zulu)
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '21'
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '9.3.1'
+
+      - name: Compile + shared tests (all targets)
+        run: |
+          gradle :shared:desktopTest :shared:compileKotlinDesktop :shared:assembleDebug --no-daemon --stacktrace
+
+      - name: Build portable desktop image (no WiX needed)
+        run: |
+          gradle :desktopApp:createDistributable --no-daemon --stacktrace
+
+      - name: Optional MSI/EXE packaging
+        if: ${{ github.event.inputs.package == 'true' }}
+        run: |
+          gradle :desktopApp:packageMsi :desktopApp:packageExe --no-daemon --stacktrace
+
+      - name: Upload desktop image artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: MySingghara-desktop-image
+          path: desktopApp/build/compose/binaries/main/app/
+          if-no-files-found: error
