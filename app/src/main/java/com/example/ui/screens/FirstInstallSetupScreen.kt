@@ -25,6 +25,7 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
@@ -451,10 +452,16 @@ fun FirstInstallSetupScreen(
                     }
                 }
 
+                Spacer(modifier = Modifier.height(14.dp))
+                HorizontalDivider(
+                    modifier = Modifier.padding(bottom = 14.dp),
+                    thickness = 1.dp,
+                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f)
+                )
+
                 Row(
                     modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 14.dp),
+                        .fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(12.dp),
                     verticalAlignment = Alignment.CenterVertically
                 ) {
@@ -600,8 +607,25 @@ private fun SetupBrandHeader(
         }
 
         if (showSkip) {
-            TextButton(onClick = onSkip, modifier = Modifier.testTag("setup_skip_button")) {
-                Text("Lewati", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+            Surface(
+                onClick = onSkip,
+                shape = RoundedCornerShape(999.dp),
+                color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.6f),
+                contentColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.testTag("setup_skip_button")
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.SkipNext,
+                        contentDescription = null,
+                        modifier = Modifier.size(15.dp)
+                    )
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Text("Lewati", fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                }
             }
         }
     }
@@ -613,55 +637,100 @@ private fun SetupStepperRail(
     furthestStep: Int,
     onStepSelect: (Int) -> Unit
 ) {
+    val cs = MaterialTheme.colorScheme
     Column(modifier = Modifier.fillMaxWidth()) {
         Row(
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
-            verticalAlignment = Alignment.CenterVertically
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.Top
         ) {
             for (index in 0 until TOTAL_SETUP_STEPS) {
                 val step = index + 1
-                val railColor by animateColorAsState(
+                val completed = step < currentStep
+                val active = step == currentStep
+                val canJump = completed && step <= furthestStep
+                val indicatorColor by animateColorAsState(
                     targetValue = when {
-                        step == currentStep -> MaterialTheme.colorScheme.primary
-                        step < currentStep -> MaterialTheme.colorScheme.primary.copy(alpha = 0.45f)
-                        else -> MaterialTheme.colorScheme.surfaceVariant
+                        active -> cs.primary
+                        completed -> cs.primaryContainer
+                        else -> cs.surfaceVariant
                     },
                     animationSpec = tween(240),
-                    label = "setupRail"
+                    label = "setupStepDot"
                 )
-                val canJumpBack = step < currentStep && step <= furthestStep
-                Box(
+                val contentColor = when {
+                    active -> cs.onPrimary
+                    completed -> cs.primary
+                    else -> cs.onSurfaceVariant
+                }
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
                     modifier = Modifier
                         .weight(1f)
-                        .height(if (step == currentStep) 8.dp else 6.dp)
-                        .clip(RoundedCornerShape(4.dp))
-                        .background(railColor)
-                        .then(if (canJumpBack) Modifier.clickable { onStepSelect(step) } else Modifier)
-                )
+                        .then(if (canJump) Modifier.clickable { onStepSelect(step) } else Modifier)
+                        .padding(horizontal = 2.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(if (active) 34.dp else 30.dp)
+                            .clip(CircleShape)
+                            .background(indicatorColor)
+                            .then(
+                                if (active) Modifier.border(
+                                    BorderStroke(2.dp, cs.primary.copy(alpha = 0.35f)),
+                                    CircleShape
+                                ) else Modifier
+                            ),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        if (completed) {
+                            Icon(
+                                imageVector = Icons.Default.Check,
+                                contentDescription = "Langkah selesai",
+                                tint = contentColor,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        } else {
+                            Text(
+                                text = step.toString(),
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = contentColor
+                            )
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(6.dp))
+                    Text(
+                        text = SETUP_STEP_LABELS.getOrElse(index) { "" },
+                        fontSize = 9.sp,
+                        maxLines = 2,
+                        textAlign = TextAlign.Center,
+                        lineHeight = 11.sp,
+                        fontWeight = when {
+                            active -> FontWeight.ExtraBold
+                            completed -> FontWeight.SemiBold
+                            else -> FontWeight.Normal
+                        },
+                        color = when {
+                            active -> cs.primary
+                            completed -> cs.onSurface
+                            else -> cs.onSurfaceVariant
+                        }
+                    )
+                }
             }
         }
 
         Spacer(modifier = Modifier.height(10.dp))
 
-        Row(
+        Text(
+            text = "Langkah $currentStep dari $TOTAL_SETUP_STEPS",
+            fontSize = 11.sp,
+            fontWeight = FontWeight.SemiBold,
+            color = cs.onSurfaceVariant,
             modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(
-                text = "Langkah $currentStep dari $TOTAL_SETUP_STEPS",
-                fontSize = 11.sp,
-                fontWeight = FontWeight.SemiBold,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            Text(
-                text = SETUP_STEP_LABELS.getOrElse(currentStep - 1) { "" },
-                fontSize = 11.sp,
-                fontWeight = FontWeight.ExtraBold,
-                color = MaterialTheme.colorScheme.primary
-            )
-        }
+            textAlign = TextAlign.Center
+        )
     }
 }
 
@@ -711,12 +780,13 @@ private fun SetupCard(
     borderColor: Color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.75f),
     content: @Composable ColumnScope.() -> Unit
 ) {
+    val lightTheme = !isSystemInDarkTheme()
     Card(
         modifier = modifier.fillMaxWidth(),
         shape = RoundedCornerShape(20.dp),
         border = BorderStroke(1.dp, borderColor),
         colors = CardDefaults.cardColors(containerColor = containerColor),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+        elevation = CardDefaults.cardElevation(defaultElevation = if (lightTheme) 2.dp else 0.dp)
     ) {
         Column(modifier = Modifier.padding(16.dp), content = content)
     }
