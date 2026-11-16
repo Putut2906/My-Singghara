@@ -232,7 +232,8 @@ object CalendarExportHelper {
                             holidays = completeHolidays,
                             agendas = agendas,
                             paperType = paperType,
-                            pageInfoText = "Halaman $m dari 12"
+                            pageInfoText = "Halaman $m dari 12",
+                            logo = appLogo
                         )
 
                         val pageInfo = PdfDocument.PageInfo.Builder(595, 842, m).create()
@@ -286,7 +287,8 @@ object CalendarExportHelper {
                         hijriOffset = hijriOffset,
                         holidays = completeHolidays,
                         agendas = agendas,
-                        paperType = paperType
+                        paperType = paperType,
+                        logo = appLogo
                     )
 
                     val imageFile = File(exportDir, "$fileNameBase.$ext")
@@ -318,9 +320,10 @@ object CalendarExportHelper {
                     hijriOffset = hijriOffset,
                     holidays = completeHolidays,
                     agendas = agendas,
-                    paperType = paperType,
-                    pageInfoText = null
-                )
+                     paperType = paperType,
+                     pageInfoText = null,
+                     logo = appLogo
+                 )
 
                 if (format.equals("PDF", ignoreCase = true)) {
                     val pdfDocument = PdfDocument()
@@ -389,7 +392,8 @@ object CalendarExportHelper {
         holidays: Map<String, String>,
         agendas: List<AgendaItem>,
         paperType: String,
-        pageInfoText: String? = null
+        pageInfoText: String? = null,
+        logo: Bitmap? = null
     ) {
         // Background
         canvas.drawColor(Color.WHITE)
@@ -417,6 +421,9 @@ object CalendarExportHelper {
         // Garis aksen teal di bawah header
         paint.color = Color.parseColor("#0F766E")
         canvas.drawRect(RectF(60f, 150f, width - 60f, 156f), paint)
+
+        // Logo aplikasi My Singghara (kanan-atas, menggantikan badge kertas)
+        drawAppLogo(canvas, logo, width - 60f - 110f, 40f, 110f, 110f)
 
         // 2. Day Header Bar (7 columns)
         val gridLeft = 36f
@@ -675,7 +682,8 @@ object CalendarExportHelper {
         hijriOffset: Int,
         holidays: Map<String, String>,
         agendas: List<AgendaItem>,
-        paperType: String
+        paperType: String,
+        logo: Bitmap? = null
     ) {
         canvas.drawColor(Color.WHITE)
 
@@ -702,6 +710,9 @@ object CalendarExportHelper {
         // Garis aksen teal di bawah header
         paint.color = Color.parseColor("#0F766E")
         canvas.drawRect(RectF(100f, 220f, width - 100f, 230f), paint)
+
+        // Logo aplikasi My Singghara (kanan-atas, menggantikan badge kertas)
+        drawAppLogo(canvas, logo, width - 100f - 160f, 60f, 160f, 160f)
 
         // 2. 12-Month Grid (3 Columns x 4 Rows)
         val gridLeft = 60f
