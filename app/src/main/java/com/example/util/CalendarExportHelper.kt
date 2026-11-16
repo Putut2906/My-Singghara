@@ -285,6 +285,7 @@ object CalendarExportHelper {
                         year = year,
                         hijriOffset = hijriOffset,
                         holidays = completeHolidays,
+                        agendas = agendas,
                         paperType = paperType
                     )
 
@@ -401,27 +402,26 @@ object CalendarExportHelper {
         paint.strokeWidth = 3f
         canvas.drawRoundRect(RectF(24f, 24f, width - 24f, height - 24f), 16f, 16f, paint)
 
-        // Header Background Banner
+        // Header (light): judul gelap + garis aksen teal
         paint.style = Paint.Style.FILL
-        paint.color = Color.parseColor("#0F172A") // Deep slate
-        canvas.drawRoundRect(RectF(36f, 36f, width - 36f, 160f), 12f, 12f, paint)
-
-        // Header Title
-        paint.color = Color.WHITE
         paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
         paint.textSize = 34f
+        paint.color = Color.parseColor("#0F172A")
         canvas.drawText("KALENDER $monthName $year".uppercase(Locale("id", "ID")), 60f, 95f, paint)
 
-        // Header Subtitle & Paper Specification
         paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
         paint.textSize = 17f
-        paint.color = Color.parseColor("#94A3B8")
+        paint.color = Color.parseColor("#475569")
         canvas.drawText("My Singghara • Kalender Nasional, Jawa & Hijriah", 60f, 132f, paint)
 
-        // Paper badge on top right
+        // Garis aksen teal di bawah header
+        paint.color = Color.parseColor("#0F766E")
+        canvas.drawRect(RectF(60f, 150f, width - 60f, 156f), paint)
+
+        // Paper badge kanan-atas (teal)
         paint.textSize = 15f
         paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
-        paint.color = Color.parseColor("#38BDF8")
+        paint.color = Color.parseColor("#0F766E")
         val badgeText = "Kertas: $paperType"
         val badgeWidth = paint.measureText(badgeText)
         canvas.drawText(badgeText, width - 60f - badgeWidth, 115f, paint)
@@ -485,7 +485,7 @@ object CalendarExportHelper {
                     paint.style = Paint.Style.FILL
                     paint.color = when {
                         holidayName != null -> Color.parseColor("#FEF2F2") // soft red
-                        observanceName != null -> Color.parseColor("#F0FDF4") // soft green
+                        observanceName != null || dayAgendas.isNotEmpty() -> Color.parseColor("#F0FDF4") // soft green (acara & peringatan)
                         else -> Color.parseColor("#FAFAFA")
                     }
                     canvas.drawRoundRect(cellRect, 8f, 8f, paint)
@@ -494,7 +494,7 @@ object CalendarExportHelper {
                     paint.strokeWidth = 1.5f
                     paint.color = when {
                         holidayName != null -> Color.parseColor("#FCA5A5")
-                        observanceName != null -> Color.parseColor("#86EFAC")
+                        observanceName != null || dayAgendas.isNotEmpty() -> Color.parseColor("#86EFAC")
                         else -> Color.parseColor("#E2E8F0")
                     }
                     canvas.drawRoundRect(cellRect, 8f, 8f, paint)
@@ -532,7 +532,7 @@ object CalendarExportHelper {
                         canvas.drawCircle(colX + colWidth - 14f, rowY + 16f, 4f, paint)
                     }
                     if (dayAgendas.isNotEmpty()) {
-                        paint.color = Color.parseColor("#EAB308")
+                        paint.color = Color.parseColor("#059669") // hijau = acara
                         canvas.drawCircle(colX + colWidth - 24f, rowY + 16f, 4f, paint)
                     }
 
@@ -682,6 +682,7 @@ object CalendarExportHelper {
         year: Int,
         hijriOffset: Int,
         holidays: Map<String, String>,
+        agendas: List<AgendaItem>,
         paperType: String
     ) {
         canvas.drawColor(Color.WHITE)
@@ -694,25 +695,26 @@ object CalendarExportHelper {
         paint.strokeWidth = 6f
         canvas.drawRoundRect(RectF(40f, 40f, width - 40f, height - 40f), 24f, 24f, paint)
 
-        // 1. Header Banner
+        // 1. Header (light): judul gelap + garis aksen teal
         paint.style = Paint.Style.FILL
         paint.color = Color.parseColor("#0F172A")
-        canvas.drawRoundRect(RectF(60f, 60f, width - 60f, 250f), 20f, 20f, paint)
-
-        paint.color = Color.WHITE
         paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
         paint.textSize = 62f
         canvas.drawText("KALENDER TAHUN $year", 100f, 150f, paint)
 
         paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
         paint.textSize = 28f
-        paint.color = Color.parseColor("#94A3B8")
+        paint.color = Color.parseColor("#475569")
         canvas.drawText("My Singghara • Lengkap Penanggalan Nasional, Pasaran Jawa & Hijriah", 100f, 205f, paint)
 
-        // Badge Spesifikasi Kertas
+        // Garis aksen teal di bawah header
+        paint.color = Color.parseColor("#0F766E")
+        canvas.drawRect(RectF(100f, 220f, width - 100f, 230f), paint)
+
+        // Badge Spesifikasi Kertas (teal)
         paint.textSize = 26f
         paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
-        paint.color = Color.parseColor("#38BDF8")
+        paint.color = Color.parseColor("#0F766E")
         val badgeText = "Kertas Cetak: $paperType"
         val badgeW = paint.measureText(badgeText)
         canvas.drawText(badgeText, width - 100f - badgeW, 165f, paint)
@@ -748,7 +750,8 @@ object CalendarExportHelper {
                 month = m,
                 monthName = MONTH_NAMES[m - 1],
                 hijriOffset = hijriOffset,
-                holidays = holidays
+                holidays = holidays,
+                agendas = agendas
             )
         }
 
@@ -839,7 +842,8 @@ object CalendarExportHelper {
         month: Int,
         monthName: String,
         hijriOffset: Int,
-        holidays: Map<String, String>
+        holidays: Map<String, String>,
+        agendas: List<AgendaItem>
     ) {
         val paint = Paint(Paint.ANTI_ALIAS_FLAG)
 
@@ -854,10 +858,10 @@ object CalendarExportHelper {
         paint.color = Color.parseColor("#E2E8F0")
         canvas.drawRoundRect(RectF(left, top, right, bottom), 12f, 12f, paint)
 
-        // Month Header Strip
+        // Month Header Strip (teal)
         val headerH = 46f
         paint.style = Paint.Style.FILL
-        paint.color = Color.parseColor("#1E293B")
+        paint.color = Color.parseColor("#0F766E")
         canvas.drawRoundRect(RectF(left, top, right, top + headerH), 12f, 12f, paint)
         canvas.drawRect(RectF(left, top + headerH - 8f, right, top + headerH), paint)
 
@@ -909,13 +913,35 @@ object CalendarExportHelper {
                     val dateKey = String.format("%04d-%02d-%02d", year, month, currentDay)
                     val holidayName = holidays[dateKey]
                     val observanceName = HolidayClient.getObservanceForDate(month, currentDay)
+                    val hasAgenda = agendas.any { it.tanggal == dateKey }
                     val jawa = JavaneseCalendarHelper.calculateJawa(year, month, currentDay)
+                    val hijri = HijriCalendarHelper.getHijriDate(year, month, currentDay, hijriOffset)
+                    val hijriShort = hijri.split(" ").take(2).joinToString(" ")
                     val isSunday = (dIdx == 0)
 
-                    // Cell Day Number
+                    // Cell background + border (home tint: merah=libur, hijau=acara & peringatan)
+                    val cellRect = RectF(colX + 1f, rowTop + 1f, colX + colW - 1f, rowTop + rowH - 1f)
+                    paint.style = Paint.Style.FILL
+                    paint.color = when {
+                        holidayName != null -> Color.parseColor("#FEE2E2")
+                        observanceName != null || hasAgenda -> Color.parseColor("#D1FAE5")
+                        else -> Color.WHITE
+                    }
+                    canvas.drawRoundRect(cellRect, 4f, 4f, paint)
+
+                    paint.style = Paint.Style.STROKE
+                    paint.strokeWidth = 0.8f
+                    paint.color = when {
+                        holidayName != null -> Color.parseColor("#FCA5A5")
+                        observanceName != null || hasAgenda -> Color.parseColor("#6EE7B7")
+                        else -> Color.parseColor("#E2E8F0")
+                    }
+                    canvas.drawRoundRect(cellRect, 4f, 4f, paint)
+
+                    // Day Number
                     paint.style = Paint.Style.FILL
                     paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
-                    paint.textSize = 20f
+                    paint.textSize = 18f
                     paint.color = when {
                         holidayName != null || isSunday -> Color.parseColor("#DC2626")
                         observanceName != null -> Color.parseColor("#16A34A")
@@ -923,29 +949,38 @@ object CalendarExportHelper {
                     }
                     val numStr = currentDay.toString()
                     val nW = paint.measureText(numStr)
-                    val nX = colX + (colW - nW) / 2f
-                    canvas.drawText(numStr, nX, rowTop + 24f, paint)
+                    canvas.drawText(numStr, colX + (colW - nW) / 2f, rowTop + 22f, paint)
 
-                    // Pasaran Initial / Short
+                    // Dina + Pasaran Jawa
                     paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
-                    paint.textSize = 11f
-                    paint.color = when {
-                        holidayName != null || isSunday -> Color.parseColor("#EF4444")
-                        observanceName != null -> Color.parseColor("#22C55E")
-                        else -> Color.parseColor("#64748B")
-                    }
-                    val pasaranShort = jawa.pasaran.take(3)
-                    val pW = paint.measureText(pasaranShort)
-                    val pX = colX + (colW - pW) / 2f
-                    canvas.drawText(pasaranShort, pX, rowTop + 40f, paint)
+                    paint.textSize = 10f
+                    paint.color = Color.parseColor("#64748B")
+                    val jawaText = jawa.dina + " " + jawa.pasaran
+                    val jW = paint.measureText(jawaText)
+                    canvas.drawText(jawaText, colX + (colW - jW) / 2f, rowTop + 37f, paint)
 
-                    // Dot Indicator for Holiday / Observance
+                    // Hijriah (short)
+                    paint.textSize = 9f
+                    paint.color = Color.parseColor("#0F766E")
+                    val hW = paint.measureText(hijriShort)
+                    canvas.drawText(hijriShort, colX + (colW - hW) / 2f, rowTop + 49f, paint)
+
+                    // Dot indikator: merah=libur, hijau=peringatan, hijau-gelap=acara
+                    var dotX = colX + colW - 8f
+                    paint.style = Paint.Style.FILL
                     if (holidayName != null) {
                         paint.color = Color.parseColor("#DC2626")
-                        canvas.drawCircle(colX + colW - 8f, rowTop + 10f, 3f, paint)
-                    } else if (observanceName != null) {
+                        canvas.drawCircle(dotX, rowTop + 9f, 2.5f, paint)
+                        dotX -= 8f
+                    }
+                    if (observanceName != null) {
                         paint.color = Color.parseColor("#16A34A")
-                        canvas.drawCircle(colX + colW - 8f, rowTop + 10f, 3f, paint)
+                        canvas.drawCircle(dotX, rowTop + 9f, 2.5f, paint)
+                        dotX -= 8f
+                    }
+                    if (hasAgenda) {
+                        paint.color = Color.parseColor("#059669")
+                        canvas.drawCircle(dotX, rowTop + 9f, 2.5f, paint)
                     }
 
                     currentDay++
