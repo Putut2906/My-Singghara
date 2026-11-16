@@ -402,12 +402,12 @@ object CalendarExportHelper {
         paint.strokeWidth = 3f
         canvas.drawRoundRect(RectF(24f, 24f, width - 24f, height - 24f), 16f, 16f, paint)
 
-        // Header (light): judul gelap + garis aksen teal
+        // Header (light): nama bulan & tahun (tanpa kata "KALENDER"), tanpa badge kertas
         paint.style = Paint.Style.FILL
         paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
         paint.textSize = 34f
         paint.color = Color.parseColor("#0F172A")
-        canvas.drawText("KALENDER $monthName $year".uppercase(Locale("id", "ID")), 60f, 95f, paint)
+        canvas.drawText("$monthName $year".uppercase(Locale("id", "ID")), 60f, 95f, paint)
 
         paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
         paint.textSize = 17f
@@ -417,14 +417,6 @@ object CalendarExportHelper {
         // Garis aksen teal di bawah header
         paint.color = Color.parseColor("#0F766E")
         canvas.drawRect(RectF(60f, 150f, width - 60f, 156f), paint)
-
-        // Paper badge kanan-atas (teal)
-        paint.textSize = 15f
-        paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
-        paint.color = Color.parseColor("#0F766E")
-        val badgeText = "Kertas: $paperType"
-        val badgeWidth = paint.measureText(badgeText)
-        canvas.drawText(badgeText, width - 60f - badgeWidth, 115f, paint)
 
         // 2. Day Header Bar (7 columns)
         val gridLeft = 36f
@@ -664,9 +656,9 @@ object CalendarExportHelper {
         paint.textSize = 13f
         paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
         val footerText = if (pageInfoText != null) {
-            "Dokumen Kalender Resmi • $pageInfoText • My Singghara • Kertas: $paperType"
+            "Dokumen Kalender Resmi • $pageInfoText • My Singghara"
         } else {
-            "Dokumen Kalender Resmi • Dibuat Otomatis oleh My Singghara • Format Kertas: $paperType"
+            "Dokumen Kalender Resmi • Dibuat Otomatis oleh My Singghara"
         }
         val fW = paint.measureText(footerText)
         canvas.drawText(footerText, (width - fW) / 2f, height - 42f, paint)
@@ -710,14 +702,6 @@ object CalendarExportHelper {
         // Garis aksen teal di bawah header
         paint.color = Color.parseColor("#0F766E")
         canvas.drawRect(RectF(100f, 220f, width - 100f, 230f), paint)
-
-        // Badge Spesifikasi Kertas (teal)
-        paint.textSize = 26f
-        paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
-        paint.color = Color.parseColor("#0F766E")
-        val badgeText = "Kertas Cetak: $paperType"
-        val badgeW = paint.measureText(badgeText)
-        canvas.drawText(badgeText, width - 100f - badgeW, 165f, paint)
 
         // 2. 12-Month Grid (3 Columns x 4 Rows)
         val gridLeft = 60f
@@ -824,7 +808,7 @@ object CalendarExportHelper {
         paint.color = Color.parseColor("#64748B")
         paint.textSize = 22f
         paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
-        val footerText = "Dokumen Poster Kalender Resmi 12 Bulan • My Singghara • Rekomendasi Cetak: $paperType"
+        val footerText = "Dokumen Poster Kalender Resmi 12 Bulan • My Singghara"
         val fw = paint.measureText(footerText)
         canvas.drawText(footerText, (width - fw) / 2f, height - 50f, paint)
     }
