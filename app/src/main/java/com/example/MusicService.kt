@@ -942,7 +942,7 @@ class MusicService : Service() {
         val metaBuilder = android.media.MediaMetadata.Builder()
             .putString(android.media.MediaMetadata.METADATA_KEY_TITLE, track.title)
             .putString(android.media.MediaMetadata.METADATA_KEY_ARTIST, track.artist)
-            .putString(android.media.MediaMetadata.METADATA_KEY_ALBUM, "ponsel ini")
+            .putString(android.media.MediaMetadata.METADATA_KEY_ALBUM, "My Singghara")
             .putLong(android.media.MediaMetadata.METADATA_KEY_DURATION, duration)
 
         if (albumArt != null) {
