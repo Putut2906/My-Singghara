@@ -484,17 +484,10 @@ fun CalendarMonthScreen(
                                     scope = exportScope
                                 )
                                 isExporting = false
-                                result.onSuccess { exportedFile ->
-                                    val mime = if (exportFormat.equals("PDF", true)) "application/pdf"
-                                    else if (exportFormat.equals("PNG", true)) "image/png" else "image/jpeg"
+                                result.onSuccess {
                                     val scopeLabel = if (exportScope == "12_MONTHS") "12 Bulan $calendarYear" else "$calendarMonthName $calendarYear"
-                                    CalendarExportHelper.shareCalendarFile(
-                                        context = context,
-                                        file = exportedFile,
-                                        mimeType = mime,
-                                        title = "Unduh Kalender $scopeLabel"
-                                    )
-                                    viewModel.showToastPopup("Kalender $scopeLabel ($exportFormat) berhasil dibuat!")
+                                    val folderLabel = if (exportFormat.equals("PDF", true)) "My Singghara/Document/PDF" else "My Singghara/Image"
+                                    viewModel.showToastPopup("Kalender $scopeLabel ($exportFormat) tersimpan di folder $folderLabel")
                                 }.onFailure { err ->
                                     viewModel.showToastPopup("Gagal membuat kalender: ${err.message}")
                                 }

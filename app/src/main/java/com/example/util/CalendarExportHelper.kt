@@ -113,7 +113,7 @@ object CalendarExportHelper {
                         }
                         pdfDocument.close()
 
-                        saveToPublicDownloads(context, pdfFile, "application/pdf")
+                        savePdfToSingghara(context, pdfFile, "application/pdf")
                         Result.success(pdfFile)
                     } else {
                         // PNG / JPG: Lembar Cetak 2 Sisi Lengkap (Depan + Belakang + Garis Potong Dompet)
@@ -145,7 +145,7 @@ object CalendarExportHelper {
                         }
                         bitmap.recycle()
 
-                        saveToPublicPictures(context, imageFile, mimeType)
+                        saveImageToSingghara(context, imageFile, mimeType)
                         Result.success(imageFile)
                     }
                 } else {
@@ -187,7 +187,7 @@ object CalendarExportHelper {
                         pdfDocument.close()
                         bitmap.recycle()
 
-                        saveToPublicDownloads(context, pdfFile, "application/pdf")
+                        savePdfToSingghara(context, pdfFile, "application/pdf")
                         Result.success(pdfFile)
                     } else {
                         val isPng = format.equals("PNG", ignoreCase = true)
@@ -202,7 +202,7 @@ object CalendarExportHelper {
                         }
                         bitmap.recycle()
 
-                        saveToPublicPictures(context, imageFile, mimeType)
+                        saveImageToSingghara(context, imageFile, mimeType)
                         Result.success(imageFile)
                     }
                 }
@@ -264,7 +264,7 @@ object CalendarExportHelper {
                     }
                     pdfDocument.close()
 
-                    saveToPublicDownloads(context, pdfFile, "application/pdf")
+                    savePdfToSingghara(context, pdfFile, "application/pdf")
                     Result.success(pdfFile)
                 } else {
                     // PNG atau JPG 12 BULAN: Poster Kalender Dinding 1 Tahun Lengkap (2480 x 3508 px - High Res)
@@ -297,7 +297,7 @@ object CalendarExportHelper {
                     }
                     bitmap.recycle()
 
-                    saveToPublicPictures(context, imageFile, mimeType)
+                    saveImageToSingghara(context, imageFile, mimeType)
                     Result.success(imageFile)
                 }
             } else {
@@ -353,7 +353,7 @@ object CalendarExportHelper {
                     pdfDocument.close()
                     bitmap.recycle()
 
-                    saveToPublicDownloads(context, pdfFile, "application/pdf")
+                    savePdfToSingghara(context, pdfFile, "application/pdf")
                     Result.success(pdfFile)
                 } else {
                     val isPng = format.equals("PNG", ignoreCase = true)
@@ -368,7 +368,7 @@ object CalendarExportHelper {
                     }
                     bitmap.recycle()
 
-                    saveToPublicPictures(context, imageFile, mimeType)
+                    saveImageToSingghara(context, imageFile, mimeType)
                     Result.success(imageFile)
                 }
             }
@@ -1632,43 +1632,25 @@ object CalendarExportHelper {
         canvas.drawLine(midX, midY + padH / 2f, midX, top + height, paint)
     }
 
-    private fun saveToPublicDownloads(context: Context, srcFile: File, mimeType: String) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            try {
-                val values = ContentValues().apply {
-                    put(MediaStore.MediaColumns.DISPLAY_NAME, srcFile.name)
-                    put(MediaStore.MediaColumns.MIME_TYPE, mimeType)
-                    put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS + "/MySingghara")
-                }
-                val uri = context.contentResolver.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, values)
-                if (uri != null) {
-                    context.contentResolver.openOutputStream(uri)?.use { out ->
-                        srcFile.inputStream().use { inp -> inp.copyTo(out) }
-                    }
-                }
-            } catch (e: Exception) {
-                e.printStackTrace()
-            }
+    private fun savePdfToSingghara(context: Context, srcFile: File, mimeType: String) {
+        try {
+            val folder = File(SinggharaFolderManager.getRootFolder(context), "Document/PDF")
+            if (!folder.exists()) folder.mkdirs()
+            val dest = File(folder, srcFile.name)
+            srcFile.inputStream().use { input -> dest.outputStream().use { output -> input.copyTo(output) } }
+        } catch (e: Exception) {
+            e.printStackTrace()
         }
     }
 
-    private fun saveToPublicPictures(context: Context, srcFile: File, mimeType: String) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            try {
-                val values = ContentValues().apply {
-                    put(MediaStore.MediaColumns.DISPLAY_NAME, srcFile.name)
-                    put(MediaStore.MediaColumns.MIME_TYPE, mimeType)
-                    put(MediaStore.MediaColumns.RELATIVE_PATH, Environment.DIRECTORY_PICTURES + "/MySingghara")
-                }
-                val uri = context.contentResolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values)
-                if (uri != null) {
-                    context.contentResolver.openOutputStream(uri)?.use { out ->
-                        srcFile.inputStream().use { inp -> inp.copyTo(out) }
-                    }
-                }
-            } catch (e: Exception) {
-                e.printStackTrace()
-            }
+    private fun saveImageToSingghara(context: Context, srcFile: File, mimeType: String) {
+        try {
+            val folder = File(SinggharaFolderManager.getRootFolder(context), "Image")
+            if (!folder.exists()) folder.mkdirs()
+            val dest = File(folder, srcFile.name)
+            srcFile.inputStream().use { input -> dest.outputStream().use { output -> input.copyTo(output) } }
+        } catch (e: Exception) {
+            e.printStackTrace()
         }
     }
 
