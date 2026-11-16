@@ -1346,6 +1346,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     var showAllAppsPage by mutableStateOf(false)
     var notePreviewHtml by mutableStateOf("")
     var hideGlobalTopAppBar by mutableStateOf(false)
+    // Bulan/tahun yang dibuka di halaman Kalender (route "kalender") saat header bulan/tahun di kartu Home diklik.
+    var calendarRouteMonth by mutableStateOf(0)
+    var calendarRouteYear by mutableStateOf(0)
     var isBottomBarVisible by mutableStateOf(true)
     var showTabunganFabDialog by mutableStateOf(false)
     var activeGameSectionInGameScreen by mutableStateOf<String?>(null)

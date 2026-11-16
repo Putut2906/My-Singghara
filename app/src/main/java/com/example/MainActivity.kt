@@ -3922,6 +3922,12 @@ fun MainAppContent(viewModel: MainViewModel, desktopMode: Boolean = false) {
                             viewModel = viewModel,
                             onBack = { viewModel.currentRoute = "profil" }
                         )
+                        "kalender" -> com.example.ui.screens.CalendarMonthScreen(
+                            viewModel = viewModel,
+                            initialMonth = viewModel.calendarRouteMonth,
+                            initialYear = viewModel.calendarRouteYear,
+                            onBack = { viewModel.currentRoute = "home" }
+                        )
                         "cat_input_soal" -> com.example.ui.screens.SimulasiCatScreen(
                             viewModel = viewModel,
                             initialTab = 0,
