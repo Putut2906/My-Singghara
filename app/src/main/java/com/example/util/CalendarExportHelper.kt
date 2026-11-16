@@ -1002,16 +1002,6 @@ object CalendarExportHelper {
         // 1. Logo aplikasi My Singghara (menggantikan IC/Chip)
         drawAppLogo(canvas, logo, 36f, 28f, 64f, 64f)
 
-        // Contactless Icon (accent)
-        paint.style = Paint.Style.STROKE
-        paint.strokeWidth = 2.5f
-        paint.color = accent
-        val cxWave = 150f
-        val cyWave = 62f
-        canvas.drawArc(RectF(cxWave - 12f, cyWave - 12f, cxWave + 12f, cyWave + 12f), -45f, 90f, false, paint)
-        canvas.drawArc(RectF(cxWave - 20f, cyWave - 20f, cxWave + 20f, cyWave + 20f), -45f, 90f, false, paint)
-        canvas.drawArc(RectF(cxWave - 28f, cyWave - 28f, cxWave + 28f, cyWave + 28f), -45f, 90f, false, paint)
-
         // 3. Brand & Subtitle
         paint.style = Paint.Style.FILL
         paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
@@ -1223,21 +1213,8 @@ object CalendarExportHelper {
         // Logo aplikasi My Singghara (menggantikan IC/Chip)
         drawAppLogo(canvas, logo, 34f, 24f, 60f, 60f)
 
-        // Contactless Icon
-        paint.style = Paint.Style.STROKE
-        paint.strokeWidth = 2.2f
-        paint.color = accent
-        val cxWave = 136f
-        val cyWave = 56f
-        canvas.drawArc(RectF(cxWave - 10f, cyWave - 10f, cxWave + 10f, cyWave + 10f), -45f, 90f, false, paint)
-        canvas.drawArc(RectF(cxWave - 16f, cyWave - 16f, cxWave + 16f, cyWave + 16f), -45f, 90f, false, paint)
-
-        // Title Header
+        // Title Header: tahun di kanan, "MY SINGGHARA" di kirinya (ikon contactless dihapus)
         paint.style = Paint.Style.FILL
-        paint.color = ink
-        paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
-        paint.textSize = 19f
-        canvas.drawText("MY SINGGHARA", 170f, 48f, paint)
 
         // Year (accent) Top Right
         paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
@@ -1245,7 +1222,16 @@ object CalendarExportHelper {
         paint.color = accent
         val yrText = "$year"
         val yw = paint.measureText(yrText)
-        canvas.drawText(yrText, width - 36f - yw, 58f, paint)
+        val yrLeft = width - 36f - yw
+        canvas.drawText(yrText, yrLeft, 58f, paint)
+
+        // Brand "MY SINGGHARA" tepat di kiri tahun
+        paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+        paint.textSize = 19f
+        paint.color = ink
+        val brandText = "MY SINGGHARA"
+        val brandW = paint.measureText(brandText)
+        canvas.drawText(brandText, yrLeft - brandW - 18f, 56f, paint)
 
         // 6 Month Mini Grid: 3 Columns x 2 Rows (Months 1 to 6)
         val gridLeft = 32f
@@ -1314,17 +1300,10 @@ object CalendarExportHelper {
         paint.color = accent
         canvas.drawRoundRect(cardRect, cornerRadius, cornerRadius, paint)
 
-        // Magnetic Stripe along the top (realistic dark stripe)
-        paint.style = Paint.Style.FILL
-        paint.color = Color.parseColor("#1E293B")
-        canvas.drawRect(RectF(16f, 32f, width - 16f, 80f), paint)
-        paint.color = Color.parseColor("#334155")
-        canvas.drawRect(RectF(16f, 54f, width - 16f, 58f), paint)
-
         // 6 Month Mini Grid: 3 Columns x 2 Rows (Months 7 to 12)
         val gridLeft = 32f
         val gridRight = width - 32f
-        val gridTop = 130f
+        val gridTop = 96f
         val gridBottom = height - 48f
 
         val totalW = gridRight - gridLeft
