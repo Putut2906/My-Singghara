@@ -14,7 +14,10 @@ import android.net.Uri
 import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
+import androidx.core.content.ContextCompat
 import androidx.core.content.FileProvider
+import androidx.core.graphics.drawable.toBitmap
+import com.example.R
 import com.example.data.AgendaItem
 import com.example.network.HolidayClient
 import com.example.ui.screens.HijriCalendarHelper
@@ -58,6 +61,10 @@ object CalendarExportHelper {
                 putAll(holidays)
             }
 
+            val appLogo: Bitmap? = runCatching {
+                ContextCompat.getDrawable(context, R.drawable.ic_app_logo)?.toBitmap()
+            }.getOrNull()
+
             val exportDir = File(context.cacheDir, "exports").apply { mkdirs() }
             val cleanPaper = paperType.replace(" ", "_").replace("(", "").replace(")", "").replace("–", "-").replace("/", "-")
             val isAtmCard = paperType.contains("ATM", ignoreCase = true) ||
@@ -78,7 +85,7 @@ object CalendarExportHelper {
                         // Hal 1: Sisi Depan (Jan - Jun)
                         val bmpA = Bitmap.createBitmap(cardWidthPx, cardHeightPx, Bitmap.Config.ARGB_8888)
                         val canvasA = Canvas(bmpA)
-                        draw12MonthAtmCardSideA(canvasA, cardWidthPx, cardHeightPx, year, hijriOffset, completeHolidays, agendas)
+                        draw12MonthAtmCardSideA(canvasA, cardWidthPx, cardHeightPx, year, hijriOffset, completeHolidays, agendas, appLogo)
 
                         val pageInfo1 = PdfDocument.PageInfo.Builder(243, 153, 1).create() // 85.6mm x 54mm in PDF points
                         val page1 = pdfDocument.startPage(pageInfo1)
@@ -128,7 +135,8 @@ object CalendarExportHelper {
                             year = year,
                             hijriOffset = hijriOffset,
                             holidays = completeHolidays,
-                            agendas = agendas
+                            agendas = agendas,
+                            logo = appLogo
                         )
 
                         val imageFile = File(exportDir, "$fileNameBase.$ext")
@@ -159,7 +167,8 @@ object CalendarExportHelper {
                         monthName = monthName,
                         hijriOffset = hijriOffset,
                         holidays = completeHolidays,
-                        agendas = agendas
+                        agendas = agendas,
+                        logo = appLogo
                     )
 
                     if (format.equals("PDF", ignoreCase = true)) {
@@ -957,7 +966,8 @@ object CalendarExportHelper {
         monthName: String,
         hijriOffset: Int,
         holidays: Map<String, String>,
-        agendas: List<AgendaItem>
+        agendas: List<AgendaItem>,
+        logo: Bitmap?
     ) {
         val paint = Paint(Paint.ANTI_ALIAS_FLAG)
         canvas.drawColor(Color.WHITE)
@@ -988,6 +998,9 @@ object CalendarExportHelper {
         paint.strokeWidth = 3f
         paint.color = accent
         canvas.drawRoundRect(cardRect, cornerRadius, cornerRadius, paint)
+
+        // 1. Logo aplikasi My Singghara (menggantikan IC/Chip)
+        drawAppLogo(canvas, logo, 36f, 28f, 64f, 64f)
 
         // Contactless Icon (accent)
         paint.style = Paint.Style.STROKE
@@ -1184,7 +1197,8 @@ object CalendarExportHelper {
         year: Int,
         hijriOffset: Int,
         holidays: Map<String, String>,
-        agendas: List<AgendaItem>
+        agendas: List<AgendaItem>,
+        logo: Bitmap?
     ) {
         val paint = Paint(Paint.ANTI_ALIAS_FLAG)
         canvas.drawColor(Color.WHITE)
@@ -1205,6 +1219,9 @@ object CalendarExportHelper {
         paint.strokeWidth = 3f
         paint.color = accent
         canvas.drawRoundRect(cardRect, cornerRadius, cornerRadius, paint)
+
+        // Logo aplikasi My Singghara (menggantikan IC/Chip)
+        drawAppLogo(canvas, logo, 34f, 24f, 60f, 60f)
 
         // Contactless Icon
         paint.style = Paint.Style.STROKE
@@ -1304,13 +1321,6 @@ object CalendarExportHelper {
         paint.color = Color.parseColor("#334155")
         canvas.drawRect(RectF(16f, 54f, width - 16f, 58f), paint)
 
-        // Signature Strip & Title
-        val sigTop = 90f
-        val sigHeight = 32f
-        paint.color = Color.parseColor("#F1F5F9")
-        canvas.drawRoundRect(RectF(36f, sigTop, width - 36f, sigTop + sigHeight), 6f, 6f, paint)
-
-
         // 6 Month Mini Grid: 3 Columns x 2 Rows (Months 7 to 12)
         val gridLeft = 32f
         val gridRight = width - 32f
@@ -1357,14 +1367,15 @@ object CalendarExportHelper {
         year: Int,
         hijriOffset: Int,
         holidays: Map<String, String>,
-        agendas: List<AgendaItem>
+        agendas: List<AgendaItem>,
+        logo: Bitmap?
     ) {
         canvas.drawColor(Color.WHITE)
 
         val cardH = 638
         val bmpA = Bitmap.createBitmap(width, cardH, Bitmap.Config.ARGB_8888)
         val canvasA = Canvas(bmpA)
-        draw12MonthAtmCardSideA(canvasA, width, cardH, year, hijriOffset, holidays, agendas)
+        draw12MonthAtmCardSideA(canvasA, width, cardH, year, hijriOffset, holidays, agendas, logo)
 
         val bmpB = Bitmap.createBitmap(width, cardH, Bitmap.Config.ARGB_8888)
         val canvasB = Canvas(bmpB)
@@ -1567,6 +1578,18 @@ object CalendarExportHelper {
     /**
      * Draw Realistic Gold Smart IC Chip (EMV Contact Chip)
      */
+    private fun drawAppLogo(canvas: Canvas, logo: Bitmap?, left: Float, top: Float, boxW: Float, boxH: Float) {
+        if (logo == null) return
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
+        val ar = if (logo.height > 0) logo.width.toFloat() / logo.height.toFloat() else 1f
+        var w = boxW
+        var h = boxW / ar
+        if (h > boxH) { h = boxH; w = boxH * ar }
+        val l = left + (boxW - w) / 2f
+        val t = top + (boxH - h) / 2f
+        canvas.drawBitmap(logo, null, RectF(l, t, l + w, t + h), paint)
+    }
+
     private fun drawGoldSmartChip(canvas: Canvas, left: Float, top: Float, width: Float, height: Float) {
         val paint = Paint(Paint.ANTI_ALIAS_FLAG)
         val chipRect = RectF(left, top, left + width, top + height)
