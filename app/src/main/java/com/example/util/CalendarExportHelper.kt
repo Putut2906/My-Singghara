@@ -78,7 +78,7 @@ object CalendarExportHelper {
                         // Hal 1: Sisi Depan (Jan - Jun)
                         val bmpA = Bitmap.createBitmap(cardWidthPx, cardHeightPx, Bitmap.Config.ARGB_8888)
                         val canvasA = Canvas(bmpA)
-                        draw12MonthAtmCardSideA(canvasA, cardWidthPx, cardHeightPx, year, hijriOffset, completeHolidays)
+                        draw12MonthAtmCardSideA(canvasA, cardWidthPx, cardHeightPx, year, hijriOffset, completeHolidays, agendas)
 
                         val pageInfo1 = PdfDocument.PageInfo.Builder(243, 153, 1).create() // 85.6mm x 54mm in PDF points
                         val page1 = pdfDocument.startPage(pageInfo1)
@@ -91,7 +91,7 @@ object CalendarExportHelper {
                         // Hal 2: Sisi Belakang (Jul - Des)
                         val bmpB = Bitmap.createBitmap(cardWidthPx, cardHeightPx, Bitmap.Config.ARGB_8888)
                         val canvasB = Canvas(bmpB)
-                        draw12MonthAtmCardSideB(canvasB, cardWidthPx, cardHeightPx, year, hijriOffset, completeHolidays)
+                        draw12MonthAtmCardSideB(canvasB, cardWidthPx, cardHeightPx, year, hijriOffset, completeHolidays, agendas)
 
                         val pageInfo2 = PdfDocument.PageInfo.Builder(243, 153, 2).create()
                         val page2 = pdfDocument.startPage(pageInfo2)
@@ -127,7 +127,8 @@ object CalendarExportHelper {
                             height = sheetH,
                             year = year,
                             hijriOffset = hijriOffset,
-                            holidays = completeHolidays
+                            holidays = completeHolidays,
+                            agendas = agendas
                         )
 
                         val imageFile = File(exportDir, "$fileNameBase.$ext")
@@ -961,76 +962,109 @@ object CalendarExportHelper {
         val paint = Paint(Paint.ANTI_ALIAS_FLAG)
         canvas.drawColor(Color.WHITE)
 
+        // Light-mode palette (home card style)
+        val ink = Color.parseColor("#0F172A")
+        val muted = Color.parseColor("#64748B")
+        val faint = Color.parseColor("#94A3B8")
+        val accent = Color.parseColor("#0F766E")
+        val cardBorder = Color.parseColor("#E2E8F0")
+        val dayBarBg = Color.parseColor("#F1F5F9")
+        val red = Color.parseColor("#EF4444")
+        val redBg = Color.parseColor("#FEE2E2")
+        val redBorder = Color.parseColor("#FCA5A5")
+        val green = Color.parseColor("#10B981")
+        val greenDark = Color.parseColor("#059669")
+        val greenBg = Color.parseColor("#D1FAE5")
+        val greenBorder = Color.parseColor("#6EE7B7")
+
         val cardRect = RectF(16f, 16f, width - 16f, height - 16f)
         val cornerRadius = 32f
 
-        // Card Base Background (Navy Slate Metal)
+        // Card base (white) + accent border
         paint.style = Paint.Style.FILL
-        paint.color = Color.parseColor("#0F172A")
+        paint.color = Color.WHITE
         canvas.drawRoundRect(cardRect, cornerRadius, cornerRadius, paint)
-
-        // Card Border Accent (Sky Cyan)
         paint.style = Paint.Style.STROKE
-        paint.strokeWidth = 3.5f
-        paint.color = Color.parseColor("#38BDF8")
+        paint.strokeWidth = 3f
+        paint.color = accent
         canvas.drawRoundRect(cardRect, cornerRadius, cornerRadius, paint)
 
         // 1. Smart Gold IC Chip
-        drawGoldSmartChip(canvas, 36f, 32f, 96f, 68f)
+        drawGoldSmartChip(canvas, 36f, 30f, 92f, 64f)
 
-        // 2. Contactless Icon
+        // 2. Contactless Icon (accent)
         paint.style = Paint.Style.STROKE
         paint.strokeWidth = 2.5f
-        paint.color = Color.parseColor("#38BDF8")
-        val cxWave = 154f
-        val cyWave = 66f
-        canvas.drawArc(RectF(cxWave - 14f, cyWave - 14f, cxWave + 14f, cyWave + 14f), -45f, 90f, false, paint)
-        canvas.drawArc(RectF(cxWave - 22f, cyWave - 22f, cxWave + 22f, cyWave + 22f), -45f, 90f, false, paint)
-        canvas.drawArc(RectF(cxWave - 30f, cyWave - 30f, cxWave + 30f, cyWave + 30f), -45f, 90f, false, paint)
+        paint.color = accent
+        val cxWave = 150f
+        val cyWave = 62f
+        canvas.drawArc(RectF(cxWave - 12f, cyWave - 12f, cxWave + 12f, cyWave + 12f), -45f, 90f, false, paint)
+        canvas.drawArc(RectF(cxWave - 20f, cyWave - 20f, cxWave + 20f, cyWave + 20f), -45f, 90f, false, paint)
+        canvas.drawArc(RectF(cxWave - 28f, cyWave - 28f, cxWave + 28f, cyWave + 28f), -45f, 90f, false, paint)
 
         // 3. Brand & Subtitle
         paint.style = Paint.Style.FILL
-        paint.color = Color.WHITE
         paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
         paint.textSize = 22f
-        canvas.drawText("MY SINGGHARA", 200f, 54f, paint)
+        paint.color = ink
+        canvas.drawText("MY SINGGHARA", 196f, 50f, paint)
 
         paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
-        paint.textSize = 12f
-        paint.color = Color.parseColor("#94A3B8")
-        canvas.drawText("PASARAN JAWA & HIJRIAH • WALLET POCKET CARD", 200f, 74f, paint)
+        paint.textSize = 11f
+        paint.color = muted
+        canvas.drawText("KALENDER JAWA \u2022 HIJRIAH \u2022 DOMPET", 196f, 70f, paint)
 
-        // 4. Month & Year Title (Top Right)
+        // 4. Month & Year Title (top right)
         paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
-        paint.textSize = 28f
-        paint.color = Color.parseColor("#FBBF24")
+        paint.textSize = 26f
+        paint.color = accent
         val titleText = "${monthName.uppercase(Locale("id", "ID"))} $year"
         val tw = paint.measureText(titleText)
-        canvas.drawText(titleText, width - 36f - tw, 62f, paint)
+        canvas.drawText(titleText, width - 34f - tw, 54f, paint)
 
-        // 5. Day Header
-        val gridLeft = 36f
-        val gridRight = width - 36f
+        // 5. Legend
+        paint.textSize = 11f
+        paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
+        paint.color = muted
+        val legendY = 90f
+        canvas.drawText("Keterangan:", 36f, legendY, paint)
+        var lx = 36f + paint.measureText("Keterangan:") + 14f
+        paint.style = Paint.Style.FILL
+        paint.color = red
+        canvas.drawCircle(lx + 5f, legendY - 4f, 5f, paint)
+        lx += 16f
+        paint.color = muted
+        canvas.drawText("Libur", lx, legendY, paint)
+        lx += paint.measureText("Libur") + 18f
+        paint.color = green
+        canvas.drawCircle(lx + 5f, legendY - 4f, 5f, paint)
+        lx += 16f
+        paint.color = muted
+        canvas.drawText("Acara / Peringatan", lx, legendY, paint)
+
+        // 6. Day Header
+        val gridLeft = 32f
+        val gridRight = width - 32f
         val gridW = gridRight - gridLeft
         val colW = gridW / 7f
-        val dayBarTop = 112f
-        val dayBarH = 28f
+        val dayBarTop = 104f
+        val dayBarH = 26f
 
         paint.style = Paint.Style.FILL
-        paint.color = Color.parseColor("#1E293B")
+        paint.color = dayBarBg
         canvas.drawRoundRect(RectF(gridLeft, dayBarTop, gridRight, dayBarTop + dayBarH), 8f, 8f, paint)
 
         paint.textSize = 13f
         paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
         for (i in 0..6) {
             val dName = DAYS_HEADER_SHORT[i]
-            paint.color = if (i == 0) Color.parseColor("#EF4444") else Color.parseColor("#E2E8F0")
+            paint.color = if (i == 0) red else muted
             val dw = paint.measureText(dName)
             val dx = gridLeft + (i * colW) + (colW - dw) / 2f
-            canvas.drawText(dName, dx, dayBarTop + 19f, paint)
+            canvas.drawText(dName, dx, dayBarTop + 18f, paint)
         }
 
-        // 6. Calendar Days Grid
+        // 7. Calendar Days Grid
         val cal = Calendar.getInstance().apply {
             set(Calendar.YEAR, year)
             set(Calendar.MONTH, month - 1)
@@ -1040,8 +1074,8 @@ object CalendarExportHelper {
         val totalDays = cal.getActualMaximum(Calendar.DAY_OF_MONTH)
         val numWeeks = if (firstDay + totalDays > 35) 6 else 5
 
-        val gridTop = dayBarTop + dayBarH + 6f
-        val gridBottom = height - 76f
+        val gridTop = dayBarTop + dayBarH + 8f
+        val gridBottom = height - 46f
         val rowH = (gridBottom - gridTop) / numWeeks.toFloat()
 
         var currentDay = 1
@@ -1055,54 +1089,72 @@ object CalendarExportHelper {
                     val dateKey = String.format("%04d-%02d-%02d", year, month, currentDay)
                     val holidayName = holidays[dateKey]
                     val observanceName = HolidayClient.getObservanceForDate(month, currentDay)
+                    val hasAgenda = agendas.any { it.tanggal == dateKey }
                     val jawa = JavaneseCalendarHelper.calculateJawa(year, month, currentDay)
+                    val hijri = HijriCalendarHelper.getHijriDate(year, month, currentDay, hijriOffset)
+                    val hp = hijri.split(" ")
+                    val hijriShort = ((hp.getOrNull(0) ?: "") + " " + (hp.getOrNull(1) ?: "").take(4)).trim()
                     val isSunday = (dIdx == 0)
 
                     val cellRect = RectF(colX + 2f, rowY + 2f, colX + colW - 2f, rowY + rowH - 2f)
 
+                    // Cell background + border (home-card tint logic)
                     paint.style = Paint.Style.FILL
                     paint.color = when {
-                        holidayName != null -> Color.parseColor("#450A0A")
-                        observanceName != null -> Color.parseColor("#052E16")
-                        isSunday -> Color.parseColor("#2D1515")
-                        else -> Color.parseColor("#1E293B")
+                        holidayName != null -> redBg
+                        observanceName != null || hasAgenda -> greenBg
+                        else -> Color.WHITE
                     }
                     canvas.drawRoundRect(cellRect, 6f, 6f, paint)
 
                     paint.style = Paint.Style.STROKE
                     paint.strokeWidth = 1f
                     paint.color = when {
-                        holidayName != null -> Color.parseColor("#EF4444")
-                        observanceName != null -> Color.parseColor("#22C55E")
-                        else -> Color.parseColor("#334155")
+                        holidayName != null -> redBorder
+                        observanceName != null || hasAgenda -> greenBorder
+                        else -> cardBorder
                     }
                     canvas.drawRoundRect(cellRect, 6f, 6f, paint)
 
-                    // Day Number
+                    // Day number
                     paint.style = Paint.Style.FILL
                     paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
-                    paint.textSize = 20f
+                    paint.textSize = 17f
                     paint.color = when {
-                        holidayName != null || isSunday -> Color.parseColor("#F87171")
-                        observanceName != null -> Color.parseColor("#4ADE80")
-                        else -> Color.WHITE
+                        holidayName != null || isSunday -> red
+                        observanceName != null -> green
+                        else -> ink
                     }
-                    canvas.drawText(currentDay.toString(), colX + 8f, rowY + 23f, paint)
+                    canvas.drawText(currentDay.toString(), colX + 8f, rowY + 20f, paint)
 
-                    // Pasaran
+                    // Dina Jawa + Pasaran
                     paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
-                    paint.textSize = 10f
-                    paint.color = Color.parseColor("#94A3B8")
-                    val pasaranShort = jawa.pasaran.take(3)
-                    canvas.drawText(pasaranShort, colX + 8f, rowY + 40f, paint)
+                    paint.textSize = 9f
+                    paint.color = muted
+                    canvas.drawText(jawa.dina + " \u00B7 " + jawa.pasaran, colX + 8f, rowY + 33f, paint)
 
-                    // Indicators
+                    // Hijriah (short)
+                    paint.textSize = 8.5f
+                    paint.color = accent
+                    canvas.drawText(hijriShort, colX + 8f, rowY + 44f, paint)
+
+                    // Indicator dots: red=libur, green=peringatan, green-dark=acara
+                    var dotX = colX + 9f
+                    val dotY = rowY + 52f
+                    paint.style = Paint.Style.FILL
                     if (holidayName != null) {
-                        paint.color = Color.parseColor("#EF4444")
-                        canvas.drawCircle(colX + colW - 8f, rowY + 10f, 3.5f, paint)
-                    } else if (observanceName != null) {
-                        paint.color = Color.parseColor("#22C55E")
-                        canvas.drawCircle(colX + colW - 8f, rowY + 10f, 3.5f, paint)
+                        paint.color = red
+                        canvas.drawCircle(dotX, dotY, 3f, paint)
+                        dotX += 9f
+                    }
+                    if (observanceName != null) {
+                        paint.color = green
+                        canvas.drawCircle(dotX, dotY, 3f, paint)
+                        dotX += 9f
+                    }
+                    if (hasAgenda) {
+                        paint.color = greenDark
+                        canvas.drawCircle(dotX, dotY, 3f, paint)
                     }
 
                     currentDay++
@@ -1110,19 +1162,19 @@ object CalendarExportHelper {
             }
         }
 
-        // 7. Footer
+        // 8. Footer
         paint.style = Paint.Style.FILL
         paint.typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
         paint.textSize = 12f
-        paint.color = Color.parseColor("#64748B")
-        canvas.drawText("••••  8560  5400  $year", 36f, height - 34f, paint)
+        paint.color = faint
+        canvas.drawText("\u2022\u2022\u2022\u2022  8560  5400  $year", 36f, height - 22f, paint)
 
         paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
         paint.textSize = 11f
-        paint.color = Color.parseColor("#38BDF8")
-        val walletText = "CR-80 IC CARD • 85.6 x 54 mm"
+        paint.color = accent
+        val walletText = "CR-80 IC CARD \u2022 85.6 x 54 mm"
         val ww = paint.measureText(walletText)
-        canvas.drawText(walletText, width - 36f - ww, height - 34f, paint)
+        canvas.drawText(walletText, width - 36f - ww, height - 22f, paint)
     }
 
     /**
@@ -1134,23 +1186,27 @@ object CalendarExportHelper {
         height: Int,
         year: Int,
         hijriOffset: Int,
-        holidays: Map<String, String>
+        holidays: Map<String, String>,
+        agendas: List<AgendaItem>
     ) {
         val paint = Paint(Paint.ANTI_ALIAS_FLAG)
         canvas.drawColor(Color.WHITE)
 
+        val ink = Color.parseColor("#0F172A")
+        val muted = Color.parseColor("#64748B")
+        val accent = Color.parseColor("#0F766E")
+        val cardBorder = Color.parseColor("#E2E8F0")
+
         val cardRect = RectF(16f, 16f, width - 16f, height - 16f)
         val cornerRadius = 32f
 
-        // Card Base
+        // Card base (white) + accent border
         paint.style = Paint.Style.FILL
-        paint.color = Color.parseColor("#0B192C")
+        paint.color = Color.WHITE
         canvas.drawRoundRect(cardRect, cornerRadius, cornerRadius, paint)
-
-        // Card Border
         paint.style = Paint.Style.STROKE
-        paint.strokeWidth = 3.5f
-        paint.color = Color.parseColor("#38BDF8")
+        paint.strokeWidth = 3f
+        paint.color = accent
         canvas.drawRoundRect(cardRect, cornerRadius, cornerRadius, paint)
 
         // Gold IC Chip
@@ -1159,7 +1215,7 @@ object CalendarExportHelper {
         // Contactless Icon
         paint.style = Paint.Style.STROKE
         paint.strokeWidth = 2.2f
-        paint.color = Color.parseColor("#38BDF8")
+        paint.color = accent
         val cxWave = 136f
         val cyWave = 56f
         canvas.drawArc(RectF(cxWave - 10f, cyWave - 10f, cxWave + 10f, cyWave + 10f), -45f, 90f, false, paint)
@@ -1167,20 +1223,20 @@ object CalendarExportHelper {
 
         // Title Header
         paint.style = Paint.Style.FILL
-        paint.color = Color.WHITE
+        paint.color = ink
         paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
         paint.textSize = 19f
         canvas.drawText("MY SINGGHARA", 170f, 48f, paint)
 
         paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
         paint.textSize = 12f
-        paint.color = Color.parseColor("#38BDF8")
-        canvas.drawText("SEMESTER I (JAN – JUN) • KALENDER DOMPET", 170f, 68f, paint)
+        paint.color = accent
+        canvas.drawText("SEMESTER I (JAN \u2013 JUN) \u2022 KALENDER DOMPET", 170f, 68f, paint)
 
-        // Year Gold Top Right
+        // Year (accent) Top Right
         paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
         paint.textSize = 28f
-        paint.color = Color.parseColor("#FBBF24")
+        paint.color = accent
         val yrText = "$year"
         val yw = paint.measureText(yrText)
         canvas.drawText(yrText, width - 36f - yw, 58f, paint)
@@ -1214,7 +1270,8 @@ object CalendarExportHelper {
                 month = m,
                 monthName = MONTH_NAMES[m - 1],
                 hijriOffset = hijriOffset,
-                holidays = holidays
+                holidays = holidays,
+                agendas = agendas
             )
         }
 
@@ -1222,8 +1279,8 @@ object CalendarExportHelper {
         paint.style = Paint.Style.FILL
         paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
         paint.textSize = 10f
-        paint.color = Color.parseColor("#64748B")
-        canvas.drawText("MUKA DEPAN • STANDARD ATM/IC CARD (85.6 x 54 mm)", 36f, height - 24f, paint)
+        paint.color = muted
+        canvas.drawText("MUKA DEPAN \u2022 STANDARD ATM/IC CARD (85.6 x 54 mm)", 36f, height - 24f, paint)
     }
 
     /**
@@ -1235,32 +1292,33 @@ object CalendarExportHelper {
         height: Int,
         year: Int,
         hijriOffset: Int,
-        holidays: Map<String, String>
+        holidays: Map<String, String>,
+        agendas: List<AgendaItem>
     ) {
         val paint = Paint(Paint.ANTI_ALIAS_FLAG)
         canvas.drawColor(Color.WHITE)
 
+        val ink = Color.parseColor("#0F172A")
+        val muted = Color.parseColor("#64748B")
+        val accent = Color.parseColor("#0F766E")
+
         val cardRect = RectF(16f, 16f, width - 16f, height - 16f)
         val cornerRadius = 32f
 
-        // Card Base (Dark Slate)
+        // Card base (white) + accent border
         paint.style = Paint.Style.FILL
-        paint.color = Color.parseColor("#0F172A")
+        paint.color = Color.WHITE
         canvas.drawRoundRect(cardRect, cornerRadius, cornerRadius, paint)
-
-        // Card Border
         paint.style = Paint.Style.STROKE
-        paint.strokeWidth = 3.5f
-        paint.color = Color.parseColor("#F59E0B")
+        paint.strokeWidth = 3f
+        paint.color = accent
         canvas.drawRoundRect(cardRect, cornerRadius, cornerRadius, paint)
 
-        // Magnetic Stripe along the top
+        // Magnetic Stripe along the top (realistic dark stripe)
         paint.style = Paint.Style.FILL
-        paint.color = Color.parseColor("#020617")
-        canvas.drawRect(RectF(16f, 32f, width - 16f, 80f), paint)
-
-        // Glossy line on magnetic stripe
         paint.color = Color.parseColor("#1E293B")
+        canvas.drawRect(RectF(16f, 32f, width - 16f, 80f), paint)
+        paint.color = Color.parseColor("#334155")
         canvas.drawRect(RectF(16f, 54f, width - 16f, 58f), paint)
 
         // Signature Strip & Title
@@ -1269,15 +1327,15 @@ object CalendarExportHelper {
         paint.color = Color.parseColor("#F1F5F9")
         canvas.drawRoundRect(RectF(36f, sigTop, width - 36f, sigTop + sigHeight), 6f, 6f, paint)
 
-        paint.color = Color.parseColor("#0F172A")
+        paint.color = ink
         paint.typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
         paint.textSize = 13f
-        canvas.drawText("MY SINGGHARA • SEMESTER II (JUL – DES) • $year", 50f, sigTop + 21f, paint)
+        canvas.drawText("MY SINGGHARA \u2022 SEMESTER II (JUL \u2013 DES) \u2022 $year", 50f, sigTop + 21f, paint)
 
         paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
         paint.textSize = 11f
-        paint.color = Color.parseColor("#D97706")
-        val holoText = "AUTHENTIC WALLET CARD"
+        paint.color = accent
+        val holoText = "KALENDER DOMPET"
         val hw = paint.measureText(holoText)
         canvas.drawText(holoText, width - 50f - hw, sigTop + 21f, paint)
 
@@ -1310,7 +1368,8 @@ object CalendarExportHelper {
                 month = m,
                 monthName = MONTH_NAMES[m - 1],
                 hijriOffset = hijriOffset,
-                holidays = holidays
+                holidays = holidays,
+                agendas = agendas
             )
         }
 
@@ -1318,8 +1377,8 @@ object CalendarExportHelper {
         paint.style = Paint.Style.FILL
         paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
         paint.textSize = 10f
-        paint.color = Color.parseColor("#94A3B8")
-        canvas.drawText("MUKA BELAKANG • LENGKAP LIBUR NASIONAL & PASARAN JAWA", 36f, height - 24f, paint)
+        paint.color = muted
+        canvas.drawText("MUKA BELAKANG \u2022 LENGKAP LIBUR NASIONAL & PASARAN JAWA", 36f, height - 24f, paint)
     }
 
     /**
@@ -1331,18 +1390,19 @@ object CalendarExportHelper {
         height: Int,
         year: Int,
         hijriOffset: Int,
-        holidays: Map<String, String>
+        holidays: Map<String, String>,
+        agendas: List<AgendaItem>
     ) {
         canvas.drawColor(Color.WHITE)
 
         val cardH = 638
         val bmpA = Bitmap.createBitmap(width, cardH, Bitmap.Config.ARGB_8888)
         val canvasA = Canvas(bmpA)
-        draw12MonthAtmCardSideA(canvasA, width, cardH, year, hijriOffset, holidays)
+        draw12MonthAtmCardSideA(canvasA, width, cardH, year, hijriOffset, holidays, agendas)
 
         val bmpB = Bitmap.createBitmap(width, cardH, Bitmap.Config.ARGB_8888)
         val canvasB = Canvas(bmpB)
-        draw12MonthAtmCardSideB(canvasB, width, cardH, year, hijriOffset, holidays)
+        draw12MonthAtmCardSideB(canvasB, width, cardH, year, hijriOffset, holidays, agendas)
 
         val filterPaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
         // Draw Sisi Depan
@@ -1362,7 +1422,7 @@ object CalendarExportHelper {
         paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
         paint.textSize = 12f
         paint.color = Color.parseColor("#475569")
-        val cutNotice = "✂  Garis Lipat / Gunting untuk Kartu Dompet (85.6 x 54 mm)  ✂"
+        val cutNotice = "Garis Lipat / Gunting untuk Kartu Dompet (85.6 x 54 mm)"
         val nw = paint.measureText(cutNotice)
         canvas.drawText(cutNotice, (width - nw) / 2f, dividerY - 8f, paint)
 
@@ -1386,23 +1446,39 @@ object CalendarExportHelper {
         month: Int,
         monthName: String,
         hijriOffset: Int,
-        holidays: Map<String, String>
+        holidays: Map<String, String>,
+        agendas: List<AgendaItem>
     ) {
         val paint = Paint(Paint.ANTI_ALIAS_FLAG)
 
-        // Mini Card Background
-        paint.style = Paint.Style.FILL
-        paint.color = Color.parseColor("#1E293B")
-        canvas.drawRoundRect(RectF(left, top, right, bottom), 8f, 8f, paint)
+        // Light palette (home card style)
+        val ink = Color.parseColor("#0F172A")
+        val faint = Color.parseColor("#94A3B8")
+        val accent = Color.parseColor("#0F766E")
+        val cardBorder = Color.parseColor("#E2E8F0")
+        val dayBarBg = Color.parseColor("#F1F5F9")
+        val red = Color.parseColor("#EF4444")
+        val redBg = Color.parseColor("#FEE2E2")
+        val redBorder = Color.parseColor("#FCA5A5")
+        val green = Color.parseColor("#10B981")
+        val greenDark = Color.parseColor("#059669")
+        val greenBg = Color.parseColor("#D1FAE5")
+        val greenBorder = Color.parseColor("#6EE7B7")
 
+        val panelRect = RectF(left, top, right, bottom)
+
+        // Mini Card Background (white + border)
+        paint.style = Paint.Style.FILL
+        paint.color = Color.WHITE
+        canvas.drawRoundRect(panelRect, 8f, 8f, paint)
         paint.style = Paint.Style.STROKE
         paint.strokeWidth = 1f
-        paint.color = Color.parseColor("#334155")
-        canvas.drawRoundRect(RectF(left, top, right, bottom), 8f, 8f, paint)
+        paint.color = cardBorder
+        canvas.drawRoundRect(panelRect, 8f, 8f, paint)
 
-        // Month Title Header
+        // Month Title Header (accent bar)
         paint.style = Paint.Style.FILL
-        paint.color = Color.parseColor("#0284C7")
+        paint.color = accent
         canvas.drawRoundRect(RectF(left, top, right, top + 22f), 8f, 8f, paint)
         canvas.drawRect(RectF(left, top + 14f, right, top + 22f), paint)
 
@@ -1411,18 +1487,21 @@ object CalendarExportHelper {
         paint.textSize = 12f
         canvas.drawText("${month}. ${monthName.uppercase(Locale("id", "ID"))}", left + 8f, top + 16f, paint)
 
-        // Day of Week Header Row
+        // Day of Week Header Row (light)
         val dayBarTop = top + 24f
         val colW = (right - left) / 7f
-        paint.textSize = 9.5f
+        paint.style = Paint.Style.FILL
+        paint.color = dayBarBg
+        canvas.drawRect(RectF(left + 4f, dayBarTop, right - 4f, dayBarTop + 12f), paint)
+        paint.textSize = 9f
         paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
         val shortDays = listOf("M", "S", "S", "R", "K", "J", "S")
         for (i in 0..6) {
             val dName = shortDays[i]
-            paint.color = if (i == 0) Color.parseColor("#F87171") else Color.parseColor("#94A3B8")
+            paint.color = if (i == 0) red else faint
             val tw = paint.measureText(dName)
             val cx = left + (i * colW) + (colW - tw) / 2f
-            canvas.drawText(dName, cx, dayBarTop + 10f, paint)
+            canvas.drawText(dName, cx, dayBarTop + 9f, paint)
         }
 
         // Compute Grid
@@ -1449,20 +1528,69 @@ object CalendarExportHelper {
                 if (slotIdx >= firstDay && currentDay <= totalDays) {
                     val dateKey = String.format("%04d-%02d-%02d", year, month, currentDay)
                     val holidayName = holidays[dateKey]
+                    val observanceName = HolidayClient.getObservanceForDate(month, currentDay)
+                    val hasAgenda = agendas.any { it.tanggal == dateKey }
+                    val jawa = JavaneseCalendarHelper.calculateJawa(year, month, currentDay)
                     val isSunday = (dIdx == 0)
+
+                    val cellRect = RectF(colX + 1f, rowTop + 1f, colX + colW - 1f, rowTop + rowH - 1f)
+
+                    paint.style = Paint.Style.FILL
+                    paint.color = when {
+                        holidayName != null -> redBg
+                        observanceName != null || hasAgenda -> greenBg
+                        else -> Color.WHITE
+                    }
+                    canvas.drawRoundRect(cellRect, 3f, 3f, paint)
+
+                    paint.style = Paint.Style.STROKE
+                    paint.strokeWidth = 0.6f
+                    paint.color = when {
+                        holidayName != null -> redBorder
+                        observanceName != null || hasAgenda -> greenBorder
+                        else -> cardBorder
+                    }
+                    canvas.drawRoundRect(cellRect, 3f, 3f, paint)
 
                     // Day Number
                     paint.style = Paint.Style.FILL
                     paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
-                    paint.textSize = 10f
+                    paint.textSize = 9.5f
                     paint.color = when {
-                        holidayName != null || isSunday -> Color.parseColor("#F87171")
-                        else -> Color.WHITE
+                        holidayName != null || isSunday -> red
+                        observanceName != null -> green
+                        else -> ink
                     }
                     val numStr = currentDay.toString()
                     val nw = paint.measureText(numStr)
-                    val nx = colX + (colW - nw) / 2f
-                    canvas.drawText(numStr, nx, rowTop + 11f, paint)
+                    canvas.drawText(numStr, colX + (colW - nw) / 2f, rowTop + 11f, paint)
+
+                    // Pasaran (Javanese) - short
+                    paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
+                    paint.textSize = 6.5f
+                    paint.color = faint
+                    val ps = jawa.pasaran.take(3)
+                    val pw = paint.measureText(ps)
+                    canvas.drawText(ps, colX + (colW - pw) / 2f, rowTop + 19f, paint)
+
+                    // Indicator dots
+                    var dotX = colX + 4f
+                    val dotY = rowTop + 26f
+                    paint.style = Paint.Style.FILL
+                    if (holidayName != null) {
+                        paint.color = red
+                        canvas.drawCircle(dotX, dotY, 2f, paint)
+                        dotX += 6f
+                    }
+                    if (observanceName != null) {
+                        paint.color = green
+                        canvas.drawCircle(dotX, dotY, 2f, paint)
+                        dotX += 6f
+                    }
+                    if (hasAgenda) {
+                        paint.color = greenDark
+                        canvas.drawCircle(dotX, dotY, 2f, paint)
+                    }
 
                     currentDay++
                 }
