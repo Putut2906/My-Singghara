@@ -989,10 +989,7 @@ object CalendarExportHelper {
         paint.color = accent
         canvas.drawRoundRect(cardRect, cornerRadius, cornerRadius, paint)
 
-        // 1. Smart Gold IC Chip
-        drawGoldSmartChip(canvas, 36f, 30f, 92f, 64f)
-
-        // 2. Contactless Icon (accent)
+        // Contactless Icon (accent)
         paint.style = Paint.Style.STROKE
         paint.strokeWidth = 2.5f
         paint.color = accent
@@ -1209,9 +1206,6 @@ object CalendarExportHelper {
         paint.color = accent
         canvas.drawRoundRect(cardRect, cornerRadius, cornerRadius, paint)
 
-        // Gold IC Chip
-        drawGoldSmartChip(canvas, 36f, 28f, 80f, 56f)
-
         // Contactless Icon
         paint.style = Paint.Style.STROKE
         paint.strokeWidth = 2.2f
@@ -1227,11 +1221,6 @@ object CalendarExportHelper {
         paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
         paint.textSize = 19f
         canvas.drawText("MY SINGGHARA", 170f, 48f, paint)
-
-        paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
-        paint.textSize = 12f
-        paint.color = accent
-        canvas.drawText("SEMESTER I (JAN \u2013 JUN) \u2022 KALENDER DOMPET", 170f, 68f, paint)
 
         // Year (accent) Top Right
         paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
@@ -1275,12 +1264,6 @@ object CalendarExportHelper {
             )
         }
 
-        // Footer
-        paint.style = Paint.Style.FILL
-        paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
-        paint.textSize = 10f
-        paint.color = muted
-        canvas.drawText("MUKA DEPAN \u2022 STANDARD ATM/IC CARD (85.6 x 54 mm)", 36f, height - 24f, paint)
     }
 
     /**
@@ -1327,17 +1310,6 @@ object CalendarExportHelper {
         paint.color = Color.parseColor("#F1F5F9")
         canvas.drawRoundRect(RectF(36f, sigTop, width - 36f, sigTop + sigHeight), 6f, 6f, paint)
 
-        paint.color = ink
-        paint.typeface = Typeface.create(Typeface.MONOSPACE, Typeface.BOLD)
-        paint.textSize = 13f
-        canvas.drawText("MY SINGGHARA \u2022 SEMESTER II (JUL \u2013 DES) \u2022 $year", 50f, sigTop + 21f, paint)
-
-        paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
-        paint.textSize = 11f
-        paint.color = accent
-        val holoText = "KALENDER DOMPET"
-        val hw = paint.measureText(holoText)
-        canvas.drawText(holoText, width - 50f - hw, sigTop + 21f, paint)
 
         // 6 Month Mini Grid: 3 Columns x 2 Rows (Months 7 to 12)
         val gridLeft = 32f
@@ -1373,12 +1345,6 @@ object CalendarExportHelper {
             )
         }
 
-        // Footer
-        paint.style = Paint.Style.FILL
-        paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
-        paint.textSize = 10f
-        paint.color = muted
-        canvas.drawText("MUKA BELAKANG \u2022 LENGKAP LIBUR NASIONAL & PASARAN JAWA", 36f, height - 24f, paint)
     }
 
     /**
