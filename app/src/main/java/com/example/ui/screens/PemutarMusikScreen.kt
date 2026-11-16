@@ -241,6 +241,9 @@ fun PemutarMusikScreen(viewModel: MainViewModel, onOpenDrawer: () -> Unit) {
     var lyricsImportRevision by remember { mutableIntStateOf(0) }
     var isLyricsFullScreen by remember { mutableStateOf(false) }
     var fileLyricsText by remember { mutableStateOf("") }
+    // Hanya buka-tahan layar saat pengguna MEMBUKA lirik secara eksplisit (klik judul/layar penuh),
+    // bukan saat lirik tertanam tampil otomatis.
+    var lyricsOpenedByUser by remember { mutableStateOf(false) }
 
     // Lirik manual (bila pengguna menyimpannya) menjadi koreksi; selain itu lirik
     // yang tertanam di file audio ditampilkan otomatis saat lagu diputar.
@@ -330,6 +333,7 @@ fun PemutarMusikScreen(viewModel: MainViewModel, onOpenDrawer: () -> Unit) {
             isLyricsMode = false // Reset lyrics mode when changing tracks
             lyricsEditMode = false
             isLyricsFullScreen = false // Reset full screen lyrics when changing tracks
+            lyricsOpenedByUser = false // Reset keep-screen-on intent when changing tracks
             
             // Extract lyrics from the file in background thread
             val embeddedLyrics = withContext(Dispatchers.IO) {
@@ -347,7 +351,7 @@ fun PemutarMusikScreen(viewModel: MainViewModel, onOpenDrawer: () -> Unit) {
     }
 
     // Prevent screen from turning off when lyrics are active
-    val isLyricsActive = isLyricsMode || isLyricsFullScreen
+    val isLyricsActive = lyricsOpenedByUser && (isLyricsMode || isLyricsFullScreen)
     DisposableEffect(isLyricsActive) {
         if (isLyricsActive) {
             val activity = findActivity(context)
@@ -1352,7 +1356,7 @@ fun PemutarMusikScreen(viewModel: MainViewModel, onOpenDrawer: () -> Unit) {
                                                         Spacer(modifier = Modifier.width(4.dp))
                                                         
                                                         IconButton(
-                                                            onClick = { isLyricsMode = false },
+                                                            onClick = { isLyricsMode = false; lyricsOpenedByUser = false },
                                                             modifier = Modifier.size(28.dp)
                                                         ) {
                                                             Icon(
@@ -1381,7 +1385,7 @@ fun PemutarMusikScreen(viewModel: MainViewModel, onOpenDrawer: () -> Unit) {
                                                         modifier = Modifier
                                                             .weight(1f)
                                                             .fillMaxWidth()
-                                                            .clickable { isLyricsMode = false },
+                                                            .clickable { isLyricsMode = false; lyricsOpenedByUser = false },
                                                         horizontalAlignment = Alignment.CenterHorizontally,
                                                         verticalArrangement = Arrangement.Center
                                                     ) {
@@ -1534,7 +1538,7 @@ fun PemutarMusikScreen(viewModel: MainViewModel, onOpenDrawer: () -> Unit) {
                                                 }
                                                 .pointerInput(Unit) {
                                                     detectTapGestures(
-                                                        onTap = { isLyricsMode = true }
+                                                        onTap = { isLyricsMode = true; lyricsOpenedByUser = true }
                                                     )
                                                 }
                                         ) {
@@ -1588,7 +1592,7 @@ fun PemutarMusikScreen(viewModel: MainViewModel, onOpenDrawer: () -> Unit) {
                                     modifier = Modifier
                                         .padding(horizontal = 16.dp)
                                         .basicMarquee(iterations = Int.MAX_VALUE)
-                                        .clickable { isLyricsFullScreen = true }
+                                        .clickable { isLyricsFullScreen = true; lyricsOpenedByUser = true }
                                 )
                                 Spacer(modifier = Modifier.height(4.dp))
                                 Text(
@@ -1859,7 +1863,7 @@ fun PemutarMusikScreen(viewModel: MainViewModel, onOpenDrawer: () -> Unit) {
                         viewModel = viewModel,
                         fileLyricsText = fileLyricsText,
                         manualLyricsText = manualLyricsText,
-                        onDismiss = { isLyricsFullScreen = false }
+                        onDismiss = { isLyricsFullScreen = false; lyricsOpenedByUser = false }
                     )
                 }
             }

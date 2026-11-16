@@ -950,85 +950,42 @@ class MusicService : Service() {
         }
         mediaSession?.setMetadata(metaBuilder.build())
 
-        // Kartu kontrol media milik aplikasi, bukan MediaStyle bawaan Android.
-        // Tampilan ringkas dipakai saat panel notifikasi belum dibentangkan,
-        // tampilan penuh saat notifikasi dibuka.
-        val compactViews = RemoteViews(packageName, R.layout.notification_music_player_compact).apply {
-            setTextViewText(R.id.notif_title, track.title)
-            setTextViewText(R.id.notif_artist, track.artist.ifBlank { "Folder Audio" })
-            setImageViewResource(
-                R.id.notif_play_pause,
-                if (isMusicPlaying) R.drawable.ic_notif_pause else R.drawable.ic_notif_play
-            )
-            setContentDescription(
-                R.id.notif_play_pause,
-                if (isMusicPlaying) "Jeda" else "Putar"
-            )
-            setOnClickPendingIntent(R.id.notif_play_pause, playPauseIntent)
-            setOnClickPendingIntent(R.id.notif_close, stopIntent)
-            if (albumArt != null) {
-                setImageViewBitmap(R.id.notif_album_art, albumArt)
-            } else {
-                setImageViewResource(R.id.notif_album_art, R.drawable.ic_notif_music)
-            }
-        }
-
-        val bigViews = RemoteViews(packageName, R.layout.notification_music_player).apply {
-            setTextViewText(R.id.notif_title, track.title)
-            setTextViewText(R.id.notif_artist, track.artist.ifBlank { "Folder Audio" })
-            setTextViewText(R.id.notif_elapsed, formatPlaybackTime(position))
-            setTextViewText(R.id.notif_duration, formatPlaybackTime(duration))
-            setProgressBar(R.id.notif_progress, 1000, progress, false)
-            setImageViewResource(
-                R.id.notif_play_pause,
-                if (isMusicPlaying) R.drawable.ic_notif_pause else R.drawable.ic_notif_play
-            )
-            setContentDescription(
-                R.id.notif_play_pause,
-                if (isMusicPlaying) "Jeda" else "Putar"
-            )
-            setOnClickPendingIntent(R.id.notif_prev, prevIntent)
-            setOnClickPendingIntent(R.id.notif_play_pause, playPauseIntent)
-            setOnClickPendingIntent(R.id.notif_next, nextIntent)
-            setOnClickPendingIntent(R.id.notif_shuffle, shuffleIntent)
-            setOnClickPendingIntent(R.id.notif_close, stopIntent)
-            setInt(
-                R.id.notif_shuffle,
-                "setColorFilter",
-                getColor(if (isMusicShuffle) R.color.notif_accent else R.color.notif_text_secondary)
-            )
-            if (albumArt != null) {
-                setImageViewBitmap(R.id.notif_album_art, albumArt)
-            } else {
-                setImageViewResource(R.id.notif_album_art, R.drawable.ic_notif_music)
-            }
-        }
-
+        // Notifikasi media standar (MediaStyle + token MediaSession) agar kontrol media
+        // native muncul di shade & lock screen. Kartu custom RemoteViews tidak dipakai.
         val builder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             Notification.Builder(this, channelId)
         } else {
             Notification.Builder(this)
         }
 
+        val mediaStyle = Notification.MediaStyle()
+            .setMediaSession(mediaSession?.sessionToken)
+            .setShowActionsInCompactView(0, 1, 2)
+
         builder.setContentTitle(track.title)
-            .setContentText(track.artist)
+            .setContentText(track.artist.ifBlank { "Folder Audio" })
+            .setSubText("My Singghara")
+            .setSmallIcon(R.drawable.ic_stat_singghara)
             .setContentIntent(contentIntent)
+            .setDeleteIntent(stopIntent)
             .setVisibility(Notification.VISIBILITY_PUBLIC)
             .setOngoing(isMusicPlaying)
             .setOnlyAlertOnce(true)
             .setShowWhen(false)
-            .setStyle(Notification.DecoratedCustomViewStyle())
-            .setCustomContentView(compactViews)
-            .setCustomBigContentView(bigViews)
 
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
-            @Suppress("DEPRECATION")
-            builder.setPriority(Notification.PRIORITY_LOW)
+        builder.addAction(R.drawable.ic_notif_prev, "Sebelumnya", prevIntent)
+        builder.addAction(
+            if (isMusicPlaying) R.drawable.ic_notif_pause else R.drawable.ic_notif_play,
+            if (isMusicPlaying) "Jeda" else "Putar",
+            playPauseIntent
+        )
+        builder.addAction(R.drawable.ic_notif_next, "Berikutnya", nextIntent)
+
+        builder.setStyle(mediaStyle)
+
+        if (albumArt != null) {
+            builder.setLargeIcon(albumArt)
         }
-
-        // Ikon status bar tetap milik aplikasi. Large icon tidak dipasang agar
-        // sampul hanya tampil sekali di kartu aplikasi, bukan lagi di sisi kanan header.
-        builder.setSmallIcon(R.drawable.ic_stat_singghara)
 
         val notification = builder.build()
         currentMusicNotification = notification
@@ -1041,29 +998,9 @@ class MusicService : Service() {
         }
     }
 
-    /** Perbarui hanya waktu dan bilah kemajuan, tanpa membangun ulang bitmap sampul. */
+    /** Pembaruan ringan tiap detik: MediaStyle mengambil kemajuan dari PlaybackState MediaSession. */
     private fun refreshNotificationProgress() {
-        val notification = currentMusicNotification ?: return
-        val duration = musicTotalDuration.toLong()
-        val position = musicPlaybackPosition.coerceAtLeast(0).toLong()
-        val progress = if (duration > 0L) {
-            ((position * 1000L) / duration).toInt().coerceIn(0, 1000)
-        } else {
-            0
-        }
-        val elapsed = formatPlaybackTime(position)
-        val total = formatPlaybackTime(duration)
-        // Tampilan ringkas tidak memuat bilah kemajuan; perbarui tampilan penuh.
-        val views = notification.bigContentView ?: return
-        views.setProgressBar(R.id.notif_progress, 1000, progress, false)
-        views.setTextViewText(R.id.notif_elapsed, elapsed)
-        views.setTextViewText(R.id.notif_duration, total)
-        try {
-            val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-            notificationManager.notify(1001, notification)
-        } catch (e: Exception) {
-            // ignore
-        }
+        updateMediaSessionState()
     }
 
     private fun getNotificationArt(track: MusicTrack): Bitmap? {
