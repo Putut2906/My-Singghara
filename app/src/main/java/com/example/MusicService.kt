@@ -980,7 +980,7 @@ class MusicService : Service() {
             playPauseIntent
         )
         builder.addAction(R.drawable.ic_notif_next, "Berikutnya", nextIntent)
-        builder.addAction(if (isMusicShuffle) R.drawable.ic_notif_shuffle else R.drawable.ic_notif_shuffle_off, if (isMusicShuffle) "Acak: aktif" else "Acak: mati", shuffleIntent)
+        builder.addAction(R.drawable.ic_notif_shuffle, if (isMusicShuffle) "Acak: aktif" else "Acak", shuffleIntent)
         builder.addAction(R.drawable.ic_notif_close, "Berhenti", stopIntent)
 
         builder.setStyle(mediaStyle)
