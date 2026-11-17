@@ -1941,10 +1941,14 @@ fun MainAppContent(viewModel: MainViewModel, desktopMode: Boolean = false) {
                             label = "J2ME Loader",
                             icon = if (isJ2meLoaderSelected) Icons.Default.Gamepad else Icons.Outlined.Gamepad,
                             selected = isJ2meLoaderSelected,
-                            onClick = {
-                                viewModel.currentRoute = "j2me_loader"
-                                scope.launch { drawerState.close() }
-                            }
+                        onClick = {
+                            // Langsung buka halaman engine J2ME-Loader (daftar game + FAB +),
+                            // bukan layar kustom J2meLoaderScreen.
+                            context.startActivity(
+                                android.content.Intent(context, ru.playsoftware.j2meloader.MainActivity::class.java)
+                            )
+                            scope.launch { drawerState.close() }
+                        }
                         )
                     }
 
