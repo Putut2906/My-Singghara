@@ -1,7 +1,7 @@
 // Modul engine J2ME-Loader (di-vendor sebagai library, Java-only) agar game .jar/.jad
 // berjalan NATIF di dalam APK My Singghara. Engine diluncurkan lewat MicroActivity (proses :midlet).
 plugins {
-    id("com.android.library")
+    alias(libs.plugins.android.library)
 }
 
 android {
