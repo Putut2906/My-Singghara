@@ -803,7 +803,7 @@ public class MicroActivity extends AppCompatActivity {
 			}
 
 			@Override
-			public void onInputDeviceReconfigured(int deviceId) {
+			public void onInputDeviceChanged(int deviceId) {
 				updateGamepadOverlay();
 			}
 		};
