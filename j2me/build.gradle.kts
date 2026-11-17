@@ -24,8 +24,7 @@ android {
         // Field BuildConfig yang tidak otomatis dihasilkan untuk modul library:
         buildConfigField("String", "VERSION_NAME", "\"1.8.2\"")
         buildConfigField("String", "FLAVOR", "\"\"")
-        // app_name di upstream dibuat via resValue (bukan strings.xml) -> sediakan di sini.
-        resValue("string", "app_name", "J2ME Loader")
+        // app_name disediakan di res/values/strings.xml (resValue tidak didukung pada modul library).
     }
 
     buildTypes {
