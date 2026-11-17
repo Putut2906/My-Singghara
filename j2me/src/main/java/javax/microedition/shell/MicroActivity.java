@@ -39,6 +39,10 @@ import android.text.InputType;
 import android.text.TextUtils;
 import android.text.method.DigitsKeyListener;
 import android.util.TypedValue;
+import android.hardware.input.InputManager;
+import android.os.Handler;
+import android.os.Looper;
+import android.view.InputDevice;
 import android.view.KeyEvent;
 import android.view.Menu;
 import android.view.MenuInflater;
@@ -118,6 +122,9 @@ public class MicroActivity extends AppCompatActivity {
 	private int toolbarHeight;
 	private int menuKey;
 	private String appPath;
+	private InputManager inputManager;
+	private InputManager.InputDeviceListener gamepadListener;
+	private boolean gamepadConnected;
 
 	public ActivityMicroBinding binding;
 
@@ -136,6 +143,7 @@ public class MicroActivity extends AppCompatActivity {
 		View view = binding.getRoot();
 		setContentView(view);
 		setSupportActionBar(binding.toolbar);
+		setupGamepadDetection();
 
 		actionBarEnabled = sp.getBoolean(PREF_TOOLBAR, false);
 		statusBarEnabled = sp.getBoolean(PREF_STATUSBAR, false);
@@ -780,10 +788,61 @@ public class MicroActivity extends AppCompatActivity {
 		}
 	}
 
+	private void setupGamepadDetection() {
+		inputManager = (InputManager) getSystemService(INPUT_SERVICE);
+		if (inputManager == null) return;
+		gamepadListener = new InputManager.InputDeviceListener() {
+			@Override
+			public void onDeviceAdded(int deviceId) {
+				updateGamepadOverlay();
+			}
+
+			@Override
+			public void onDeviceRemoved(int deviceId) {
+				updateGamepadOverlay();
+			}
+
+			@Override
+			public void onDeviceReconfigured(int deviceId) {
+				updateGamepadOverlay();
+			}
+		};
+		inputManager.registerInputDeviceListener(gamepadListener, new Handler(Looper.getMainLooper()));
+		updateGamepadOverlay();
+	}
+
+	private boolean hasGamepad() {
+		if (inputManager == null) return false;
+		for (int id : inputManager.getInputDeviceIds()) {
+			InputDevice d = inputManager.getInputDevice(id);
+			if (d == null || d.isVirtual()) continue;
+			int src = d.getSources();
+			if ((src & InputDevice.SOURCE_GAMEPAD) == InputDevice.SOURCE_GAMEPAD
+					|| (src & InputDevice.SOURCE_JOYSTICK) == InputDevice.SOURCE_JOYSTICK) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	private void updateGamepadOverlay() {
+		if (binding == null) return;
+		boolean gp = hasGamepad();
+		if (gp == gamepadConnected) return;
+		gamepadConnected = gp;
+		binding.overlayView.setVisibility(gp ? View.GONE : View.VISIBLE);
+	}
+
 	@Override
 	protected void onDestroy() {
 		// Stop the MIDlet thread explicitly (fixes stuck audio)
 		MidletThread.destroyApp();
+		if (inputManager != null && gamepadListener != null) {
+			try {
+				inputManager.unregisterInputDeviceListener(gamepadListener);
+			} catch (Exception ignored) {
+			}
+		}
 		binding = null;
 		super.onDestroy();
 	}
