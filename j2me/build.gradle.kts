@@ -58,19 +58,20 @@ android {
 dependencies {
     implementation(project(":dexlib"))
 
-    val roomVersion = "2.8.5"
-    val cameraxVersion = "1.6.2"
+    // Versi dipilih agar kompatibel compileSdk 36 (app My Singghara); AGP 9.1.1 belum dukung 37.
+    val roomVersion = "2.7.2"
+    val cameraxVersion = "1.4.1"
     val autoServiceVersion = "1.1.1"
 
     implementation("androidx.room:room-runtime:$roomVersion")
     implementation("androidx.room:room-rxjava2:$roomVersion")
     annotationProcessor("androidx.room:room-compiler:$roomVersion")
 
-    implementation("androidx.constraintlayout:constraintlayout:2.2.2")
-    implementation("androidx.activity:activity:1.13.0")
-    implementation("androidx.appcompat:appcompat:1.8.0")
-    implementation("androidx.recyclerview:recyclerview:1.4.0")
-    implementation("com.google.android.material:material:1.13.0")
+    implementation("androidx.constraintlayout:constraintlayout:2.1.4")
+    implementation("androidx.activity:activity:1.10.1")
+    implementation("androidx.appcompat:appcompat:1.7.0")
+    implementation("androidx.recyclerview:recyclerview:1.3.2")
+    implementation("com.google.android.material:material:1.12.0")
     implementation("androidx.preference:preference:1.2.1")
 
     implementation("com.android.volley:volley:1.2.1")
@@ -92,7 +93,7 @@ dependencies {
     implementation("com.github.nikita36078:filepicker:4.3.0")
     implementation("com.github.yukuku:ambilwarna:2.0.1")
 
-    implementation("ch.acra:acra-dialog:5.14.2")
+    implementation("ch.acra:acra-dialog:5.11.4")
 
     annotationProcessor("org.jetbrains.kotlin:kotlin-metadata-jvm:2.4.21")
     compileOnly("com.google.auto.service:auto-service-annotations:$autoServiceVersion")

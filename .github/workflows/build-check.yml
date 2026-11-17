@@ -51,7 +51,7 @@ jobs:
             echo "::error::---- What went wrong ----"
             grep -A15 -m1 "What went wrong" /tmp/checkbuild.log | sed 's/^/::error::/' || true
             echo "::error::---- Task FAILED ----"
-            grep -E "> Task .*FAILED|^e: |error:" /tmp/checkbuild.log | head -40 | sed 's/^/::error::/' || true
+            grep -E "> Task .*FAILED|^e: |error:|requires libraries and applications|compile against version|AAR metadata" /tmp/checkbuild.log | head -40 | sed 's/^/::error::/' || true
           else
             echo "::error::Log build tidak ditemukan."
           fi
