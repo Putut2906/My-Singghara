@@ -248,6 +248,18 @@ public class KeyMapper {
 		map.append(KeyEvent.KEYCODE_DPAD_RIGHT, KEY_RIGHT);
 		map.append(KeyEvent.KEYCODE_ENTER, KEY_FIRE);
 		map.append(KeyEvent.KEYCODE_DEL, KEY_CLEAR);
+
+		// Pemetaan otomatis gamepad/controller (tahap 1). DPAD sudah dipetakan di atas.
+		map.append(KeyEvent.KEYCODE_BUTTON_A, KEY_FIRE);
+		map.append(KeyEvent.KEYCODE_BUTTON_B, KEY_CLEAR);
+		map.append(KeyEvent.KEYCODE_BUTTON_X, KEY_SOFT_LEFT);
+		map.append(KeyEvent.KEYCODE_BUTTON_Y, KEY_SOFT_RIGHT);
+		map.append(KeyEvent.KEYCODE_BUTTON_START, KEY_SEND);
+		map.append(KeyEvent.KEYCODE_BUTTON_SELECT, KEY_END);
+		map.append(KeyEvent.KEYCODE_BUTTON_L1, KEY_NUM7);   // GAME_A
+		map.append(KeyEvent.KEYCODE_BUTTON_R1, KEY_NUM9);   // GAME_B
+		map.append(KeyEvent.KEYCODE_BUTTON_L2, KEY_STAR);   // GAME_C
+		map.append(KeyEvent.KEYCODE_BUTTON_R2, KEY_POUND);  // GAME_D
 		return map;
 	}
 }
