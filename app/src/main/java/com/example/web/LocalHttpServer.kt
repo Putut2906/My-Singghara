@@ -383,12 +383,6 @@ class LocalHttpServer(
         serverSocket = null
     }
 
-    /** true bila server sedang berjalan dan siap menerima koneksi. */
-    fun isAlive(): Boolean = isRunning
-
-    /** Port tempat server terikat (default 8080). */
-    val boundPort: Int get() = port
-
     fun isServerRunning(): Boolean = isRunning
 
     companion object {
