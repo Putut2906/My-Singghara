@@ -13,6 +13,8 @@
         <item name="textColorPrimary">@color/text_primary</item>
         <item name="textColorSecondary">@color/text_secondary</item>
         <item name="actionBarStyle">@style/FlatActionBar</item>
+        <item name="actionBarTheme">@style/FlatActionBarOverlay</item>
+        <item name="android:windowLightStatusBar">@bool/light_status_bar</item>
         <item name="android:forceDarkAllowed" tools:targetApi="q">false</item>
     </style>
 
@@ -24,6 +26,13 @@
 
     <style name="FlatActionBarTitle" parent="TextAppearance.AppCompat.Widget.ActionBar.Title">
         <item name="android:textColor">@color/text_primary</item>
+    </style>
+
+    <!-- Ikon action bar (search/sort/toggle kisi-list + overflow) di-tint teks primer:
+         near-black di mode terang, near-white di mode gelap. -->
+    <style name="FlatActionBarOverlay" parent="ThemeOverlay.AppCompat.ActionBar">
+        <item name="colorControlNormal">@color/text_primary</item>
+        <item name="android:textColorSecondary">@color/text_primary</item>
     </style>
 
     <style name="AppTheme.NoActionBar">
