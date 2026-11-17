@@ -80,9 +80,6 @@ kotlin {
 }
 
 dependencies {
-    // Engine emulator J2ME (native, satu APK). MicroActivity di-proses ":midlet".
-    implementation(project(":j2me"))
-
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.lifecycle.viewmodel.compose)

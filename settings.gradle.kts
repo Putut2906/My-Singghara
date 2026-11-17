@@ -27,6 +27,3 @@ dependencyResolutionManagement {
 
 rootProject.name = "My Singghara"
 include(":app")
-// Engine J2ME-Loader (di-vendor) : modul library engine + modul dexer (dx/ASM).
-include(":j2me")
-include(":dexlib")
