@@ -36,41 +36,52 @@
             android:configChanges="orientation|screenSize|keyboardHidden|screenLayout|smallestScreenSize|uiMode"
             android:process=":midlet" />
 
+        <!-- Entry import engine: menerima ACTION_VIEW + Uri .jar/.jad, membuka InstallerDialog
+             (AppInstaller men-dex & ekstrak), lalu menjalankan MicroActivity. Dibutuhkan supaya
+             ▶ di J2meLoaderScreen memakai alur install engine yang sudah teruji. -->
+        <activity
+            android:name=".MainActivity"
+            android:exported="false"
+            android:theme="@style/AppTheme"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize"
+            android:launchMode="singleTask" />
+
         <activity
             android:name=".config.ConfigActivity"
             android:exported="false"
+            android:theme="@style/AppTheme"
             android:windowSoftInputMode="stateHidden|adjustPan" />
         <activity
             android:name=".config.ConfigFilesActivity"
-            android:exported="false" />
+            android:exported="false"
+            android:theme="@style/AppTheme" />
         <activity
             android:name=".config.ProfilesActivity"
-            android:exported="false" />
+            android:exported="false"
+            android:theme="@style/AppTheme" />
         <activity
             android:name=".settings.SettingsActivity"
-            android:exported="false" />
+            android:exported="false"
+            android:theme="@style/AppTheme" />
         <activity
             android:name=".settings.BackupActivity"
-            android:exported="false" />
+            android:exported="false"
+            android:theme="@style/AppTheme" />
         <activity
             android:name=".settings.KeyMapperActivity"
-            android:exported="false" />
+            android:exported="false"
+            android:theme="@style/AppTheme" />
         <activity
             android:name=".filepicker.FilteredFilePickerActivity"
             android:exported="false"
             android:theme="@style/FilePickerTheme" />
 
-        <provider
-            android:name=".storage.DocumentProvider"
-            android:authorities="${applicationId}.documentProvider"
-            android:enabled="@bool/isAtLeastQ"
-            android:exported="true"
-            android:grantUriPermissions="true"
-            android:permission="android.permission.MANAGE_DOCUMENTS">
-            <intent-filter>
-                <action android:name="android.content.action.DOCUMENTS_PROVIDER" />
-            </intent-filter>
-        </provider>
+        <!-- DocumentProvider DIHAPUS. Provider di-inisialisasi Android saat
+             handleBindApplication, SEBELUM Application.onCreate. onCreate-nya memanggil
+             Config.getEmulatorDir -> Config.<clinit> -> PreferenceManager.getDefaultSharedPreferences
+             dengan Context null -> NPE/ExceptionInInitializerError -> app force-close saat startup
+             (terbukti di logcat v1.0.254). Alur launch kita memakai Uri dari OpenDocument,
+             jadi provider SAF ini tidak dibutuhkan. -->
 
         <receiver
             android:name="com.nokia.mid.ui.NotificationBroadcastReceiver"

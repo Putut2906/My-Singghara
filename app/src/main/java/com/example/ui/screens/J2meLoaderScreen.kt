@@ -87,14 +87,14 @@ fun J2meLoaderScreen(
         }
     }
 
-    // Titik integrasi runtime native: luncurkan engine J2ME-Loader (MicroActivity, proses :midlet).
+    // Titik integrasi runtime native: serahkan Uri .jar/.jad ke alur import engine (MainActivity),
+    // yang membuka InstallerDialog (AppInstaller men-dex & ekstrak ke emulatorDir) lalu
+    // menjalankan MicroActivity. Ini memakai jalur install engine yang sudah teruji.
     var statusMsg by remember { mutableStateOf<String?>(null) }
     fun launchGame(uriStr: String) {
-        // MicroActivity.onCreate (FULL_EMULATOR=true) membaca intent.getData() = Uri .jar/.jad,
-        // lalu MicroLoader men-dex (dx/ASM) & memuat suite via AppClassLoader(DexClassLoader).
         val launch = Intent(Intent.ACTION_VIEW)
             .setDataAndType(Uri.parse(uriStr), "application/java-archive")
-            .setClassName(context.packageName, "javax.microedition.shell.MicroActivity")
+            .setClassName(context.packageName, "ru.playsoftware.j2meloader.MainActivity")
             .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
         try {
             context.startActivity(launch)
