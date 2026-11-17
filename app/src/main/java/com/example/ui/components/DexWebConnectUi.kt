@@ -30,6 +30,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -567,5 +568,117 @@ private fun DexFooterIconButton(
             tint = colors.textSub,
             modifier = Modifier.size(18.dp)
         )
+    }
+}
+
+/** Judul + subjudul sebuah halaman untuk header chrome DeX (ala Web Connect). */
+data class DexPageInfo(val title: String, val subtitle: String)
+
+/**
+ * Peta rute -> judul/subjudul halaman DeX. Rute di [EXCLUDED] tidak diberi chrome
+ * karena punya tata letak khusus (dashboard, layar fullscreen/immersive).
+ */
+object DexPageChromeMeta {
+    private val EXCLUDED = setOf(
+        "home", "pemutar_video", "immersive_file_viewer", "handy_talky", "quran"
+    )
+
+    private val PAGES = mapOf(
+        "catatan" to DexPageInfo("Catatan Penting", "Kelola catatan pribadi Anda"),
+        "note_keuangan" to DexPageInfo("Note Keuangan", "Catatan pemasukan & pengeluaran"),
+        "agenda" to DexPageInfo("Agenda", "Jadwal dan agenda harian"),
+        "jadwal_harian" to DexPageInfo("Jadwal Harian", "Rencana aktivitas harian"),
+        "kalender" to DexPageInfo("Kalender", "Tampilan bulanan agenda & jadwal"),
+        "belanja" to DexPageInfo("Daftar Belanja", "Pantau kebutuhan belanja"),
+        "semua_transaksi_belanja" to DexPageInfo("Semua Transaksi Belanja", "Riwayat transaksi belanja"),
+        "rekap_belanja_pasar" to DexPageInfo("Rekap Belanja Pasar", "Rekapitulasi belanja pasar"),
+        "belanja_online" to DexPageInfo("Belanja Online", "Catat pembelian daring"),
+        "tabungan" to DexPageInfo("Tabungan Mandiri", "Kelola pos tabungan"),
+        "semua_catatan_tabungan" to DexPageInfo("Semua Catatan Tabungan", "Riwayat setoran & penarikan"),
+        "arisan_keluarga" to DexPageInfo("Arisan Keluarga", "Pengelolaan arisan"),
+        "my_kasir" to DexPageInfo("My Kasir", "Point of sale sederhana"),
+        "pembukuan_usaha" to DexPageInfo("Pembukuan Usaha", "Buku kas & aktivitas usaha"),
+        "gaji_karyawan" to DexPageInfo("Gaji Karyawan", "Perhitungan & riwayat gaji"),
+        "absensi_karyawan" to DexPageInfo("Absensi Karyawan", "Presensi harian"),
+        "riwayat_absensi_lengkap" to DexPageInfo("Riwayat Absensi", "Rekap kehadiran lengkap"),
+        "data_karyawan_murid" to DexPageInfo("Data Karyawan & Murid", "Master data anggota"),
+        "tabel_anggota_lengkap" to DexPageInfo("Anggota Lengkap", "Tabel seluruh anggota"),
+        "jurnal_umum" to DexPageInfo("Jurnal Umum", "Pencatatan transaksi akuntansi"),
+        "buku_besar" to DexPageInfo("Buku Besar", "Ringkasan per akun"),
+        "neraca_saldo" to DexPageInfo("Neraca Saldo", "Daftar saldo akun"),
+        "jurnal_penyesuaian" to DexPageInfo("Jurnal Penyesuaian", "Ayat penyesuaian akhir periode"),
+        "neraca_saldo_disesuaikan" to DexPageInfo("Neraca Saldo Disesuaikan", "Saldo setelah penyesuaian"),
+        "laba_rugi" to DexPageInfo("Laporan Laba Rugi", "Ringkasan pendapatan & beban"),
+        "jurnal_penutup" to DexPageInfo("Jurnal Penutup", "Penutupan akun nominal"),
+        "neraca_saldo_setelah_tutup" to DexPageInfo("Neraca Setelah Tutup", "Saldo awal periode berikutnya"),
+        "pemutar_musik" to DexPageInfo("Pemutar Musik", "Pemutar audio & lirik"),
+        "mindmap" to DexPageInfo("Mind Map", "Peta pikiran visual"),
+        "stopwatch" to DexPageInfo("Stopwatch", "Penghitung waktu"),
+        "kalkulator" to DexPageInfo("Kalkulator", "Alat hitung"),
+        "game_list" to DexPageInfo("Game", "Kumpulan permainan"),
+        "sliding_puzzle" to DexPageInfo("Sliding Puzzle", "Teka-teki geser"),
+        "jigsaw_puzzle" to DexPageInfo("Jigsaw Puzzle", "Teka-teki susun"),
+        "j2me_loader" to DexPageInfo("J2ME Loader", "Emulator game Java"),
+        "share" to DexPageInfo("Share", "Bagikan konten antar perangkat"),
+        "transfer_file" to DexPageInfo("Transfer File", "Kirim file antar perangkat"),
+        "web_connect" to DexPageInfo("Web Connect", "Akses dasbor dari PC"),
+        "telegram_ai" to DexPageInfo("Telegram AI", "Asisten berbasis Telegram"),
+        "manajemen_akun" to DexPageInfo("Manajemen Akun", "Kelola pengguna & admin"),
+        "profil" to DexPageInfo("Profil", "Informasi akun Anda"),
+        "app_lock" to DexPageInfo("App Lock", "Kunci keamanan aplikasi"),
+        "cat_input_soal" to DexPageInfo("Simulasi CAT - Input Soal", "Kelola bank soal"),
+        "cat_simulasi_ujian" to DexPageInfo("Simulasi CAT - Ujian", "Laksanakan try out"),
+        "cat_hasil" to DexPageInfo("Simulasi CAT - Hasil", "Rekap nilai try out"),
+        "tentang_aplikasi" to DexPageInfo("Tentang Aplikasi", "Informasi My Singghara")
+    )
+
+    /** Returning null berarti rute ini tidak memakai page chrome. */
+    fun forRoute(route: String): DexPageInfo? {
+        if (route in EXCLUDED) return null
+        PAGES[route]?.let { return it }
+        val humanized = route.replace("_", " ").trim().replaceFirstChar { it.uppercase() }
+        return DexPageInfo(humanized, "")
+    }
+}
+
+/**
+ * Page chrome ala Web Connect untuk mode DeX: header (judul + subjudul) lalu konten
+ * dibungkus kartu ber-border. Layar Compose yang ada dipakai ulang di dalam [content],
+ * sehingga semua halaman punya tata letak desktop yang konsisten tanpa dirombak satu-satu.
+ */
+@Composable
+fun DexPageChrome(info: DexPageInfo, content: @Composable () -> Unit) {
+    val colors = rememberDexWebColors()
+    val cardBg = if (isSystemInDarkTheme()) MaterialTheme.colorScheme.surface else Color.White
+    Column(modifier = Modifier.fillMaxSize().background(colors.bgMain)) {
+        Column(modifier = Modifier.fillMaxWidth().padding(bottom = 14.dp)) {
+            Text(
+                text = info.title,
+                fontSize = 20.sp,
+                fontWeight = FontWeight.Bold,
+                color = colors.textMain,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+            if (info.subtitle.isNotBlank()) {
+                Text(
+                    text = info.subtitle,
+                    fontSize = 12.5.sp,
+                    color = colors.textSub,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+        }
+        Box(
+            modifier = Modifier
+                .weight(1f)
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(16.dp))
+                .background(cardBg)
+                .border(1.dp, colors.border.copy(alpha = 0.5f), RoundedCornerShape(16.dp))
+        ) {
+            content()
+        }
     }
 }

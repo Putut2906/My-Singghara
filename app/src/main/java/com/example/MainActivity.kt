@@ -3915,6 +3915,7 @@ fun MainAppContent(viewModel: MainViewModel, desktopMode: Boolean = false) {
                     },
                     label = "ScreenTransition"
                 ) { route ->
+                val dexScreen: @Composable () -> Unit = {
                     when (route) {
                         "home" -> if (desktopMode && !viewModel.showAllAppsPage) com.example.ui.components.DexDashboardScreen(viewModel = viewModel) else HomeScreen(viewModel = viewModel)
                         "rekap_belanja_pasar" -> RekapBelanjaPasarScreen(
@@ -4244,6 +4245,13 @@ fun MainAppContent(viewModel: MainViewModel, desktopMode: Boolean = false) {
                         )
                         else -> HomeScreen(viewModel = viewModel)
                     }
+                }
+                val dexChrome = if (desktopMode) com.example.ui.components.DexPageChromeMeta.forRoute(route) else null
+                if (dexChrome != null) {
+                    com.example.ui.components.DexPageChrome(info = dexChrome) { dexScreen() }
+                } else {
+                    dexScreen()
+                }
                 }
             }
         }
