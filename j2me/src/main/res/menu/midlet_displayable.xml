@@ -1,4 +1,5 @@
-<menu xmlns:android="http://schemas.android.com/apk/res/android">
+<menu xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto">
     <item
         android:id="@+id/action_exit_midlet"
         android:title="@string/exit" />
@@ -15,11 +16,13 @@
         <item
             android:icon="@drawable/ic_action_keyboard"
             android:id="@+id/action_ime_keyboard"
-            android:title="@string/action_keyboard_ime" />
+            android:title="@string/action_keyboard_ime"
+            app:showAsAction="ifRoom" />
         <item
             android:icon="@drawable/ic_action_screenshot"
             android:id="@+id/action_take_screenshot"
-            android:title="@string/take_screenshot" />
+            android:title="@string/take_screenshot"
+            app:showAsAction="ifRoom" />
 
         <item
             android:id="@+id/action_limit_fps"
