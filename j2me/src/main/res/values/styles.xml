@@ -32,6 +32,7 @@
          near-black di mode terang, near-white di mode gelap. -->
     <style name="FlatActionBarOverlay" parent="ThemeOverlay.AppCompat.ActionBar">
         <item name="colorControlNormal">@color/text_primary</item>
+        <item name="android:textColorPrimary">@color/text_primary</item>
         <item name="android:textColorSecondary">@color/text_primary</item>
     </style>
 
