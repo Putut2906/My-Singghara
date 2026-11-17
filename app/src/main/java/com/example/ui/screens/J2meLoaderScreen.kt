@@ -10,9 +10,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items as gridItems
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items as listItems
+import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
@@ -92,7 +90,7 @@ fun J2meLoaderScreen(
         val obs = androidx.lifecycle.LifecycleEventObserver { _, event ->
             if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) refresh++
         }
-        val owner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+        val owner = androidx.compose.ui.platform.LocalLifecycleOwner.current
         owner.lifecycle.addObserver(obs)
         onDispose { owner.lifecycle.removeObserver(obs) }
     }
@@ -169,21 +167,16 @@ fun J2meLoaderScreen(
                     textAlign = TextAlign.Center
                 )
             }
-        } else if (gridMode) {
+        } else {
             LazyVerticalGrid(
-                columns = GridCells.Adaptive(minSize = 96.dp),
+                columns = if (gridMode) GridCells.Adaptive(minSize = 96.dp) else GridCells.Fixed(1),
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp),
                 contentPadding = PaddingValues(bottom = 16.dp)
             ) {
-                gridItems(shown, key = { it.path }) { g ->
-                    GameTile(game = g, onRun = { runGame(context, g) })
-                }
-            }
-        } else {
-            LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(bottom = 16.dp)) {
-                listItems(shown, key = { it.path }) { g ->
-                    GameRow(game = g, onRun = { runGame(context, g) })
+                items(shown, key = { it.path }) { g ->
+                    if (gridMode) GameTile(game = g, onRun = { runGame(context, g) })
+                    else GameRow(game = g, onRun = { runGame(context, g) })
                 }
             }
         }
