@@ -793,17 +793,17 @@ public class MicroActivity extends AppCompatActivity {
 		if (inputManager == null) return;
 		gamepadListener = new InputManager.InputDeviceListener() {
 			@Override
-			public void onDeviceAdded(int deviceId) {
+			public void onInputDeviceAdded(int deviceId) {
 				updateGamepadOverlay();
 			}
 
 			@Override
-			public void onDeviceRemoved(int deviceId) {
+			public void onInputDeviceRemoved(int deviceId) {
 				updateGamepadOverlay();
 			}
 
 			@Override
-			public void onDeviceReconfigured(int deviceId) {
+			public void onInputDeviceReconfigured(int deviceId) {
 				updateGamepadOverlay();
 			}
 		};
