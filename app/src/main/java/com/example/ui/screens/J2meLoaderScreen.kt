@@ -86,13 +86,14 @@ fun J2meLoaderScreen(
     }
 
     // Segarkan daftar saat layar kembali (mis. seusai install).
+    // Baca CompositionLocal di body @Composable, bukan di dalam DisposableEffect.
+    val lifecycleOwner = androidx.compose.ui.platform.LocalLifecycleOwner.current
     DisposableEffect(Unit) {
         val obs = androidx.lifecycle.LifecycleEventObserver { _, event ->
             if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) refresh++
         }
-        val owner = androidx.compose.ui.platform.LocalLifecycleOwner.current
-        owner.lifecycle.addObserver(obs)
-        onDispose { owner.lifecycle.removeObserver(obs) }
+        lifecycleOwner.lifecycle.addObserver(obs)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(obs) }
     }
 
     Column(modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp)) {
