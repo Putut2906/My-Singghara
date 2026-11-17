@@ -22,6 +22,7 @@
         android:layout_gravity="center_horizontal"
         android:layout_marginTop="10dp"
         android:text="@string/no_data_for_display"
+        android:textColor="?attr/textColorSecondary"
         android:textSize="18sp"
         tools:visibility="gone" />
 
