@@ -1,11 +1,15 @@
 package com.example
 
-import android.app.Application
+import android.content.Context
 import android.util.Log
 import com.google.firebase.FirebaseApp
 import com.google.firebase.FirebaseOptions
 
-class SinggharaApplication : Application() {
+// Extend EmulatorApplication (modul :j2me) supaya EmulatorApplication.attachBaseContext
+// berjalan -> instance = this, sehingga ContextHolder.getAppContext() (engine) tidak null.
+// Ini WAJIB agar Config.<clinit> & seluruh engine punya Context saat runtime, di proses
+// utama maupun :midlet (Application dibuat per-proses).
+class SinggharaApplication : ru.playsoftware.j2meloader.EmulatorApplication() {
 
     override fun onCreate() {
         super.onCreate()
