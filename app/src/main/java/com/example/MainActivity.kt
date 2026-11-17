@@ -56,6 +56,7 @@ import androidx.compose.material.icons.filled.AccountBalanceWallet
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Gamepad
+import androidx.compose.material.icons.outlined.Gamepad
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Settings
@@ -1931,6 +1932,20 @@ fun MainAppContent(viewModel: MainViewModel, desktopMode: Boolean = false) {
                                 }
                             }
                         }
+                    }
+
+                    // Group: J2ME LOADER (Entri tunggal di bawah MEDIA - emulator Java ME native)
+                    DrawerMenuCard {
+                        val isJ2meLoaderSelected = viewModel.currentRoute == "j2me_loader"
+                        PrimaryDrawerEntry(
+                            label = "J2ME Loader",
+                            icon = if (isJ2meLoaderSelected) Icons.Default.Gamepad else Icons.Outlined.Gamepad,
+                            selected = isJ2meLoaderSelected,
+                            onClick = {
+                                viewModel.currentRoute = "j2me_loader"
+                                scope.launch { drawerState.close() }
+                            }
+                        )
                     }
 
                     // Group: PEOPLE (Boxed Group Card, desain kartu sama seperti LAPORAN KEUANGAN)
@@ -3914,6 +3929,11 @@ fun MainAppContent(viewModel: MainViewModel, desktopMode: Boolean = false) {
                             onOpenDrawer = { if (desktopMode) isDesktopSidebarExpanded = true else scope.launch { drawerState.open() } }
                         )
                         "stopwatch" -> com.example.ui.screens.StopwatchScreen(
+                            viewModel = viewModel,
+                            onBack = { viewModel.currentRoute = "home" },
+                            onOpenDrawer = { if (desktopMode) isDesktopSidebarExpanded = true else scope.launch { drawerState.open() } }
+                        )
+                        "j2me_loader" -> com.example.ui.screens.J2meLoaderScreen(
                             viewModel = viewModel,
                             onBack = { viewModel.currentRoute = "home" },
                             onOpenDrawer = { if (desktopMode) isDesktopSidebarExpanded = true else scope.launch { drawerState.open() } }

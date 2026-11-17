@@ -21,6 +21,18 @@ jobs:
           distribution: 'zulu'
           java-version: '21'
 
+      - name: Install Android NDK
+        run: |
+          # Engine :j2me butuh NDK persis 29.0.14206865 (ndkBuild). Pasang eksplisit agar
+          # tidak bergantung pada versi yang ter-preinstall di runner image.
+          SDKM="$(command -v sdkmanager || true)"
+          if [ -z "$SDKM" ]; then
+            SDKM="$(find "$ANDROID_HOME" -type f -name sdkmanager -path '*/cmdline-tools/latest/bin/*' | head -n1)"
+          fi
+          echo "Using sdkmanager: $SDKM"
+          yes | "$SDKM" --licenses >/dev/null 2>&1 || true
+          yes | "$SDKM" "ndk;29.0.14206865"
+
       - name: Setup Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
@@ -29,7 +41,20 @@ jobs:
       - name: Assemble debug APK
         run: |
           gradle :app:assembleDebug --no-daemon --stacktrace \
-            -PappVersionName="1.0.check" -PappVersionCode="1"
+            -PappVersionName="1.0.check" -PappVersionCode="1" 2>&1 | tee /tmp/checkbuild.log
+          exit "${PIPESTATUS[0]}"
+
+      - name: Tampilkan error kompilasi (hanya bila gagal)
+        if: failure()
+        run: |
+          if [ -f /tmp/checkbuild.log ]; then
+            echo "::error::---- What went wrong ----"
+            grep -A15 -m1 "What went wrong" /tmp/checkbuild.log | sed 's/^/::error::/' || true
+            echo "::error::---- Task FAILED ----"
+            grep -E "> Task .*FAILED|^e: |error:|requires libraries and applications|compile against version|AAR metadata" /tmp/checkbuild.log | head -40 | sed 's/^/::error::/' || true
+          else
+            echo "::error::Log build tidak ditemukan."
+          fi
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
