@@ -113,6 +113,11 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.ui.viewinterop.AndroidView
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import android.webkit.WebSettings
+import android.webkit.WebChromeClient
+import android.webkit.WebResourceRequest
+import android.webkit.WebResourceError
+import android.view.ViewGroup
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.shape.CircleShape
@@ -378,6 +383,7 @@ class MainActivity : FragmentActivity() {
                                 )
                         ) {
                             MainAppContent(viewModel = viewModel, desktopMode = desktopMode)
+                            if (desktopMode) { DexWebConnectView(viewModel = viewModel) }
                         }
 
                         if (isLocked) {
@@ -785,6 +791,87 @@ private fun PrimaryDrawerEntry(
             fontWeight = FontWeight.SemiBold,
             color = if (selected) MaterialTheme.colorScheme.onPrimaryContainer
             else MaterialTheme.colorScheme.onSurfaceVariant
+        )
+    }
+}
+
+/**
+ * Tampilan Samsung DeX: seluruh app menampilkan UI Web Connect (dashboard PC)
+ * lewat WebView yang menunjuk server HTTP lokal di HP yang sama (127.0.0.1),
+ * sehingga 100% offline tanpa jaringan internet.
+ */
+@Composable
+private fun DexWebConnectView(viewModel: MainViewModel) {
+    var lastError by remember { mutableStateOf<String?>(null) }
+
+    // Pastikan server Web Connect berjalan (start() idempotent: langsung return bila sudah hidup).
+    LaunchedEffect(Unit) {
+        if (com.example.web.LocalHttpServer.activeInstance?.isAlive() != true) {
+            viewModel.startWebServer(onStarted = {}, onError = { lastError = it })
+        }
+    }
+
+    val serverUrl = remember {
+        val p = com.example.web.LocalHttpServer.activeInstance?.boundPort ?: 8080
+        "http://127.0.0.1:$p/"
+    }
+
+    val webViewHolder = remember { mutableStateOf<WebView?>(null) }
+
+    BackHandler(enabled = webViewHolder.value?.canGoBack() == true) {
+        webViewHolder.value?.goBack()
+    }
+
+    Box(modifier = Modifier.fillMaxSize().background(Color.White)) {
+        AndroidView(
+            modifier = Modifier.fillMaxSize(),
+            factory = { ctx ->
+                WebView(ctx).apply {
+                    layoutParams = ViewGroup.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.MATCH_PARENT
+                    )
+                    setBackgroundColor(android.graphics.Color.WHITE)
+                    settings.javaScriptEnabled = true
+                    settings.domStorageEnabled = true
+                    settings.allowFileAccess = false
+                    settings.allowContentAccess = false
+                    settings.mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
+                    settings.useWideViewPort = true
+                    settings.loadWithOverviewMode = true
+                    settings.cacheMode = WebSettings.LOAD_DEFAULT
+                    isVerticalScrollBarEnabled = false
+                    webChromeClient = WebChromeClient()
+                    webViewClient = object : WebViewClient() {
+                        override fun shouldOverrideUrlLoading(
+                            view: WebView?,
+                            request: WebResourceRequest?
+                        ): Boolean = false
+
+                        override fun onReceivedError(
+                            view: WebView?,
+                            request: WebResourceRequest?,
+                            error: WebResourceError?
+                        ) {
+                            // Server mungkin belum siap saat load pertama -> coba ulang.
+                            if (request?.isForMainFrame == true) {
+                                view?.postDelayed({
+                                    if (com.example.web.LocalHttpServer.activeInstance?.isAlive() == true) {
+                                        view.loadUrl(serverUrl)
+                                    }
+                                }, 1200L)
+                            }
+                        }
+                    }
+                    loadUrl(serverUrl)
+                    webViewHolder.value = this
+                }
+            },
+            onRelease = { web ->
+                web.stopLoading()
+                web.destroy()
+                if (webViewHolder.value === web) webViewHolder.value = null
+            }
         )
     }
 }
