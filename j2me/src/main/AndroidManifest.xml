@@ -36,25 +36,41 @@
             android:configChanges="orientation|screenSize|keyboardHidden|screenLayout|smallestScreenSize|uiMode"
             android:process=":midlet" />
 
+        <!-- Entry import engine: menerima ACTION_VIEW + Uri .jar/.jad, membuka InstallerDialog
+             (AppInstaller men-dex & ekstrak), lalu menjalankan MicroActivity. Dibutuhkan supaya
+             ▶ di J2meLoaderScreen memakai alur install engine yang sudah teruji. -->
+        <activity
+            android:name=".MainActivity"
+            android:exported="false"
+            android:theme="@style/AppTheme"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize"
+            android:launchMode="singleTask" />
+
         <activity
             android:name=".config.ConfigActivity"
             android:exported="false"
+            android:theme="@style/AppTheme"
             android:windowSoftInputMode="stateHidden|adjustPan" />
         <activity
             android:name=".config.ConfigFilesActivity"
-            android:exported="false" />
+            android:exported="false"
+            android:theme="@style/AppTheme" />
         <activity
             android:name=".config.ProfilesActivity"
-            android:exported="false" />
+            android:exported="false"
+            android:theme="@style/AppTheme" />
         <activity
             android:name=".settings.SettingsActivity"
-            android:exported="false" />
+            android:exported="false"
+            android:theme="@style/AppTheme" />
         <activity
             android:name=".settings.BackupActivity"
-            android:exported="false" />
+            android:exported="false"
+            android:theme="@style/AppTheme" />
         <activity
             android:name=".settings.KeyMapperActivity"
-            android:exported="false" />
+            android:exported="false"
+            android:theme="@style/AppTheme" />
         <activity
             android:name=".filepicker.FilteredFilePickerActivity"
             android:exported="false"
