@@ -1,5 +1,6 @@
 package com.example.ui.components
 
+import android.content.Intent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
@@ -44,6 +45,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -159,6 +161,7 @@ fun DexWebSidebar(
     modifier: Modifier = Modifier
 ) {
     val colors = rememberDexWebColors()
+    val context = LocalContext.current
     var openGroupId by remember { mutableStateOf<String?>(null) }
     val currentRoute = viewModel.currentRoute
     val isLoggedIn = viewModel.currentFirebaseUser != null
@@ -208,7 +211,27 @@ fun DexWebSidebar(
             listOf(
                 DexNavItem("Pemutar Video", Icons.Default.VideoLibrary, Color(0xFF0E7490), currentRoute == "pemutar_video") { go("pemutar_video") },
                 DexNavItem("Handy Talky (HT)", Icons.Default.SettingsVoice, Color(0xFF10B981), currentRoute == "handy_talky") { go("handy_talky") },
-                DexNavItem("Musik", Icons.Default.MusicNote, Color(0xFFE91E63), currentRoute == "pemutar_musik") { go("pemutar_musik") }
+                DexNavItem("Musik", Icons.Default.MusicNote, Color(0xFFE91E63), currentRoute == "pemutar_musik") { go("pemutar_musik") },
+                DexNavItem("Stopwatch", Icons.Default.Timer, Color(0xFF7C3AED), currentRoute == "stopwatch") { go("stopwatch") }
+            )
+        ),
+        DexNavGroup(
+            "cat", "Simulasi CAT", Icons.Default.Schedule, Color(0xFF7C3AED),
+            listOf(
+                DexNavItem("Input Soal", Icons.Default.Edit, Color(0xFF7C3AED), currentRoute == "cat_input_soal") { go("cat_input_soal") },
+                DexNavItem("Simulasi Ujian", Icons.Default.Timer, Color(0xFF7C3AED), currentRoute == "cat_simulasi_ujian") { go("cat_simulasi_ujian") },
+                DexNavItem("Hasil & Live Score", Icons.Default.TrendingUp, Color(0xFF7C3AED), currentRoute == "cat_hasil") { go("cat_hasil") }
+            )
+        ),
+        DexNavGroup(
+            "j2me", "Game & Emulator", Icons.Default.Gamepad, Color(0xFF306230),
+            listOf(
+                DexNavItem("J2ME Loader", Icons.Default.Gamepad, Color(0xFF306230), false) {
+                    try {
+                        context.startActivity(Intent(context, ru.playsoftware.j2meloader.MainActivity::class.java))
+                    } catch (_: Throwable) {
+                    }
+                }
             )
         ),
         DexNavGroup(

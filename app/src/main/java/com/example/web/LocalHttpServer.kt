@@ -11675,6 +11675,10 @@ class LocalHttpServer(
                             <i class="bi bi-stopwatch fs-5" style="color: #7C3AED;"></i>
                             <span class="nav-text">Stopwatch</span>
                         </div>
+                        <div class="nav-link-item" onclick="switchTab('j2me', this)" data-title="J2ME Loader">
+                            <i class="bi bi-controller fs-5" style="color: #306230;"></i>
+                            <span class="nav-text">J2ME Loader</span>
+                        </div>
                     </div>
                 </div>
 
@@ -13265,6 +13269,9 @@ class LocalHttpServer(
             else if (currentTab === 'stopwatch') {
                 if (window.loadStopwatch) window.loadStopwatch();
             }
+            else if (currentTab === 'j2me') {
+                if (window.loadJ2me) window.loadJ2me();
+            }
             else if (currentTab === 'cat_input_soal') { if (window.loadCat) window.loadCat(0); }
             else if (currentTab === 'cat_simulasi_ujian') { if (window.loadCat) window.loadCat(1); }
             else if (currentTab === 'cat_hasil') { if (window.loadCat) window.loadCat(2); }
@@ -14561,6 +14568,7 @@ class LocalHttpServer(
                         ${KalkulatorWebScript.getScript(dol)}
                         ${CatWebScript.getScript(dol)}
                         ${StopwatchWebScript.getScript(dol)}
+                        ${J2meWebScript.getScript(dol)}
 
         // ==========================================
         // --- 4. BLOCK PUZZLE CLASSIC (8x8) ---
