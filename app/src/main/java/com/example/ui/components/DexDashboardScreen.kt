@@ -85,10 +85,10 @@ fun DexDashboardScreen(viewModel: MainViewModel) {
     val columnsPerRow = 6
 
     val stats = listOf(
-        Triple("Catatan", notes.size.toString(), Icons.Default.EditNote, Color(0xFF6366F1)),
-        Triple("Agenda", agendas.size.toString(), Icons.Default.DateRange, Color(0xFFF59E0B)),
-        Triple("Item Belanja", shopping.size.toString(), Icons.Default.ShoppingCart, Color(0xFF10B981)),
-        Triple("Aplikasi", AppRegistry.allAppsMap.size.toString(), Icons.Default.GridOn, Color(0xFF0EA5E9))
+        DexStat("Catatan", notes.size.toString(), Icons.Default.EditNote, Color(0xFF6366F1)),
+        DexStat("Agenda", agendas.size.toString(), Icons.Default.DateRange, Color(0xFFF59E0B)),
+        DexStat("Item Belanja", shopping.size.toString(), Icons.Default.ShoppingCart, Color(0xFF10B981)),
+        DexStat("Aplikasi", AppRegistry.allAppsMap.size.toString(), Icons.Default.GridOn, Color(0xFF0EA5E9))
     )
 
     Column(
@@ -198,6 +198,9 @@ fun DexDashboardScreen(viewModel: MainViewModel) {
         }
     }
 }
+
+/** Data satu kartu statistik pada dashboard DeX. */
+private data class DexStat(val label: String, val value: String, val icon: ImageVector, val iconBg: Color)
 
 /** Kontainer kartu ala Web Connect: radius besar, border tipis, latar kartu. */
 @Composable
