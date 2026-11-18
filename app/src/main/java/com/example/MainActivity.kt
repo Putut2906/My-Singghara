@@ -324,7 +324,7 @@ class MainActivity : FragmentActivity() {
             // DeX kini menampilkan layout MOBILE penuh (BottomNavBar + drawer), bukan UI Web Connect.
             // Set dexUseMobileLayout = false untuk mengaktifkan kembali tampilan DeX ala Web Connect
             // (DexWebSidebar / DexPageChrome / DexDashboardScreen) tanpa harus menulis ulang kode.
-            val dexUseMobileLayout = true
+            val dexUseMobileLayout = false
             val desktopMode = remember(configuration.uiMode, configuration.smallestScreenWidthDp) {
                 isDesktopModeActive(this@MainActivity) && !dexUseMobileLayout
             }
@@ -2744,7 +2744,7 @@ fun MainAppContent(viewModel: MainViewModel, desktopMode: Boolean = false) {
                                 .background(MaterialTheme.colorScheme.surface, shape = RoundedCornerShape(12.dp))
                         }
                     ) {
-                        CenterAlignedTopAppBar(
+                        TopAppBar(
                             title = {
                                 if (desktopMode) {
                                     DexWebTopBarBrand(dexColors)
@@ -3862,7 +3862,7 @@ fun MainAppContent(viewModel: MainViewModel, desktopMode: Boolean = false) {
                                     )
                                 }
                             },
-                            colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
+                            colors = TopAppBarDefaults.topAppBarColors(
                                 containerColor = Color.Transparent,
                                 titleContentColor = if (desktopMode) dexColors.textMain else MaterialTheme.colorScheme.onSurface,
                                 navigationIconContentColor = if (desktopMode) dexColors.textMain else MaterialTheme.colorScheme.onSurface,

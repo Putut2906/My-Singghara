@@ -8,13 +8,11 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -30,6 +28,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
+import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -57,27 +56,36 @@ import com.example.ui.MainViewModel
 import com.example.ui.models.AppRegistry
 
 /**
- * Palet Web Connect (LocalHttpServer :root / body.dark) supaya tampilan DeX
- * menyerupai halaman Web Connect Akses PC 100% Offline.
+ * Palet shell DeX: identitas flat Material3 yang diturunkan langsung dari
+ * MaterialTheme.colorScheme (bukan mirror Web Connect), sehingga otomatis ikut
+ * light/dark dan kohesif dengan layar fitur. Tanpa bayangan/gradien/emoji.
+ * Nama properti lama dipertahankan agar call site di MainActivity tetap valid.
  */
-class DexWebColors(val dark: Boolean) {
-    val sidebarBg = if (dark) Color(0xFF0F172A) else Color(0xFFF8FAFC)
-    val navbarBg = if (dark) Color(0xFF1E293B) else Color(0xFFFFFFFF)
-    val bgMain = if (dark) Color(0xFF0F172A) else Color(0xFFFFFFFF)
-    val hover = if (dark) Color(0xFF334155) else Color(0xFFE2E8F0)
-    val border = if (dark) Color(0xFF334155) else Color(0xFFCBD5E1)
-    val textMain = if (dark) Color(0xFFFFFFFF) else Color(0xFF141414)
-    val textSub = if (dark) Color(0xFFCBD5E1) else Color(0xFF475569)
-    val accent = if (dark) Color(0xFF38BDF8) else Color(0xFF3674B5)
-    val badgeBg = if (dark) Color(0x3338BDF8) else Color(0x1F3674B5)
-    val success = if (dark) Color(0xFF4ADE80) else Color(0xFF198754)
-    val danger = if (dark) Color(0xFFF87171) else Color(0xFFE74C3C)
+class DexWebColors(private val scheme: ColorScheme, val dark: Boolean) {
+    val sidebarBg = scheme.surface
+    val navbarBg = scheme.surface
+    val bgMain = scheme.background
+    val hover = scheme.surfaceVariant
+    val border = scheme.outlineVariant
+    val textMain = scheme.onSurface
+    val textSub = scheme.onSurfaceVariant
+    val accent = scheme.primary
+    val badgeBg = scheme.secondaryContainer
+    val success = scheme.primary
+    val danger = scheme.error
+
+    // Token gaya baru (flat Material3)
+    val selectedBg = scheme.secondaryContainer
+    val onSelectedBg = scheme.onSecondaryContainer
+    val onHover = scheme.onSurfaceVariant
+    val cardBg = scheme.surface
 }
 
 @Composable
 fun rememberDexWebColors(): DexWebColors {
+    val scheme = MaterialTheme.colorScheme
     val dark = isSystemInDarkTheme()
-    return remember(dark) { DexWebColors(dark) }
+    return remember(scheme, dark) { DexWebColors(scheme, dark) }
 }
 
 private data class DexNavItem(
@@ -96,49 +104,31 @@ private data class DexNavGroup(
     val items: List<DexNavItem>
 )
 
-/** Brand kiri navbar web: logo + "My Singghara" + subjudul, dipakai pada top bar DeX. */
+/** Brand kiri navbar DeX: logo + nama + caption minimalis (identitas flat M3). */
 @Composable
 fun DexWebTopBarBrand(colors: DexWebColors, modifier: Modifier = Modifier) {
     Row(
         modifier = modifier,
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
+        horizontalArrangement = Arrangement.spacedBy(10.dp)
     ) {
         Image(
             painter = painterResource(R.drawable.ic_app_logo),
             contentDescription = "Logo My Singghara",
-            modifier = Modifier.size(26.dp).clip(CircleShape)
+            modifier = Modifier.size(28.dp).clip(CircleShape)
         )
         Column {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                Text(
-                    text = "My Singghara",
-                    fontSize = 15.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = colors.textMain,
-                    maxLines = 1
-                )
-                Box(
-                    modifier = Modifier
-                        .background(colors.success.copy(alpha = 0.12f), RoundedCornerShape(50))
-                        .border(1.dp, colors.success.copy(alpha = 0.25f), RoundedCornerShape(50))
-                        .padding(horizontal = 7.dp, vertical = 2.dp)
-                ) {
-                    Text(
-                        text = "DESKTOP",
-                        fontSize = 8.5.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = colors.success,
-                        letterSpacing = 0.5.sp
-                    )
-                }
-            }
             Text(
-                text = "Samsung DeX \u2022 Akses Desktop 100% Offline",
-                fontSize = 10.5.sp,
+                text = "My Singghara",
+                fontSize = 15.sp,
+                fontWeight = FontWeight.Bold,
+                color = colors.textMain,
+                maxLines = 1
+            )
+            Text(
+                text = "Samsung DeX",
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Medium,
                 color = colors.textSub,
                 maxLines = 1
             )
@@ -338,14 +328,14 @@ fun DexWebSidebar(
                             Icon(
                                 imageVector = group.icon,
                                 contentDescription = group.label,
-                                tint = group.color,
+                                tint = colors.textSub,
                                 modifier = Modifier.size(18.dp)
                             )
                             Text(
                                 text = group.label.uppercase(),
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.Bold,
-                                color = colors.textMain,
+                                color = colors.textSub,
                                 letterSpacing = 0.8.sp
                             )
                         }
@@ -378,7 +368,6 @@ fun DexWebSidebar(
             ) {
                 DexRailIcon(
                     icon = Icons.Default.Dashboard,
-                    tint = if (currentRoute == "home" && !viewModel.showAllAppsPage) colors.accent else colors.textSub,
                     active = currentRoute == "home" && !viewModel.showAllAppsPage,
                     contentDescription = "Dashboard",
                     colors = colors
@@ -390,7 +379,6 @@ fun DexWebSidebar(
                 groups.forEach { group ->
                     DexRailIcon(
                         icon = group.icon,
-                        tint = group.color,
                         active = group.items.any { it.selected },
                         contentDescription = group.label,
                         colors = colors
@@ -501,45 +489,35 @@ private fun DexSidebarDivider(colors: DexWebColors) {
 
 @Composable
 private fun DexNavItemRow(item: DexNavItem, colors: DexWebColors) {
-    val shape = RoundedCornerShape(10.dp)
+    val shape = RoundedCornerShape(16.dp)
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(bottom = 6.dp)
-            .height(IntrinsicSize.Min)
+            .padding(vertical = 2.dp)
             .clip(shape)
-            .background(if (item.selected) colors.badgeBg else Color.Transparent)
+            .background(if (item.selected) colors.selectedBg else Color.Transparent)
             .clickable { item.onClick() }
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 12.dp),
+                .padding(horizontal = 16.dp, vertical = 11.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(14.dp)
         ) {
             Icon(
                 imageVector = item.icon,
                 contentDescription = item.label,
-                tint = item.iconColor ?: if (item.selected) colors.accent else colors.textSub,
+                tint = if (item.selected) colors.onSelectedBg else colors.textSub,
                 modifier = Modifier.size(20.dp)
             )
             Text(
                 text = item.label,
                 fontSize = 13.sp,
-                fontWeight = FontWeight.Medium,
-                color = if (item.selected) colors.accent else colors.textSub,
+                fontWeight = if (item.selected) FontWeight.SemiBold else FontWeight.Medium,
+                color = if (item.selected) colors.onSelectedBg else colors.textSub,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
-            )
-        }
-        if (item.selected) {
-            Box(
-                modifier = Modifier
-                    .align(Alignment.CenterStart)
-                    .width(4.dp)
-                    .fillMaxHeight()
-                    .background(colors.accent)
             )
         }
     }
@@ -548,7 +526,6 @@ private fun DexNavItemRow(item: DexNavItem, colors: DexWebColors) {
 @Composable
 private fun DexRailIcon(
     icon: ImageVector,
-    tint: Color,
     active: Boolean,
     contentDescription: String,
     colors: DexWebColors,
@@ -557,15 +534,15 @@ private fun DexRailIcon(
     Box(
         modifier = Modifier
             .size(48.dp)
-            .clip(RoundedCornerShape(10.dp))
-            .background(if (active) colors.badgeBg else Color.Transparent)
+            .clip(RoundedCornerShape(16.dp))
+            .background(if (active) colors.selectedBg else Color.Transparent)
             .clickable { onClick() },
         contentAlignment = Alignment.Center
     ) {
         Icon(
             imageVector = icon,
             contentDescription = contentDescription,
-            tint = tint,
+            tint = if (active) colors.onSelectedBg else colors.textSub,
             modifier = Modifier.size(22.dp)
         )
     }
@@ -581,15 +558,15 @@ private fun DexFooterIconButton(
     Box(
         modifier = Modifier
             .size(36.dp)
-            .clip(RoundedCornerShape(10.dp))
-            .border(1.dp, colors.border, RoundedCornerShape(10.dp))
+            .clip(RoundedCornerShape(12.dp))
+            .background(colors.hover.copy(alpha = 0.6f))
             .clickable { onClick() },
         contentAlignment = Alignment.Center
     ) {
         Icon(
             imageVector = icon,
             contentDescription = contentDescription,
-            tint = colors.textSub,
+            tint = colors.onHover,
             modifier = Modifier.size(18.dp)
         )
     }
@@ -674,7 +651,6 @@ object DexPageChromeMeta {
 @Composable
 fun DexPageChrome(info: DexPageInfo, content: @Composable () -> Unit) {
     val colors = rememberDexWebColors()
-    val cardBg = if (isSystemInDarkTheme()) MaterialTheme.colorScheme.surface else Color.White
     Column(modifier = Modifier.fillMaxSize().background(colors.bgMain)) {
         Column(modifier = Modifier.fillMaxWidth().padding(bottom = 14.dp)) {
             Text(
@@ -700,8 +676,7 @@ fun DexPageChrome(info: DexPageInfo, content: @Composable () -> Unit) {
                 .weight(1f)
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(16.dp))
-                .background(cardBg)
-                .border(1.dp, colors.border.copy(alpha = 0.5f), RoundedCornerShape(16.dp))
+                .background(colors.cardBg)
         ) {
             content()
         }
