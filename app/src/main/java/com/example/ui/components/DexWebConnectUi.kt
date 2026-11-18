@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -288,6 +289,10 @@ fun DexWebSidebar(
             .width(if (expanded) 250.dp else 72.dp)
             .fillMaxHeight()
             .background(colors.sidebarBg)
+            // DeX fullscreen: jendela edge-to-edge, jadi footer sidebar perlu naik
+            // di atas navigation bar. Diletak SETELAH background agar latar tetap
+            // full-bleed sementara isi (footer profil) tidak terpotong.
+            .navigationBarsPadding()
     ) {
         if (expanded) {
             Column(
