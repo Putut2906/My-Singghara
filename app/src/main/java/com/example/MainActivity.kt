@@ -3923,7 +3923,7 @@ fun MainAppContent(viewModel: MainViewModel, desktopMode: Boolean = false) {
                 ) { route ->
                 val dexScreen: @Composable () -> Unit = {
                     when (route) {
-                        "home" -> HomeScreen(viewModel = viewModel)
+                        "home" -> if (desktopMode && !viewModel.showAllAppsPage) com.example.ui.components.DexDashboardScreen(viewModel = viewModel) else HomeScreen(viewModel = viewModel)
                         "rekap_belanja_pasar" -> RekapBelanjaPasarScreen(
                             viewModel = viewModel,
                             onBack = { viewModel.currentRoute = "home" },

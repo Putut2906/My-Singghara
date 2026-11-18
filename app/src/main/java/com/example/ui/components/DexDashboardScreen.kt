@@ -36,9 +36,11 @@ import androidx.compose.material.icons.filled.ShoppingCart
 import androidx.compose.material.icons.filled.WbCloudy
 import androidx.compose.material.icons.filled.WbSunny
 import androidx.compose.material.icons.filled.WbTwilight
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -374,6 +376,9 @@ private fun DexPrayerCard(viewModel: MainViewModel, colors: DexWebColors) {
     fun toMin(s: String): Int = runCatching { val p = s.split(":"); p[0].toInt() * 60 + p[1].toInt() }.getOrDefault(-1)
     val nextLabel = items.firstOrNull { toMin(it.second) >= nowMin }?.first ?: "Imsak"
 
+    // Klik salah satu waktu -> popup detail jadwal + hitung mundur ke waktu berikutnya.
+    var selectedPrayer by remember { mutableStateOf<Pair<String, String>?>(null) }
+
     DexCard(colors = colors, shape = RoundedCornerShape(24.dp)) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -398,6 +403,7 @@ private fun DexPrayerCard(viewModel: MainViewModel, colors: DexWebColors) {
                         .weight(1f)
                         .clip(cellShape)
                         .background(if (isNext) colors.selectedBg else colors.hover.copy(alpha = 0.4f))
+                        .clickable { selectedPrayer = label to time }
                         .padding(vertical = 10.dp, horizontal = 4.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
@@ -408,6 +414,78 @@ private fun DexPrayerCard(viewModel: MainViewModel, colors: DexWebColors) {
             }
         }
     }
+
+    selectedPrayer?.let { (label, time) ->
+        AlertDialog(
+            onDismissRequest = { selectedPrayer = null },
+            containerColor = if (isSystemInDarkTheme()) MaterialTheme.colorScheme.surface else Color.White,
+            title = { Text("Waktu Shalat - $label", color = colors.textMain) },
+            text = {
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    Text(
+                        text = "Pukul $time \u2022 Zona ${viewModel.activeTimeZone}",
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = colors.textMain
+                    )
+                    Spacer(Modifier.height(12.dp))
+                    Text("Jadwal hari ini:", fontSize = 12.sp, color = colors.textSub)
+                    Spacer(Modifier.height(4.dp))
+                    items.forEach { (l, t) ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text(
+                                l, fontSize = 13.sp,
+                                color = if (l == label) colors.accent else colors.textMain,
+                                fontWeight = if (l == label) FontWeight.Bold else FontWeight.Normal
+                            )
+                            Text(
+                                t, fontSize = 13.sp,
+                                color = if (l == label) colors.accent else colors.textSub,
+                                fontWeight = if (l == label) FontWeight.Bold else FontWeight.Normal
+                            )
+                        }
+                    }
+                    Spacer(Modifier.height(12.dp))
+                    DexPrayerCountdown(items = items, nextLabel = nextLabel, colors = colors)
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { selectedPrayer = null }) { Text("Tutup") }
+            }
+        )
+    }
+}
+
+/** Hitung mundur langsung (detik) menuju waktu shalat berikutnya; berhenti saat popup ditutup. */
+@Composable
+private fun DexPrayerCountdown(items: List<Pair<String, String>>, nextLabel: String, colors: DexWebColors) {
+    var secsLeft by remember { mutableStateOf(0L) }
+    LaunchedEffect(items, nextLabel) {
+        fun toSec(s: String): Int = runCatching {
+            val p = s.split(":"); p[0].toInt() * 3600 + p[1].toInt() * 60
+        }.getOrDefault(0)
+        while (true) {
+            val now = Calendar.getInstance()
+            val nowSec = now.get(Calendar.HOUR_OF_DAY) * 3600 + now.get(Calendar.MINUTE) * 60 + now.get(Calendar.SECOND)
+            val nextTime = items.firstOrNull { it.first == nextLabel }?.second ?: "00:00"
+            var diff = toSec(nextTime) - nowSec
+            if (diff < 0) diff += 24 * 3600
+            secsLeft = diff.toLong()
+            delay(1000)
+        }
+    }
+    val h = secsLeft / 3600
+    val m = (secsLeft % 3600) / 60
+    val s = secsLeft % 60
+    Text(
+        text = "Menuju $nextLabel: %02d:%02d:%02d".format(h, m, s),
+        fontSize = 14.sp,
+        fontWeight = FontWeight.Bold,
+        color = colors.accent
+    )
 }
 
 @Composable
