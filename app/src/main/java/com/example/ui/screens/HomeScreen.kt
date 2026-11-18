@@ -28,6 +28,8 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -723,12 +725,14 @@ fun HomeScreen(viewModel: MainViewModel) {
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
-        LazyColumn(
+        LazyVerticalGrid(
+            columns = GridCells.Adaptive(minSize = 360.dp),
             modifier = Modifier
                 .fillMaxSize()
                 .padding(16.dp)
                 .testTag("home_screen"),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+            horizontalArrangement = Arrangement.spacedBy(16.dp)
         ) {
         // SECTION 1: PREMIUM DIGITAL CLOCK & CALENDAR CARD (Ucapan & Nama di Atas Jam)
         item {
