@@ -3923,7 +3923,24 @@ fun MainAppContent(viewModel: MainViewModel, desktopMode: Boolean = false) {
                 ) { route ->
                 val dexScreen: @Composable () -> Unit = {
                     when (route) {
-                        "home" -> if (desktopMode && !viewModel.showAllAppsPage) com.example.ui.components.DexDashboardScreen(viewModel = viewModel) else HomeScreen(viewModel = viewModel)
+                        "home" -> if (desktopMode && !viewModel.showAllAppsPage) {
+                            // DeX home memakai UI/UX + SELURUH fungsi HomeScreen mobile
+                            // (jam digital, My Aplikasi, cuaca, waktu solat -> popup,
+                            // kalender, dll), ditata sebagai kolom tengah ala-HP agar
+                            // kartu tidak melar di jendela DeX yang lebar.
+                            Box(
+                                modifier = Modifier.fillMaxSize(),
+                                contentAlignment = Alignment.TopCenter
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .widthIn(max = 560.dp)
+                                        .fillMaxSize()
+                                ) {
+                                    HomeScreen(viewModel = viewModel)
+                                }
+                            }
+                        } else HomeScreen(viewModel = viewModel)
                         "rekap_belanja_pasar" -> RekapBelanjaPasarScreen(
                             viewModel = viewModel,
                             onBack = { viewModel.currentRoute = "home" },
