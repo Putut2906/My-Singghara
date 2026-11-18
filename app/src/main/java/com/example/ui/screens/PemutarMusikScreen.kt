@@ -1019,19 +1019,29 @@ fun PemutarMusikScreen(viewModel: MainViewModel, onOpenDrawer: () -> Unit) {
                                 }
                             }
 
-                            Spacer(modifier = Modifier.weight(0.3f))
+                            Spacer(modifier = Modifier.height(8.dp))
 
                             // BAGIAN TENGAH (INFORMASI LAGU) REDESIGNED
-                            // 1. Sampul Album: Gambar visual dari album atau single lagu tersebut
+                            // 1. Sampul Album: square adaptif = minOf(lebar, tinggi)
+                            //    agar di jendela DeX yang pendek kartu ikut mengecil
+                            //    dan kontrol bawah tidak terpotong; di mobile tetap
+                            //    square-by-width. Box weight(1f) menyerap sisa tinggi.
+                            BoxWithConstraints(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .fillMaxWidth()
+                            ) {
+                                val cardSide = minOf(maxWidth, maxHeight)
+                                Box(
+                                    modifier = Modifier.fillMaxSize(),
+                                    contentAlignment = Alignment.Center
+                                ) {
                             Card(
                                 shape = RoundedCornerShape(24.dp),
                                 elevation = CardDefaults.cardElevation(defaultElevation = 10.dp),
                                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.2f)),
                                 modifier = Modifier
-                                    .fillMaxWidth()
-                                    .aspectRatio(1f)
-                                    .padding(horizontal = 16.dp)
-                                    .align(Alignment.CenterHorizontally)
+                                    .size(cardSide)
                             ) {
                                 val currentLyrics = remember(
                                     activeTrack,
@@ -1573,8 +1583,10 @@ fun PemutarMusikScreen(viewModel: MainViewModel, onOpenDrawer: () -> Unit) {
                                     }
                                 }
                             }
+                                }
+                            }
 
-                            Spacer(modifier = Modifier.weight(0.3f))
+                            Spacer(modifier = Modifier.height(8.dp))
 
                             // Song Metadata & Side Action Row (Redesigned)
                             Column(
@@ -1662,7 +1674,7 @@ fun PemutarMusikScreen(viewModel: MainViewModel, onOpenDrawer: () -> Unit) {
                                 }
                             }
 
-                            Spacer(modifier = Modifier.weight(0.4f))
+                            Spacer(modifier = Modifier.height(16.dp))
 
                             // BARIS DURASI & TOMBOL PEMUTAR UTAMA (Paling Bawah)
                             // 1. Garis Durasi (Progress Bar): Menunjukkan posisi menit lagu
@@ -1844,7 +1856,7 @@ fun PemutarMusikScreen(viewModel: MainViewModel, onOpenDrawer: () -> Unit) {
                                 }
                             }
 
-                            Spacer(modifier = Modifier.weight(0.3f))
+                            Spacer(modifier = Modifier.height(8.dp))
                         }
                     }
                 }
