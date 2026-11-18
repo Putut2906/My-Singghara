@@ -49,6 +49,7 @@ import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.ShoppingCart
 import androidx.compose.material.icons.filled.ShoppingBag
+import androidx.compose.material.icons.filled.ShowChart
 import androidx.compose.material.icons.outlined.ShoppingBag
 import androidx.compose.material.icons.filled.Calculate
 import androidx.compose.material.icons.outlined.Calculate
