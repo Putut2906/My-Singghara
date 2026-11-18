@@ -29,6 +29,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -724,9 +725,10 @@ fun HomeScreen(viewModel: MainViewModel) {
         }
     }
 
-    Box(modifier = Modifier.fillMaxSize()) {
+    BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+        val homeCols = if (maxWidth >= 720.dp) 2 else 1
         LazyVerticalGrid(
-            columns = GridCells.Adaptive(minSize = 360.dp),
+            columns = GridCells.Fixed(homeCols),
             modifier = Modifier
                 .fillMaxSize()
                 .padding(16.dp)
@@ -735,7 +737,7 @@ fun HomeScreen(viewModel: MainViewModel) {
             horizontalArrangement = Arrangement.spacedBy(16.dp)
         ) {
         // SECTION 1: PREMIUM DIGITAL CLOCK & CALENDAR CARD (Ucapan & Nama di Atas Jam)
-        item {
+        item(span = GridItemSpan(maxLineSpan)) {
             val calendarNow = Calendar.getInstance()
             val hour = calendarNow.get(Calendar.HOUR_OF_DAY)
             val greeting = when (hour) {
@@ -1365,7 +1367,7 @@ fun HomeScreen(viewModel: MainViewModel) {
             }
         }
         // SECTION 2B: MY APLIKASI
-        item {
+        item(span = GridItemSpan(maxLineSpan)) {
             Card(
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                 modifier = Modifier
@@ -2033,7 +2035,7 @@ fun HomeScreen(viewModel: MainViewModel) {
         }
 
         // SECTION 5: INTERACTIVE CALENDAR WITH JAVANESE AND HIJRI LABELS
-        item {
+        item(span = GridItemSpan(maxLineSpan)) {
                 Card(
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                     modifier = Modifier
