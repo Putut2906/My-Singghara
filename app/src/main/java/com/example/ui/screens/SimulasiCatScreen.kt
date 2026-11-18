@@ -50,6 +50,8 @@ import android.provider.OpenableColumns
 import kotlinx.coroutines.delay
 import org.json.JSONArray
 import org.json.JSONObject
+import java.text.SimpleDateFormat
+import java.util.Date
 import java.util.Locale
 import java.util.UUID
 
@@ -450,6 +452,32 @@ object CatStore {
     fun hapusRiwayat(ctx: Context) {
         prefs(ctx).edit().remove(KEY_RIWAYAT).apply()
     }
+
+    /** Tambah entri skor manual (untuk Grafik Progres). total & lulus dihitung otomatis. */
+    fun tambahRiwayatManual(
+        ctx: Context,
+        twk: Int,
+        tiu: Int,
+        tkp: Int,
+        tanggalMs: Long = System.currentTimeMillis()
+    ): RiwayatItem {
+        val total = twk + tiu + tkp
+        val lulus = twk >= PG_TWK && tiu >= PG_TIU && tkp >= PG_TKP
+        val item = RiwayatItem(
+            id = UUID.randomUUID().toString(), paketId = "", paketNama = "Manual",
+            tanggal = tanggalMs, twk = twk, tiu = tiu, tkp = tkp, total = total, lulus = lulus
+        )
+        val list = riwayatList(ctx)
+        list.add(item)
+        saveRiwayat(ctx, list)
+        return item
+    }
+
+    fun hapusRiwayatItem(ctx: Context, id: String) {
+        val list = riwayatList(ctx)
+        list.removeAll { it.id == id }
+        saveRiwayat(ctx, list)
+    }
 }
 
 // ============================ LAYAR UTAMA (stub, diisi bertahap) ============================
@@ -463,8 +491,8 @@ fun SimulasiCatScreen(
     onOpenDrawer: () -> Unit = {}
 ) {
     val context = LocalContext.current
-    val tabTitles = listOf("Input Soal", "Simulasi Ujian", "Hasil & Live Score")
-    var selectedTab by remember { mutableIntStateOf(initialTab.coerceIn(0, 2)) }
+    val tabTitles = listOf("Input Soal", "Simulasi Ujian", "Hasil & Live Score", "Grafik Progres")
+    var selectedTab by remember { mutableIntStateOf(initialTab.coerceIn(0, 3)) }
     var paketList by remember { mutableStateOf(CatStore.paketList(context)) }
     var paketId by remember { mutableStateOf(CatStore.aktifPaketId(context)) }
     var bank by remember { mutableStateOf(CatStore.loadBank(context)) }
@@ -525,12 +553,13 @@ fun SimulasiCatScreen(
                     },
                     onGoInput = { selectedTab = 0 }
                 )
-                else -> TabHasil(
+                2 -> TabHasil(
                     hasil = hasil,
                     sesi = sesi,
                     onCompute = { s -> CatStore.hitungHasil(context, s) },
                     onRestart = { selectedTab = 1 }
                 )
+                else -> TabGrafikProgres()
             }
         }
     }
@@ -1341,6 +1370,161 @@ private fun LineChart(
     if (labels.isNotEmpty() && labels.size <= 14) {
         Row(Modifier.fillMaxWidth().padding(start = 44.dp, end = 12.dp, top = 2.dp), horizontalArrangement = Arrangement.SpaceBetween) {
             labels.forEach { Text(it, fontSize = 10.sp, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+        }
+    }
+}
+
+// ---------------------- TAB 4: GRAFIK PROGRES (input skor TWK/TIU/TKP) ----------------------
+
+@Composable
+private fun TabGrafikProgres() {
+    val context = LocalContext.current
+    var riwayat by remember { mutableStateOf(CatStore.riwayatList(context).sortedBy { it.tanggal }) }
+    var twk by remember { mutableStateOf("") }
+    var tiu by remember { mutableStateOf("") }
+    var tkp by remember { mutableStateOf("") }
+    var msg by remember { mutableStateOf<Pair<String, Boolean>?>(null) }
+
+    Column(
+        Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState())
+            .padding(16.dp)
+    ) {
+        Text("Grafik Progres Skor", fontSize = 18.sp, fontWeight = FontWeight.Bold)
+        Spacer(Modifier.height(4.dp))
+        Text(
+            "Masukkan skor TWK, TIU, dan TKP tiap latihan untuk memantau perkembangan.",
+            fontSize = 12.sp,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+        Spacer(Modifier.height(14.dp))
+
+        Card(Modifier.fillMaxWidth()) {
+            Column(Modifier.padding(16.dp)) {
+                Text("Tambah Skor", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                Spacer(Modifier.height(10.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Box(Modifier.weight(1f)) { ScoreField("TWK", twk) { twk = it } }
+                    Box(Modifier.weight(1f)) { ScoreField("TIU", tiu) { tiu = it } }
+                    Box(Modifier.weight(1f)) { ScoreField("TKP", tkp) { tkp = it } }
+                }
+                Spacer(Modifier.height(12.dp))
+                Button(onClick = {
+                    val a = twk.toIntOrNull()
+                    val b = tiu.toIntOrNull()
+                    val c = tkp.toIntOrNull()
+                    if (a == null || b == null || c == null) {
+                        msg = "Isi TWK, TIU, dan TKP dengan angka." to true
+                        return@Button
+                    }
+                    if (a !in 0..150 || b !in 0..175 || c !in 0..225) {
+                        msg = "Rentang: TWK 0-150, TIU 0-175, TKP 0-225." to true
+                        return@Button
+                    }
+                    CatStore.tambahRiwayatManual(context, a, b, c)
+                    riwayat = CatStore.riwayatList(context).sortedBy { it.tanggal }
+                    twk = ""; tiu = ""; tkp = ""
+                    msg = "Skor tersimpan." to false
+                }) {
+                    Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("Simpan Skor")
+                }
+                msg?.let { (t, err) ->
+                    Spacer(Modifier.height(8.dp))
+                    Text(t, fontSize = 12.sp, color = if (err) Color(0xFFDC2626) else Color(0xFF16A34A))
+                }
+            }
+        }
+
+        Spacer(Modifier.height(16.dp))
+
+        if (riwayat.isEmpty()) {
+            Card(Modifier.fillMaxWidth()) {
+                Text(
+                    "Belum ada data. Simpan skor pertama Anda untuk melihat grafik.",
+                    Modifier.padding(16.dp),
+                    fontSize = 13.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        } else {
+            val labels = riwayat.map { SimpleDateFormat("dd/MM", Locale.getDefault()).format(Date(it.tanggal)) }
+            SeriesCard("TWK", riwayat.map { it.twk.toFloat() }, labels, 150f, Color(0xFF6366F1))
+            Spacer(Modifier.height(12.dp))
+            SeriesCard("TIU", riwayat.map { it.tiu.toFloat() }, labels, 175f, Color(0xFF0EA5E9))
+            Spacer(Modifier.height(12.dp))
+            SeriesCard("TKP", riwayat.map { it.tkp.toFloat() }, labels, 225f, Color(0xFF10B981))
+        }
+
+        Spacer(Modifier.height(16.dp))
+        Text("Riwayat Skor", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+        Spacer(Modifier.height(6.dp))
+        riwayat.asReversed().forEach { item ->
+            Card(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
+                Row(
+                    Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            SimpleDateFormat("EEE, dd MMM yyyy HH:mm", Locale("id", "ID")).format(Date(item.tanggal)),
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        Text(
+                            "TWK ${item.twk} • TIU ${item.tiu} • TKP ${item.tkp} • Total ${item.total}",
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    if (item.lulus) {
+                        Box(
+                            Modifier
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(Color(0xFF16A34A).copy(alpha = 0.15f))
+                                .padding(horizontal = 8.dp, vertical = 3.dp)
+                        ) {
+                            Text("LULUS", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color(0xFF16A34A))
+                        }
+                        Spacer(Modifier.width(8.dp))
+                    }
+                    IconButton(onClick = {
+                        CatStore.hapusRiwayatItem(context, item.id)
+                        riwayat = CatStore.riwayatList(context).sortedBy { it.tanggal }
+                    }) {
+                        Icon(Icons.Default.Delete, contentDescription = "Hapus", modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.error)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ScoreField(label: String, value: String, onValueChange: (String) -> Unit) {
+    OutlinedTextField(
+        value = value,
+        onValueChange = { nv -> if (nv.all { it.isDigit() } && nv.length <= 3) onValueChange(nv) },
+        label = { Text(label) },
+        singleLine = true,
+        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+        modifier = Modifier.fillMaxWidth()
+    )
+}
+
+@Composable
+private fun SeriesCard(title: String, values: List<Float>, labels: List<String>, maxV: Float, color: Color) {
+    Card(Modifier.fillMaxWidth()) {
+        Column(Modifier.padding(16.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(Modifier.size(12.dp).clip(CircleShape).background(color))
+                Spacer(Modifier.width(8.dp))
+                Text("$title (maks ${maxV.toInt()})", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+            }
+            Spacer(Modifier.height(8.dp))
+            LineChart(values = values, labels = labels, maxValue = maxV, modifier = Modifier.fillMaxWidth().height(160.dp))
         }
     }
 }

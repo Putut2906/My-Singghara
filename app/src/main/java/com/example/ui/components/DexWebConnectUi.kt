@@ -220,7 +220,8 @@ fun DexWebSidebar(
             listOf(
                 DexNavItem("Input Soal", Icons.Default.Edit, Color(0xFF7C3AED), currentRoute == "cat_input_soal") { go("cat_input_soal") },
                 DexNavItem("Simulasi Ujian", Icons.Default.Timer, Color(0xFF7C3AED), currentRoute == "cat_simulasi_ujian") { go("cat_simulasi_ujian") },
-                DexNavItem("Hasil & Live Score", Icons.Default.TrendingUp, Color(0xFF7C3AED), currentRoute == "cat_hasil") { go("cat_hasil") }
+                DexNavItem("Hasil & Live Score", Icons.Default.TrendingUp, Color(0xFF7C3AED), currentRoute == "cat_hasil") { go("cat_hasil") },
+                DexNavItem("Grafik Progres", Icons.Default.ShowChart, Color(0xFF7C3AED), currentRoute == "cat_grafik_progres") { go("cat_grafik_progres") }
             )
         ),
         DexNavGroup(
@@ -652,6 +653,7 @@ object DexPageChromeMeta {
         "cat_input_soal" to DexPageInfo("Simulasi CAT - Input Soal", "Kelola bank soal"),
         "cat_simulasi_ujian" to DexPageInfo("Simulasi CAT - Ujian", "Laksanakan try out"),
         "cat_hasil" to DexPageInfo("Simulasi CAT - Hasil", "Rekap nilai try out"),
+        "cat_grafik_progres" to DexPageInfo("Simulasi CAT - Grafik Progres", "Tren skor TWK / TIU / TKP"),
         "tentang_aplikasi" to DexPageInfo("Tentang Aplikasi", "Informasi My Singghara")
     )
 
