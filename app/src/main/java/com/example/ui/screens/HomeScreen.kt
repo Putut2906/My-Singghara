@@ -737,7 +737,7 @@ fun HomeScreen(viewModel: MainViewModel) {
             horizontalArrangement = Arrangement.spacedBy(16.dp)
         ) {
         // SECTION 1: PREMIUM DIGITAL CLOCK & CALENDAR CARD (Ucapan & Nama di Atas Jam)
-        item(span = GridItemSpan(maxLineSpan)) {
+        item(span = { GridItemSpan(maxLineSpan) }) {
             val calendarNow = Calendar.getInstance()
             val hour = calendarNow.get(Calendar.HOUR_OF_DAY)
             val greeting = when (hour) {
@@ -1367,7 +1367,7 @@ fun HomeScreen(viewModel: MainViewModel) {
             }
         }
         // SECTION 2B: MY APLIKASI
-        item(span = GridItemSpan(maxLineSpan)) {
+        item(span = { GridItemSpan(maxLineSpan) }) {
             Card(
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                 modifier = Modifier
@@ -2035,7 +2035,7 @@ fun HomeScreen(viewModel: MainViewModel) {
         }
 
         // SECTION 5: INTERACTIVE CALENDAR WITH JAVANESE AND HIJRI LABELS
-        item(span = GridItemSpan(maxLineSpan)) {
+        item(span = { GridItemSpan(maxLineSpan) }) {
                 Card(
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                     modifier = Modifier
