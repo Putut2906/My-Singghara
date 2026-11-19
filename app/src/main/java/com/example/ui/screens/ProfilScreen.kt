@@ -501,7 +501,7 @@ fun ProfilScreen(
                                 Text("Skala: ${"%.1f".format(viewModel.dexFontScale)}x", fontWeight = FontWeight.Bold)
                                 Slider(
                                     value = viewModel.dexFontScale,
-                                    onValueChange = { viewModel.setDexFontScale(it) },
+                                    onValueChange = { viewModel.updateDexFontScale(it) },
                                     valueRange = 1.0f..3.5f,
                                     steps = 9
                                 )
@@ -516,7 +516,7 @@ fun ProfilScreen(
                             }
                         },
                         confirmButton = { TextButton(onClick = { showDexFontDialog = false }) { Text("Selesai") } },
-                        dismissButton = { TextButton(onClick = { viewModel.setDexFontScale(2.0f) }) { Text("Reset 2.0x") } }
+                        dismissButton = { TextButton(onClick = { viewModel.updateDexFontScale(2.0f) }) { Text("Reset 2.0x") } }
                     )
                 }
 

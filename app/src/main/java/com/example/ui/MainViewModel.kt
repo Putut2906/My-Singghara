@@ -1604,7 +1604,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     var dexFontScale by mutableStateOf((sharedPrefs.all["dex_font_scale"] as? Number)?.toFloat() ?: 2.0f)
 
     /** Set & simpan pengali font DeX (di-clamp 1.0f..3.5f). Berlaku langsung di UI DeX. */
-    fun setDexFontScale(value: Float) {
+    fun updateDexFontScale(value: Float) {
         val clamped = value.coerceIn(1.0f, 3.5f)
         dexFontScale = clamped
         sharedPrefs.edit().putFloat("dex_font_scale", clamped).apply()
