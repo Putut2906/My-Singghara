@@ -1468,7 +1468,10 @@ fun HomeScreen(viewModel: MainViewModel) {
         }
 
         // SECTION 3: WEATHER FORECAST (PERKIRAAN CUACA)
-        item {
+        // Full-width (maxLineSpan) di grid DeX: sebelumnya 1 kolom (setengah
+        // monitor) sehingga menyisakan kolom kosong. Cuaca + jadwal shalat
+        // kini masing-masing satu baris penuh.
+        item(span = { GridItemSpan(maxLineSpan) }) {
             val state = weatherState
             Card(
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
@@ -1770,7 +1773,9 @@ fun HomeScreen(viewModel: MainViewModel) {
         }
 
         // SECTION 4: JADWAL SHOLAT
-        item {
+        // Full-width (maxLineSpan) supaya kartu waktu shalat melebar penuh di
+        // layar monitor DeX dan keenam waktu tersebar merata (tidak ada tiang kosong).
+        item(span = { GridItemSpan(maxLineSpan) }) {
             val schedule = viewModel.kemenagPrayerSchedule ?: viewModel.prayerSchedule
             // State jam dibaca di scope item ini saja, bukan di root HomeScreen,
             // sehingga tick 1 detik hanya memperbarui kartu jadwal sholat.

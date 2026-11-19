@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -103,12 +104,32 @@ fun DexDashboardScreen(viewModel: MainViewModel) {
         }
         Spacer(Modifier.height(20.dp))
 
-        // SECTION 3: Waktu shalat
-        DexPrayerCard(viewModel = viewModel, colors = colors)
-        Spacer(Modifier.height(20.dp))
-
-        // SECTION 4: Kalender bulanan interaktif
-        DexCalendarCard(viewModel = viewModel, colors = colors)
+        // SECTION 3+4+6: Tata letak dua kolom ala desktop (memenuhi lebar monitor).
+        // Kolom kiri: kartu Waktu Shalat (atas) + My Aplikasi (bawah), lebarnya
+        //   berhenti di tepi kiri kartu Kalender.
+        // Kolom kanan: kartu Kalender yang diregangkan setinggi kolom kiri sehingga
+        //   tidak menyisakan area kosong.
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(IntrinsicSize.Max),
+            horizontalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            Column(
+                modifier = Modifier.weight(1.4f).fillMaxHeight(),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                // Kartu Waktu Shalat mengisi tinggi kolom (sisa ruang di atas My Aplikasi),
+                // sehingga celah kosong di samping kartu Kalender terisi.
+                Box(modifier = Modifier.weight(1f)) {
+                    DexPrayerCard(viewModel = viewModel, colors = colors)
+                }
+                DexAppsCard(viewModel = viewModel, colors = colors)
+            }
+            Box(modifier = Modifier.weight(1f).fillMaxHeight()) {
+                DexCalendarCard(viewModel = viewModel, colors = colors)
+            }
+        }
         Spacer(Modifier.height(20.dp))
 
         // SECTION 5: Quick actions
@@ -133,10 +154,6 @@ fun DexDashboardScreen(viewModel: MainViewModel) {
                 label = "Agenda", icon = Icons.Default.DateRange, iconColor = Color(0xFFF59E0B)
             ) { viewModel.currentRoute = "agenda" }
         }
-        Spacer(Modifier.height(20.dp))
-
-        // SECTION 6: My Aplikasi (tile squircle)
-        DexAppsCard(viewModel = viewModel, colors = colors)
         Spacer(Modifier.height(20.dp))
 
         // Baris statistik
@@ -379,7 +396,7 @@ private fun DexPrayerCard(viewModel: MainViewModel, colors: DexWebColors) {
     // Klik salah satu waktu -> popup detail jadwal + hitung mundur ke waktu berikutnya.
     var selectedPrayer by remember { mutableStateOf<Pair<String, String>?>(null) }
 
-    DexCard(colors = colors, shape = RoundedCornerShape(24.dp)) {
+    DexCard(colors = colors, shape = RoundedCornerShape(24.dp), modifier = Modifier.fillMaxHeight()) {
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
@@ -391,25 +408,39 @@ private fun DexPrayerCard(viewModel: MainViewModel, colors: DexWebColors) {
             Text(viewModel.activeTimeZone, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, color = colors.accent)
         }
         Spacer(Modifier.height(14.dp))
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        // Enam waktu shalat ditata 2 baris x 3 kolom agar kartu mengisi tinggi kolom kiri
+        // (setinggi kartu Kalender) sehingga tidak ada kolom kosong di sampingnya pada DeX.
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
-            items.forEach { (label, time) ->
-                val isNext = label == nextLabel
-                val cellShape = RoundedCornerShape(14.dp)
-                Column(
+            items.chunked(3).forEach { rowItems ->
+                Row(
                     modifier = Modifier
-                        .weight(1f)
-                        .clip(cellShape)
-                        .background(if (isNext) colors.selectedBg else colors.hover.copy(alpha = 0.4f))
-                        .clickable { selectedPrayer = label to time }
-                        .padding(vertical = 10.dp, horizontal = 4.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
+                        .fillMaxWidth()
+                        .weight(1f),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Text(label, fontSize = 11.sp, color = if (isNext) colors.onSelectedBg else colors.textSub, maxLines = 1)
-                    Spacer(Modifier.height(4.dp))
-                    Text(time, fontSize = 13.sp, fontWeight = if (isNext) FontWeight.Bold else FontWeight.SemiBold, color = if (isNext) colors.onSelectedBg else colors.textMain, maxLines = 1)
+                    rowItems.forEach { (label, time) ->
+                        val isNext = label == nextLabel
+                        val cellShape = RoundedCornerShape(14.dp)
+                        Column(
+                            modifier = Modifier
+                                .weight(1f)
+                                .fillMaxHeight()
+                                .clip(cellShape)
+                                .background(if (isNext) colors.selectedBg else colors.hover.copy(alpha = 0.4f))
+                                .clickable { selectedPrayer = label to time },
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center
+                        ) {
+                            Text(label, fontSize = 13.sp, color = if (isNext) colors.onSelectedBg else colors.textSub, maxLines = 1)
+                            Spacer(Modifier.height(4.dp))
+                            Text(time, fontSize = 16.sp, fontWeight = if (isNext) FontWeight.Bold else FontWeight.SemiBold, color = if (isNext) colors.onSelectedBg else colors.textMain, maxLines = 1)
+                        }
+                    }
                 }
             }
         }
@@ -531,7 +562,7 @@ private fun DexCalendarCard(viewModel: MainViewModel, colors: DexWebColors) {
     }
     val weekdays = listOf("Min", "Sen", "Sel", "Rab", "Kam", "Jum", "Sab")
 
-    DexCard(colors = colors, shape = RoundedCornerShape(24.dp)) {
+    DexCard(colors = colors, shape = RoundedCornerShape(24.dp), modifier = Modifier.fillMaxHeight()) {
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
@@ -648,7 +679,7 @@ private fun DexQuickActionCard(
 @Composable
 private fun DexAppsCard(viewModel: MainViewModel, colors: DexWebColors) {
     val apps = remember { AppRegistry.defaultOrder.mapNotNull { AppRegistry.allAppsMap[it] } }
-    val columnsPerRow = 6
+    val columnsPerRow = 4
     DexCard(colors = colors, shape = RoundedCornerShape(20.dp)) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -718,11 +749,12 @@ private fun DexStatsRow(viewModel: MainViewModel, colors: DexWebColors) {
 private fun DexCard(
     colors: DexWebColors,
     shape: androidx.compose.foundation.shape.RoundedCornerShape = RoundedCornerShape(20.dp),
+    modifier: Modifier = Modifier,
     content: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit
 ) {
     val cardBg = if (isSystemInDarkTheme()) MaterialTheme.colorScheme.surface else Color.White
     Column(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .shadow(6.dp, shape, ambientColor = colors.border, spotColor = colors.border)
             .clip(shape)
