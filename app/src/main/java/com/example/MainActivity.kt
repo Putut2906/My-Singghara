@@ -741,32 +741,50 @@ private fun isDesktopModeActive(context: android.content.Context): Boolean {
 
 /**
  * Pada Samsung DeX, `AlertDialog` dirender di window dialog sendiri yang mengambil density &
- * fontScale dari [androidx.compose.ui.platform.LocalContext] (BUKAN [androidx.compose.ui.platform.LocalDensity]
- * induk), sehingga popup tidak ikut ter-skala seperti UI utama. Helper ini mengembalikan [Context]
- * hasil [Context.createConfigurationContext] dengan densityDpi & fontScale diperbesar, untuk
- * disediakan lewat `LocalContext` khusus DeX.
+ * fontScale dari [LocalContext] (BUKAN [androidx.compose.ui.platform.LocalDensity] induk), sehingga
+ * popup tidak ikut ter-skala seperti UI utama. Helper ini mengembalikan [Context] berupa
+ * ContextThemeWrapper yang MEMBUNGKUS Activity asli, dengan getResources() di-override agar
+ * densityDpi & fontScale lebih besar, untuk disediakan lewat `LocalContext` khusus DeX.
  *
- * PENTING: Context hasil createConfigurationContext BUKAN Activity, jadi owner yang default-nya
- * diturunkan dari LocalContext (mis. ActivityResultRegistryOwner) harus di-re-provide terpisah
- * dengan Activity asli (lihat call site), kalau tidak akan crash "No ActivityResultRegistryOwner".
+ * Kenapa ContextThemeWrapper (bukan createConfigurationContext): ContextThemeWrapper membungkus
+ * base = Activity, sehingga `LocalContext.current.findActivity()` (dipakai VideoPlayerView,
+ * PemutarMusikScreen, FirebaseAuthDialog) TETAP menemukan Activity. createConfigurationContext
+ * memutus rantai baseContext sehingga findActivity() mengembalikan null -> fitur layar penuh video/
+ * musik & dialog auth RUSAK saat DeX. Ini memperbaiki regresi yang terlewat.
+ *
+ * Tetap perlu re-provide LocalActivityResultRegistryOwner di call site: default-nya meng-cast
+ * LocalContext langsung (bukan via findActivity), dan ContextThemeWrapper bukan ActivityResultRegistryOwner.
  */
 @Composable
 private fun rememberDexDialogContext(scaleDensity: Float, scaleFont: Float): Context {
     val base = LocalContext.current
     return remember(base, scaleDensity, scaleFont) {
-        val res = base.resources
-        val baseDpi = if (res.displayMetrics.densityDpi > 0) {
-            res.displayMetrics.densityDpi
-        } else {
-            (res.displayMetrics.density * 160f).toInt().coerceAtLeast(1)
+        object : android.view.ContextThemeWrapper(base, base.themeResId) {
+            private val scaledResources: android.content.res.Resources by lazy {
+                val res = base.resources
+                val baseDpi = if (res.displayMetrics.densityDpi > 0) {
+                    res.displayMetrics.densityDpi
+                } else {
+                    (res.displayMetrics.density * 160f).toInt().coerceAtLeast(1)
+                }
+                val newDpi = (baseDpi * scaleDensity).toInt().coerceAtLeast(1)
+                val newFontScale = res.configuration.fontScale * scaleFont
+                val dm = android.util.DisplayMetrics().apply {
+                    setTo(res.displayMetrics)
+                    densityDpi = newDpi
+                    density = newDpi / 160f
+                    @Suppress("DEPRECATION")
+                    scaledDensity = density * newFontScale
+                }
+                val cfg = android.content.res.Configuration(res.configuration).apply {
+                    densityDpi = newDpi
+                    fontScale = newFontScale
+                }
+                @Suppress("DEPRECATION")
+                android.content.res.Resources(res.assets, dm, cfg)
+            }
+            override fun getResources(): android.content.res.Resources = scaledResources
         }
-        val newDpi = (baseDpi * scaleDensity).toInt().coerceAtLeast(1)
-        val newFontScale = res.configuration.fontScale * scaleFont
-        val cfg = android.content.res.Configuration(res.configuration).apply {
-            densityDpi = newDpi
-            fontScale = newFontScale
-        }
-        base.createConfigurationContext(cfg)
     }
 }
 
@@ -4371,9 +4389,10 @@ fun MainAppContent(viewModel: MainViewModel, desktopMode: Boolean = false) {
             )
         }
         // Perbesar SEMUA popup/dialog saat DeX: window dialog memakai density & fontScale dari
-        // LocalContext, jadi context berskala di bawah membuat popup ikut membesar. Karena
-        // context hasil createConfigurationContext bukan Activity, ActivityResultRegistryOwner
-        // di-re-provide dengan Activity asli agar rememberLauncherForActivityResult tidak crash.
+        // LocalContext, jadi context berskala (ContextThemeWrapper) di bawah membuat popup ikut
+        // membesar. ContextThemeWrapper tetap meneruskan findActivity() ke Activity asli, namun
+        // ActivityResultRegistryOwner di-re-provide karena default-nya meng-cast LocalContext
+        // langsung (ContextThemeWrapper bukan ActivityResultRegistryOwner) -> cegah force close.
         val dexActivity = LocalContext.current as ComponentActivity
         val dexDialogContext = rememberDexDialogContext(scaleDensity = 1.2f, scaleFont = 2.6f)
         CompositionLocalProvider(
