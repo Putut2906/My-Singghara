@@ -4375,7 +4375,7 @@ fun MainAppContent(viewModel: MainViewModel, desktopMode: Boolean = false) {
         // context hasil createConfigurationContext bukan Activity, ActivityResultRegistryOwner
         // di-re-provide dengan Activity asli agar rememberLauncherForActivityResult tidak crash.
         val dexActivity = LocalContext.current as ComponentActivity
-        val dexDialogContext = rememberDexDialogContext(scaleDensity = 1.2f, scaleFont = 2.0f)
+        val dexDialogContext = rememberDexDialogContext(scaleDensity = 1.2f, scaleFont = 2.6f)
         CompositionLocalProvider(
             LocalDensity provides desktopDensity,
             LocalContext provides dexDialogContext,
