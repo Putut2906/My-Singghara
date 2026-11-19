@@ -111,6 +111,7 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.LocalActivityResultRegistryOwner
 import androidx.compose.ui.viewinterop.AndroidView
 import android.webkit.WebView
 import android.webkit.WebViewClient
@@ -735,6 +736,37 @@ private fun isDesktopModeActive(context: android.content.Context): Boolean {
         manager?.javaClass?.getMethod("isDesktopMode")?.invoke(manager) as? Boolean ?: false
     } catch (_: Throwable) {
         false
+    }
+}
+
+/**
+ * Pada Samsung DeX, `AlertDialog` dirender di window dialog sendiri yang mengambil density &
+ * fontScale dari [androidx.compose.ui.platform.LocalContext] (BUKAN [androidx.compose.ui.platform.LocalDensity]
+ * induk), sehingga popup tidak ikut ter-skala seperti UI utama. Helper ini mengembalikan [Context]
+ * hasil [Context.createConfigurationContext] dengan densityDpi & fontScale diperbesar, untuk
+ * disediakan lewat `LocalContext` khusus DeX.
+ *
+ * PENTING: Context hasil createConfigurationContext BUKAN Activity, jadi owner yang default-nya
+ * diturunkan dari LocalContext (mis. ActivityResultRegistryOwner) harus di-re-provide terpisah
+ * dengan Activity asli (lihat call site), kalau tidak akan crash "No ActivityResultRegistryOwner".
+ */
+@Composable
+private fun rememberDexDialogContext(scaleDensity: Float, scaleFont: Float): Context {
+    val base = LocalContext.current
+    return remember(base, scaleDensity, scaleFont) {
+        val res = base.resources
+        val baseDpi = if (res.displayMetrics.densityDpi > 0) {
+            res.displayMetrics.densityDpi
+        } else {
+            (res.displayMetrics.density * 160f).toInt().coerceAtLeast(1)
+        }
+        val newDpi = (baseDpi * scaleDensity).toInt().coerceAtLeast(1)
+        val newFontScale = res.configuration.fontScale * scaleFont
+        val cfg = android.content.res.Configuration(res.configuration).apply {
+            densityDpi = newDpi
+            fontScale = newFontScale
+        }
+        base.createConfigurationContext(cfg)
     }
 }
 
@@ -4338,7 +4370,17 @@ fun MainAppContent(viewModel: MainViewModel, desktopMode: Boolean = false) {
                 fontScale = baseDensity.fontScale * 2.0f
             )
         }
-        CompositionLocalProvider(LocalDensity provides desktopDensity) {
+        // Perbesar SEMUA popup/dialog saat DeX: window dialog memakai density & fontScale dari
+        // LocalContext, jadi context berskala di bawah membuat popup ikut membesar. Karena
+        // context hasil createConfigurationContext bukan Activity, ActivityResultRegistryOwner
+        // di-re-provide dengan Activity asli agar rememberLauncherForActivityResult tidak crash.
+        val dexActivity = LocalContext.current as ComponentActivity
+        val dexDialogContext = rememberDexDialogContext(scaleDensity = 1.2f, scaleFont = 2.0f)
+        CompositionLocalProvider(
+            LocalDensity provides desktopDensity,
+            LocalContext provides dexDialogContext,
+            LocalActivityResultRegistryOwner provides dexActivity
+        ) {
             val dexColors = rememberDexWebColors()
             Row(modifier = Modifier.fillMaxSize().background(dexColors.bgMain)) {
                 if (!hideNavigationSidebar) {
