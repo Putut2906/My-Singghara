@@ -746,11 +746,13 @@ private fun isDesktopModeActive(context: android.content.Context): Boolean {
  * ContextThemeWrapper yang MEMBUNGKUS Activity asli, dengan getResources() di-override agar
  * densityDpi & fontScale lebih besar, untuk disediakan lewat `LocalContext` khusus DeX.
  *
- * Kenapa ContextThemeWrapper (bukan createConfigurationContext): ContextThemeWrapper membungkus
- * base = Activity, sehingga `LocalContext.current.findActivity()` (dipakai VideoPlayerView,
- * PemutarMusikScreen, FirebaseAuthDialog) TETAP menemukan Activity. createConfigurationContext
- * memutus rantai baseContext sehingga findActivity() mengembalikan null -> fitur layar penuh video/
- * musik & dialog auth RUSAK saat DeX. Ini memperbaiki regresi yang terlewat.
+ * Kenapa dibungkus ContextThemeWrapper: ContextThemeWrapper membungkus base = Activity, sehingga
+ * `LocalContext.current.findActivity()` (dipakai VideoPlayerView, PemutarMusikScreen,
+ * FirebaseAuthDialog) TETAP menemukan Activity. (Kalau LocalContext diisi hasil
+ * createConfigurationContext langsung, rantai baseContext terputus -> findActivity() null -> fitur
+ * layar penuh video/musik & dialog auth RUSAK saat DeX.) Resources berskala di dalam override
+ * getResources() dibangun lewat base.createConfigurationContext(cfg).resources (bukan konstruktor
+ * Resources(assets, dm, cfg) yang sudah jadi ERROR deprecated di SDK 36).
  *
  * Tetap perlu re-provide LocalActivityResultRegistryOwner di call site: default-nya meng-cast
  * LocalContext langsung (bukan via findActivity), dan ContextThemeWrapper bukan ActivityResultRegistryOwner.
@@ -769,19 +771,13 @@ private fun rememberDexDialogContext(scaleDensity: Float, scaleFont: Float): Con
                 }
                 val newDpi = (baseDpi * scaleDensity).toInt().coerceAtLeast(1)
                 val newFontScale = res.configuration.fontScale * scaleFont
-                val dm = android.util.DisplayMetrics().apply {
-                    setTo(res.displayMetrics)
-                    densityDpi = newDpi
-                    density = newDpi / 160f
-                    @Suppress("DEPRECATION")
-                    scaledDensity = density * newFontScale
-                }
                 val cfg = android.content.res.Configuration(res.configuration).apply {
                     densityDpi = newDpi
                     fontScale = newFontScale
                 }
-                @Suppress("DEPRECATION")
-                android.content.res.Resources(res.assets, dm, cfg)
+                // createConfigurationContext (bukan konstruktor Resources yang sudah di-deprecate
+                // jadi ERROR di SDK 36) -> Resources otomatis menghitung density dari densityDpi.
+                base.createConfigurationContext(cfg).resources
             }
             override fun getResources(): android.content.res.Resources = scaledResources
         }
