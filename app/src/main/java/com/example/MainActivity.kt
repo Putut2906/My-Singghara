@@ -11,7 +11,6 @@ import android.content.pm.PackageManager
 import android.content.res.Configuration
 import android.content.res.Resources
 import android.util.DisplayMetrics
-import android.view.ContextThemeWrapper
 import android.net.Uri
 import java.util.Calendar
 import android.os.Build
@@ -759,32 +758,21 @@ private fun isDesktopModeActive(context: android.content.Context): Boolean {
 private fun rememberDexDialogContext(scaleDensity: Float, scaleFont: Float): Context {
     val base = LocalContext.current
     return remember(base, scaleDensity, scaleFont) {
-        object : ContextThemeWrapper(base) {
-            private val scaledResources: Resources by lazy {
-                val res = base.resources
-                val baseDpi = if (res.displayMetrics.densityDpi > 0) {
-                    res.displayMetrics.densityDpi
-                } else {
-                    (res.displayMetrics.density * 160f).toInt().coerceAtLeast(1)
-                }
-                val newDpi = (baseDpi * scaleDensity).toInt().coerceAtLeast(1)
-                val newFontScale = res.configuration.fontScale * scaleFont
-                val dm = DisplayMetrics().apply {
-                    setTo(res.displayMetrics)
-                    densityDpi = newDpi
-                    density = newDpi / 160f
-                    @Suppress("DEPRECATION")
-                    scaledDensity = density * newFontScale
-                }
-                val cfg = Configuration(res.configuration).apply {
-                    densityDpi = newDpi
-                    fontScale = newFontScale
-                }
-                @Suppress("DEPRECATION")
-                Resources(res.assets, dm, cfg)
-            }
-            override fun getResources(): Resources = scaledResources
+        val res = base.resources
+        val baseDpi = if (res.displayMetrics.densityDpi > 0) {
+            res.displayMetrics.densityDpi
+        } else {
+            (res.displayMetrics.density * 160f).toInt().coerceAtLeast(1)
         }
+        val newDpi = (baseDpi * scaleDensity).toInt().coerceAtLeast(1)
+        val newFontScale = res.configuration.fontScale * scaleFont
+        val cfg = Configuration(res.configuration).apply {
+            densityDpi = newDpi
+            fontScale = newFontScale
+        }
+        // Context ini punya Resources dengan density & fontScale baru; dialog yang dibuat
+        // darinya ikut memakai skala tersebut.
+        base.createConfigurationContext(cfg)
     }
 }
 
