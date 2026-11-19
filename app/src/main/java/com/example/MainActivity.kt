@@ -761,7 +761,7 @@ private fun isDesktopModeActive(context: android.content.Context): Boolean {
 private fun rememberDexDialogContext(scaleDensity: Float, scaleFont: Float): Context {
     val base = LocalContext.current
     return remember(base, scaleDensity, scaleFont) {
-        object : android.view.ContextThemeWrapper(base, base.themeResId) {
+        object : android.view.ContextThemeWrapper(base, 0) {
             private val scaledResources: android.content.res.Resources by lazy {
                 val res = base.resources
                 val baseDpi = if (res.displayMetrics.densityDpi > 0) {
