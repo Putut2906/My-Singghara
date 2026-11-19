@@ -3115,7 +3115,9 @@ fun AllAppsScreen(
                 .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            // Row 1: Al-Qur'an, Pembukuan Usaha, MindMap AI, Musik (4 items)
+            // Musik, Telegram AI, dan Handy Talky dihapus dari grid ini karena sudah
+            // tersedia di drawer menu. (Game juga sudah pindah ke "Game & Emulator".)
+            // Row 1: Al-Qur'an, Pembukuan Usaha, MindMap AI, Jadwal Harian (4 items)
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
@@ -3142,44 +3144,19 @@ fun AllAppsScreen(
                     modifier = Modifier.weight(1f)
                 )
                 AllAppGridItem(
-                    title = "Musik",
-                    icon = Icons.Default.MusicNote,
-                    color = Color(0xFFE91E63),
-                    onClick = { onLaunchApp("pemutar_musik") },
-                    modifier = Modifier.weight(1f)
-                )
-            }
-
-            // (Baris game lama dihapus: Puzzle Geser, Block Puzzle, Brick Game kini ada di
-            //  drawer "Game & Emulator".)
-
-            // Row 2 (kini): Jadwal Harian, Telegram AI, Handy Talky, Spinner.
-            // (Puzzle Geser, Block Puzzle, Brick Game dipindah ke drawer "Game & Emulator".)
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                AllAppGridItem(
                     title = "Jadwal Harian",
                     icon = Icons.Default.AccessTime,
                     color = Color(0xFF43A047),
                     onClick = { onLaunchApp("jadwal_harian") },
                     modifier = Modifier.weight(1f)
                 )
-                AllAppGridItem(
-                    title = "Telegram AI",
-                    icon = Icons.AutoMirrored.Filled.Send,
-                    color = Color(0xFF229ED9),
-                    onClick = { onLaunchApp("telegram_ai") },
-                    modifier = Modifier.weight(1f)
-                )
-                AllAppGridItem(
-                    title = "Handy Talky",
-                    icon = Icons.Default.SettingsVoice,
-                    color = Color(0xFF0F766E),
-                    onClick = { onLaunchApp("handy_talky") },
-                    modifier = Modifier.weight(1f)
-                )
+            }
+
+            // Row 2: Spinner (1 item + pengisi ruang agar sejajar 4 kolom)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
                 AllAppGridItem(
                     title = "Spinner",
                     icon = Icons.Default.Refresh,
@@ -3187,6 +3164,9 @@ fun AllAppsScreen(
                     onClick = { onLaunchGame("undian_spinner") },
                     modifier = Modifier.weight(1f)
                 )
+                Spacer(modifier = Modifier.weight(1f))
+                Spacer(modifier = Modifier.weight(1f))
+                Spacer(modifier = Modifier.weight(1f))
             }
             
             Spacer(modifier = Modifier.height(32.dp))
