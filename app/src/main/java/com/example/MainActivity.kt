@@ -5,13 +5,13 @@ import android.app.Activity
 import android.app.KeyguardManager
 import android.content.BroadcastReceiver
 import android.content.Context
-import android.content.ContextThemeWrapper
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.content.res.Configuration
 import android.content.res.Resources
 import android.util.DisplayMetrics
+import android.view.ContextThemeWrapper
 import android.net.Uri
 import java.util.Calendar
 import android.os.Build
@@ -773,13 +773,15 @@ private fun rememberDexDialogContext(scaleDensity: Float, scaleFont: Float): Con
                     setTo(res.displayMetrics)
                     densityDpi = newDpi
                     density = newDpi / 160f
+                    @Suppress("DEPRECATION")
                     scaledDensity = density * newFontScale
                 }
                 val cfg = Configuration(res.configuration).apply {
                     densityDpi = newDpi
                     fontScale = newFontScale
                 }
-                base.createDisplayContext(dm).createConfigurationContext(cfg).resources
+                @Suppress("DEPRECATION")
+                Resources(res.assets, dm, cfg)
             }
             override fun getResources(): Resources = scaledResources
         }
