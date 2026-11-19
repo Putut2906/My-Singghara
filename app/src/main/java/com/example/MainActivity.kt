@@ -1939,8 +1939,17 @@ fun MainAppContent(viewModel: MainViewModel, desktopMode: Boolean = false) {
                         }
                     }
 
-                    // Group: J2ME LOADER (Entri tunggal di bawah MEDIA - emulator Java ME native)
+                    // Group: GAME & EMULATOR (emulator J2ME native + game bawaan yang
+                    // dipindah ke sini dari halaman "My Aplikasi").
                     DrawerMenuCard {
+                        Text(
+                            text = "GAME & EMULATOR",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            letterSpacing = 1.sp,
+                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 4.dp)
+                        )
                         val isJ2meLoaderSelected = viewModel.currentRoute == "j2me_loader"
                         PrimaryDrawerEntry(
                             label = "J2ME Loader",
@@ -1955,6 +1964,26 @@ fun MainAppContent(viewModel: MainViewModel, desktopMode: Boolean = false) {
                             scope.launch { drawerState.close() }
                         }
                         )
+                        // Game bawaan dibuka lewat hub GameScreen (route "game_list")
+                        // dengan mengaktifkan section-nya.
+                        listOf(
+                            Triple("sliding_puzzle", "Puzzle Geser", Icons.Default.DashboardCustomize),
+                            Triple("block_puzzle", "Block Puzzle", Icons.Default.GridOn),
+                            Triple("tetris", "Brick Game", Icons.Default.Gamepad)
+                        ).forEach { (section, title, iconVec) ->
+                            val isSelected = viewModel.currentRoute == "game_list" &&
+                                viewModel.activeGameSectionInGameScreen == section
+                            PrimaryDrawerEntry(
+                                label = title,
+                                icon = iconVec,
+                                selected = isSelected,
+                                onClick = {
+                                    viewModel.currentRoute = "game_list"
+                                    viewModel.activeGameSectionInGameScreen = section
+                                    scope.launch { drawerState.close() }
+                                }
+                            )
+                        }
                     }
 
                     // Group: PEOPLE (Boxed Group Card, desain kartu sama seperti LAPORAN KEUANGAN)

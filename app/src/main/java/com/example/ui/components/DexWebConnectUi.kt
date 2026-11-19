@@ -223,6 +223,29 @@ fun DexWebSidebar(
                         context.startActivity(Intent(context, ru.playsoftware.j2meloader.MainActivity::class.java))
                     } catch (_: Throwable) {
                     }
+                },
+                // Game bawaan dipindah ke sini dari halaman "My Aplikasi".
+                // Dibuka lewat hub GameScreen (route "game_list") dengan mengaktifkan section-nya.
+                DexNavItem(
+                    "Puzzle Geser", Icons.Default.DashboardCustomize, Color(0xFFE65100),
+                    currentRoute == "game_list" && viewModel.activeGameSectionInGameScreen == "sliding_puzzle"
+                ) {
+                    viewModel.currentRoute = "game_list"
+                    viewModel.activeGameSectionInGameScreen = "sliding_puzzle"
+                },
+                DexNavItem(
+                    "Block Puzzle", Icons.Default.GridOn, Color(0xFF2C5E6A),
+                    currentRoute == "game_list" && viewModel.activeGameSectionInGameScreen == "block_puzzle"
+                ) {
+                    viewModel.currentRoute = "game_list"
+                    viewModel.activeGameSectionInGameScreen = "block_puzzle"
+                },
+                DexNavItem(
+                    "Brick Game", Icons.Default.Gamepad, Color(0xFF306230),
+                    currentRoute == "game_list" && viewModel.activeGameSectionInGameScreen == "tetris"
+                ) {
+                    viewModel.currentRoute = "game_list"
+                    viewModel.activeGameSectionInGameScreen = "tetris"
                 }
             )
         ),

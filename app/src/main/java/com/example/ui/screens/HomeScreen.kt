@@ -3150,42 +3150,11 @@ fun AllAppsScreen(
                 )
             }
 
-            // Row 2: Puzzle Geser, Block Puzzle, Brick Game, Spinner (4 items)
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
-                AllAppGridItem(
-                    title = "Puzzle Geser",
-                    icon = Icons.Default.DashboardCustomize,
-                    color = Color(0xFFE65100),
-                    onClick = { onLaunchGame("sliding_puzzle") },
-                    modifier = Modifier.weight(1f)
-                )
-                AllAppGridItem(
-                    title = "Block Puzzle",
-                    icon = Icons.Default.GridOn,
-                    color = Color(0xFF2C5E6A),
-                    onClick = { onLaunchGame("block_puzzle") },
-                    modifier = Modifier.weight(1f)
-                )
-                AllAppGridItem(
-                    title = "Brick Game",
-                    icon = Icons.Default.Gamepad,
-                    color = Color(0xFF306230),
-                    onClick = { onLaunchGame("tetris") },
-                    modifier = Modifier.weight(1f)
-                )
-                AllAppGridItem(
-                    title = "Spinner",
-                    icon = Icons.Default.Refresh,
-                    color = Color(0xFF8338EC),
-                    onClick = { onLaunchGame("undian_spinner") },
-                    modifier = Modifier.weight(1f)
-                )
-            }
+            // (Baris game lama dihapus: Puzzle Geser, Block Puzzle, Brick Game kini ada di
+            //  drawer "Game & Emulator".)
 
-            // Row 3: Jadwal Harian, Telegram AI & Handy Talky
+            // Row 2 (kini): Jadwal Harian, Telegram AI, Handy Talky, Spinner.
+            // (Puzzle Geser, Block Puzzle, Brick Game dipindah ke drawer "Game & Emulator".)
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(12.dp)
@@ -3211,7 +3180,13 @@ fun AllAppsScreen(
                     onClick = { onLaunchApp("handy_talky") },
                     modifier = Modifier.weight(1f)
                 )
-                Spacer(modifier = Modifier.weight(1f))
+                AllAppGridItem(
+                    title = "Spinner",
+                    icon = Icons.Default.Refresh,
+                    color = Color(0xFF8338EC),
+                    onClick = { onLaunchGame("undian_spinner") },
+                    modifier = Modifier.weight(1f)
+                )
             }
             
             Spacer(modifier = Modifier.height(32.dp))
