@@ -72,6 +72,8 @@ fun ProfilScreen(
     var isStatusError by remember { mutableStateOf(false) }
     var activeSection by remember { mutableStateOf<String?>(null) }
 
+    var showDexFontDialog by remember { mutableStateOf(false) }
+
     var photoToRepositionUri by remember { mutableStateOf<Uri?>(null) }
     var showPhotoOptionsDialog by remember { mutableStateOf(false) }
     var showMembershipDialogInProfile by remember { mutableStateOf(false) }
@@ -470,6 +472,51 @@ fun ProfilScreen(
                         title = "Telegram AI Assistant",
                         subtitle = "Asisten bot @My_Singghara_bot: cek libur, agenda & database",
                         onClick = { viewModel.currentRoute = "telegram_ai" }
+                    )
+                }
+
+                // Group: TAMPILAN (pengaturan tampilan saat Samsung DeX)
+                ProfileGroupCard(label = "TAMPILAN") {
+                    MenuItem(
+                        icon = Icons.Default.FormatSize,
+                        iconTint = MaterialTheme.colorScheme.primary,
+                        title = "Ukuran Font DeX",
+                        subtitle = "Atur besar teks saat Samsung DeX tersambung - saat ini ${"%.1f".format(viewModel.dexFontScale)}x",
+                        onClick = { showDexFontDialog = true }
+                    )
+                }
+
+                if (showDexFontDialog) {
+                    AlertDialog(
+                        onDismissRequest = { showDexFontDialog = false },
+                        title = { Text("Ukuran Font DeX") },
+                        text = {
+                            Column(modifier = Modifier.fillMaxWidth()) {
+                                Text(
+                                    "Geser untuk mengatur besar teks saat Samsung DeX tersambung. Perubahan langsung berlaku.",
+                                    fontSize = 13.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                Spacer(Modifier.height(16.dp))
+                                Text("Skala: ${"%.1f".format(viewModel.dexFontScale)}x", fontWeight = FontWeight.Bold)
+                                Slider(
+                                    value = viewModel.dexFontScale,
+                                    onValueChange = { viewModel.setDexFontScale(it) },
+                                    valueRange = 1.0f..3.5f,
+                                    steps = 9
+                                )
+                                Spacer(Modifier.height(8.dp))
+                                Text("Pratinjau:", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Spacer(Modifier.height(4.dp))
+                                Column {
+                                    Text("Contoh: My Singghara", fontSize = (14 * viewModel.dexFontScale).sp, fontWeight = FontWeight.Bold)
+                                    Spacer(Modifier.height(2.dp))
+                                    Text("Tulisan harus jelas saat DeX.", fontSize = (12 * viewModel.dexFontScale).sp)
+                                }
+                            }
+                        },
+                        confirmButton = { TextButton(onClick = { showDexFontDialog = false }) { Text("Selesai") } },
+                        dismissButton = { TextButton(onClick = { viewModel.setDexFontScale(2.0f) }) { Text("Reset 2.0x") } }
                     )
                 }
 

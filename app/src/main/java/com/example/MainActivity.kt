@@ -4378,10 +4378,10 @@ fun MainAppContent(viewModel: MainViewModel, desktopMode: Boolean = false) {
 
     if (desktopMode) {
         val baseDensity = LocalDensity.current
-        val desktopDensity = remember(baseDensity.density, baseDensity.fontScale, desktopUiScale) {
+        val desktopDensity = remember(baseDensity.density, baseDensity.fontScale, desktopUiScale, viewModel.dexFontScale) {
             Density(
                 density = baseDensity.density * desktopUiScale,
-                fontScale = baseDensity.fontScale * 2.0f
+                fontScale = baseDensity.fontScale * viewModel.dexFontScale
             )
         }
         // Perbesar SEMUA popup/dialog saat DeX: window dialog memakai density & fontScale dari
@@ -4390,7 +4390,7 @@ fun MainAppContent(viewModel: MainViewModel, desktopMode: Boolean = false) {
         // ActivityResultRegistryOwner di-re-provide karena default-nya meng-cast LocalContext
         // langsung (ContextThemeWrapper bukan ActivityResultRegistryOwner) -> cegah force close.
         val dexActivity = LocalContext.current as ComponentActivity
-        val dexDialogContext = rememberDexDialogContext(scaleDensity = 1.2f, scaleFont = 2.6f)
+        val dexDialogContext = rememberDexDialogContext(scaleDensity = 1.2f, scaleFont = viewModel.dexFontScale + 0.6f)
         CompositionLocalProvider(
             LocalDensity provides desktopDensity,
             LocalContext provides dexDialogContext,

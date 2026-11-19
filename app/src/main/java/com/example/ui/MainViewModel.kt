@@ -1599,6 +1599,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     // Adjustable lunar sighting offset (Default: -1 converts perfectly to Kemenag RI 27 Dzulhijjah 1447 H on June 13, 2026)
     var hijriOffset by mutableStateOf(-1)
 
+    // Pengali ukuran font saat Samsung DeX tersambung (default 2.0x). Disimpan permanen.
+    // Baca defensif: restore bisa menulis angka sebagai Int -> hindari ClassCastException getFloat.
+    var dexFontScale by mutableStateOf((sharedPrefs.all["dex_font_scale"] as? Number)?.toFloat() ?: 2.0f)
+
+    /** Set & simpan pengali font DeX (di-clamp 1.0f..3.5f). Berlaku langsung di UI DeX. */
+    fun setDexFontScale(value: Float) {
+        val clamped = value.coerceIn(1.0f, 3.5f)
+        dexFontScale = clamped
+        sharedPrefs.edit().putFloat("dex_font_scale", clamped).apply()
+    }
+
     // DATABASE FLOWS EXPOSED TO UI
     val shoppingItems: StateFlow<List<ShoppingItem>> = repository.allShoppingItems
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
