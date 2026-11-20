@@ -1,13 +1,18 @@
 package com.example.ui.components
 
 import android.content.Intent
+import androidx.activity.ComponentActivity
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
@@ -45,6 +50,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.PointerEventType
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
@@ -55,6 +63,8 @@ import com.example.R
 import com.example.firebase.AdminUidStore
 import com.example.ui.MainViewModel
 import com.example.ui.models.AppRegistry
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 
 /**
  * Palet shell DeX: identitas flat Material3 yang diturunkan langsung dari
@@ -134,6 +144,114 @@ fun DexWebTopBarBrand(colors: DexWebColors, modifier: Modifier = Modifier) {
                 maxLines = 1
             )
         }
+    }
+}
+
+/**
+ * Kontrol jendela mengambang (window controls) khusus mode DeX, di pojok kanan-atas.
+ * Sepenuhnya tersembunyi: muncul saat pointer masuk zona sudut dan hilang saat pointer
+ * keluar. Tombol: Minimalkan (moveTaskToBack), Maksimalkan/Pulihkan (sembunyikan/tampilkan
+ * system bar immersive), Tutup (finish). Aksi memakai Activity asli, bukan context berskala DeX.
+ */
+@Composable
+fun DexWindowControls(
+    activity: ComponentActivity,
+    colors: DexWebColors,
+    modifier: Modifier = Modifier
+) {
+    var revealed by remember { mutableStateOf(false) }
+    var isMaximized by remember { mutableStateOf(false) }
+
+    fun toggleMaximize() {
+        val window = activity.window
+        val controller = WindowInsetsControllerCompat(window, window.decorView)
+        controller.systemBarsBehavior =
+            WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+        if (isMaximized) {
+            controller.show(WindowInsetsCompat.Type.systemBars())
+            isMaximized = false
+        } else {
+            controller.hide(WindowInsetsCompat.Type.systemBars())
+            isMaximized = true
+        }
+    }
+
+    // Zona sudut tak terlihat yang menangkap hover pointer; tombol muncul di dalamnya.
+    Box(
+        modifier = modifier
+            .width(320.dp)
+            .height(104.dp)
+            .pointerInput(Unit) {
+                awaitPointerEventScope {
+                    while (true) {
+                        when (awaitPointerEvent(PointerEventPass.Initial).type) {
+                            PointerEventType.Enter -> revealed = true
+                            PointerEventType.Exit -> revealed = false
+                            else -> Unit
+                        }
+                    }
+                }
+            },
+        contentAlignment = Alignment.TopEnd
+    ) {
+        AnimatedVisibility(
+            visible = revealed,
+            enter = fadeIn() + slideInVertically(initialOffsetY = { -it }),
+            exit = fadeOut() + slideOutVertically(targetOffsetY = { -it }),
+            modifier = Modifier.padding(top = 8.dp, end = 14.dp)
+        ) {
+            Row(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(colors.navbarBg)
+                    .border(BorderStroke(1.dp, colors.border), RoundedCornerShape(12.dp))
+                    .padding(horizontal = 6.dp, vertical = 5.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(2.dp)
+            ) {
+                DexWindowControlButton(
+                    icon = Icons.Default.Minimize,
+                    description = "Minimalkan",
+                    tint = colors.textMain,
+                    onClick = { activity.moveTaskToBack(true) }
+                )
+                DexWindowControlButton(
+                    icon = if (isMaximized) Icons.Default.CloseFullscreen else Icons.Default.OpenInFull,
+                    description = if (isMaximized) "Pulihkan" else "Maksimalkan",
+                    tint = colors.textMain,
+                    onClick = { toggleMaximize() }
+                )
+                DexWindowControlButton(
+                    icon = Icons.Default.Close,
+                    description = "Tutup",
+                    tint = colors.danger,
+                    onClick = { activity.finish() }
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun DexWindowControlButton(
+    icon: ImageVector,
+    description: String,
+    tint: Color,
+    onClick: () -> Unit
+) {
+    Box(
+        modifier = Modifier
+            .size(34.dp)
+            .clip(CircleShape)
+            .clickable(onClick = onClick),
+        contentAlignment = Alignment.Center
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = description,
+            tint = tint,
+            modifier = Modifier.size(18.dp)
+        )
     }
 }
 

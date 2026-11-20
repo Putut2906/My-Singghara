@@ -163,6 +163,7 @@ import com.example.ui.MainViewModel
 import com.example.ui.models.AppRegistry
 import com.example.ui.components.DexWebSidebar
 import com.example.ui.components.DexWebTopBarBrand
+import com.example.ui.components.DexWindowControls
 import com.example.ui.components.rememberDexWebColors
 import com.example.ui.components.BottomNavBar
 import com.example.NotificationScheduler
@@ -4397,6 +4398,7 @@ fun MainAppContent(viewModel: MainViewModel, desktopMode: Boolean = false) {
             LocalActivityResultRegistryOwner provides dexActivity
         ) {
             val dexColors = rememberDexWebColors()
+            Box(modifier = Modifier.fillMaxSize()) {
             Row(modifier = Modifier.fillMaxSize().background(dexColors.bgMain)) {
                 if (!hideNavigationSidebar) {
                     DexWebSidebar(
@@ -4433,6 +4435,13 @@ fun MainAppContent(viewModel: MainViewModel, desktopMode: Boolean = false) {
                         appContent()
                     }
                 }
+            }
+            // Kontrol jendela DeX mengambang (pojok kanan-atas): tersembunyi, muncul saat hover.
+            DexWindowControls(
+                activity = dexActivity,
+                colors = dexColors,
+                modifier = Modifier.align(Alignment.TopEnd)
+            )
             }
         }
     } else {
