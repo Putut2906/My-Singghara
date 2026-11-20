@@ -239,6 +239,8 @@ class MainActivity : FragmentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        // Saat DeX, minta jendela borderless agar title bar/dekorasi jendela sistem DeX tidak tampil.
+        applyDexWindowChrome()
 
         val filter = IntentFilter().apply {
             addAction(Intent.ACTION_SCREEN_OFF)
@@ -590,8 +592,45 @@ class MainActivity : FragmentActivity() {
         isAppInForeground = false
     }
 
+    /**
+     * Saat Samsung DeX aktif, minta jendela fullscreen/borderless supaya DEKORASI JENDELA SISTEM DeX
+     * (title bar dengan tombol min/max/close bawaan) tidak ditampilkan; konten mengisi jendela penuh.
+     * Saat tidak DeX, flag fullscreen dibersihkan dan system bar dipulihkan seperti normal.
+     *
+     * Catatan: menyembunyikan title bar sistem berarti kontrol jendela bawaan DeX ikut hilang, jadi
+     * tombol Min/Max/Close kustom (DexWindowControls) yang tetap berfungsi sebagai pengganti.
+     * Efektif/tidaknya FLAG_FULLSCREEN menghapus chrome DeX bergantung versi DeX perangkat; verifikasi
+     * di perangkat tetap diperlukan.
+     */
+    @Suppress("DEPRECATION")
+    private fun applyDexWindowChrome() {
+        val dex = isDesktopModeActive(this)
+        val w = this.window
+        if (dex) {
+            w.setFlags(
+                android.view.WindowManager.LayoutParams.FLAG_FULLSCREEN,
+                android.view.WindowManager.LayoutParams.FLAG_FULLSCREEN
+            )
+            val controller = androidx.core.view.WindowInsetsControllerCompat(w, w.decorView)
+            controller.systemBarsBehavior =
+                androidx.core.view.WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+            controller.hide(androidx.core.view.WindowInsetsCompat.Type.systemBars())
+        } else {
+            w.clearFlags(android.view.WindowManager.LayoutParams.FLAG_FULLSCREEN)
+            val controller = androidx.core.view.WindowInsetsControllerCompat(w, w.decorView)
+            controller.show(androidx.core.view.WindowInsetsCompat.Type.systemBars())
+        }
+    }
+
+    override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {
+        super.onConfigurationChanged(newConfig)
+        // DeX tersambung/terputus mengubah uiMode saat runtime -> terapkan ulang chrome jendela.
+        applyDexWindowChrome()
+    }
+
     override fun onResume() {
         super.onResume()
+        applyDexWindowChrome()
         isAppInForeground = true
         com.example.util.SinggharaFolderManager.ensureFoldersExistAsync(this)
         // Dijalankan setiap resume; exception Firestore ditangani di dalam, tetapi
