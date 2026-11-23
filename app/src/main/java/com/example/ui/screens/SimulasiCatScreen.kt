@@ -475,6 +475,13 @@ object CatStore {
         prefs(ctx).edit().remove(KEY_RIWAYAT).apply()
     }
 
+    /** Reset hitungan percobaan ujian untuk satu paket (hapus riwayat exam paket tsj; skor manual tetap). */
+    fun resetPercobaan(ctx: Context, paketId: String = aktifPaketId(ctx)) {
+        val list = riwayatList(ctx)
+        list.removeAll { it.paketId == paketId }
+        saveRiwayat(ctx, list)
+    }
+
     /** Tambah entri skor manual (untuk Grafik Progres). total & lulus dihitung otomatis. */
     fun tambahRiwayatManual(
         ctx: Context,
@@ -1083,7 +1090,9 @@ private fun PetunjukMulai(onStart: () -> Unit, onGoInput: () -> Unit, adaSesiSel
     val context = LocalContext.current
     val counts = remember { CatStore.countByKategori(context) }
     val totalAvailable = (counts[CAT_TWK] ?: 0) + (counts[CAT_TIU] ?: 0) + (counts[CAT_TKP] ?: 0)
-    val habisPercobaan = terpakai >= maks
+    var used by remember { mutableIntStateOf(terpakai) }
+    var resetDialog by remember { mutableStateOf(false) }
+    val habisPercobaan = used >= maks
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
@@ -1114,16 +1123,21 @@ private fun PetunjukMulai(onStart: () -> Unit, onGoInput: () -> Unit, adaSesiSel
             }
         }
         CatKartu {
-            Text("Percobaan Ujian", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text("Percobaan Ujian", fontWeight = FontWeight.Bold, fontSize = 14.sp, modifier = Modifier.weight(1f))
+                if (used > 0) {
+                    Text("Reset", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.error, modifier = Modifier.clickable { resetDialog = true })
+                }
+            }
             Spacer(Modifier.height(4.dp))
             Text(
-                "Sudah dipakai: $terpakai dari $maks. Sisa: ${(maks - terpakai).coerceAtLeast(0)}.",
+                "Sudah dipakai: $used dari $maks. Sisa: ${(maks - used).coerceAtLeast(0)}.",
                 fontSize = 13.sp,
                 color = if (habisPercobaan) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant
             )
             if (habisPercobaan) {
                 Spacer(Modifier.height(4.dp))
-                Text("Batas $maks percobaan tercapai. Hapus riwayat untuk mengulang.", fontSize = 12.sp, color = MaterialTheme.colorScheme.error)
+                Text("Batas $maks percobaan tercapai — simulasi ujian dikunci. Tekan Reset untuk mengulang.", fontSize = 12.sp, color = MaterialTheme.colorScheme.error)
             }
         }
         Button(onClick = onStart, enabled = totalAvailable > 0 && !habisPercobaan, modifier = Modifier.fillMaxWidth()) {
@@ -1132,6 +1146,22 @@ private fun PetunjukMulai(onStart: () -> Unit, onGoInput: () -> Unit, adaSesiSel
             Text(if (habisPercobaan) "Batas Percobaan Tercapai" else "Mulai Ujian")
         }
         Spacer(Modifier.height(24.dp))
+    }
+
+    if (resetDialog) {
+        AlertDialog(
+            onDismissRequest = { resetDialog = false },
+            title = { Text("Reset percobaan?") },
+            text = { Text("Riwayat percobaan paket ini ($used) akan dihapus sehingga ujian bisa dimulai lagi dari percobaan ke-1. Tidak bisa dibatalkan.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    CatStore.resetPercobaan(context)
+                    used = 0
+                    resetDialog = false
+                }) { Text("Reset", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = { TextButton(onClick = { resetDialog = false }) { Text("Batal") } }
+        )
     }
 }
 
@@ -1196,6 +1226,7 @@ private fun TabHasil(
 ) {
     val context = LocalContext.current
     val h = hasil ?: sesi?.takeIf { it.selesai }?.let { onCompute(it) }
+    var showResetDialog by remember { mutableStateOf(false) }
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
@@ -1214,33 +1245,25 @@ private fun TabHasil(
         val riwayatPaket = riwayat.filter { it.paketId == pid }
         val percobaanKe = riwayatPaket.size.coerceAtLeast(1)
 
-        // Header status (rapi seperti TabSimulasi)
+        // Header ringkas
         CatKartu {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                Column {
-                    Text("Status", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text(
-                        if (h.lulus) "LULUS" else "BELUM LULUS",
-                        fontSize = 22.sp, fontWeight = FontWeight.Black,
-                        color = if (h.lulus) Color(0xFF16A34A) else Color(0xFFDC2626)
-                    )
-                }
-                Column(horizontalAlignment = Alignment.End) {
-                    Text("Percobaan", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text("Ke-$percobaanKe / ${CatStore.MAX_PERCOBAAN}", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                Text("Hasil Ujian", fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                Surface(shape = RoundedCornerShape(8.dp), color = (if (h.lulus) Color(0xFF16A34A) else Color(0xFFDC2626)).copy(alpha = 0.15f)) {
+                    Text(if (h.lulus) "LULUS" else "GAGAL", Modifier.padding(horizontal = 10.dp, vertical = 4.dp), fontSize = 12.sp, fontWeight = FontWeight.Bold, color = if (h.lulus) Color(0xFF16A34A) else Color(0xFFDC2626))
                 }
             }
-            Spacer(Modifier.height(10.dp))
+            Spacer(Modifier.height(8.dp))
             Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                InfoStat("Total", "${h.total}")
+                InfoStat("Percobaan", "$percobaanKe/${CatStore.MAX_PERCOBAAN}")
                 InfoStat("Dijawab", "${h.jumlahDijawab}/${h.jumlahSoal}")
                 InfoStat("Benar", "${h.ulasan.count { it.benar }}")
             }
         }
 
-        // Kartu Total Score -> doughnut (konsep chart Tabungan)
+        // SATU kartu gabungan: Total Score + Rincian + Status dalam satu doughnut (konsep chart Tabungan)
         CatKartu {
-            Text("Total Score", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+            Text("Total & Rincian Skor", fontWeight = FontWeight.Bold, fontSize = 14.sp)
             Spacer(Modifier.height(10.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
                 CatDoughnut(
@@ -1251,33 +1274,10 @@ private fun TabHasil(
                     ),
                     centerTitle = "TOTAL",
                     centerValue = "${h.total}",
-                    centerSub = "/ 550"
+                    centerSub = if (h.lulus) "LULUS / 550" else "GAGAL / 550",
+                    centerColor = if (h.lulus) Color(0xFF16A34A) else Color(0xFFDC2626)
                 )
-                Spacer(Modifier.width(16.dp))
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.weight(1f)) {
-                    LegendDot(Color(0xFF2563EB), "TWK")
-                    LegendDot(Color(0xFFFBC02D), "TIU")
-                    LegendDot(Color(0xFFEC4899), "TKP")
-                }
-            }
-        }
-
-        // Kartu Rincian per Kategori -> doughnut + pass/fail
-        CatKartu {
-            Text("Rincian per Kategori", fontWeight = FontWeight.Bold, fontSize = 14.sp)
-            Spacer(Modifier.height(10.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                CatDoughnut(
-                    segments = listOf(
-                        DoughnutSeg("TWK", h.twk.toFloat(), Color(0xFF2563EB), "#1E3A8A"),
-                        DoughnutSeg("TIU", h.tiu.toFloat(), Color(0xFFFBC02D), "#B45309"),
-                        DoughnutSeg("TKP", h.tkp.toFloat(), Color(0xFFEC4899), "#BE185D")
-                    ),
-                    centerTitle = "SKOR",
-                    centerValue = "${h.total}",
-                    centerSub = "maks 550"
-                )
-                Spacer(Modifier.width(12.dp))
+                Spacer(Modifier.width(14.dp))
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     KategoriScore("TWK", h.twk, 150, CatStore.PG_TWK, h.twkLulus)
                     KategoriScore("TIU", h.tiu, 175, CatStore.PG_TIU, h.tiuLulus)
@@ -1286,11 +1286,14 @@ private fun TabHasil(
             }
         }
 
-        // Riwayat percobaan (maks 5)
+        // Riwayat percobaan (maks 5) + reset
         if (riwayatPaket.isNotEmpty()) {
             CatKartu {
-                Text("Riwayat Percobaan", fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                Spacer(Modifier.height(8.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Riwayat Percobaan", fontWeight = FontWeight.Bold, fontSize = 14.sp, modifier = Modifier.weight(1f))
+                    TextButton(onClick = { showResetDialog = true }) { Text("Reset", color = MaterialTheme.colorScheme.error) }
+                }
+                Spacer(Modifier.height(4.dp))
                 riwayatPaket.asReversed().forEachIndexed { idx, r ->
                     val no = riwayatPaket.size - idx
                     Row(
@@ -1317,9 +1320,25 @@ private fun TabHasil(
             }
         }
 
-        Text("Ulasan & Pembahasan", fontWeight = FontWeight.Bold, fontSize = 15.sp)
-        h.ulasan.forEach { u -> UlasanCard(u) }
+        // Ulasan & Pembahasan: satu kartu daftar ringkas (bukan 1 kartu per soal)
+        UlasanList(h.ulasan)
         Spacer(Modifier.height(24.dp))
+    }
+
+    if (showResetDialog) {
+        AlertDialog(
+            onDismissRequest = { showResetDialog = false },
+            title = { Text("Reset percobaan?") },
+            text = { Text("Riwayat percobaan paket ini (${riwayatPaket.size}) akan dihapus agar ujian bisa diulang dari percobaan ke-1. Tindakan ini tidak bisa dibatalkan.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    CatStore.resetPercobaan(context, pid)
+                    showResetDialog = false
+                    onRestart()
+                }) { Text("Reset", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = { TextButton(onClick = { showResetDialog = false }) { Text("Batal") } }
+        )
     }
 }
 
@@ -1331,6 +1350,7 @@ private fun CatDoughnut(
     centerTitle: String,
     centerValue: String,
     centerSub: String,
+    centerColor: Color = MaterialTheme.colorScheme.onSurface,
     modifier: Modifier = Modifier,
     boxSize: Dp = 150.dp
 ) {
@@ -1377,7 +1397,7 @@ private fun CatDoughnut(
         }
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Text(centerTitle, fontSize = 9.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Text(centerValue, fontSize = 22.sp, fontWeight = FontWeight.Black, color = MaterialTheme.colorScheme.onSurface)
+            Text(centerValue, fontSize = 22.sp, fontWeight = FontWeight.Black, color = centerColor)
             Text(centerSub, fontSize = 9.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
     }
@@ -1400,6 +1420,61 @@ private fun KategoriScore(label: String, skor: Int, maks: Int, pg: Int, lulus: B
             color = (if (lulus) Color(0xFF16A34A) else Color(0xFFDC2626)).copy(alpha = 0.15f)
         ) {
             Text(if (lulus) "≥$pg" else "<$pg", Modifier.padding(horizontal = 6.dp, vertical = 2.dp), fontSize = 10.sp, fontWeight = FontWeight.Bold, color = if (lulus) Color(0xFF16A34A) else Color(0xFFDC2626))
+        }
+    }
+}
+
+@Composable
+private fun UlasanList(ulasan: List<UlasanSoal>) {
+    val benarColor = Color(0xFF16A34A)
+    val salahColor = Color(0xFFDC2626)
+    CatKartu {
+        Text("Ulasan & Pembahasan (${ulasan.size})", fontWeight = FontWeight.Bold, fontSize = 15.sp)
+        Spacer(Modifier.height(6.dp))
+        if (ulasan.isEmpty()) {
+            Text("Tidak ada soal.", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        } else {
+            ulasan.forEachIndexed { index, u ->
+                var expanded by remember(u.nomor) { mutableStateOf(false) }
+                Column(Modifier.fillMaxWidth().clickable { expanded = !expanded }.padding(vertical = 8.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Box(
+                            Modifier.size(24.dp).clip(CircleShape)
+                                .background(if (u.benar) benarColor.copy(alpha = 0.15f) else salahColor.copy(alpha = 0.15f)),
+                            contentAlignment = Alignment.Center
+                        ) { Text("${u.nomor}", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = if (u.benar) benarColor else salahColor) }
+                        Spacer(Modifier.width(8.dp))
+                        KategoriBadge(u.kategori)
+                        Spacer(Modifier.width(8.dp))
+                        Text(u.soal.teks, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurface, maxLines = if (expanded) 20 else 2, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                        Spacer(Modifier.width(6.dp))
+                        Text("+${u.poin}", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = if (u.benar) benarColor else salahColor)
+                    }
+                    if (expanded) {
+                        if (u.soal.gambar.isNotEmpty()) {
+                            Spacer(Modifier.height(8.dp))
+                            AsyncImage(model = File(u.soal.gambar), contentDescription = "Gambar soal", contentScale = ContentScale.Fit, modifier = Modifier.fillMaxWidth().height(180.dp).clip(RoundedCornerShape(12.dp)).background(MaterialTheme.colorScheme.surfaceVariant))
+                        }
+                        Spacer(Modifier.height(8.dp))
+                        u.soal.opsi.forEachIndexed { i, o ->
+                            val isKunci = i == u.soal.kunci
+                            val isJwb = i == u.jawaban
+                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 1.dp)) {
+                                Text("${'A' + i}. ", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                Text(o, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurface, modifier = Modifier.weight(1f))
+                                if (isKunci) Text("  ✓ kunci", fontSize = 11.sp, color = benarColor, fontWeight = FontWeight.Bold)
+                                if (isJwb) Text("  ← jawabanmu", fontSize = 11.sp, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                        if (u.jawaban < 0) Text("Tidak dijawab.", fontSize = 12.sp, color = salahColor)
+                        if (u.soal.pembahasan.isNotBlank()) {
+                            Spacer(Modifier.height(6.dp))
+                            Text("Pembahasan: ${u.soal.pembahasan}", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                }
+                if (index < ulasan.lastIndex) HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+            }
         }
     }
 }
