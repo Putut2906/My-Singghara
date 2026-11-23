@@ -491,7 +491,6 @@ fun SimulasiCatScreen(
     onOpenDrawer: () -> Unit = {}
 ) {
     val context = LocalContext.current
-    val tabTitles = listOf("Input Soal", "Simulasi Ujian", "Hasil & Live Score", "Grafik Progres")
     var selectedTab by remember { mutableIntStateOf(initialTab.coerceIn(0, 3)) }
     var paketList by remember { mutableStateOf(CatStore.paketList(context)) }
     var paketId by remember { mutableStateOf(CatStore.aktifPaketId(context)) }
@@ -507,20 +506,6 @@ fun SimulasiCatScreen(
     }
 
     Column(Modifier.fillMaxSize()) {
-        Row(
-            Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 8.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            IconButton(onClick = onNavigateBack) {
-                Icon(Icons.Default.ArrowBack, contentDescription = "Kembali")
-            }
-            Text(
-                "Simulasi CAT BKN",
-                fontWeight = FontWeight.Bold,
-                fontSize = 18.sp,
-                color = MaterialTheme.colorScheme.onSurface
-            )
-        }
         PaketBar(
             paketList = paketList,
             aktifId = paketId,
@@ -529,15 +514,6 @@ fun SimulasiCatScreen(
             onRename = { id, nama -> CatStore.renamePaket(context, id, nama); reload() },
             onDelete = { id -> CatStore.hapusPaket(context, id); reload() }
         )
-        TabRow(selectedTabIndex = selectedTab) {
-            tabTitles.forEachIndexed { i, t ->
-                Tab(
-                    selected = selectedTab == i,
-                    onClick = { selectedTab = i },
-                    text = { Text(t, fontSize = 11.sp, maxLines = 1) }
-                )
-            }
-        }
         Box(Modifier.fillMaxSize()) {
             when (selectedTab) {
                 0 -> TabInputSoal(bank = bank, onChanged = { bank = CatStore.loadBank(context) })
