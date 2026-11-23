@@ -1227,6 +1227,10 @@ private fun TabHasil(
     val context = LocalContext.current
     val h = hasil ?: sesi?.takeIf { it.selesai }?.let { onCompute(it) }
     var showResetDialog by remember { mutableStateOf(false) }
+    val pid = (sesi?.paketId?.ifBlank { null } ?: CatStore.aktifPaketId(context))
+    val riwayat = remember(h) { CatStore.riwayatList(context).sortedBy { it.tanggal } }
+    val riwayatPaket = riwayat.filter { it.paketId == pid }
+    val percobaanKe = riwayatPaket.size.coerceAtLeast(1)
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
@@ -1239,11 +1243,6 @@ private fun TabHasil(
             Button(onClick = onRestart, modifier = Modifier.fillMaxWidth()) { Text("Mulai Simulasi") }
             return@Column
         }
-
-        val pid = (sesi?.paketId?.ifBlank { null } ?: CatStore.aktifPaketId(context))
-        val riwayat = remember(h) { CatStore.riwayatList(context).sortedBy { it.tanggal } }
-        val riwayatPaket = riwayat.filter { it.paketId == pid }
-        val percobaanKe = riwayatPaket.size.coerceAtLeast(1)
 
         // Header ringkas
         CatKartu {
