@@ -101,6 +101,8 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.material.icons.filled.Remove
 import androidx.compose.material.icons.filled.TextFields
@@ -329,6 +331,43 @@ private fun Modifier.homeCardShadow(
     )
 } else {
     this
+}
+
+// Animasi hover kartu Home: saat pointer masuk area kartu (DeX/mouse) kartu sedikit
+// membesar & terangkat; saat pointer keluar kembali normal. Pada layar sentuh efek ini
+// tetap aman karena akan reset saat pointer meninggalkan kartu.
+@Composable
+private fun Modifier.homeCardHover(
+    hoverScale: Float = 1.03f,
+    hoverLift: Float = -10f
+): Modifier {
+    var hovered by remember { mutableStateOf(false) }
+    val scale by animateFloatAsState(
+        targetValue = if (hovered) hoverScale else 1f,
+        animationSpec = tween(180),
+        label = "homeCardHoverScale"
+    )
+    val lift by animateFloatAsState(
+        targetValue = if (hovered) hoverLift else 0f,
+        animationSpec = tween(180),
+        label = "homeCardHoverLift"
+    )
+    return this
+        .graphicsLayer {
+            scaleX = scale
+            scaleY = scale
+            translationY = lift
+        }
+        .pointerInput(Unit) {
+            awaitPointerEventScope {
+                while (true) {
+                    when (awaitPointerEvent(PointerEventPass.Main).type) {
+                        PointerEventType.Enter -> hovered = true
+                        PointerEventType.Exit -> hovered = false
+                    }
+                }
+            }
+        }
 }
 
 @Composable
@@ -749,7 +788,7 @@ fun HomeScreen(viewModel: MainViewModel) {
 
             Card(
                 colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.15f)),
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier.fillMaxWidth().animateItem().homeCardHover(),
                 shape = RoundedCornerShape(24.dp),
                 border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.2f))
             ) {
@@ -1373,7 +1412,9 @@ fun HomeScreen(viewModel: MainViewModel) {
                 modifier = Modifier
                     .fillMaxWidth()
                     .testTag("my_aplikasi_card")
-                    .homeCardShadow(isLightTheme, RoundedCornerShape(20.dp)),
+                    .animateItem()
+                    .homeCardShadow(isLightTheme, RoundedCornerShape(20.dp))
+                    .homeCardHover(),
                 shape = RoundedCornerShape(20.dp),
                 border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
             ) {
@@ -1478,7 +1519,9 @@ fun HomeScreen(viewModel: MainViewModel) {
                 modifier = Modifier
                     .fillMaxWidth()
                     .testTag("weather_forecast_card")
-                    .homeCardShadow(isLightTheme, RoundedCornerShape(20.dp)),
+                    .animateItem()
+                    .homeCardShadow(isLightTheme, RoundedCornerShape(20.dp))
+                    .homeCardHover(),
                 shape = RoundedCornerShape(20.dp),
                 border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
             ) {
@@ -1843,7 +1886,9 @@ fun HomeScreen(viewModel: MainViewModel) {
                 modifier = Modifier
                     .fillMaxWidth()
                     .testTag("prayer_schedule_card")
+                    .animateItem()
                     .homeCardShadow(isLightTheme, RoundedCornerShape(20.dp))
+                    .homeCardHover()
                     .clickable { triggerLocationRefresh() },
                 shape = RoundedCornerShape(20.dp),
                 border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
@@ -2045,7 +2090,9 @@ fun HomeScreen(viewModel: MainViewModel) {
                     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
                     modifier = Modifier
                         .fillMaxWidth()
-                        .homeCardShadow(isLightTheme, RoundedCornerShape(20.dp)),
+                        .animateItem()
+                        .homeCardShadow(isLightTheme, RoundedCornerShape(20.dp))
+                        .homeCardHover(),
                     shape = RoundedCornerShape(20.dp),
                     border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant)
                 ) {
