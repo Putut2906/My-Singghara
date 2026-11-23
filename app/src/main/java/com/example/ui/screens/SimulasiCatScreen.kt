@@ -12,6 +12,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -26,6 +27,7 @@ import androidx.compose.material.icons.filled.Flag
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.SkipNext
 import androidx.compose.material.icons.filled.Stop
+import androidx.compose.material.icons.filled.Image
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -35,11 +37,14 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.input.KeyboardType
@@ -54,6 +59,9 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import java.util.UUID
+import coil.compose.AsyncImage
+import androidx.compose.ui.layout.ContentScale
+import java.io.File
 
 // ============================ MODEL DATA ============================
 
@@ -68,7 +76,8 @@ data class SoalCat(
     val opsi: List<String>,        // 2..5 opsi
     val kunci: Int,                // index benar (TWK/TIU) atau opsi berbobot 5 (TKP)
     val bobotOpsi: List<Int>,      // TKP: skor tiap opsi (1..5); TWK/TIU: list kosong
-    val pembahasan: String
+    val pembahasan: String,
+    val gambar: String = ""        // path file gambar (TIU: soal bergambar)
 )
 
 data class CatSesi(
@@ -237,7 +246,8 @@ object CatStore {
                         opsi = opsi,
                         kunci = o.getInt("kunci"),
                         bobotOpsi = bobot,
-                        pembahasan = o.optString("pembahasan", "")
+                        pembahasan = o.optString("pembahasan", ""),
+                        gambar = o.optString("gambar", "")
                     )
                 )
             }
@@ -254,6 +264,7 @@ object CatStore {
         put("kunci", s.kunci)
         put("bobot", JSONArray(s.bobotOpsi))
         put("pembahasan", s.pembahasan)
+        put("gambar", s.gambar)
     }
 
     fun saveBank(ctx: Context, list: List<SoalCat>, paketId: String = aktifPaketId(ctx)) {
@@ -553,6 +564,7 @@ private fun TabInputSoal(bank: List<SoalCat>, onChanged: () -> Unit) {
     var kunci by remember { mutableIntStateOf(0) }
     var bobot by remember { mutableStateOf(listOf(5, 4, 3, 2)) }
     var pembahasan by remember { mutableStateOf("") }
+    var gambarPath by remember { mutableStateOf("") }
     val counts = remember(bank) { CatStore.countByKategori(context) }
     var importMsg by remember { mutableStateOf("") }
     val importLauncher = rememberLauncherForActivityResult(
@@ -570,6 +582,22 @@ private fun TabInputSoal(bank: List<SoalCat>, onChanged: () -> Unit) {
                 onChanged()
             } catch (e: Exception) {
                 importMsg = "Gagal impor: ${e.message}"
+            }
+        }
+    }
+    val imageLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri ->
+        if (uri != null) {
+            try {
+                val bytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() } ?: ByteArray(0)
+                if (bytes.isNotEmpty()) {
+                    val dir = File(context.filesDir, "cat_img").apply { mkdirs() }
+                    val f = File(dir, "${UUID.randomUUID()}.img")
+                    f.writeBytes(bytes)
+                    gambarPath = f.absolutePath
+                }
+            } catch (_: Exception) {
             }
         }
     }
@@ -630,6 +658,35 @@ private fun TabInputSoal(bank: List<SoalCat>, onChanged: () -> Unit) {
                 modifier = Modifier.fillMaxWidth(),
                 minLines = 2
             )
+            if (kategori == CAT_TIU) {
+                Spacer(Modifier.height(8.dp))
+                Text("Gambar Soal (opsional — untuk TIU)", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Spacer(Modifier.height(6.dp))
+                if (gambarPath.isNotEmpty()) {
+                    AsyncImage(
+                        model = File(gambarPath),
+                        contentDescription = "Pratinjau gambar soal",
+                        contentScale = ContentScale.Fit,
+                        modifier = Modifier.fillMaxWidth().height(180.dp).clip(RoundedCornerShape(12.dp)).background(MaterialTheme.colorScheme.surfaceVariant)
+                    )
+                    Spacer(Modifier.height(6.dp))
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedButton(onClick = { imageLauncher.launch("image/*") }, modifier = Modifier.weight(1f)) {
+                            Icon(Icons.Default.Image, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(6.dp)); Text("Ganti Gambar")
+                        }
+                        OutlinedButton(onClick = { gambarPath = "" }, modifier = Modifier.weight(1f)) {
+                            Icon(Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(Modifier.width(6.dp)); Text("Hapus")
+                        }
+                    }
+                } else {
+                    OutlinedButton(onClick = { imageLauncher.launch("image/*") }, modifier = Modifier.fillMaxWidth()) {
+                        Icon(Icons.Default.Image, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(Modifier.width(6.dp)); Text("Impor Gambar Soal")
+                    }
+                }
+            }
             Spacer(Modifier.height(8.dp))
             Text(
                 if (kategori == CAT_TKP) "Opsi (atur bobot 1-5 tiap opsi; tandai yang terbaik = 5)"
@@ -696,7 +753,8 @@ private fun TabInputSoal(bank: List<SoalCat>, onChanged: () -> Unit) {
                             opsi = opsiList.map { it.trim() },
                             kunci = kunci,
                             bobotOpsi = b,
-                            pembahasan = pembahasan.trim()
+                            pembahasan = pembahasan.trim(),
+                            gambar = if (kategori == CAT_TIU) gambarPath else ""
                         )
                     )
                     teks = ""
@@ -704,9 +762,10 @@ private fun TabInputSoal(bank: List<SoalCat>, onChanged: () -> Unit) {
                     bobot = listOf(5, 4, 3, 2)
                     kunci = 0
                     pembahasan = ""
+                    gambarPath = ""
                     onChanged()
                 },
-                enabled = teks.isNotBlank() && opsiList.none { it.isBlank() },
+                enabled = (teks.isNotBlank() || gambarPath.isNotEmpty()) && opsiList.none { it.isBlank() },
                 modifier = Modifier.fillMaxWidth()
             ) { Text("Simpan Soal") }
         }
@@ -722,6 +781,15 @@ private fun TabInputSoal(bank: List<SoalCat>, onChanged: () -> Unit) {
                         Spacer(Modifier.width(8.dp))
                         Column(Modifier.weight(1f)) {
                             Text(s.teks, fontSize = 13.sp, maxLines = 2, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+                            if (s.gambar.isNotEmpty()) {
+                                Spacer(Modifier.height(6.dp))
+                                AsyncImage(
+                                    model = File(s.gambar),
+                                    contentDescription = null,
+                                    contentScale = ContentScale.Fit,
+                                    modifier = Modifier.fillMaxWidth().height(120.dp).clip(RoundedCornerShape(10.dp)).background(MaterialTheme.colorScheme.surfaceVariant)
+                                )
+                            }
                             Text(
                                 "${s.opsi.size} opsi • kunci: ${'A' + s.kunci}" +
                                     if (s.kategori == CAT_TKP) " • bobot ${s.bobotOpsi}" else "",
@@ -907,6 +975,16 @@ private fun TabSimulasi(
                     }
                     Spacer(Modifier.height(8.dp))
                     Text(soalAktif.teks, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
+                    if (soalAktif.gambar.isNotEmpty()) {
+                        Spacer(Modifier.height(8.dp))
+                        AsyncImage(
+                            model = File(soalAktif.gambar),
+                            contentDescription = "Gambar soal",
+                            contentScale = ContentScale.Fit,
+                            alignment = Alignment.TopCenter,
+                            modifier = Modifier.fillMaxWidth().height(220.dp).clip(RoundedCornerShape(12.dp)).background(MaterialTheme.colorScheme.surfaceVariant)
+                        )
+                    }
                     Spacer(Modifier.height(8.dp))
                     soalAktif.opsi.forEachIndexed { i, o ->
                         val isSel = selected == i
@@ -1193,6 +1271,15 @@ private fun UlasanCard(u: UlasanSoal) {
             Spacer(Modifier.width(8.dp))
             Text("+${u.poin}", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = if (u.benar) benarColor else salahColor)
         }
+        if (u.soal.gambar.isNotEmpty()) {
+            Spacer(Modifier.height(8.dp))
+            AsyncImage(
+                model = File(u.soal.gambar),
+                contentDescription = "Gambar soal",
+                contentScale = ContentScale.Fit,
+                modifier = Modifier.fillMaxWidth().height(180.dp).clip(RoundedCornerShape(12.dp)).background(MaterialTheme.colorScheme.surfaceVariant)
+            )
+        }
         if (expanded) {
             Spacer(Modifier.height(8.dp))
             u.soal.opsi.forEachIndexed { i, o ->
@@ -1473,56 +1560,169 @@ private fun TabGrafikProgres() {
                 )
             }
         } else {
-            val labels = riwayat.map { SimpleDateFormat("dd/MM", Locale.getDefault()).format(Date(it.tanggal)) }
-            SeriesCard("TWK", riwayat.map { it.twk.toFloat() }, labels, 150f, Color(0xFF6366F1))
-            Spacer(Modifier.height(12.dp))
-            SeriesCard("TIU", riwayat.map { it.tiu.toFloat() }, labels, 175f, Color(0xFF0EA5E9))
-            Spacer(Modifier.height(12.dp))
-            SeriesCard("TKP", riwayat.map { it.tkp.toFloat() }, labels, 225f, Color(0xFF10B981))
+            GroupedBarCard(riwayat)
         }
 
         Spacer(Modifier.height(16.dp))
-        Text("Riwayat Skor", fontWeight = FontWeight.Bold, fontSize = 14.sp)
-        Spacer(Modifier.height(6.dp))
-        riwayat.asReversed().forEach { item ->
-            Card(Modifier.fillMaxWidth().padding(vertical = 4.dp)) {
-                Row(
-                    Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Column(Modifier.weight(1f)) {
-                        Text(
-                            SimpleDateFormat("EEE, dd MMM yyyy HH:mm", Locale("id", "ID")).format(Date(item.tanggal)),
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.SemiBold
-                        )
-                        Text(
-                            "TWK ${item.twk} • TIU ${item.tiu} • TKP ${item.tkp} • Total ${item.total}",
-                            fontSize = 12.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                    if (item.lulus) {
-                        Box(
-                            Modifier
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(Color(0xFF16A34A).copy(alpha = 0.15f))
-                                .padding(horizontal = 8.dp, vertical = 3.dp)
-                        ) {
-                            Text("LULUS", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color(0xFF16A34A))
+        RiwayatTable(riwayat = riwayat, onDelete = { id ->
+            CatStore.hapusRiwayatItem(context, id)
+            riwayat = CatStore.riwayatList(context).sortedBy { it.tanggal }
+        })
+    }
+}
+
+@Composable
+private fun GroupedBarCard(riwayat: List<RiwayatItem>) {
+    val twkC = Color(0xFF2563EB); val tiuC = Color(0xFFFACC15); val tkpC = Color(0xFFEC4899)
+    CatKartu {
+        Text("Perbandingan Skor (TWK / TIU / TKP)", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+        Spacer(Modifier.height(8.dp))
+        Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+            LegendDot(twkC, "TWK")
+            LegendDot(tiuC, "TIU")
+            LegendDot(tkpC, "TKP")
+        }
+        Spacer(Modifier.height(10.dp))
+        GroupedBarChart(
+            items = riwayat,
+            colors = listOf(twkC, tiuC, tkpC),
+            maxes = listOf(150f, 175f, 225f),
+            modifier = Modifier.fillMaxWidth().height(200.dp)
+        )
+    }
+}
+
+@Composable
+private fun LegendDot(c: Color, label: String) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Box(Modifier.size(10.dp).clip(CircleShape).background(c))
+        Spacer(Modifier.width(5.dp))
+        Text(label, fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+
+@Composable
+private fun GroupedBarChart(
+    items: List<RiwayatItem>,
+    colors: List<Color>,
+    maxes: List<Float>,
+    modifier: Modifier = Modifier
+) {
+    val gridColor = MaterialTheme.colorScheme.outlineVariant
+    val labelColor = MaterialTheme.colorScheme.onSurfaceVariant
+    Canvas(modifier) {
+        val padL = 36f; val padR = 8f; val padT = 10f; val padB = 26f
+        val chartW = (size.width - padL - padR).coerceAtLeast(1f)
+        val chartH = (size.height - padT - padB).coerceAtLeast(1f)
+        for (i in 0..4) {
+            val yy = padT + chartH * (i / 4f)
+            drawLine(gridColor.copy(alpha = 0.5f), Offset(padL, yy), Offset(padL + chartW, yy), 1f)
+        }
+        if (items.isEmpty()) return@Canvas
+        val n = items.size
+        val groupW = chartW / n
+        val barGap = groupW * 0.14f
+        val barW = ((groupW - barGap * 2) / 3f).coerceAtLeast(2f)
+        val series = listOf(
+            items.map { it.twk.toFloat() },
+            items.map { it.tiu.toFloat() },
+            items.map { it.tkp.toFloat() }
+        )
+        for (i in 0 until n) {
+            val gx = padL + groupW * i
+            for (s in 0 until 3) {
+                val v = series[s][i]
+                val frac = (v / maxes[s]).coerceIn(0f, 1f)
+                val h = chartH * frac
+                val bx = gx + barGap + barW * s
+                drawRoundRect(
+                    color = colors[s],
+                    topLeft = Offset(bx, padT + chartH - h),
+                    size = Size(barW - 1f, h),
+                    cornerRadius = CornerRadius(3f, 3f)
+                )
+            }
+        }
+    }
+    if (items.isNotEmpty() && items.size <= 14) {
+        Row(Modifier.fillMaxWidth().padding(start = 36.dp, end = 8.dp, top = 2.dp), horizontalArrangement = Arrangement.SpaceBetween) {
+            items.forEach { Text(SimpleDateFormat("dd/MM", Locale.getDefault()).format(Date(it.tanggal)), fontSize = 9.sp, color = labelColor) }
+        }
+    }
+}
+
+@Composable
+private fun RiwayatTable(riwayat: List<RiwayatItem>, onDelete: (String) -> Unit) {
+    val light = !androidx.compose.foundation.isSystemInDarkTheme()
+    val headerBg = if (light) Color(0xFFF1F5F9) else MaterialTheme.colorScheme.primaryContainer
+    val headerFg = if (light) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onPrimaryContainer
+    val cellBorder = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(containerColor = if (light) Color.White else MaterialTheme.colorScheme.surface),
+        border = BorderStroke(1.dp, if (light) Color(0x140F172A) else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)),
+        elevation = CardDefaults.cardElevation(defaultElevation = if (light) 6.dp else 0.dp)
+    ) {
+        Box(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) {
+            Column {
+                Row(Modifier.background(headerBg).height(IntrinsicSize.Min), verticalAlignment = Alignment.CenterVertically) {
+                    TCellHeader("Tanggal", 150.dp, headerFg)
+                    TCellHeader("TWK", 70.dp, headerFg)
+                    TCellHeader("TIU", 70.dp, headerFg)
+                    TCellHeader("TKP", 70.dp, headerFg)
+                    TCellHeader("Total", 80.dp, headerFg)
+                    TCellHeader("Status", 90.dp, headerFg)
+                    TCellHeader("Aksi", 80.dp, headerFg)
+                }
+                riwayat.asReversed().forEach { item ->
+                    Row(Modifier.height(IntrinsicSize.Min), verticalAlignment = Alignment.CenterVertically) {
+                        TCell(150.dp, cellBorder) {
+                            Text(SimpleDateFormat("dd MMM yyyy HH:mm", Locale("id", "ID")).format(Date(item.tanggal)), fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurface)
                         }
-                        Spacer(Modifier.width(8.dp))
-                    }
-                    IconButton(onClick = {
-                        CatStore.hapusRiwayatItem(context, item.id)
-                        riwayat = CatStore.riwayatList(context).sortedBy { it.tanggal }
-                    }) {
-                        Icon(Icons.Default.Delete, contentDescription = "Hapus", modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.error)
+                        TCell(70.dp, cellBorder) { Text("${item.twk}", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFF2563EB)) }
+                        TCell(70.dp, cellBorder) { Text("${item.tiu}", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFFB45309)) }
+                        TCell(70.dp, cellBorder) { Text("${item.tkp}", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFFDB2777)) }
+                        TCell(80.dp, cellBorder) { Text("${item.total}", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface) }
+                        TCell(90.dp, cellBorder) {
+                            if (item.lulus) {
+                                Box(Modifier.clip(RoundedCornerShape(4.dp)).background(Color(0xFFE8F5E9)).padding(horizontal = 6.dp, vertical = 2.dp)) {
+                                    Text("LULUS", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color(0xFF2E7D32))
+                                }
+                            } else {
+                                Box(Modifier.clip(RoundedCornerShape(4.dp)).background(Color(0xFFFFEBEE)).padding(horizontal = 6.dp, vertical = 2.dp)) {
+                                    Text("GAGAL", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = Color(0xFFC62828))
+                                }
+                            }
+                        }
+                        TCell(80.dp, cellBorder) {
+                            IconButton(onClick = { onDelete(item.id) }, modifier = Modifier.size(28.dp)) {
+                                Icon(Icons.Default.Delete, contentDescription = "Hapus", tint = MaterialTheme.colorScheme.error, modifier = Modifier.size(16.dp))
+                            }
+                        }
                     }
                 }
             }
         }
     }
+}
+
+@Composable
+private fun TCellHeader(text: String, width: Dp, fg: Color) {
+    Box(
+        Modifier.width(width).fillMaxHeight()
+            .border(0.5.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+            .padding(horizontal = 12.dp, vertical = 12.dp),
+        contentAlignment = Alignment.CenterStart
+    ) { Text(text, fontSize = 11.sp, fontWeight = FontWeight.Bold, color = fg) }
+}
+
+@Composable
+private fun TCell(width: Dp, border: BorderStroke, content: @Composable () -> Unit) {
+    Box(
+        Modifier.width(width).fillMaxHeight().border(border).padding(horizontal = 12.dp, vertical = 10.dp),
+        contentAlignment = Alignment.CenterStart
+    ) { content() }
 }
 
 @Composable

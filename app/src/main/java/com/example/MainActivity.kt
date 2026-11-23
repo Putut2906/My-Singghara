@@ -2619,7 +2619,8 @@ fun MainAppContent(viewModel: MainViewModel, desktopMode: Boolean = false) {
                                     Triple("cat_input_soal", "Input Soal", Icons.Default.Edit),
                                     Triple("cat_simulasi_ujian", "Simulasi Ujian", Icons.Default.Timer),
                                     Triple("cat_hasil", "Hasil & Live Score", Icons.Default.TrendingUp),
-                                    Triple("cat_grafik_progres", "Grafik Progres", Icons.Default.ShowChart)
+                                    Triple("cat_grafik_progres", "Grafik Progres", Icons.Default.ShowChart),
+                                    Triple("cat_tips", "Tips", Icons.Default.Info)
                                 )
                                 catEntries.forEach { (route, title, iconVec) ->
                                     val isSelected = viewModel.currentRoute == route
@@ -4165,6 +4166,10 @@ fun MainAppContent(viewModel: MainViewModel, desktopMode: Boolean = false) {
                         "cat_grafik_progres" -> com.example.ui.screens.SimulasiCatScreen(
                             viewModel = viewModel,
                             initialTab = 3,
+                            onNavigateBack = { viewModel.currentRoute = "home" },
+                            onOpenDrawer = { if (desktopMode) isDesktopSidebarExpanded = true else scope.launch { drawerState.open() } }
+                        )
+                        "cat_tips" -> com.example.ui.screens.CatTipsScreen(
                             onNavigateBack = { viewModel.currentRoute = "home" },
                             onOpenDrawer = { if (desktopMode) isDesktopSidebarExpanded = true else scope.launch { drawerState.open() } }
                         )
