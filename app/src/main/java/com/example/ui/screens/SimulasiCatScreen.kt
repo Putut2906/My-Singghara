@@ -36,6 +36,9 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
+import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.geometry.CornerRadius
@@ -150,6 +153,9 @@ object CatStore {
     const val PG_TWK = 65
     const val PG_TIU = 80
     const val PG_TKP = 156
+
+    /** Batas maksimal pengulangan ujian per paket tryout. */
+    const val MAX_PERCOBAAN = 5
 
     private fun prefs(ctx: Context) = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
     private fun bankKey(paketId: String) = "cat_bank_" + paketId
@@ -338,13 +344,14 @@ object CatStore {
     /** Sisa waktu (ms) dihitung dari jam sistem sehingga menutup/membuka ulang tidak mereset. */
     fun sisaMs(sesi: CatSesi, now: Long): Long = (sesi.endTime - now).coerceAtLeast(0L)
 
-    /** Mulai sesi baru dari paket tertentu: acak 30/35/45 (seadanya bila kurang). */
+    /** Mulai sesi baru dari paket tertentu: urut per kategori TWK -> TIU -> TKP (bukan acak), maks MAX_PERCOBAAN. */
     fun mulaiSesi(ctx: Context, paketId: String = aktifPaketId(ctx)): CatSesi? {
+        if (percobaanTerpakai(ctx, paketId) >= MAX_PERCOBAAN) return null
         val bank = loadBank(ctx, paketId)
-        val twk = bank.filter { it.kategori == CAT_TWK }.shuffled().take(TARGET_TWK)
-        val tiu = bank.filter { it.kategori == CAT_TIU }.shuffled().take(TARGET_TIU)
-        val tkp = bank.filter { it.kategori == CAT_TKP }.shuffled().take(TARGET_TKP)
-        val chosen = (twk + tiu + tkp).shuffled()
+        val twk = bank.filter { it.kategori == CAT_TWK }.take(TARGET_TWK)
+        val tiu = bank.filter { it.kategori == CAT_TIU }.take(TARGET_TIU)
+        val tkp = bank.filter { it.kategori == CAT_TKP }.take(TARGET_TKP)
+        val chosen = twk + tiu + tkp
         if (chosen.isEmpty()) return null
         val now = System.currentTimeMillis()
         val sesi = CatSesi(
@@ -433,6 +440,10 @@ object CatStore {
         }
         return out
     }
+
+    /** Jumlah percobaan (riwayat) yang sudah tercatat untuk suatu paket. */
+    fun percobaanTerpakai(ctx: Context, paketId: String = aktifPaketId(ctx)): Int =
+        riwayatList(ctx).count { it.paketId == paketId }
 
     private fun saveRiwayat(ctx: Context, list: List<RiwayatItem>) {
         val arr = JSONArray()
@@ -888,7 +899,9 @@ private fun TabSimulasi(
         PetunjukMulai(
             onStart = { val s = CatStore.mulaiSesi(context); if (s != null) onSesiChanged() },
             onGoInput = onGoInput,
-            adaSesiSelesai = sesi?.selesai == true
+            adaSesiSelesai = sesi?.selesai == true,
+            terpakai = CatStore.percobaanTerpakai(context),
+            maks = CatStore.MAX_PERCOBAAN
         )
         return
     }
@@ -1066,10 +1079,11 @@ private fun TabSimulasi(
 }
 
 @Composable
-private fun PetunjukMulai(onStart: () -> Unit, onGoInput: () -> Unit, adaSesiSelesai: Boolean) {
+private fun PetunjukMulai(onStart: () -> Unit, onGoInput: () -> Unit, adaSesiSelesai: Boolean, terpakai: Int = 0, maks: Int = CatStore.MAX_PERCOBAAN) {
     val context = LocalContext.current
     val counts = remember { CatStore.countByKategori(context) }
     val totalAvailable = (counts[CAT_TWK] ?: 0) + (counts[CAT_TIU] ?: 0) + (counts[CAT_TKP] ?: 0)
+    val habisPercobaan = terpakai >= maks
     Column(
         Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
@@ -1099,10 +1113,23 @@ private fun PetunjukMulai(onStart: () -> Unit, onGoInput: () -> Unit, adaSesiSel
                 TextButton(onClick = onGoInput) { Text("Ke Input Soal") }
             }
         }
-        Button(onClick = onStart, enabled = totalAvailable > 0, modifier = Modifier.fillMaxWidth()) {
+        CatKartu {
+            Text("Percobaan Ujian", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+            Spacer(Modifier.height(4.dp))
+            Text(
+                "Sudah dipakai: $terpakai dari $maks. Sisa: ${(maks - terpakai).coerceAtLeast(0)}.",
+                fontSize = 13.sp,
+                color = if (habisPercobaan) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            if (habisPercobaan) {
+                Spacer(Modifier.height(4.dp))
+                Text("Batas $maks percobaan tercapai. Hapus riwayat untuk mengulang.", fontSize = 12.sp, color = MaterialTheme.colorScheme.error)
+            }
+        }
+        Button(onClick = onStart, enabled = totalAvailable > 0 && !habisPercobaan, modifier = Modifier.fillMaxWidth()) {
             Icon(Icons.Default.PlayArrow, null)
             Spacer(Modifier.width(6.dp))
-            Text("Mulai Ujian")
+            Text(if (habisPercobaan) "Batas Percobaan Tercapai" else "Mulai Ujian")
         }
         Spacer(Modifier.height(24.dp))
     }
@@ -1182,54 +1209,177 @@ private fun TabHasil(
             return@Column
         }
 
-        // Kartu status
-        val light = !androidx.compose.foundation.isSystemInDarkTheme()
-        Card(
-            Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(20.dp),
-            colors = CardDefaults.cardColors(containerColor = if (h.lulus) Color(0xFF16A34A) else Color(0xFFDC2626)),
-            elevation = CardDefaults.cardElevation(defaultElevation = if (light) 8.dp else 0.dp)
-        ) {
-            Column(Modifier.fillMaxWidth().padding(20.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                Text("TOTAL SKOR", fontSize = 12.sp, color = Color.White.copy(alpha = 0.85f))
-                Text("${h.total} / 550", fontSize = 34.sp, fontWeight = FontWeight.Black, color = Color.White)
-                Spacer(Modifier.height(4.dp))
-                Text(if (h.lulus) "LULUS PASSING GRADE" else "BELUM MEMENUHI PASSING GRADE", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = Color.White)
-                Text("Dijawab ${h.jumlahDijawab}/${h.jumlahSoal}", fontSize = 11.sp, color = Color.White.copy(alpha = 0.85f))
+        val pid = (sesi?.paketId?.ifBlank { null } ?: CatStore.aktifPaketId(context))
+        val riwayat = remember(h) { CatStore.riwayatList(context).sortedBy { it.tanggal } }
+        val riwayatPaket = riwayat.filter { it.paketId == pid }
+        val percobaanKe = riwayatPaket.size.coerceAtLeast(1)
+
+        // Header status (rapi seperti TabSimulasi)
+        CatKartu {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                Column {
+                    Text("Status", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(
+                        if (h.lulus) "LULUS" else "BELUM LULUS",
+                        fontSize = 22.sp, fontWeight = FontWeight.Black,
+                        color = if (h.lulus) Color(0xFF16A34A) else Color(0xFFDC2626)
+                    )
+                }
+                Column(horizontalAlignment = Alignment.End) {
+                    Text("Percobaan", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text("Ke-$percobaanKe / ${CatStore.MAX_PERCOBAAN}", fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                }
+            }
+            Spacer(Modifier.height(10.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                InfoStat("Total", "${h.total}")
+                InfoStat("Dijawab", "${h.jumlahDijawab}/${h.jumlahSoal}")
+                InfoStat("Benar", "${h.ulasan.count { it.benar }}")
             }
         }
 
-        // Rekap per kategori
+        // Kartu Total Score -> doughnut (konsep chart Tabungan)
         CatKartu {
-            Text("Rincian per Kategori", fontWeight = FontWeight.Bold, fontSize = 14.sp)
-            Spacer(Modifier.height(8.dp))
-            KategoriScore("TWK", h.twk, 150, CatStore.PG_TWK, h.twkLulus)
-            Spacer(Modifier.height(6.dp))
-            KategoriScore("TIU", h.tiu, 175, CatStore.PG_TIU, h.tiuLulus)
-            Spacer(Modifier.height(6.dp))
-            KategoriScore("TKP", h.tkp, 225, CatStore.PG_TKP, h.tkpLulus)
+            Text("Total Score", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+            Spacer(Modifier.height(10.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                CatDoughnut(
+                    segments = listOf(
+                        DoughnutSeg("TWK ${h.twk}", h.twk.toFloat(), Color(0xFF2563EB), "#1E3A8A"),
+                        DoughnutSeg("TIU ${h.tiu}", h.tiu.toFloat(), Color(0xFFFBC02D), "#B45309"),
+                        DoughnutSeg("TKP ${h.tkp}", h.tkp.toFloat(), Color(0xFFEC4899), "#BE185D")
+                    ),
+                    centerTitle = "TOTAL",
+                    centerValue = "${h.total}",
+                    centerSub = "/ 550"
+                )
+                Spacer(Modifier.width(16.dp))
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.weight(1f)) {
+                    LegendDot(Color(0xFF2563EB), "TWK")
+                    LegendDot(Color(0xFFFBC02D), "TIU")
+                    LegendDot(Color(0xFFEC4899), "TKP")
+                }
+            }
         }
 
-        // Grafik perkembangan skor total antar percobaan
-        val riwayat = remember { CatStore.riwayatList(context).sortedBy { it.tanggal } }
-        if (riwayat.isNotEmpty()) {
-            CatKartu {
-                Text("Grafik Perkembangan (Skor Total)", fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                Spacer(Modifier.height(8.dp))
-                LineChart(
-                    values = riwayat.map { it.total.toFloat() },
-                    labels = riwayat.mapIndexed { i, _ -> "${i + 1}" },
-                    maxValue = 550f,
-                    modifier = Modifier.fillMaxWidth().height(180.dp)
+        // Kartu Rincian per Kategori -> doughnut + pass/fail
+        CatKartu {
+            Text("Rincian per Kategori", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+            Spacer(Modifier.height(10.dp))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                CatDoughnut(
+                    segments = listOf(
+                        DoughnutSeg("TWK", h.twk.toFloat(), Color(0xFF2563EB), "#1E3A8A"),
+                        DoughnutSeg("TIU", h.tiu.toFloat(), Color(0xFFFBC02D), "#B45309"),
+                        DoughnutSeg("TKP", h.tkp.toFloat(), Color(0xFFEC4899), "#BE185D")
+                    ),
+                    centerTitle = "SKOR",
+                    centerValue = "${h.total}",
+                    centerSub = "maks 550"
                 )
-                Spacer(Modifier.height(6.dp))
-                Text("Jumlah percobaan tercatat: ${riwayat.size}", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Spacer(Modifier.width(12.dp))
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    KategoriScore("TWK", h.twk, 150, CatStore.PG_TWK, h.twkLulus)
+                    KategoriScore("TIU", h.tiu, 175, CatStore.PG_TIU, h.tiuLulus)
+                    KategoriScore("TKP", h.tkp, 225, CatStore.PG_TKP, h.tkpLulus)
+                }
+            }
+        }
+
+        // Riwayat percobaan (maks 5)
+        if (riwayatPaket.isNotEmpty()) {
+            CatKartu {
+                Text("Riwayat Percobaan", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                Spacer(Modifier.height(8.dp))
+                riwayatPaket.asReversed().forEachIndexed { idx, r ->
+                    val no = riwayatPaket.size - idx
+                    Row(
+                        Modifier.fillMaxWidth().padding(vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(
+                            Modifier.size(26.dp).clip(CircleShape)
+                                .background(MaterialTheme.colorScheme.primaryContainer),
+                            contentAlignment = Alignment.Center
+                        ) { Text("$no", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimaryContainer) }
+                        Spacer(Modifier.width(10.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(SimpleDateFormat("dd MMM yyyy HH:mm", Locale("id", "ID")).format(Date(r.tanggal)), fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                            Text("TWK ${r.twk} • TIU ${r.tiu} • TKP ${r.tkp}", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        Text("${r.total}", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                        Spacer(Modifier.width(8.dp))
+                        Surface(shape = RoundedCornerShape(6.dp), color = (if (r.lulus) Color(0xFF16A34A) else Color(0xFFDC2626)).copy(alpha = 0.15f)) {
+                            Text(if (r.lulus) "LULUS" else "GAGAL", Modifier.padding(horizontal = 6.dp, vertical = 2.dp), fontSize = 10.sp, fontWeight = FontWeight.Bold, color = if (r.lulus) Color(0xFF16A34A) else Color(0xFFDC2626))
+                        }
+                    }
+                }
             }
         }
 
         Text("Ulasan & Pembahasan", fontWeight = FontWeight.Bold, fontSize = 15.sp)
         h.ulasan.forEach { u -> UlasanCard(u) }
         Spacer(Modifier.height(24.dp))
+    }
+}
+
+private data class DoughnutSeg(val label: String, val value: Float, val color: Color, val textHex: String)
+
+@Composable
+private fun CatDoughnut(
+    segments: List<DoughnutSeg>,
+    centerTitle: String,
+    centerValue: String,
+    centerSub: String,
+    modifier: Modifier = Modifier,
+    boxSize: Dp = 150.dp
+) {
+    val total = segments.sumOf { it.value.toDouble() }.toFloat()
+    Box(modifier.size(boxSize), contentAlignment = Alignment.Center) {
+        Canvas(modifier = Modifier.size(boxSize - 12.dp)) {
+            val sw = 16.dp.toPx()
+            val d = this.size
+            val topLeft = Offset(sw / 2f, sw / 2f)
+            val arcSize = Size(d.width - sw, d.height - sw)
+            if (total <= 0f) {
+                drawArc(Color(0x22000000), 0f, 360f, false, topLeft = topLeft, size = arcSize, style = Stroke(width = sw))
+            } else {
+                var acc = 0f
+                segments.forEach { s ->
+                    val sweep = (s.value / total) * 360f
+                    if (sweep > 0f) {
+                        drawArc(s.color, -90f + acc, sweep, false, topLeft = topLeft, size = arcSize, style = Stroke(width = sw, cap = StrokeCap.Round))
+                        acc += sweep
+                    }
+                }
+                var acc2 = 0f
+                segments.forEach { s ->
+                    val sweep = (s.value / total) * 360f
+                    if (sweep > 20f) {
+                        val margin = 2.dp.toPx()
+                        val rect = android.graphics.RectF(margin, margin, d.width - margin, d.height - margin)
+                        val path = android.graphics.Path().apply { addArc(rect, -90f + acc2, sweep) }
+                        val pm = android.graphics.PathMeasure(path, false)
+                        if (pm.length > 0f) {
+                            val paint = android.graphics.Paint().apply {
+                                isAntiAlias = true
+                                color = android.graphics.Color.parseColor(s.textHex)
+                                textSize = 9.5.sp.toPx()
+                                typeface = android.graphics.Typeface.create(android.graphics.Typeface.DEFAULT, android.graphics.Typeface.BOLD)
+                                textAlign = android.graphics.Paint.Align.CENTER
+                            }
+                            drawIntoCanvas { c -> c.nativeCanvas.drawTextOnPath(s.label, path, pm.length / 2f, -2.dp.toPx(), paint) }
+                        }
+                    }
+                    acc2 += sweep
+                }
+            }
+        }
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(centerTitle, fontSize = 9.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(centerValue, fontSize = 22.sp, fontWeight = FontWeight.Black, color = MaterialTheme.colorScheme.onSurface)
+            Text(centerSub, fontSize = 9.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
     }
 }
 
