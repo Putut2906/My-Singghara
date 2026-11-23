@@ -1423,57 +1423,93 @@ private fun KategoriScore(label: String, skor: Int, maks: Int, pg: Int, lulus: B
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun UlasanList(ulasan: List<UlasanSoal>) {
     val benarColor = Color(0xFF16A34A)
     val salahColor = Color(0xFFDC2626)
+    var current by remember(ulasan) { mutableIntStateOf(0) }
+    val u = ulasan.getOrNull(current)
+
+    Text("Ulasan & Pembahasan", fontWeight = FontWeight.Bold, fontSize = 15.sp)
+    if (ulasan.isEmpty() || u == null) {
+        CatKartu { Text("Tidak ada soal.", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+        return
+    }
+
+    // Panel satu soal (fokus, seperti layar simulasi ujian)
     CatKartu {
-        Text("Ulasan & Pembahasan (${ulasan.size})", fontWeight = FontWeight.Bold, fontSize = 15.sp)
-        Spacer(Modifier.height(6.dp))
-        if (ulasan.isEmpty()) {
-            Text("Tidak ada soal.", fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        } else {
-            ulasan.forEachIndexed { index, u ->
-                var expanded by remember(u.nomor) { mutableStateOf(false) }
-                Column(Modifier.fillMaxWidth().clickable { expanded = !expanded }.padding(vertical = 8.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Box(
-                            Modifier.size(24.dp).clip(CircleShape)
-                                .background(if (u.benar) benarColor.copy(alpha = 0.15f) else salahColor.copy(alpha = 0.15f)),
-                            contentAlignment = Alignment.Center
-                        ) { Text("${u.nomor}", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = if (u.benar) benarColor else salahColor) }
-                        Spacer(Modifier.width(8.dp))
-                        KategoriBadge(u.kategori)
-                        Spacer(Modifier.width(8.dp))
-                        Text(u.soal.teks, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurface, maxLines = if (expanded) 20 else 2, overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-                        Spacer(Modifier.width(6.dp))
-                        Text("+${u.poin}", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = if (u.benar) benarColor else salahColor)
-                    }
-                    if (expanded) {
-                        if (u.soal.gambar.isNotEmpty()) {
-                            Spacer(Modifier.height(8.dp))
-                            AsyncImage(model = File(u.soal.gambar), contentDescription = "Gambar soal", contentScale = ContentScale.Fit, modifier = Modifier.fillMaxWidth().height(180.dp).clip(RoundedCornerShape(12.dp)).background(MaterialTheme.colorScheme.surfaceVariant))
-                        }
-                        Spacer(Modifier.height(8.dp))
-                        u.soal.opsi.forEachIndexed { i, o ->
-                            val isKunci = i == u.soal.kunci
-                            val isJwb = i == u.jawaban
-                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(vertical = 1.dp)) {
-                                Text("${'A' + i}. ", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                Text(o, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurface, modifier = Modifier.weight(1f))
-                                if (isKunci) Text("  ✓ kunci", fontSize = 11.sp, color = benarColor, fontWeight = FontWeight.Bold)
-                                if (isJwb) Text("  ← jawabanmu", fontSize = 11.sp, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
-                            }
-                        }
-                        if (u.jawaban < 0) Text("Tidak dijawab.", fontSize = 12.sp, color = salahColor)
-                        if (u.soal.pembahasan.isNotBlank()) {
-                            Spacer(Modifier.height(6.dp))
-                            Text("Pembahasan: ${u.soal.pembahasan}", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                    }
-                }
-                if (index < ulasan.lastIndex) HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f))
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            KategoriBadge(u.kategori)
+            Spacer(Modifier.width(8.dp))
+            Text("Soal ${current + 1} / ${ulasan.size}", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
+            Surface(shape = RoundedCornerShape(6.dp), color = (if (u.benar) benarColor else salahColor).copy(alpha = 0.15f)) {
+                Text(if (u.benar) "BENAR +${u.poin}" else "SALAH +${u.poin}", Modifier.padding(horizontal = 8.dp, vertical = 3.dp), fontSize = 11.sp, fontWeight = FontWeight.Bold, color = if (u.benar) benarColor else salahColor)
             }
+        }
+        Spacer(Modifier.height(8.dp))
+        Text(u.soal.teks, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
+        if (u.soal.gambar.isNotEmpty()) {
+            Spacer(Modifier.height(8.dp))
+            AsyncImage(
+                model = File(u.soal.gambar),
+                contentDescription = "Gambar soal",
+                contentScale = ContentScale.Fit,
+                alignment = Alignment.TopCenter,
+                modifier = Modifier.fillMaxWidth().height(220.dp).clip(RoundedCornerShape(12.dp)).background(MaterialTheme.colorScheme.surfaceVariant)
+            )
+        }
+        Spacer(Modifier.height(8.dp))
+        u.soal.opsi.forEachIndexed { i, o ->
+            val isKunci = i == u.soal.kunci
+            val isJwb = i == u.jawaban
+            Row(
+                Modifier.fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(
+                        when {
+                            isKunci -> benarColor.copy(alpha = 0.12f)
+                            isJwb -> salahColor.copy(alpha = 0.12f)
+                            else -> Color.Transparent
+                        }
+                    )
+                    .padding(horizontal = 10.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text("${'A' + i}. ", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(o, fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurface, modifier = Modifier.weight(1f))
+                if (isKunci) Text("✓ kunci", fontSize = 11.sp, color = benarColor, fontWeight = FontWeight.Bold)
+                if (isJwb) { Spacer(Modifier.width(6.dp)); Text("jawabanmu", fontSize = 11.sp, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold) }
+            }
+        }
+        if (u.jawaban < 0) { Spacer(Modifier.height(4.dp)); Text("Tidak dijawab.", fontSize = 12.sp, color = salahColor) }
+        if (u.soal.pembahasan.isNotBlank()) {
+            Spacer(Modifier.height(10.dp))
+            Surface(shape = RoundedCornerShape(10.dp), color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)) {
+                Column(Modifier.padding(12.dp)) {
+                    Text("Pembahasan", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                    Spacer(Modifier.height(4.dp))
+                    Text(u.soal.pembahasan, fontSize = 13.sp, color = MaterialTheme.colorScheme.onSurface)
+                }
+            }
+        }
+    }
+
+    Spacer(Modifier.height(8.dp))
+    Text("Navigasi Nomor Soal", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
+    Spacer(Modifier.height(6.dp))
+    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        ulasan.forEachIndexed { idx, it ->
+            NumberCell(nomor = idx + 1, answered = it.benar, active = idx == current, onClick = { current = idx })
+        }
+    }
+    Spacer(Modifier.height(12.dp))
+    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        OutlinedButton(onClick = { current = (current - 1).coerceAtLeast(0) }, enabled = current > 0, modifier = Modifier.weight(1f)) {
+            Text("← Sebelumnya", fontSize = 12.sp)
+        }
+        Button(onClick = { current = (current + 1).coerceAtMost(ulasan.size - 1) }, enabled = current < ulasan.size - 1, modifier = Modifier.weight(1f)) {
+            Text("Berikutnya →", fontSize = 12.sp)
         }
     }
 }
