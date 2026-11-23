@@ -65,6 +65,8 @@ import android.net.Uri
 import android.util.Base64
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import com.google.accompanist.permissions.isGranted
+import com.google.accompanist.permissions.rememberPermissionState
 import androidx.compose.foundation.Image
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
@@ -267,6 +269,26 @@ fun MyKasirScreen(viewModel: MainViewModel) {
         mutableStateOf(sharedPrefs.getInt("printer_paper_width", 32))
     }
     var previewFotoItem by remember { mutableStateOf<StockItem?>(null) }
+
+    // Gerbang izin kamera: cegah force-close saat tombol "Ambil Foto" ditekan sebelum
+    // izin CAMERA diberikan (pola sama seperti BelanjaOnlineScreen). Aksi launch ditunda
+    // sampai izin diberikan, lalu dijalankan otomatis.
+    var pendingCameraLaunch by remember { mutableStateOf<(() -> Unit)?>(null) }
+    val kasirCameraPermission = rememberPermissionState(android.Manifest.permission.CAMERA)
+    LaunchedEffect(kasirCameraPermission.status.isGranted) {
+        if (kasirCameraPermission.status.isGranted) {
+            pendingCameraLaunch?.let { it() }
+            pendingCameraLaunch = null
+        }
+    }
+    val launchCameraSafely: (() -> Unit) -> Unit = { action ->
+        if (kasirCameraPermission.status.isGranted) {
+            action()
+        } else {
+            pendingCameraLaunch = action
+            kasirCameraPermission.launchPermissionRequest()
+        }
+    }
 
     val quickPhotoCameraLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.TakePicturePreview()
@@ -2620,7 +2642,7 @@ fun MyKasirScreen(viewModel: MainViewModel) {
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
                             FilledTonalButton(
-                                onClick = { quickPhotoCameraLauncher.launch(null) },
+                                onClick = { launchCameraSafely { quickPhotoCameraLauncher.launch(null) } },
                                 modifier = Modifier.weight(1f),
                                 shape = RoundedCornerShape(8.dp),
                                 contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp)
@@ -2844,7 +2866,7 @@ fun MyKasirScreen(viewModel: MainViewModel) {
                                     verticalArrangement = Arrangement.spacedBy(6.dp)
                                 ) {
                                     FilledTonalButton(
-                                        onClick = { editCameraLauncher.launch(null) },
+                                        onClick = { launchCameraSafely { editCameraLauncher.launch(null) } },
                                         modifier = Modifier.fillMaxWidth(),
                                         shape = RoundedCornerShape(8.dp),
                                         contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
@@ -3269,7 +3291,7 @@ fun MyKasirScreen(viewModel: MainViewModel) {
                                     verticalArrangement = Arrangement.spacedBy(6.dp)
                                 ) {
                                     FilledTonalButton(
-                                        onClick = { stockCameraLauncher.launch(null) },
+                                        onClick = { launchCameraSafely { stockCameraLauncher.launch(null) } },
                                         modifier = Modifier.fillMaxWidth(),
                                         shape = RoundedCornerShape(8.dp),
                                         contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
@@ -5095,7 +5117,7 @@ fun MyKasirScreen(viewModel: MainViewModel) {
                                 horizontalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
                                 FilledTonalButton(
-                                    onClick = { restockCameraLauncher.launch(null) },
+                                    onClick = { launchCameraSafely { restockCameraLauncher.launch(null) } },
                                     modifier = Modifier.weight(1f),
                                     shape = RoundedCornerShape(8.dp),
                                     contentPadding = PaddingValues(horizontal = 8.dp, vertical = 6.dp)
