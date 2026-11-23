@@ -48,6 +48,7 @@ import androidx.core.content.ContextCompat
 import com.example.BuildConfig
 import com.example.ui.MainViewModel
 import com.example.update.*
+import com.example.util.SinggharaFolderManager
 import kotlinx.coroutines.launch
 import java.io.File
 import java.text.SimpleDateFormat
@@ -119,6 +120,10 @@ fun TentangAplikasiScreen(
     var installedVersionCheck by remember { mutableStateOf<InstalledVersionCheck?>(null) }
     var githubVersionCheckRunning by remember { mutableStateOf(false) }
     var dialogDownloadStarted by remember { mutableStateOf(false) }
+    // Unduh APK rilis saat ini ke folder "My Singghara/" (dari popup "Aplikasi Sudah Terbaru").
+    var isDownloadingCurrentApk by remember { mutableStateOf(false) }
+    var currentApkSaveProgress by remember { mutableStateOf(0f) }
+    var currentApkSavedPath by remember { mutableStateOf<String?>(null) }
     var taskStartedHere by remember { mutableStateOf(false) }
     var pendingSaveAction by remember { mutableStateOf<(() -> Unit)?>(null) }
     var installConflict by remember { mutableStateOf<InstallConflict?>(null) }
@@ -254,6 +259,7 @@ fun TentangAplikasiScreen(
         if (quiet && (installedVersionCheck != null || dialogDownloadStarted)) return
         githubVersionCheckRunning = true
         dialogDownloadStarted = false
+        currentApkSavedPath = null
         if (!quiet) installedVersionCheck = InstalledVersionCheck(isChecking = true)
         scope.launch {
             try {
@@ -309,6 +315,58 @@ fun TentangAplikasiScreen(
         runWithStoragePermission {
             dialogDownloadStarted = true
             GithubApkUpdateService.start(context)
+        }
+    }
+
+    // Mengunduh APK rilis terbaru (versi yang sama saat aplikasi sudah terbaru) dan menyimpannya
+    // langsung ke folder "My Singghara/". Berjalan di coroutine layar; popup tetap terbuka
+    // menampilkan progres & hasil.
+    fun downloadCurrentApkToFolder() {
+        if (isDownloadingCurrentApk) return
+        isDownloadingCurrentApk = true
+        currentApkSaveProgress = 0f
+        currentApkSavedPath = null
+        scope.launch {
+            try {
+                val result = GitHubUpdateManager.checkForUpdate(context)
+                val release = when (result) {
+                    is UpdateCheckState.UpdateAvailable -> result.release
+                    is UpdateCheckState.UpToDate -> result.latestRelease
+                    else -> null
+                }
+                val asset = release?.primaryApkAsset
+                if (release == null || asset == null || asset.browserDownloadUrl.isBlank()) {
+                    viewModel.showToastPopup("Berkas APK rilis tidak ditemukan di GitHub.")
+                    return@launch
+                }
+                val cfg = GitHubUpdateManager.loadConfig(context)
+                val downloaded = GitHubUpdateManager.downloadApk(
+                    context = context,
+                    downloadUrl = asset.browserDownloadUrl,
+                    fileName = asset.name,
+                    token = cfg.token,
+                    expectedSize = asset.size
+                ) { progress, _, _ -> currentApkSaveProgress = progress }
+                val root = SinggharaFolderManager.getRootFolder(context)
+                if (!root.exists()) root.mkdirs()
+                val tagName = release.tagName.ifBlank { BuildConfig.VERSION_NAME }
+                val baseName = "MySingghara-$tagName.apk"
+                var target = File(root, baseName)
+                var idx = 1
+                while (target.exists()) {
+                    target = File(root, "MySingghara-$tagName ($idx).apk")
+                    idx++
+                }
+                downloaded.inputStream().use { input ->
+                    target.outputStream().use { out -> input.copyTo(out) }
+                }
+                currentApkSavedPath = target.absolutePath
+                viewModel.showToastPopup("APK tersimpan di folder My Singghara: ${target.name}")
+            } catch (e: Exception) {
+                viewModel.showToastPopup("Gagal mengunduh APK: ${e.localizedMessage ?: "coba lagi"}")
+            } finally {
+                isDownloadingCurrentApk = false
+            }
         }
     }
 
@@ -661,6 +719,30 @@ fun TentangAplikasiScreen(
                             color = Color(0xFF0284C7)
                         )
                     }
+                    if (isDownloadingCurrentApk) {
+                        LinearProgressIndicator(
+                            progress = { currentApkSaveProgress },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(6.dp)
+                                .clip(RoundedCornerShape(3.dp)),
+                            color = Color(0xFF0284C7)
+                        )
+                        Text(
+                            text = "Mengunduh & menyimpan APK ke folder My Singghara (${(currentApkSaveProgress * 100).toInt()}%)...",
+                            fontSize = 11.5.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    currentApkSavedPath?.let { path ->
+                        Text(
+                            text = "APK tersimpan di folder My Singghara:\n${File(path).name}",
+                            fontSize = 12.5.sp,
+                            lineHeight = 18.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = Color(0xFF16A34A)
+                        )
+                    }
                 }
             },
             confirmButton = {
@@ -692,13 +774,23 @@ fun TentangAplikasiScreen(
             dismissButton = {
                 // Once the APK is downloaded the only action is to install it.
                 if (!check.isChecking && downloadedPath == null) {
-                    TextButton(
-                        onClick = {
-                            dialogDownloadStarted = false
-                            installedVersionCheck = null
+                    if (check.isUpToDate) {
+                        // "Aplikasi Sudah Terbaru": tawarkan unduh APK rilis ke folder My Singghara.
+                        TextButton(
+                            onClick = { downloadCurrentApkToFolder() },
+                            enabled = !isDownloadingCurrentApk
+                        ) {
+                            Text(if (currentApkSavedPath != null) "Unduh Ulang" else if (isDownloadingCurrentApk) "Mengunduh..." else "Unduh")
                         }
-                    ) {
-                        Text("Nanti")
+                    } else {
+                        TextButton(
+                            onClick = {
+                                dialogDownloadStarted = false
+                                installedVersionCheck = null
+                            }
+                        ) {
+                            Text("Nanti")
+                        }
                     }
                 }
             }
