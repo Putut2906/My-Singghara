@@ -340,7 +340,8 @@ class LocalRepository(private val db: AppDatabase) {
         val appSettingsPrefs: Map<String, Any?>? = null,
         val puzzlePrefs: Map<String, Any?>? = null,
         val puzzleRecordsPrefs: Map<String, Any?>? = null,
-        val fcmNotifications: List<FcmNotification>? = null
+        val fcmNotifications: List<FcmNotification>? = null,
+        val catatanKeuanganList: List<CatatanKeuanganItem>? = null
     )
 
     private companion object {
@@ -536,6 +537,7 @@ class LocalRepository(private val db: AppDatabase) {
         puzzlePrefs = getSharedPrefsMap(context, PREFS_PUZZLE),
         puzzleRecordsPrefs = getSharedPrefsMap(context, PREFS_PUZZLE_RECORDS),
         fcmNotifications = allFcmNotifications.first(),
+        catatanKeuanganList = allCatatanKeuangan.first(),
         internalMediaFiles = getInternalFilesMap(context)
     )
 
@@ -628,6 +630,10 @@ class LocalRepository(private val db: AppDatabase) {
             if (backupObj.fcmNotifications != null) {
                 fcmNotificationDao.clearAll()
             }
+            // Field baru opsional: backup versi lama (tanpa catatan keuangan) tidak menghapus tabelnya.
+            if (backupObj.catatanKeuanganList != null) {
+                catatanKeuanganDao.deleteAll()
+            }
 
             backupObj.shopping.forEach { shoppingDao.insertShoppingItem(it) }
             backupObj.notes.forEach { noteDao.insertNote(it) }
@@ -649,6 +655,7 @@ class LocalRepository(private val db: AppDatabase) {
             backupObj.arisanKasList?.forEach { arisanDao.insertKas(it) }
             backupObj.arisanPemenangList?.forEach { arisanDao.insertPemenang(it) }
             backupObj.fcmNotifications?.forEach { fcmNotificationDao.insertNotification(it) }
+            backupObj.catatanKeuanganList?.forEach { catatanKeuanganDao.insert(it) }
         }
 
         val filesToRestore = backupObj.internalMediaFiles ?: backupObj.customAzanFiles

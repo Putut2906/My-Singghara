@@ -940,6 +940,7 @@ fun MainAppContent(viewModel: MainViewModel, desktopMode: Boolean = false) {
     var isKasirExpanded by remember { mutableStateOf(false) }
     var isKoneksiBerbagiExpanded by remember { mutableStateOf(false) }
     var isCatExpanded by remember { mutableStateOf(false) }
+    var isGameEmulatorExpanded by remember { mutableStateOf(false) }
 
     // Otomatis tutup semua sub menu saat sidebar/drawer di-collapse (tertutup)
     LaunchedEffect(drawerState.targetValue) {
@@ -953,6 +954,7 @@ fun MainAppContent(viewModel: MainViewModel, desktopMode: Boolean = false) {
             isKasirExpanded = false
             isKoneksiBerbagiExpanded = false
             isCatExpanded = false
+            isGameEmulatorExpanded = false
         }
     }
     LaunchedEffect(drawerState.isClosed) {
@@ -2028,47 +2030,115 @@ fun MainAppContent(viewModel: MainViewModel, desktopMode: Boolean = false) {
                     // Group: GAME & EMULATOR (emulator J2ME native + game bawaan yang
                     // dipindah ke sini dari halaman "My Aplikasi").
                     DrawerMenuCard {
-                        Text(
-                            text = "GAME & EMULATOR",
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurface,
-                            letterSpacing = 1.sp,
-                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 4.dp)
-                        )
-                        val isJ2meLoaderSelected = viewModel.currentRoute == "j2me_loader"
-                        PrimaryDrawerEntry(
-                            label = "J2ME Loader",
-                            icon = if (isJ2meLoaderSelected) Icons.Default.Gamepad else Icons.Outlined.Gamepad,
-                            selected = isJ2meLoaderSelected,
-                        onClick = {
-                            // Langsung buka halaman engine J2ME-Loader (daftar game + FAB +),
-                            // bukan layar kustom J2meLoaderScreen.
-                            context.startActivity(
-                                android.content.Intent(context, ru.playsoftware.j2meloader.MainActivity::class.java)
-                            )
-                            scope.launch { drawerState.close() }
-                        }
-                        )
-                        // Game bawaan dibuka lewat hub GameScreen (route "game_list")
-                        // dengan mengaktifkan section-nya.
-                        listOf(
-                            Triple("sliding_puzzle", "Puzzle Geser", Icons.Default.DashboardCustomize),
-                            Triple("block_puzzle", "Block Puzzle", Icons.Default.GridOn),
-                            Triple("tetris", "Brick Game", Icons.Default.Gamepad)
-                        ).forEach { (section, title, iconVec) ->
-                            val isSelected = viewModel.currentRoute == "game_list" &&
-                                viewModel.activeGameSectionInGameScreen == section
-                            PrimaryDrawerEntry(
-                                label = title,
-                                icon = iconVec,
-                                selected = isSelected,
-                                onClick = {
-                                    viewModel.currentRoute = "game_list"
-                                    viewModel.activeGameSectionInGameScreen = section
-                                    scope.launch { drawerState.close() }
+                        // Header Clickable to Expand/Collapse (gaya & desain kartu sama seperti MEDIA)
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    val next = !isGameEmulatorExpanded
+                                    if (next) {
+                                        isCompanyExpanded = false
+                                        isManajemenExpanded = false
+                                        isPeopleExpanded = false
+                                        isMediaExpanded = false
+                                        isMyAplikasiExpanded = false
+                                        isKeuanganExpanded = false
+                                        isKasirExpanded = false
+                                        isKoneksiBerbagiExpanded = false
+                                        isCatExpanded = false
+                                    }
+                                    isGameEmulatorExpanded = next
                                 }
+                                .padding(horizontal = 14.dp, vertical = 6.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Icon(
+                                    imageVector = if (isGameEmulatorExpanded) Icons.Default.Gamepad else Icons.Outlined.Gamepad,
+                                    contentDescription = "Game & Emulator",
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Text(
+                                    text = "GAME & EMULATOR",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onSurface,
+                                    letterSpacing = 1.sp
+                                )
+                            }
+                            Icon(
+                                imageVector = if (isGameEmulatorExpanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                                contentDescription = if (isGameEmulatorExpanded) "Sembunyikan" else "Tampilkan",
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(16.dp)
                             )
+                        }
+
+                        AnimatedVisibility(
+                            visible = isGameEmulatorExpanded,
+                            enter = expandVertically() + fadeIn(),
+                            exit = shrinkVertically() + fadeOut()
+                        ) {
+                            Column(modifier = Modifier.fillMaxWidth()) {
+                                // J2ME Loader: buka engine J2ME-Loader native (daftar game + FAB +).
+                                val isJ2meLoaderSelected = viewModel.currentRoute == "j2me_loader"
+                                NavigationDrawerItem(
+                                    icon = { Icon(imageVector = if (isJ2meLoaderSelected) Icons.Default.Gamepad else Icons.Outlined.Gamepad, contentDescription = "J2ME Loader") },
+                                    label = { Text(text = "J2ME Loader", fontWeight = FontWeight.Medium, fontSize = 13.sp) },
+                                    selected = isJ2meLoaderSelected,
+                                    onClick = {
+                                        context.startActivity(
+                                            android.content.Intent(context, ru.playsoftware.j2meloader.MainActivity::class.java)
+                                        )
+                                        scope.launch { drawerState.close() }
+                                    },
+                                    shape = RoundedCornerShape(8.dp),
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 2.dp),
+                                    colors = NavigationDrawerItemDefaults.colors(
+                                        selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                                        selectedTextColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                                        selectedIconColor = MaterialTheme.colorScheme.primary,
+                                        unselectedContainerColor = Color.Transparent,
+                                        unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                                    )
+                                )
+                                // Game bawaan dibuka lewat hub GameScreen (route "game_list")
+                                // dengan mengaktifkan section-nya.
+                                listOf(
+                                    Triple("sliding_puzzle", "Puzzle Geser", Icons.Default.DashboardCustomize),
+                                    Triple("block_puzzle", "Block Puzzle", Icons.Default.GridOn),
+                                    Triple("tetris", "Brick Game", Icons.Default.Gamepad)
+                                ).forEach { (section, title, iconVec) ->
+                                    val isSelected = viewModel.currentRoute == "game_list" &&
+                                        viewModel.activeGameSectionInGameScreen == section
+                                    NavigationDrawerItem(
+                                        icon = { Icon(imageVector = iconVec, contentDescription = title) },
+                                        label = { Text(text = title, fontWeight = FontWeight.Medium, fontSize = 13.sp) },
+                                        selected = isSelected,
+                                        onClick = {
+                                            viewModel.currentRoute = "game_list"
+                                            viewModel.activeGameSectionInGameScreen = section
+                                            scope.launch { drawerState.close() }
+                                        },
+                                        shape = RoundedCornerShape(8.dp),
+                                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 2.dp),
+                                        colors = NavigationDrawerItemDefaults.colors(
+                                            selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                                            selectedTextColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                                            selectedIconColor = MaterialTheme.colorScheme.primary,
+                                            unselectedContainerColor = Color.Transparent,
+                                            unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                                        )
+                                    )
+                                }
+                            }
                         }
                     }
 
