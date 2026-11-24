@@ -5898,6 +5898,21 @@ class LocalHttpServer(
             --danger-subtle: rgba(231, 76, 60, 0.12);
         }
 
+        /* Mobile light-mode card parity: kartu putih + hairline #E2E8F0 + shadow halus (hanya mode terang; dark tidak tersentuh). */
+        [data-theme="light"] .card, [data-theme="light"] .card-custom {
+            background-color: #ffffff;
+            border: 1px solid #E2E8F0;
+            box-shadow: 0 1px 3px rgba(15, 23, 42, 0.08);
+        }
+        @media (prefers-color-scheme: light) {
+            :root:not([data-theme="dark"]):not(.dark) .card,
+            :root:not([data-theme="dark"]):not(.dark) .card-custom {
+                background-color: #ffffff;
+                border: 1px solid #E2E8F0;
+                box-shadow: 0 1px 3px rgba(15, 23, 42, 0.08);
+            }
+        }
+
         body.dark, [data-theme="dark"] {
             --bg-sidebar: #0f172a;
             --bg-navbar: #1e293b;
