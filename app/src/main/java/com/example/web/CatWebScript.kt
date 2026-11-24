@@ -19,7 +19,7 @@ object CatWebScript {
             if(typeof initialTab === 'number') window.catActiveTab = initialTab;
             catStopTimer();
             var el = document.getElementById('tab-content'); if(!el) return;
-            var tabs = [[0,'Input Soal','bi-ui-checks'],[1,'Simulasi Ujian','bi-clock-history'],[2,'Hasil & Live Score','bi-bar-chart-line-fill']];
+            var tabs = [[0,'Input Soal','bi-ui-checks'],[1,'Simulasi Ujian','bi-clock-history'],[2,'Hasil & Live Score','bi-bar-chart-line-fill'],[3,'Grafik Progres','bi-graph-up-arrow'],[4,'Tips','bi-lightbulb']];
             var nav = '';
             tabs.forEach(function(t){ var on=(t[0]===window.catActiveTab)?' active':''; nav += '<button class="nav-link'+on+'" data-cattab="'+t[0]+'" onclick="catSetTab('+t[0]+')"><i class="bi '+t[2]+' me-1"></i>'+t[1]+'</button>'; });
             el.innerHTML = '<div class="container-fluid py-3" style="max-width:960px;">'
@@ -77,7 +77,9 @@ object CatWebScript {
         function catRenderTab(){
             if(window.catActiveTab===0) catRenderInput();
             else if(window.catActiveTab===1) catRenderSimulasi();
-            else catRenderHasil();
+            else if(window.catActiveTab===2) catRenderHasil();
+            else if(window.catActiveTab===3) catRenderGrafik();
+            else catRenderTips();
         }
 
         // ---------------- TAB 1: INPUT SOAL ----------------
@@ -178,6 +180,16 @@ object CatWebScript {
                 var bank=[]; try{ bank=await (await fetch('/api/cat/bank')).json(); }catch(e){}
                 var cnt={TWK:0,TIU:0,TKP:0}; bank.forEach(function(s){ if(cnt[s.kategori]!==undefined) cnt[s.kategori]++; });
                 var total=cnt.TWK+cnt.TIU+cnt.TKP;
+                var pk={aktif:'',maks:5}; try{ var pj=await (await fetch('/api/cat/paket')).json(); pk.aktif=pj.aktif||''; pk.maks=pj.maks||5; }catch(e){}
+                var riw=[]; try{ riw=await (await fetch('/api/cat/riwayat')).json(); }catch(e){}
+                var terpakai=riw.filter(function(r){ return r.paketId===pk.aktif; }).length;
+                var habis=(terpakai>=pk.maks);
+                var percobaanCard=catCard(
+                    '<div class="d-flex justify-content-between align-items-center"><div class="fw-bold">Percobaan Ujian</div>'
+                    + (terpakai>0?'<button class="btn btn-sm btn-outline-danger" onclick="catResetPercobaan()">Reset</button>':'')+'</div>'
+                    + '<div class="small '+(habis?'text-danger':'text-secondary')+' mt-1">Sudah dipakai: '+terpakai+' dari '+pk.maks+'. Sisa: '+Math.max(0,pk.maks-terpakai)+'.</div>'
+                    + (habis?'<div class="small text-danger mt-1">Batas '+pk.maks+' percobaan tercapai — ujian dikunci. Tekan Reset untuk mengulang.</div>':'')
+                );
                 var info=catCard(
                     '<div class="fw-bold mb-2">Petunjuk Ujian (SKD CPNS)</div>'
                     + '<ul class="small mb-2" style="line-height:1.7;">'
@@ -187,12 +199,9 @@ object CatWebScript {
                     + '<li>Passing grade: TWK 65, TIU 80, TKP 156.</li></ul>'
                     + '<div class="small text-secondary mb-2">Bank soal Anda: TWK '+cnt.TWK+', TIU '+cnt.TIU+', TKP '+cnt.TKP+' (total '+total+').</div>'
                     + (total<110 ? '<div class="small text-danger mb-2">Bank belum lengkap (ideal 110). Ujian memakai soal seadanya.</div>' : '')
-                    + '<button class="btn btn-primary btn-sm" '+(total===0?'disabled':'')+' onclick="catStart()"><i class="bi bi-play-fill me-1"></i>Mulai Ujian</button>'
+                    + '<button class="btn btn-primary btn-sm" '+((total===0||habis)?'disabled':'')+' onclick="catStart()"><i class="bi bi-play-fill me-1"></i>'+(habis?'Batas Percobaan Tercapai':'Mulai Ujian')+'</button>'
                 );
-                if(sesi && sesi.selesai){
-                    info = catCard('<div class="fw-bold mb-1">Sesi sebelumnya selesai.</div><div class="small text-secondary mb-2">Lihat hasil di tab "Hasil & Live Score", atau mulai sesi baru.</div><button class="btn btn-primary btn-sm" onclick="catStart()">Mulai Ujian Baru</button>') + info;
-                }
-                b.innerHTML = info;
+                b.innerHTML = percobaanCard + info;
                 return;
             }
             var order=sesi.order||[]; var jawaban={}; Object.keys(sesi.jawaban||{}).forEach(function(k){ jawaban[parseInt(k)]=sesi.jawaban[k]; });
@@ -326,6 +335,105 @@ object CatWebScript {
                 +'<div class="small text-secondary mt-1">Jumlah percobaan: '+n+' (X = urutan percobaan, Y = skor total /550)</div>'
                 +'</div>';
         }
+
+        window.catResetPercobaan = async function(){
+            if(!confirm('Reset percobaan ujian untuk paket aktif? Riwayat percobaan paket ini akan dihapus.')) return;
+            await fetch('/api/cat/riwayat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'reset'})});
+            catRenderSimulasi();
+        };
+
+        // ---------------- TAB 4: GRAFIK PROGRES ----------------
+        async function catRenderGrafik(){
+            var b=document.getElementById('catBody'); if(!b) return;
+            var riw; try{ riw=await (await fetch('/api/cat/riwayat')).json(); }catch(e){ riw=[]; }
+            var form=catCard(
+                '<div class="fw-bold mb-2">Tambah Skor Manual</div>'
+                + '<div class="row g-2 align-items-end">'
+                + '<div class="col-4"><label class="form-label small mb-1">TWK (0-150)</label><input id="catGtwk" type="number" min="0" max="150" class="form-control form-control-sm"></div>'
+                + '<div class="col-4"><label class="form-label small mb-1">TIU (0-175)</label><input id="catGtiu" type="number" min="0" max="175" class="form-control form-control-sm"></div>'
+                + '<div class="col-4"><label class="form-label small mb-1">TKP (0-225)</label><input id="catGtkp" type="number" min="0" max="225" class="form-control form-control-sm"></div></div>'
+                + '<button class="btn btn-sm btn-primary mt-2" onclick="catAddManual()"><i class="bi bi-plus-lg me-1"></i>Simpan Skor</button>'
+                + '<span id="catGMsg" class="small ms-2"></span>'
+            );
+            var chart = riw.length===0 ? catCard('<div class="small text-secondary">Belum ada data. Simpan skor untuk melihat grafik.</div>') : catBarChartCard(riw);
+            var rows = riw.length===0 ? '' : riw.slice().reverse().map(function(r){
+                return '<tr><td class="small">'+new Date(r.tanggal).toLocaleDateString('id-ID')+'</td><td class="small">'+r.twk+'</td><td class="small">'+r.tiu+'</td><td class="small">'+r.tkp+'</td><td class="small fw-bold">'+r.total+'</td><td class="small">'+(r.lulus?'<span class="badge text-bg-success">LULUS</span>':'<span class="badge text-bg-danger">GAGAL</span>')+'</td><td class="small"><button class="btn btn-sm btn-outline-danger py-0" onclick="catDelRiwayat(\''+r.id+'\')"><i class="bi bi-trash"></i></button></td></tr>';
+            }).join('');
+            var table = riw.length===0 ? '' : catCard('<div class="fw-bold mb-2">Riwayat Skor</div><div class="table-responsive"><table class="table table-sm align-middle mb-0"><thead><tr><th>Tanggal</th><th>TWK</th><th>TIU</th><th>TKP</th><th>Total</th><th>Status</th><th></th></tr></thead><tbody>'+rows+'</tbody></table></div>');
+            b.innerHTML = form + chart + table;
+        }
+
+        window.catAddManual = async function(){
+            var twk=parseInt(document.getElementById('catGtwk').value); var tiu=parseInt(document.getElementById('catGtiu').value); var tkp=parseInt(document.getElementById('catGtkp').value);
+            var msg=document.getElementById('catGMsg');
+            if(isNaN(twk)||isNaN(tiu)||isNaN(tkp)){ if(msg) msg.textContent='Isi TWK, TIU, TKP.'; return; }
+            if(twk<0||twk>150||tiu<0||tiu>175||tkp<0||tkp>225){ if(msg) msg.textContent='Rentang: TWK 0-150, TIU 0-175, TKP 0-225.'; return; }
+            await fetch('/api/cat/riwayat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'add-manual',twk:twk,tiu:tiu,tkp:tkp})});
+            catRenderGrafik();
+        };
+        window.catDelRiwayat = async function(id){ await fetch('/api/cat/riwayat',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'delete-item',id:id})}); catRenderGrafik(); };
+
+        function catBarChartCard(riw){
+            var W=560, H=220, padL=36, padR=10, padT=14, padB=30;
+            var cw=W-padL-padR, ch=H-padT-padB, n=riw.length;
+            var maxes={twk:150,tiu:175,tkp:225};
+            var grid=''; for(var g=0; g<=4; g++){ var gy=padT+ch*(g/4); grid+='<line x1="'+padL+'" y1="'+gy+'" x2="'+(padL+cw)+'" y2="'+gy+'" stroke="var(--border-color)" stroke-width="1"/><text x="4" y="'+(gy+4)+'" font-size="9" fill="#64748b">'+Math.round(100*(1-g/4))+'%</text>'; }
+            var gw=cw/n, gap=gw*0.14, bw=(gw-gap*2)/3;
+            var bars='';
+            riw.forEach(function(r,i){
+                var gx=padL+gw*i;
+                var series=[['twk',r.twk,'#2563EB'],['tiu',r.tiu,'#FBC02D'],['tkp',r.tkp,'#EC4899']];
+                series.forEach(function(s,si){
+                    var frac=Math.max(0,Math.min(1, s[1]/maxes[s[0]])); var hh=ch*frac; var bx=gx+gap+bw*si;
+                    bars+='<rect x="'+bx+'" y="'+(padT+ch-hh)+'" width="'+(bw-1)+'" height="'+hh+'" rx="2" fill="'+s[2]+'"/>';
+                });
+                if(n<=14) bars+='<text x="'+(gx+gw/2)+'" y="'+(H-8)+'" font-size="9" text-anchor="middle" fill="#64748b">'+(i+1)+'</text>';
+            });
+            return '<div class="card p-3 mb-3" style="border-radius:16px;border:1px solid var(--border-color);background:var(--card-bg);box-shadow:0 2px 10px rgba(15,23,42,0.08);">'
+                +'<div class="fw-bold mb-2">Perbandingan Skor (TWK / TIU / TKP)</div>'
+                +'<div class="d-flex gap-3 mb-2 small"><span><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#2563EB;"></span> TWK</span>'
+                +'<span><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#FBC02D;"></span> TIU</span>'
+                +'<span><span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:#EC4899;"></span> TKP</span></div>'
+                +'<svg viewBox="0 0 '+W+' '+H+'" style="width:100%;height:auto;">'+grid+bars+'</svg>'
+                +'<div class="small text-secondary mt-1">Tinggi tiap batang = % dari maks kategori (TWK 150, TIU 175, TKP 225). X = urutan percobaan.</div></div>';
+        }
+
+        // ---------------- TAB 5: TIPS ----------------
+        function catRenderTips(){
+            var b=document.getElementById('catBody'); if(!b) return;
+            var prompt=[
+                'Anda adalah pembuat soal SKD/SIMULASI CAT BKN. Buatkan soal dalam format teks Markdown (.md) yang WAJIB mengikuti aturan parser berikut, tanpa penjelasan tambahan di luar format.',
+                '',
+                'ATURAN FORMAT (persis, baris per baris):',
+                '1. Tandai kelompok kategori dengan baris: KATEGORI: TWK atau KATEGORI: TIU atau KATEGORI: TKP',
+                '2. Tiap soal diawali nomor: "1. <teks soal>".',
+                '3. Opsi jawaban satu baris per huruf A-E: "A. <opsi>", dst. (minimal 2, maksimal 5).',
+                '4. Kunci jawaban: "KUNCI: B" (huruf) ATAU "JAWABAN: 2" (nomor urut).',
+                '5. Pembahasan (opsional, 1 baris): "PEMBAHASAN: <penjelasan singkat>".',
+                '6. KHUSUS TKP: tambahkan bobot tiap opsi urut sesuai opsi: "BOBOT: 5,4,3,2" (5 = paling baik). Opsi terbaik harus = 5.',
+                '',
+                'TUGAS ANDA:',
+                '- Buatkan JUMLAH per kategori: TWK = {N_TWK}, TIU = {N_TIU}, TKP = {N_TKP}.',
+                '- Topik/level: {TOPIK}.',
+                '- Bahasa Indonesia, kesulitan bervariasi, posisi jawaban benar bervariasi (A-E).',
+                '- Keluarkan HANYA isi .md siap simpan, tanpa pagar dan tanpa komentar pembuka/penutup.'
+            ].join('\n');
+            window.catTipsPrompt = prompt;
+            var fmt=catCard('<div class="fw-bold mb-2">Format File .md</div>'
+                + '<div class="small text-secondary mb-2">Simpan soal sebagai .md/.txt, lalu impor lewat tab Input Soal. Satu blok = satu soal.</div>'
+                + '<pre class="small p-2 mb-0" style="background:var(--border-color);border-radius:8px;white-space:pre-wrap;">KATEGORI: TWK\n1. <teks soal>\nA. <opsi>\nB. <opsi>\nKUNCI: A\nPEMBAHASAN: ...\n\n(TKP: tambah BOBOT: 5,4,3,2)</pre>');
+            var promptCard=catCard('<div class="d-flex justify-content-between align-items-center mb-2"><div class="fw-bold">Prompt untuk Semua AI</div>'
+                + '<button class="btn btn-sm btn-outline-primary" onclick="catCopyPrompt()"><i class="bi bi-clipboard me-1"></i>Salin</button></div>'
+                + '<div class="small text-secondary mb-2">Ganti {N_TWK}, {N_TIU}, {N_TKP}, {TOPIK}.</div>'
+                + '<pre id="catTipsPre" class="small p-2 mb-0" style="background:var(--border-color);border-radius:8px;white-space:pre-wrap;max-height:320px;overflow:auto;">'+catEsc(prompt)+'</pre>');
+            b.innerHTML = fmt + promptCard;
+        }
+        window.catCopyPrompt = function(){
+            var t=window.catTipsPrompt||'';
+            if(navigator.clipboard && navigator.clipboard.writeText){ navigator.clipboard.writeText(t); }
+            else { var ta=document.createElement('textarea'); ta.value=t; document.body.appendChild(ta); ta.select(); try{document.execCommand('copy');}catch(e){} document.body.removeChild(ta); }
+            alert('Prompt disalin ke clipboard');
+        };
         """
     }
 }

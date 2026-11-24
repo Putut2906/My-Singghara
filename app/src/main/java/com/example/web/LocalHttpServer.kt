@@ -1991,9 +1991,13 @@ class LocalHttpServer(
                     val o = JSONObject(body)
                     when (o.optString("action")) {
                         "start" -> {
-                            val s = CatStore.mulaiSesi(context)
-                            if (s == null) sendJsonResponse(output, JSONObject().put("success", false).put("message", "Bank soal kosong").toString(), 400)
-                            else sendJsonResponse(output, JSONObject().put("success", true).toString())
+                            if (CatStore.percobaanTerpakai(context) >= CatStore.MAX_PERCOBAAN) {
+                                sendJsonResponse(output, JSONObject().put("success", false).put("reason", "max").put("message", "Batas " + CatStore.MAX_PERCOBAAN + " percobaan tercapai").toString(), 400)
+                            } else {
+                                val s = CatStore.mulaiSesi(context)
+                                if (s == null) sendJsonResponse(output, JSONObject().put("success", false).put("reason", "empty").put("message", "Bank soal kosong").toString(), 400)
+                                else sendJsonResponse(output, JSONObject().put("success", true).toString())
+                            }
                         }
                         "answer" -> {
                             val s = CatStore.loadSesi(context)
@@ -2032,7 +2036,7 @@ class LocalHttpServer(
                 path == "/api/cat/hasil" && method == "GET" -> sendJsonResponse(output, catHasilJson())
                 path == "/api/cat/paket" && method == "GET" -> {
                     val arr = JSONArray(); CatStore.paketList(context).forEach { arr.put(JSONObject().put("id", it.id).put("nama", it.nama)) }
-                    sendJsonResponse(output, JSONObject().put("aktif", CatStore.aktifPaketId(context)).put("list", arr).toString())
+                    sendJsonResponse(output, JSONObject().put("aktif", CatStore.aktifPaketId(context)).put("list", arr).put("maks", CatStore.MAX_PERCOBAAN).toString())
                 }
                 path == "/api/cat/paket" && method == "POST" -> {
                     val o = JSONObject(body)
@@ -2043,7 +2047,7 @@ class LocalHttpServer(
                         "delete" -> CatStore.hapusPaket(context, o.optString("id", ""))
                     }
                     val arr = JSONArray(); CatStore.paketList(context).forEach { arr.put(JSONObject().put("id", it.id).put("nama", it.nama)) }
-                    sendJsonResponse(output, JSONObject().put("success", true).put("aktif", CatStore.aktifPaketId(context)).put("list", arr).toString())
+                    sendJsonResponse(output, JSONObject().put("success", true).put("aktif", CatStore.aktifPaketId(context)).put("list", arr).put("maks", CatStore.MAX_PERCOBAAN).toString())
                 }
                 path == "/api/cat/riwayat" && method == "GET" -> {
                     val arr = JSONArray()
@@ -2052,6 +2056,23 @@ class LocalHttpServer(
                             .put("tanggal", r.tanggal).put("twk", r.twk).put("tiu", r.tiu).put("tkp", r.tkp).put("total", r.total).put("lulus", r.lulus))
                     }
                     sendJsonResponse(output, arr.toString())
+                }
+                path == "/api/cat/riwayat" && method == "POST" -> {
+                    val o = JSONObject(body)
+                    when (o.optString("action")) {
+                        "add-manual" -> {
+                            val tw = o.optInt("twk"); val ti = o.optInt("tiu"); val tk = o.optInt("tkp")
+                            if (tw in 0..150 && ti in 0..175 && tk in 0..225) CatStore.tambahRiwayatManual(context, tw, ti, tk)
+                        }
+                        "reset" -> CatStore.resetPercobaan(context, o.optString("paketId", "").ifBlank { CatStore.aktifPaketId(context) })
+                        "delete-item" -> { val id = o.optString("id"); if (id.isNotBlank()) CatStore.hapusRiwayatItem(context, id) }
+                    }
+                    val arr = JSONArray()
+                    CatStore.riwayatList(context).sortedBy { it.tanggal }.forEach { r ->
+                        arr.put(JSONObject().put("id", r.id).put("paketId", r.paketId).put("paketNama", r.paketNama)
+                            .put("tanggal", r.tanggal).put("twk", r.twk).put("tiu", r.tiu).put("tkp", r.tkp).put("total", r.total).put("lulus", r.lulus))
+                    }
+                    sendJsonResponse(output, JSONObject().put("success", true).put("riwayat", arr).toString())
                 }
                 path == "/api/cat/import" && method == "POST" -> {
                     val o = JSONObject(body)
