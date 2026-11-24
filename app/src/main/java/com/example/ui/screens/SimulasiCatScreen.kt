@@ -526,6 +526,7 @@ fun SimulasiCatScreen(
     var bank by remember { mutableStateOf(CatStore.loadBank(context)) }
     var sesi by remember { mutableStateOf(CatStore.loadSesi(context)) }
     var hasil by remember { mutableStateOf<CatHasil?>(null) }
+    var showPaketDialog by remember { mutableStateOf(false) }
 
     fun reload() {
         paketList = CatStore.paketList(context)
@@ -534,15 +535,20 @@ fun SimulasiCatScreen(
         sesi = CatStore.loadSesi(context)
     }
 
+    val aktifNamaPaket = paketList.firstOrNull { it.id == paketId }?.nama ?: "Paket"
     Column(Modifier.fillMaxSize()) {
-        PaketBar(
-            paketList = paketList,
-            aktifId = paketId,
-            onSelect = { id -> CatStore.setAktifPaket(context, id); reload() },
-            onCreate = { nama -> CatStore.buatPaket(context, nama); reload() },
-            onRename = { id, nama -> CatStore.renamePaket(context, id, nama); reload() },
-            onDelete = { id -> CatStore.hapusPaket(context, id); reload() }
-        )
+        Row(
+            Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            OutlinedButton(onClick = { showPaketDialog = true }) {
+                Icon(Icons.Default.Folder, null, modifier = Modifier.size(16.dp))
+                Spacer(Modifier.width(6.dp))
+                Text("Paket: $aktifNamaPaket", maxLines = 1)
+                Spacer(Modifier.width(6.dp))
+                Text("▾", fontWeight = FontWeight.Bold)
+            }
+        }
         Box(Modifier.fillMaxSize()) {
             when (selectedTab) {
                 0 -> TabInputSoal(bank = bank, onChanged = { bank = CatStore.loadBank(context) })
@@ -567,6 +573,24 @@ fun SimulasiCatScreen(
                 else -> TabGrafikProgres()
             }
         }
+    }
+
+    if (showPaketDialog) {
+        AlertDialog(
+            onDismissRequest = { showPaketDialog = false },
+            title = { Text("Paket Tryout") },
+            text = {
+                PaketBar(
+                    paketList = paketList,
+                    aktifId = paketId,
+                    onSelect = { id -> CatStore.setAktifPaket(context, id); reload(); showPaketDialog = false },
+                    onCreate = { nama -> CatStore.buatPaket(context, nama); reload() },
+                    onRename = { id, nama -> CatStore.renamePaket(context, id, nama); reload() },
+                    onDelete = { id -> CatStore.hapusPaket(context, id); reload() }
+                )
+            },
+            confirmButton = { TextButton(onClick = { showPaketDialog = false }) { Text("Tutup") } }
+        )
     }
 }
 
@@ -918,6 +942,7 @@ private fun TabSimulasi(
     var current by remember(aktif.startTime) { mutableIntStateOf(aktif.currentIndex.coerceIn(0, (aktif.order.size - 1).coerceAtLeast(0))) }
     var now by remember { mutableLongStateOf(System.currentTimeMillis()) }
     var showFinishDialog by remember { mutableStateOf(false) }
+    var showNavDialog by remember { mutableStateOf(false) }
 
     LaunchedEffect(aktif.startTime) {
         while (true) {
@@ -991,7 +1016,14 @@ private fun TabSimulasi(
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         KategoriBadge(soalAktif.kategori)
                         Spacer(Modifier.width(8.dp))
-                        Text("Soal ${current + 1} / ${aktif.order.size}", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("Soal ${current + 1} / ${aktif.order.size}", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = MaterialTheme.colorScheme.primaryContainer,
+                            modifier = Modifier.clickable { showNavDialog = true }
+                        ) {
+                            Text("☰ Nomor ▾", Modifier.padding(horizontal = 10.dp, vertical = 5.dp), fontSize = 12.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                        }
                     }
                     Spacer(Modifier.height(8.dp))
                     Text(soalAktif.teks, fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.onSurface)
@@ -1020,14 +1052,6 @@ private fun TabSimulasi(
                             Text("${'A' + i}. $o", fontSize = 14.sp, color = MaterialTheme.colorScheme.onSurface)
                         }
                     }
-                }
-            }
-            Spacer(Modifier.height(8.dp))
-            Text("Navigasi Nomor Soal", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
-            Spacer(Modifier.height(6.dp))
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                aktif.order.indices.forEach { idx ->
-                    NumberCell(nomor = idx + 1, answered = jawaban.containsKey(idx), active = idx == current, onClick = { current = idx })
                 }
             }
             Spacer(Modifier.height(16.dp))
@@ -1065,6 +1089,21 @@ private fun TabSimulasi(
                 }
             }
         }
+    }
+
+    if (showNavDialog) {
+        AlertDialog(
+            onDismissRequest = { showNavDialog = false },
+            title = { Text("Navigasi Nomor Soal") },
+            text = {
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    aktif.order.indices.forEach { idx ->
+                        NumberCell(nomor = idx + 1, answered = jawaban.containsKey(idx), active = idx == current, onClick = { current = idx; showNavDialog = false })
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { showNavDialog = false }) { Text("Tutup") } }
+        )
     }
 
     if (showFinishDialog) {
@@ -1429,6 +1468,7 @@ private fun UlasanList(ulasan: List<UlasanSoal>) {
     val benarColor = Color(0xFF16A34A)
     val salahColor = Color(0xFFDC2626)
     var current by remember(ulasan) { mutableIntStateOf(0) }
+    var showNavDialog by remember { mutableStateOf(false) }
     val u = ulasan.getOrNull(current)
 
     Text("Ulasan & Pembahasan", fontWeight = FontWeight.Bold, fontSize = 15.sp)
@@ -1442,7 +1482,18 @@ private fun UlasanList(ulasan: List<UlasanSoal>) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             KategoriBadge(u.kategori)
             Spacer(Modifier.width(8.dp))
-            Text("Soal ${current + 1} / ${ulasan.size}", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
+            Text("Soal ${current + 1} / ${ulasan.size}", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Spacer(Modifier.width(8.dp))
+            Surface(
+                shape = RoundedCornerShape(8.dp),
+                color = MaterialTheme.colorScheme.primaryContainer,
+                modifier = Modifier.weight(1f).clickable { showNavDialog = true }
+            ) {
+                Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                    Text("☰ Nomor ▾", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimaryContainer, modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp))
+                }
+            }
+            Spacer(Modifier.width(8.dp))
             Surface(shape = RoundedCornerShape(6.dp), color = (if (u.benar) benarColor else salahColor).copy(alpha = 0.15f)) {
                 Text(if (u.benar) "BENAR +${u.poin}" else "SALAH +${u.poin}", Modifier.padding(horizontal = 8.dp, vertical = 3.dp), fontSize = 11.sp, fontWeight = FontWeight.Bold, color = if (u.benar) benarColor else salahColor)
             }
@@ -1495,14 +1546,6 @@ private fun UlasanList(ulasan: List<UlasanSoal>) {
         }
     }
 
-    Spacer(Modifier.height(8.dp))
-    Text("Navigasi Nomor Soal", fontSize = 13.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
-    Spacer(Modifier.height(6.dp))
-    FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        ulasan.forEachIndexed { idx, it ->
-            NumberCell(nomor = idx + 1, answered = it.benar, active = idx == current, onClick = { current = idx })
-        }
-    }
     Spacer(Modifier.height(12.dp))
     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
         OutlinedButton(onClick = { current = (current - 1).coerceAtLeast(0) }, enabled = current > 0, modifier = Modifier.weight(1f)) {
@@ -1511,6 +1554,21 @@ private fun UlasanList(ulasan: List<UlasanSoal>) {
         Button(onClick = { current = (current + 1).coerceAtMost(ulasan.size - 1) }, enabled = current < ulasan.size - 1, modifier = Modifier.weight(1f)) {
             Text("Berikutnya →", fontSize = 12.sp)
         }
+    }
+
+    if (showNavDialog) {
+        AlertDialog(
+            onDismissRequest = { showNavDialog = false },
+            title = { Text("Navigasi Nomor Soal") },
+            text = {
+                FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    ulasan.forEachIndexed { idx, it ->
+                        NumberCell(nomor = idx + 1, answered = it.benar, active = idx == current, onClick = { current = idx; showNavDialog = false })
+                    }
+                }
+            },
+            confirmButton = { TextButton(onClick = { showNavDialog = false }) { Text("Tutup") } }
+        )
     }
 }
 
