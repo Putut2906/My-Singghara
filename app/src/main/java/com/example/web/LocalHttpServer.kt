@@ -4,6 +4,7 @@ import android.content.Context
 import com.example.data.AgendaItem
 import com.example.data.AnggotaItem
 import com.example.data.BelanjaPasarItem
+import com.example.data.BelanjaOnlineItem
 import com.example.data.CatatanKeuanganItem
 import com.example.data.FcmNotification
 import com.example.data.JadwalKegiatan
@@ -687,6 +688,9 @@ class LocalHttpServer(
                     }
                     path.startsWith("/api/shopping") -> {
                         handleShoppingRoute(method, queryParams, body, output)
+                    }
+                    path.startsWith("/api/belanja_online") -> {
+                        handleBelanjaOnlineRoute(method, queryParams, body, output)
                     }
                     path.startsWith("/api/agenda") -> {
                         handleAgendaRoute(method, queryParams, body, output)
@@ -2168,6 +2172,71 @@ class LocalHttpServer(
                     }
                 }
                 sendJsonResponse(output, JSONObject().put("success", false).put("message", "ID tidak ditemukan").toString(), 400)
+            }
+        }
+    }
+
+    private suspend fun handleBelanjaOnlineRoute(method: String, queryParams: Map<String, String>, body: String, output: OutputStream) {
+        when (method) {
+            "GET" -> {
+                val items = repository.allBelanjaOnlineItems.first()
+                val jsonArr = JSONArray()
+                items.forEach { item ->
+                    jsonArr.put(JSONObject().apply {
+                        put("id", item.id)
+                        put("tanggal", item.tanggal)
+                        put("marketplace", item.marketplace)
+                        put("namaToko", item.namaToko)
+                        put("namaBarang", item.namaBarang)
+                        put("kategori", item.kategori)
+                        put("hargaBarang", item.hargaBarang)
+                        put("ongkir", item.ongkir)
+                        put("biayaLayanan", item.biayaLayanan)
+                        put("potongan", item.potongan)
+                        put("total", item.total)
+                        put("metodePembayaran", item.metodePembayaran)
+                        put("catatan", item.catatan)
+                        put("foto", item.foto)
+                        put("tanggalDibuat", item.tanggalDibuat)
+                    })
+                }
+                sendJsonResponse(output, jsonArr.toString())
+            }
+            "POST", "PUT" -> {
+                val json = JSONObject(body)
+                val harga = json.optDouble("hargaBarang", 0.0)
+                val ongkir = json.optDouble("ongkir", 0.0)
+                val biaya = json.optDouble("biayaLayanan", 0.0)
+                val potongan = json.optDouble("potongan", 0.0)
+                val total = (harga + ongkir + biaya - potongan).coerceAtLeast(0.0)
+                val item = BelanjaOnlineItem(
+                    id = if (method == "PUT") json.optInt("id", 0) else 0,
+                    tanggal = json.optString("tanggal", java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.getDefault()).format(java.util.Date())),
+                    marketplace = json.optString("marketplace", "Tokopedia"),
+                    namaToko = json.optString("namaToko", ""),
+                    namaBarang = json.optString("namaBarang", ""),
+                    kategori = json.optString("kategori", "Kebutuhan Pokok"),
+                    hargaBarang = harga,
+                    ongkir = ongkir,
+                    biayaLayanan = biaya,
+                    potongan = potongan,
+                    total = total,
+                    metodePembayaran = json.optString("metodePembayaran", "Transfer Bank"),
+                    catatan = json.optString("catatan", ""),
+                    foto = json.optString("foto", "")
+                )
+                if (method == "PUT") repository.updateBelanjaOnline(item) else repository.insertBelanjaOnline(item)
+                sendJsonResponse(output, JSONObject().put("success", true).toString())
+            }
+            "DELETE" -> {
+                val idStr = queryParams["id"] ?: if (body.isNotEmpty()) JSONObject(body).optString("id") else null
+                val id = idStr?.toIntOrNull()
+                if (id != null) {
+                    repository.deleteBelanjaOnlineById(id)
+                    sendJsonResponse(output, JSONObject().put("success", true).toString())
+                } else {
+                    sendJsonResponse(output, JSONObject().put("success", false).put("message", "ID tidak valid").toString(), 400)
+                }
             }
         }
     }
@@ -11741,6 +11810,10 @@ class LocalHttpServer(
                             <i class="bi bi-basket3-fill fs-5" style="color: #10B981;"></i>
                             <span class="nav-text">Rekap Belanja Pasar</span>
                         </div>
+                        <div class="nav-link-item" onclick="switchTab('belanja_online', this)" data-title="Belanja Online">
+                            <i class="bi bi-bag-check-fill fs-5" style="color: #7C3AED;"></i>
+                            <span class="nav-text">Belanja Online</span>
+                        </div>
                         <div class="nav-link-item" onclick="switchTab('kalkulator', this)" data-title="Kalkulator">
                             <i class="bi bi-calculator fs-5" style="color: #0EA5E9;"></i>
                             <span class="nav-text">Kalkulator</span>
@@ -13299,6 +13372,9 @@ class LocalHttpServer(
             else if (currentTab === 'rekap_belanja' || currentTab === 'belanja_pasar') {
                 if (window.loadRekapBelanjaPasar) window.loadRekapBelanjaPasar();
             }
+            else if (currentTab === 'belanja_online' || currentTab === 'belanja') {
+                if (window.loadBelanjaOnline) window.loadBelanjaOnline();
+            }
             else if (currentTab === 'kalkulator') {
                 if (window.loadKalkulator) window.loadKalkulator();
             }
@@ -13543,6 +13619,7 @@ class LocalHttpServer(
         function loadMyApps() {
             const apps = [
                 { id: 'rekap_belanja', title: "Rekap Belanja Pasar", desc: "Daftar belanja pasar harian/mingguan dalam satuan kg, pcs, ikat, liter, dll. dengan checklist, estimasi harga, dan rekap per satuan.", icon: "bi-basket3-fill", color: "#10B981", badge: "Belanja Pasar" },
+                { id: 'belanja_online', title: "Belanja Online", desc: "Catat transaksi belanja online (Tokopedia, Shopee, dll.) per marketplace dengan harga, ongkir, biaya layanan, potongan, metode bayar, dan rekap total pengeluaran.", icon: "bi-bag-check-fill", color: "#7C3AED", badge: "E-Commerce" },
                 { id: 'kalkulator', title: "Kalkulator", desc: "Kalkulator ilmiah sama persis dengan aplikasi My Singghara: mode biasa/ilmiah, SHIFT, memori, statistik, trigonometri, pangkat, akar, faktorial, dan bentuk pecahan.", icon: "bi-calculator", color: "#0EA5E9", badge: "Kalkulator Ilmiah" },
                 { id: 'block', title: "Block Puzzle", desc: "Game susun balok 8x8 asah otak seru dengan combo eliminasi, power-up palu/bom/refresh, dan high score.", icon: "bi-grid-fill", color: "#2C5E6A", badge: "Game Hiburan" },
                 { id: 'brick_game', title: "Brick Game", desc: "Game retro arcade klasik LCD 9999-in-1 dengan 4 mode seru (Tetris, Mobil Balap, Ular Snake, Tembak Tank) dan kontrol gimbot.", icon: "bi-controller", color: "#306230", badge: "Game Retro" },
@@ -14588,6 +14665,7 @@ class LocalHttpServer(
         ${GajiWebScript.getScript(dol)}
         ${ArisanWebScript.getScript(dol)}
         ${RekapBelanjaPasarWebScript.getScript(dol)}
+        ${BelanjaOnlineWebScript.getScript(dol)}
         ${ManajemenKeuanganWebScript.getScript(dol)}
         ${NoteKeuanganWebScript.getScript(dol)}
         ${NoteWebScript.getScript(dol)}
