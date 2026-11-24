@@ -1451,6 +1451,7 @@ object KaryawanMuridWebScript {
                                     <option value="Izin" ${dol}{statusFilter === 'Izin' ? 'selected' : ''}>Izin</option>
                                     <option value="Sakit" ${dol}{statusFilter === 'Sakit' ? 'selected' : ''}>Sakit</option>
                                     <option value="Terlambat" ${dol}{statusFilter === 'Terlambat' ? 'selected' : ''}>Terlambat</option>
+                                    <option value="Dinas" ${dol}{statusFilter === 'Dinas' ? 'selected' : ''}>Dinas</option>
                                 </select>
                             </div>
                         </div>
@@ -1605,6 +1606,7 @@ object KaryawanMuridWebScript {
             if (statusPresensi.toLowerCase() === 'izin') badgeClass = 'bg-primary';
             else if (statusPresensi.toLowerCase() === 'sakit') badgeClass = 'bg-warning text-dark';
             else if (statusPresensi.toLowerCase() === 'terlambat') badgeClass = 'bg-danger';
+            else if (statusPresensi.toLowerCase() === 'dinas') badgeClass = 'bg-info text-dark';
 
             const pelanggaran = p.statusPelanggaran || 'Tepat Waktu';
             let pelanggaranBadge = '';
@@ -2059,6 +2061,9 @@ object KaryawanMuridWebScript {
 
                                             <input type="radio" class="btn-check" name="modalScanStatusChoice" id="mOptTerlambat" value="Terlambat">
                                             <label class="btn btn-outline-danger btn-sm" for="mOptTerlambat">Terlambat</label>
+
+                                            <input type="radio" class="btn-check" name="modalScanStatusChoice" id="mOptDinas" value="Dinas">
+                                            <label class="btn btn-outline-info btn-sm" for="mOptDinas">Dinas</label>
                                         </div>
                                     </div>
                                 </div>
@@ -2554,6 +2559,9 @@ object KaryawanMuridWebScript {
 
                                         <input type="radio" class="btn-check" name="quickModalStatusChoice" id="qOptTerlambat" value="Terlambat">
                                         <label class="btn btn-outline-danger btn-sm" for="qOptTerlambat">Terlambat</label>
+
+                                        <input type="radio" class="btn-check" name="quickModalStatusChoice" id="qOptDinas" value="Dinas">
+                                        <label class="btn btn-outline-info btn-sm" for="qOptDinas">Dinas</label>
                                     </div>
                                 </div>
 
@@ -2753,6 +2761,9 @@ object KaryawanMuridWebScript {
 
                                             <input type="radio" class="btn-check" name="manualStatusKehadiran" id="mTerlambat" value="Terlambat">
                                             <label class="btn btn-outline-danger btn-sm flex-grow-1" for="mTerlambat">Terlambat</label>
+
+                                            <input type="radio" class="btn-check" name="manualStatusKehadiran" id="mDinas" value="Dinas">
+                                            <label class="btn btn-outline-info btn-sm flex-grow-1" for="mDinas">Dinas</label>
                                         </div>
                                     </div>
 
