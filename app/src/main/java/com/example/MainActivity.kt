@@ -387,7 +387,15 @@ class MainActivity : FragmentActivity() {
                                     }
                                 )
                         ) {
-                            MainAppContent(viewModel = viewModel, desktopMode = desktopMode)
+                            val dexConnectedNow = isDesktopModeActive(this@MainActivity)
+                            val baseDensityHere = LocalDensity.current
+                            val deXFontDensity = remember(baseDensityHere.density, baseDensityHere.fontScale, viewModel.dexFontScale, dexConnectedNow) {
+                                if (dexConnectedNow) Density(baseDensityHere.density, baseDensityHere.fontScale * viewModel.dexFontScale)
+                                else baseDensityHere
+                            }
+                            CompositionLocalProvider(LocalDensity provides deXFontDensity) {
+                                MainAppContent(viewModel = viewModel, desktopMode = desktopMode)
+                            }
                         }
 
                         if (isLocked) {

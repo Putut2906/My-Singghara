@@ -480,8 +480,8 @@ fun ProfilScreen(
                     MenuItem(
                         icon = Icons.Default.FormatSize,
                         iconTint = MaterialTheme.colorScheme.primary,
-                        title = "Ukuran Font DeX",
-                        subtitle = "Atur besar teks saat Samsung DeX tersambung - saat ini ${"%.1f".format(viewModel.dexFontScale)}x",
+                        title = "Font Saat DeX Tersambung",
+                        subtitle = "Atur besar teks saat Samsung DeX terhubung agar lebih jelas - saat ini ${"%.1f".format(viewModel.dexFontScale)}x",
                         onClick = { showDexFontDialog = true }
                     )
                 }
@@ -489,11 +489,11 @@ fun ProfilScreen(
                 if (showDexFontDialog) {
                     AlertDialog(
                         onDismissRequest = { showDexFontDialog = false },
-                        title = { Text("Ukuran Font DeX") },
+                        title = { Text("Font Saat DeX Tersambung") },
                         text = {
                             Column(modifier = Modifier.fillMaxWidth()) {
                                 Text(
-                                    "Geser untuk mengatur besar teks saat Samsung DeX tersambung. Perubahan langsung berlaku.",
+                                    "Geser untuk mengatur besar teks saat Samsung DeX terhubung (tampilan mobile). Perubahan langsung berlaku.",
                                     fontSize = 13.sp,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
