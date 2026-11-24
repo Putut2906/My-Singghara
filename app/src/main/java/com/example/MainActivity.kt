@@ -326,10 +326,11 @@ class MainActivity : FragmentActivity() {
 
         setContent {
             val configuration = LocalConfiguration.current
-            // DeX kini menampilkan layout MOBILE penuh (BottomNavBar + drawer), bukan UI Web Connect.
-            // Set dexUseMobileLayout = false untuk mengaktifkan kembali tampilan DeX ala Web Connect
-            // (DexWebSidebar / DexPageChrome / DexDashboardScreen) tanpa harus menulis ulang kode.
-            val dexUseMobileLayout = false
+            // Saat DeX terhubung, tampilkan layout MOBILE penuh (BottomNavBar + drawer) saja.
+            // dexUseMobileLayout = true -> desktopMode selalu false -> UI khusus DeX (DexWebSidebar /
+            // DexPageChrome / DexDashboardScreen / DexWindowControls / skala popup DeX) tidak dipakai.
+            // Set kembali ke false untuk mengaktifkan tampilan DeX ala Web Connect tanpa menulis ulang kode.
+            val dexUseMobileLayout = true
             val desktopMode = remember(configuration.uiMode, configuration.smallestScreenWidthDp) {
                 isDesktopModeActive(this@MainActivity) && !dexUseMobileLayout
             }
