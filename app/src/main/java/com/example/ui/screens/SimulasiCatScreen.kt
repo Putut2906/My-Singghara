@@ -965,44 +965,19 @@ private fun TabSimulasi(
     val selected = jawaban[current]
     val dijawabCount = jawaban.size
     val belum = aktif.order.size - dijawabCount
-    var liveScore by remember { mutableIntStateOf(0) }
-    LaunchedEffect(jawaban, bankMap) {
-        var s = 0
-        aktif.order.forEachIndexed { idx, id ->
-            val so = bankMap[id]
-            val j = jawaban[idx]
-            if (so != null && j != null) {
-                s += when (so.kategori) {
-                    CAT_TKP -> so.bobotOpsi.getOrElse(j) { 0 }
-                    else -> if (j == so.kunci) 5 else 0
-                }
-            }
-        }
-        liveScore = s
-    }
 
     Column(Modifier.fillMaxSize()) {
+        // Kartu informasi ujian: hanya sisa waktu. Statistik dijawab/belum/live score
+        // dan passing grade sengaja tidak ditampilkan agar fokus ke soal.
         CatKartu {
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                Column {
-                    Text("Sisa Waktu", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text(
-                        formatCountdown(sisa),
-                        fontSize = 24.sp,
-                        fontWeight = FontWeight.Black,
-                        color = if (sisa < 60_000L) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
-                    )
-                }
-                Column(horizontalAlignment = Alignment.End) {
-                    Text("Passing Grade", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text("TWK ${CatStore.PG_TWK} • TIU ${CatStore.PG_TIU} • TKP ${CatStore.PG_TKP}", fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                }
-            }
-            Spacer(Modifier.height(8.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                InfoStat("Dijawab", "$dijawabCount")
-                InfoStat("Belum", "$belum")
-                InfoStat("Live Score", "$liveScore")
+            Column {
+                Text("Sisa Waktu", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(
+                    formatCountdown(sisa),
+                    fontSize = 24.sp,
+                    fontWeight = FontWeight.Black,
+                    color = if (sisa < 60_000L) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
+                )
             }
         }
 

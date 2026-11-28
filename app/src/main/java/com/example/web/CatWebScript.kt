@@ -103,27 +103,31 @@ object CatWebScript {
         }
 
         // ---------------- ENTRY POINT ----------------
+        // Tidak ada pill pemilih sub-menu di dalam halaman: kelima sub-menu CAT
+        // diakses lewat drawer sidebar Web Connect, sama seperti menu lainnya.
 
         window.loadCat = function(initialTab){
             if(typeof initialTab === 'number') window.catActiveTab = initialTab;
             catStopTimer();
             var el = document.getElementById('tab-content'); if(!el) return;
-            var tabs = [[0,'Input Soal','bi-ui-checks'],[1,'Simulasi Ujian','bi-clock-history'],[2,'Hasil & Live Score','bi-bar-chart-line-fill'],[3,'Grafik Progres','bi-graph-up-arrow'],[4,'Tips','bi-lightbulb']];
-            var nav = '';
-            tabs.forEach(function(t){ var on=(t[0]===window.catActiveTab)?' active':''; nav += '<button class="nav-link'+on+'" data-cattab="'+t[0]+'" onclick="catSetTab('+t[0]+')"><i class="bi '+t[2]+' me-1"></i>'+t[1]+'</button>'; });
             el.innerHTML = '<div class="container-fluid py-3" style="max-width:960px;">'
                 + '<h4 class="fw-bold mb-2"><i class="bi bi-pencil-square me-2" style="color:#7C3AED;"></i>Simulasi CAT BKN</h4>'
                 + '<div id="catPaketBar" class="mb-2"></div>'
-                + '<ul class="nav nav-pills mb-3 gap-2">'+nav+'</ul>'
                 + '<div id="catBody"></div></div>';
             catRenderPaketBar();
             catRenderTab();
         };
 
+        var CAT_ROUTES = ['cat_input_soal','cat_simulasi_ujian','cat_hasil','cat_grafik_progres','cat_tips'];
+
         window.catSetTab = function(n){
             window.catActiveTab = n;
-            document.querySelectorAll('[data-cattab]').forEach(function(b){ b.classList.toggle('active', parseInt(b.getAttribute('data-cattab'))===n); });
             catStopTimer();
+            // Bila perpindahan dipicu tombol di dalam halaman (mis. "Ke Input Soal"),
+            // lewatkan switchTabByName agar highlight drawer ikut bergerak.
+            if(typeof switchTabByName === 'function' && CAT_ROUTES[n]){
+                try { switchTabByName(CAT_ROUTES[n]); return; } catch(e){}
+            }
             catRenderTab();
         };
 
@@ -403,24 +407,18 @@ object CatWebScript {
             window.catDeadlineTs = Date.now() + (sesi.sisaMs||0);
             window.catExam={order:order,jawaban:jawaban,current:current,bankMap:bankMap,pg:sesi.pg||{twk:65,tiu:80,tkp:156}};
 
+            // Kartu informasi ujian: hanya sisa waktu. Statistik dijawab/belum/live score
+            // dan passing grade dihilangkan, sama seperti layar mobile.
             b.innerHTML = catCard(
-                '<div class="d-flex justify-content-between align-items-center">'
-                + '<div><div class="small text-secondary">Sisa Waktu</div><div id="catClock" class="fw-bold" style="font-size:1.6rem;color:#7C3AED;">--:--</div></div>'
-                + '<div class="text-end"><div class="small text-secondary">Passing Grade</div><div class="small fw-bold">TWK '+window.catExam.pg.twk+' &bull; TIU '+window.catExam.pg.tiu+' &bull; TKP '+window.catExam.pg.tkp+'</div></div></div>'
-                + '<div class="d-flex gap-4 mt-2">'
-                + '<div class="text-center"><div id="catAnsCount" class="fw-bold" style="font-size:1.15rem;color:#7C3AED;">0</div><div class="small text-secondary">Dijawab</div></div>'
-                + '<div class="text-center"><div id="catUnCount" class="fw-bold" style="font-size:1.15rem;color:#7C3AED;">0</div><div class="small text-secondary">Belum</div></div>'
-                + '<div class="text-center"><div id="catLiveScore" class="fw-bold" style="font-size:1.15rem;color:#7C3AED;">0</div><div class="small text-secondary">Live Score</div></div>'
-                + '</div>')
-                + '<div class="row g-3"><div class="col-lg-8"><div id="catQuestion"></div></div>'
-                + '<div class="col-lg-4"><div class="card p-2" style="border-radius:16px;border:1px solid var(--border-color);background:var(--card-bg);box-shadow:0 2px 10px rgba(15,23,42,0.08);">'
-                + '<div class="small fw-bold mb-2 px-1">&#9776; Nomor Soal</div><div id="catNav" class="d-flex flex-wrap gap-1"></div></div></div></div>'
+                '<div class="small text-secondary">Sisa Waktu</div>'
+                + '<div id="catClock" class="fw-bold" style="font-size:1.6rem;color:#7C3AED;">--:--</div>')
+                + '<div id="catQuestion"></div>'
                 + '<div class="d-flex gap-2 mt-3">'
                 + '<button class="btn btn-outline-secondary btn-sm flex-fill" onclick="catSkip()"><i class="bi bi-skip-end me-1"></i>Lewati</button>'
                 + '<button class="btn btn-primary btn-sm flex-grow-1" style="flex:1.4;" onclick="catSaveNext()"><i class="bi bi-check-lg me-1"></i>Simpan &amp; Lanjut</button>'
                 + '<button class="btn btn-danger btn-sm flex-fill" onclick="catFinish(false)"><i class="bi bi-stop-circle me-1"></i>Selesai</button></div>';
 
-            catRenderQuestion(); catRenderNav(); catUpdateHeader();
+            catRenderQuestion(); catUpdateHeader();
             catStopTimer();
             window.catTimerId=setInterval(function(){
                 var rem=window.catDeadlineTs-Date.now();
@@ -430,16 +428,46 @@ object CatWebScript {
             },1000);
         }
 
-        function catLiveScore(){
-            var ex=window.catExam; if(!ex) return 0; var s=0;
-            ex.order.forEach(function(id,idx){
-                var q=ex.bankMap[id]; var j=ex.jawaban[idx];
-                if(q && j!==undefined && j>=0){
-                    s += (q.kategori==='TKP') ? (q.bobot&&q.bobot[j]!==undefined ? q.bobot[j] : 0) : (j===q.kunci?5:0);
-                }
-            });
-            return s;
+        // ---- Pop-up navigasi nomor soal (meniru AlertDialog "Navigasi Nomor Soal" di mobile) ----
+
+        function catNavCells(total, isAnswered, isActive, pickFn){
+            var h='';
+            for(var i=0;i<total;i++){
+                var active=isActive(i);
+                var bg=active?'#7C3AED':(isAnswered(i)?CAT_OK:CAT_NO);
+                h+='<button onclick="'+pickFn+'('+i+')" style="width:34px;height:34px;border-radius:8px;color:#fff;font-size:12px;font-weight:700;border:'+(active?'2px solid #000':'none')+';background:'+bg+';">'+(i+1)+'</button>';
+            }
+            return h;
         }
+
+        function catNavDialog(cells){
+            catCloseNavDialog();
+            var back=document.createElement('div');
+            back.id='catNavOverlay';
+            back.style.cssText='position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.55);z-index:99998;display:flex;align-items:center;justify-content:center;padding:16px;';
+            back.innerHTML='<div class="card shadow-lg" style="max-width:520px;width:100%;border-radius:18px;background:var(--card-bg);">'
+                +'<div class="card-body p-4"><div class="fw-bold mb-3">Navigasi Nomor Soal</div>'
+                +'<div class="d-flex flex-wrap gap-1" style="max-height:55vh;overflow:auto;">'+cells+'</div>'
+                +'<div class="d-flex justify-content-end mt-3"><button class="btn btn-sm btn-link text-decoration-none" data-catnav="close">Tutup</button></div>'
+                +'</div></div>';
+            back.addEventListener('click', function(e){
+                var el=e.target;
+                if(el===back || (el.getAttribute && el.getAttribute('data-catnav')==='close')) catCloseNavDialog();
+            });
+            document.body.appendChild(back);
+        }
+        function catCloseNavDialog(){ var o=document.getElementById('catNavOverlay'); if(o) o.remove(); }
+
+        function catNomorButton(pickFn){
+            return '<button class="btn btn-sm btn-light fw-bold d-inline-flex align-items-center gap-1" style="background:rgba(124,58,237,.14);color:#7C3AED;border-radius:8px;" '
+                +'onclick="'+pickFn+'()">&#9776; Nomor &#9662;</button>';
+        }
+
+        window.catOpenExamNav = function(){
+            var ex=window.catExam; if(!ex) return;
+            catNavDialog(catNavCells(ex.order.length, function(i){ return ex.jawaban[i]!==undefined; }, function(i){ return i===ex.current; }, 'catExamNavPick'));
+        };
+        window.catExamNavPick = function(i){ catCloseNavDialog(); catGo(i); };
 
         function catRenderQuestion(){
             var ex=window.catExam; var q=ex.bankMap[ex.order[ex.current]]; var el=document.getElementById('catQuestion'); if(!el) return;
@@ -453,39 +481,24 @@ object CatWebScript {
             }).join('');
             el.innerHTML = catCard(
                 '<div class="d-flex align-items-center gap-2 mb-2">'+catBadgeKategori(q.kategori)
-                + '<span class="small text-secondary flex-grow-1">Soal '+(ex.current+1)+' / '+ex.order.length+'</span></div>'
+                + '<span class="small text-secondary">Soal '+(ex.current+1)+' / '+ex.order.length+'</span>'
+                + '<span class="ms-auto">'+catNomorButton('catOpenExamNav')+'</span></div>'
                 + '<div class="fw-semibold mb-1" style="font-size:15px;">'+catEsc(q.teks)+'</div>'+img+opsiHtml
             );
         }
 
-        function catRenderNav(){
-            var ex=window.catExam; var el=document.getElementById('catNav'); if(!el) return;
-            var h='';
-            for(var i=0;i<ex.order.length;i++){
-                var answered=(ex.jawaban[i]!==undefined); var active=(i===ex.current);
-                var bg=active?'#7C3AED':(answered?CAT_OK:CAT_NO);
-                h += '<button onclick="catGo('+i+')" style="width:32px;height:32px;border-radius:8px;color:#fff;font-size:12px;font-weight:700;border:'+(active?'2px solid #000':'none')+';background:'+bg+';">'+(i+1)+'</button>';
-            }
-            el.innerHTML=h;
-        }
-
         function catUpdateHeader(){
             var ex=window.catExam; if(!ex) return;
-            var ans=Object.keys(ex.jawaban).length;
-            var ac=document.getElementById('catAnsCount'); var uc=document.getElementById('catUnCount'); var ls=document.getElementById('catLiveScore');
-            if(ac) ac.textContent=ans;
-            if(uc) uc.textContent=(ex.order.length-ans);
-            if(ls) ls.textContent=catLiveScore();
             var c=document.getElementById('catClock');
             if(c){ var rem=window.catDeadlineTs-Date.now(); c.textContent=catFmt(rem); c.style.color=(rem<60000)?CAT_NO:'#7C3AED'; }
         }
 
         window.catSelect = async function(i){
             var ex=window.catExam; if(!ex) return;
-            ex.jawaban[ex.current]=i; catRenderQuestion(); catRenderNav(); catUpdateHeader();
+            ex.jawaban[ex.current]=i; catRenderQuestion(); catUpdateHeader();
             try{ var r=await (await fetch('/api/cat/sesi',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'answer',index:ex.current,opsi:i})})).json(); if(r && r.expired) catFinish(true); }catch(e){}
         };
-        function catGo(i){ var ex=window.catExam; if(!ex) return; ex.current=i; catRenderQuestion(); catRenderNav(); catUpdateHeader(); fetch('/api/cat/sesi',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'navigate',current:i})}); }
+        function catGo(i){ var ex=window.catExam; if(!ex) return; ex.current=i; catRenderQuestion(); catUpdateHeader(); fetch('/api/cat/sesi',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'navigate',current:i})}); }
         window.catSkip = function(){ var ex=window.catExam; if(ex) catGo(Math.min(ex.current+1, ex.order.length-1)); };
         window.catSaveNext = function(){ var ex=window.catExam; if(ex) catGo(Math.min(ex.current+1, ex.order.length-1)); };
         window.catStart = async function(){
@@ -625,21 +638,15 @@ object CatWebScript {
                     +(isK?'<span class="small fw-bold" style="color:'+CAT_OK+';">&#10003; kunci</span>':'')
                     +(isJ?'<span class="small fw-bold ms-1" style="color:#7C3AED;">jawabanmu</span>':'')+'</div>';
             }).join('');
-            var navCells='';
-            for(var n=0;n<list.length;n++){
-                var on=(n===i), answered=list[n].benar;
-                var bg=on?'#7C3AED':(answered?CAT_OK:CAT_NO);
-                navCells+='<button onclick="catUlasanGo('+n+')" style="width:30px;height:30px;border-radius:8px;color:#fff;font-size:11px;font-weight:700;border:'+(on?'2px solid #000':'none')+';background:'+bg+';">'+(n+1)+'</button>';
-            }
             host.innerHTML = catCard(
                 '<div class="d-flex align-items-center gap-2 mb-2 flex-wrap">'+catBadgeKategori(u.kategori)
                 +'<span class="small text-secondary">Soal '+(i+1)+' / '+list.length+'</span>'
-                +'<span class="badge ms-auto fw-bold" style="background:'+((u.benar)?CAT_OK+'26':CAT_NO+'26')+';color:'+((u.benar)?CAT_OK:CAT_NO)+';">'
+                + catNomorButton('catOpenUlasanNav')
+                +'<span class="badge ms-2 fw-bold" style="background:'+((u.benar)?CAT_OK+'26':CAT_NO+'26')+';color:'+((u.benar)?CAT_OK:CAT_NO)+';">'
                 +(u.benar?'BENAR +'+u.poin:'SALAH +'+u.poin)+'</span></div>'
                 +'<div class="fw-semibold mb-1" style="font-size:15px;">'+catEsc(u.teks)+'</div>'+img+opsiHtml
                 +(u.jawaban<0?'<div class="small mt-1" style="color:'+CAT_NO+';">Tidak dijawab.</div>':'')
-                +(u.pembahasan?'<div class="mt-3 p-3" style="border-radius:12px;background:var(--border-color);"><div class="small fw-bold mb-1" style="color:#7C3AED;">Pembahasan</div><div class="small">'+catEsc(u.pembahasan)+'</div></div>':'')
-                +'<div class="d-flex flex-wrap gap-1 mt-3">'+navCells+'</div>')
+                +(u.pembahasan?'<div class="mt-3 p-3" style="border-radius:12px;background:var(--border-color);"><div class="small fw-bold mb-1" style="color:#7C3AED;">Pembahasan</div><div class="small">'+catEsc(u.pembahasan)+'</div></div>':''))
                 +'<div class="d-flex gap-2 mb-3">'
                 +'<button class="btn btn-outline-secondary btn-sm flex-fill" onclick="catUlasanGo('+(i-1)+')"'+(i<=0?' disabled':'')+'>&#8592; Sebelumnya</button>'
                 +'<button class="btn btn-primary btn-sm flex-fill" onclick="catUlasanGo('+(i+1)+')"'+(i>=list.length-1?' disabled':'')+'>Berikutnya &#8594;</button></div>';
@@ -649,6 +656,12 @@ object CatWebScript {
             window.catUlasanIdx=Math.max(0,Math.min(list.length-1,n));
             catRenderUlasan();
         };
+        window.catOpenUlasanNav = function(){
+            var list=window.catUlasanList||[]; if(list.length===0) return;
+            var i=window.catUlasanIdx;
+            catNavDialog(catNavCells(list.length, function(k){ return list[k] && list[k].benar; }, function(k){ return k===i; }, 'catUlasanNavPick'));
+        };
+        window.catUlasanNavPick = function(i){ catCloseNavDialog(); window.catUlasanGo(i); };
 
         window.catResetPercobaanDariHasil = function(n){
             catConfirm('Reset percobaan?','Riwayat percobaan paket ini ('+n+') akan dihapus agar ujian bisa diulang dari percobaan ke-1. Tindakan ini tidak bisa dibatalkan.','Reset',async function(){
