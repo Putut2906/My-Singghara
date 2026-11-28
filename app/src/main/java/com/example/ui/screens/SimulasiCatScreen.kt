@@ -536,17 +536,28 @@ fun SimulasiCatScreen(
     }
 
     val aktifNamaPaket = paketList.firstOrNull { it.id == paketId }?.nama ?: "Paket"
+    // Saat ujian berjalan, pemilih paket disembunyikan supaya fokus ke soal dan tidak
+    // bisa berpindah paket di tengah sesi. Kartu sisa waktu naik ke posisi itu (dipindah,
+    // bukan disalin) dan baru muncul lagi di halaman mulai ujian.
+    val sesiBerjalan = sesi?.takeIf { !it.selesai }
+    val ujianSedangBerjalan = selectedTab == 1 && sesiBerjalan != null
     Column(Modifier.fillMaxSize()) {
-        Row(
-            Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            OutlinedButton(onClick = { showPaketDialog = true }) {
-                Icon(Icons.Default.Folder, null, modifier = Modifier.size(16.dp))
-                Spacer(Modifier.width(6.dp))
-                Text("Paket: $aktifNamaPaket", maxLines = 1)
-                Spacer(Modifier.width(6.dp))
-                Text("▾", fontWeight = FontWeight.Bold)
+        if (ujianSedangBerjalan && sesiBerjalan != null) {
+            Box(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp)) {
+                SisaWaktuKartu(sesiBerjalan)
+            }
+        } else {
+            Row(
+                Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                OutlinedButton(onClick = { showPaketDialog = true }) {
+                    Icon(Icons.Default.Folder, null, modifier = Modifier.size(16.dp))
+                    Spacer(Modifier.width(6.dp))
+                    Text("Paket: $aktifNamaPaket", maxLines = 1)
+                    Spacer(Modifier.width(6.dp))
+                    Text("▾", fontWeight = FontWeight.Bold)
+                }
             }
         }
         Box(Modifier.fillMaxSize()) {
@@ -916,6 +927,33 @@ private fun BobotDropdown(value: Int, onChange: (Int) -> Unit) {
 
 // ---------------------- TAB 2: SIMULASI UJIAN ----------------------
 
+/**
+ * Kartu hitung mundur. Selama ujian berjalan kartu ini menempati posisi pemilih
+ * paket tryout di bagian atas layar, jadi satu-satunya informasi yang mendampingi soal.
+ */
+@Composable
+private fun SisaWaktuKartu(sesi: CatSesi) {
+    var now by remember(sesi.startTime) { mutableLongStateOf(System.currentTimeMillis()) }
+    LaunchedEffect(sesi.startTime) {
+        while (true) {
+            now = System.currentTimeMillis()
+            delay(1000L)
+        }
+    }
+    val sisa = CatStore.sisaMs(sesi, now)
+    CatKartu {
+        Column {
+            Text("Sisa Waktu", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(
+                formatCountdown(sisa),
+                fontSize = 24.sp,
+                fontWeight = FontWeight.Black,
+                color = if (sisa < 60_000L) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
+            )
+        }
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 private fun TabSimulasi(
@@ -967,20 +1005,8 @@ private fun TabSimulasi(
     val belum = aktif.order.size - dijawabCount
 
     Column(Modifier.fillMaxSize()) {
-        // Kartu informasi ujian: hanya sisa waktu. Statistik dijawab/belum/live score
-        // dan passing grade sengaja tidak ditampilkan agar fokus ke soal.
-        CatKartu {
-            Column {
-                Text("Sisa Waktu", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Text(
-                    formatCountdown(sisa),
-                    fontSize = 24.sp,
-                    fontWeight = FontWeight.Black,
-                    color = if (sisa < 60_000L) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
-                )
-            }
-        }
-
+        // Kartu sisa waktu sengaja tidak dirender di sini: ia dipindah ke posisi
+        // pemilih paket tryout di bagian atas layar selama ujian berjalan.
         Column(
             Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp)
         ) {
