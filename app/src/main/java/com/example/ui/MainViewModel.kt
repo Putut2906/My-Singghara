@@ -1428,6 +1428,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             onStarted = { url ->
                 webServerUrl = url
                 refreshConnectedWebDevices()
+                // Port 8080 sudah hidup, jadi HP ini boleh ditemukan & dikirimi berkas antar HP.
+                com.example.transfer.P2pTransferManager.getInstance(getApplication()).startResponder()
                 onStarted(url)
             },
             onError = { err ->
@@ -1438,6 +1440,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
 
     fun stopWebServer() {
         webServer?.stop()
+        // HP lain berhenti menjawab pertanyaan penemuan (UDP) begitu Web Connect dimatikan.
+        com.example.transfer.P2pTransferManager.getInstance(getApplication()).stopResponder()
         webServerUrl = ""
         connectedWebDevices.clear()
         webAccessSecurityState = WebAccessSecurityState.NONE

@@ -767,7 +767,7 @@ object DexPageChromeMeta {
         "jigsaw_puzzle" to DexPageInfo("Jigsaw Puzzle", "Teka-teki susun"),
         "j2me_loader" to DexPageInfo("J2ME Loader", "Emulator game Java"),
         "share" to DexPageInfo("Share", "Bagikan konten antar perangkat"),
-        "transfer_file" to DexPageInfo("Transfer File", "Kirim file antar perangkat"),
+        "transfer_file" to DexPageInfo("Transfer File", "Kirim file antar perangkat (PC & HP ke HP)"),
         "web_connect" to DexPageInfo("Web Connect", "Akses dasbor dari PC"),
         "telegram_ai" to DexPageInfo("Telegram AI", "Asisten berbasis Telegram"),
         "manajemen_akun" to DexPageInfo("Manajemen Akun", "Kelola pengguna & admin"),

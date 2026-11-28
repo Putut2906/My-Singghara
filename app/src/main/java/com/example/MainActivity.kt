@@ -2825,7 +2825,7 @@ fun MainAppContent(viewModel: MainViewModel, desktopMode: Boolean = false) {
                                 val isTransferFileSelected = viewModel.currentRoute == "transfer_file"
                                 NavigationDrawerItem(
                                     icon = { Icon(imageVector = Icons.Default.SwapHoriz, contentDescription = "Transfer File") },
-                                    label = { Text(text = "Transfer File (Offline PC)", fontWeight = FontWeight.Medium, fontSize = 13.sp) },
+                                    label = { Text(text = "Transfer File (Offline PC/HP)", fontWeight = FontWeight.Medium, fontSize = 13.sp) },
                                     selected = isTransferFileSelected,
                                     onClick = {
                                         viewModel.currentRoute = "transfer_file"

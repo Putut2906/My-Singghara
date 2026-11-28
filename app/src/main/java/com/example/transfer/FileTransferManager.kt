@@ -43,7 +43,8 @@ data class TransferActivityLog(
     val title: String,
     val description: String,
     val timestamp: Long = System.currentTimeMillis(),
-    val isIncoming: Boolean // true = dari PC ke HP, false = dari HP ke PC
+    val isIncoming: Boolean, // true = masuk ke HP, false = keluar dari HP
+    val channel: String = "PC" // "PC" atau "HP" (transfer antar perangkat)
 )
 
 class FileTransferManager private constructor(private val context: Context) {
@@ -249,6 +250,48 @@ class FileTransferManager private constructor(private val context: Context) {
         targetFile
     }
 
+    /**
+     * Versi stream dari saveReceivedFromPc: byte dibaca langsung dari socket HTTP dan
+     * ditulis bertahap, jadi berkas ratusan MB tidak perlu hidup di RAM HP penerima.
+     */
+    suspend fun saveReceivedStream(fileName: String, input: java.io.InputStream): File = withContext(Dispatchers.IO) {
+        val cleanName = fileName.replace("[/\\\\:*?\"<>|]".toRegex(), "_")
+            .ifBlank { "berkas_hp_${System.currentTimeMillis()}" }
+        var targetFile = File(receivedDir, cleanName)
+        if (targetFile.exists()) {
+            val baseName = cleanName.substringBeforeLast(".")
+            val ext = if (cleanName.contains(".")) ".${cleanName.substringAfterLast(".")}" else ""
+            var count = 1
+            while (targetFile.exists()) {
+                targetFile = File(receivedDir, "$baseName ($count)$ext")
+                count++
+            }
+        }
+        try {
+            FileOutputStream(targetFile).use { out ->
+                val buffer = ByteArray(64 * 1024)
+                var total = 0L
+                while (true) {
+                    val read = input.read(buffer)
+                    if (read == -1) break
+                    out.write(buffer, 0, read)
+                    total += read
+                }
+                out.flush()
+                if (total <= 0L) throw java.io.IOException("Berkas kosong")
+            }
+        } catch (e: Exception) {
+            try {
+                targetFile.delete()
+            } catch (e2: Exception) {
+                e2.printStackTrace()
+            }
+            throw e
+        }
+        refreshReceivedFiles()
+        targetFile
+    }
+
     suspend fun deleteReceivedFile(id: String): Boolean = withContext(Dispatchers.IO) {
         val item = _receivedFromPc.value.find { it.id == id } ?: return@withContext false
         val deleted = item.file?.delete() ?: false
@@ -343,12 +386,13 @@ class FileTransferManager private constructor(private val context: Context) {
         }
     }
 
-    fun logActivity(title: String, desc: String, isIncoming: Boolean) {
+    fun logActivity(title: String, desc: String, isIncoming: Boolean, channel: String = "PC") {
         val log = TransferActivityLog(
             title = title,
             description = desc,
             timestamp = System.currentTimeMillis(),
-            isIncoming = isIncoming
+            isIncoming = isIncoming,
+            channel = channel
         )
         _activityLogs.value = (listOf(log) + _activityLogs.value).take(50)
         notifyPcClients()

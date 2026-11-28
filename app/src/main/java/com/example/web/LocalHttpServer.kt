@@ -391,6 +391,9 @@ class LocalHttpServer(
 
         // Batas aman untuk body (mis. berkas cadangan JSON yang memuat foto/audio base64).
         private const val MAX_REQUEST_BODY_BYTES = 128 * 1024 * 1024
+        // Jalur upload_raw tidak ditelan ke memori, jadi boleh lebih besar dari batas JSON.
+        private const val MAX_RAW_UPLOAD_BYTES = 1_500L * 1024L * 1024L
+        private const val RAW_UPLOAD_TIMEOUT_MS = 180_000
         private const val SESSION_IDLE_TIMEOUT_MS = 90_000L
 
         fun parseDeviceName(userAgent: String, clientIp: String): String {
@@ -543,6 +546,8 @@ class LocalHttpServer(
                 var contentLength = 0
                 var userAgent = ""
                 var rangeHeader = ""
+                var rawFileName = ""
+                var rawPeerId = ""
                 while (true) {
                     val line = readHttpLine(input) ?: break
                     if (line.isEmpty()) break
@@ -553,11 +558,35 @@ class LocalHttpServer(
                     if (headerLower.startsWith("user-agent:")) {
                         userAgent = line.substringAfter(":").trim()
                     }
+                    // Unggah berkas besar memakai header ini supaya body HTTP-nya murni byte.
+                    if (headerLower.startsWith("x-filename:")) {
+                        rawFileName = line.substringAfter(":").trim()
+                    }
+                    if (headerLower.startsWith("x-peer:")) {
+                        rawPeerId = line.substringAfter(":").trim()
+                    }
                     // Pemutar media browser (Chrome/Firefox) meminta byte parsial agar bisa melompati
                     // durasi; tanpa header ini respons 206 tidak akan pernah terbentuk.
                     if (headerLower.startsWith("range:")) {
                         rangeHeader = line.substringAfter(":").trim()
                     }
+                }
+
+                val path = fullPath.substringBefore("?")
+                val queryString = if (fullPath.contains("?")) fullPath.substringAfter("?") else ""
+                val queryParams = parseQueryParams(queryString)
+                val clientIp = s.inetAddress?.hostAddress ?: "127.0.0.1"
+
+                // Transfer berkas antar HP: body-nya stream byte, bukan JSON. Menelannya ke
+                // String seperti di bawah membuat RAM kedua HP melonjak dan mentok 128 MB,
+                // jadi rute ini dibelokkan sebelum batas body berlaku.
+                val rawTransferAction = rawTransferUploadAction(method, path, queryParams)
+                if (rawTransferAction != null) {
+                    // Berkas besar bisa mengalir lebih dari 15 detik; batas baca standar akan
+                    // memutus koneksi di tengah jalan dan menyisakan berkas separuh jadi.
+                    s.soTimeout = RAW_UPLOAD_TIMEOUT_MS
+                    handleTransferRawStream(rawTransferAction, contentLength, rawFileName, rawPeerId, input, output)
+                    return
                 }
 
                 if (contentLength > MAX_REQUEST_BODY_BYTES) {
@@ -578,16 +607,10 @@ class LocalHttpServer(
                     String(bodyBytes, 0, bytesRead, Charsets.UTF_8)
                 } else ""
 
-                val path = fullPath.substringBefore("?")
-                val queryString = if (fullPath.contains("?")) fullPath.substringAfter("?") else ""
-                val queryParams = parseQueryParams(queryString)
-
                 if (method == "OPTIONS") {
                     sendCorsResponse(output)
                     return
                 }
-
-                val clientIp = s.inetAddress?.hostAddress ?: "127.0.0.1"
 
                 when {
                     path.startsWith("/assets/") || path.startsWith("/css/") || path.startsWith("/js/") || path.startsWith("/fonts/") ||
@@ -3481,6 +3504,9 @@ class LocalHttpServer(
             put("sharedCount", transferManager.sharedItemsNow().size)
             put("receivedCount", transferManager.receivedItemsNow().size)
             put("hasSelfApk", transferManager.getSelfApkItem() != null)
+            val p2p = com.example.transfer.P2pTransferManager.getInstance(context)
+            put("p2pListening", p2p.responderRunning.value)
+            put("p2pPeerCount", p2p.peers.value.count { it.reachable })
         }
     }
 
@@ -3526,6 +3552,7 @@ class LocalHttpServer(
                 put("description", l.description)
                 put("timestamp", l.timestamp)
                 put("isIncoming", l.isIncoming)
+                put("channel", l.channel)
             })
         }
         return logsArray
@@ -3570,11 +3597,265 @@ class LocalHttpServer(
         }
     }
 
+    // Rute yang body-nya berupa byte berkas mentah (bukan JSON), jadi tidak boleh
+    // ditelan ke String. Nilai kembali = aksi stream yang harus ditangani.
+    private fun rawTransferUploadAction(method: String, path: String, queryParams: Map<String, String>): String? {
+        if (method != "POST" || !path.startsWith("/api/transfer_file")) return null
+        return when (queryParams["action"]) {
+            "upload_raw" -> "upload_raw"
+            "p2p_relay" -> "p2p_relay"
+            else -> null
+        }
+    }
+
+    private suspend fun handleTransferRawStream(
+        action: String,
+        contentLength: Int,
+        fileNameHeader: String,
+        peerId: String,
+        input: java.io.InputStream,
+        output: java.io.OutputStream
+    ) {
+        val transferManager = com.example.transfer.FileTransferManager.getInstance(context)
+        val fileName = try {
+            java.net.URLDecoder.decode(fileNameHeader, "UTF-8")
+        } catch (e: Exception) {
+            fileNameHeader
+        }.ifBlank { "berkas_hp_${System.currentTimeMillis()}" }
+
+        if (contentLength <= 0) {
+            sendJsonResponse(output, JSONObject().put("status", "error").put("message", "Content-Length tidak dikirim").toString(), 400)
+            return
+        }
+        if (contentLength.toLong() > MAX_RAW_UPLOAD_BYTES) {
+            sendJsonResponse(output, JSONObject().put("status", "error").put("message", "Berkas melebihi ${MAX_RAW_UPLOAD_BYTES / (1024 * 1024)} MB").toString(), 413)
+            return
+        }
+        if (transferManager.receivedDir.usableSpace in 1L until contentLength.toLong()) {
+            sendJsonResponse(output, JSONObject().put("status", "error").put("message", "Penyimpanan HP tidak cukup").toString(), 507)
+            return
+        }
+
+        try {
+            if (action == "p2p_relay") {
+                val p2p = com.example.transfer.P2pTransferManager.getInstance(context)
+                val peer = p2p.peerById(peerId)
+                if (peer == null) {
+                    // Socket tetap harus dikosongkan supaya koneksi tidak menggantung setengah baca.
+                    drainQuietly(input, contentLength)
+                    sendJsonResponse(output, JSONObject().put("status", "error").put("message", "HP tujuan tidak dikenal").toString(), 404)
+                    return
+                }
+                val ok = p2p.relayStreamToPeer(peer, fileName, contentLength.toLong(), input)
+                sendJsonResponse(
+                    output,
+                    JSONObject()
+                        .put("status", if (ok) "success" else "error")
+                        .put("message", if (ok) "Berkas diteruskan ke HP ${peer.label}" else "Gagal meneruskan ke HP ${peer.label}")
+                        .put("fileName", fileName)
+                        .put("fileSize", contentLength)
+                        .toString(),
+                    if (ok) 200 else 502
+                )
+                return
+            }
+
+            val savedFile = transferManager.saveReceivedStream(fileName, input)
+            val size = savedFile.length()
+            transferManager.logActivity(
+                title = "Diterima dari HP: ${savedFile.name}",
+                desc = "${com.example.transfer.FileTransferManager.formatFileSize(size)} • Transfer antar HP (offline)",
+                isIncoming = true,
+                channel = "HP"
+            )
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                com.example.ui.MainViewModel.instance?.showToastPopup("Berkas baru diterima dari HP: ${savedFile.name}")
+            }
+            sendJsonResponse(
+                output,
+                JSONObject().apply {
+                    put("status", "success")
+                    put("message", "Berkas berhasil diterima dan disimpan di HP")
+                    put("fileName", savedFile.name)
+                    put("fileSize", size)
+                    put("formattedSize", com.example.transfer.FileTransferManager.formatFileSize(size))
+                }.toString()
+            )
+        } catch (e: Exception) {
+            android.util.Log.e("TransferP2P", "Unggah stream gagal: ${e.message}")
+            sendJsonResponse(output, JSONObject().put("status", "error").put("message", e.message ?: "Unggah gagal").toString(), 500)
+        }
+    }
+
+    private fun drainQuietly(input: java.io.InputStream, total: Int) {
+        try {
+            val buffer = ByteArray(16 * 1024)
+            var left = total
+            while (left > 0) {
+                val read = input.read(buffer, 0, minOf(left, buffer.size))
+                if (read <= 0) break
+                left -= read
+            }
+        } catch (e: Exception) {
+        }
+    }
+
+    private suspend fun p2pPeersJson(): String {
+        val p2p = com.example.transfer.P2pTransferManager.getInstance(context)
+        val arr = JSONArray()
+        p2p.peers.value.forEach { peer ->
+            arr.put(JSONObject().apply {
+                put("id", peer.id)
+                put("label", peer.label)
+                put("ip", peer.ip)
+                put("port", peer.port)
+                put("url", peer.url)
+                put("lastSeen", peer.lastSeen)
+                put("reachable", peer.reachable)
+                put("fromHistory", peer.fromHistory)
+            })
+        }
+        val jobsArr = JSONArray()
+        p2p.jobs.value.forEach { job ->
+            jobsArr.put(JSONObject().apply {
+                put("id", job.id)
+                put("fileName", job.fileName)
+                put("peerLabel", job.peerLabel)
+                put("direction", job.direction)
+                put("totalBytes", job.totalBytes)
+                put("doneBytes", job.doneBytes)
+                put("state", job.state)
+            })
+        }
+        return JSONObject().apply {
+            put("status", "ok")
+            put("selfName", android.os.Build.MODEL ?: "HP Singghara")
+            put("selfIp", getIpAddress(context))
+            put("port", port)
+            put("listening", p2p.responderRunning.value)
+            put("scanning", p2p.isScanning.value)
+            put("peers", arr)
+            put("jobs", jobsArr)
+        }.toString()
+    }
+
+    private suspend fun handleP2pGet(action: String, queryParams: Map<String, String>, output: java.io.OutputStream): Boolean {
+        val p2p = com.example.transfer.P2pTransferManager.getInstance(context)
+        when (action) {
+            "p2p_peers", "p2p_jobs" -> {
+                sendJsonResponse(output, p2pPeersJson())
+                return true
+            }
+            "p2p_state" -> {
+                val peer = p2p.peerById(queryParams["peer"] ?: "")
+                if (peer == null) {
+                    sendJsonResponse(output, JSONObject().put("status", "error").put("message", "HP tujuan tidak ditemukan, pindai ulang").toString(), 404)
+                    return true
+                }
+                val (name, files) = p2p.remoteState(peer)
+                val arr = JSONArray()
+                files.forEach { f ->
+                    arr.put(JSONObject().apply {
+                        put("id", f.id)
+                        put("name", f.name)
+                        put("size", f.size)
+                        put("formattedSize", f.formattedSize)
+                        put("mimeType", f.mimeType)
+                        put("extension", f.extension)
+                        put("isSelfApk", f.isSelfApk)
+                    })
+                }
+                sendJsonResponse(
+                    output,
+                    JSONObject().put("status", "ok").put("peerId", peer.id).put("peerName", name).put("shared", arr).toString()
+                )
+                return true
+            }
+            "p2p_download" -> {
+                val peer = p2p.peerById(queryParams["peer"] ?: "")
+                val fileId = queryParams["id"] ?: ""
+                if (peer == null || fileId.isBlank()) {
+                    sendJsonResponse(output, JSONObject().put("status", "error").put("message", "Perangkat/berkas tidak valid").toString(), 404)
+                    return true
+                }
+                val (_, remoteFiles) = p2p.remoteState(peer)
+                val remote = remoteFiles.firstOrNull { it.id == fileId }
+                if (remote == null) {
+                    sendJsonResponse(output, JSONObject().put("status", "error").put("message", "Berkas tidak ada di HP tujuan").toString(), 404)
+                    return true
+                }
+                val safeName = remote.name.replace("\"", "")
+                val headers = "HTTP/1.1 200 OK\r\n" +
+                        "Content-Type: " + (remote.mimeType.ifBlank { "application/octet-stream" }) + "\r\n" +
+                        "Content-Disposition: attachment; filename=\"" + safeName + "\"\r\n" +
+                        "Access-Control-Allow-Origin: *\r\n" +
+                        "Connection: close\r\n\r\n"
+                output.write(headers.toByteArray(Charsets.UTF_8))
+                output.flush()
+                val streamed = p2p.streamPeerFileTo(peer, remote.id, output)
+                if (streamed) {
+                    com.example.transfer.FileTransferManager.getInstance(context).logActivity(
+                        title = "Diunduh PC dari HP ${peer.label}: ${remote.name}",
+                        desc = "${remote.formattedSize} • Terusan antar HP ke browser PC",
+                        isIncoming = false,
+                        channel = "HP"
+                    )
+                }
+                return true
+            }
+        }
+        return false
+    }
+
+    private suspend fun handleP2pPost(action: String, body: String, output: java.io.OutputStream): Boolean {
+        val p2p = com.example.transfer.P2pTransferManager.getInstance(context)
+        val json = try { JSONObject(body) } catch (e: Exception) { JSONObject() }
+        when (action) {
+            "p2p_scan" -> {
+                p2p.startResponder()
+                p2p.scan(2600L)
+                sendJsonResponse(output, p2pPeersJson())
+                return true
+            }
+            "p2p_take" -> {
+                val peer = p2p.peerById(json.optString("peer", ""))
+                if (peer == null) {
+                    sendJsonResponse(output, JSONObject().put("status", "error").put("message", "HP tujuan tidak ditemukan").toString(), 404)
+                    return true
+                }
+                val remoteId = json.optString("id", "")
+                val (_, files) = p2p.remoteState(peer)
+                val remote = files.firstOrNull { it.id == remoteId }
+                if (remote == null) {
+                    sendJsonResponse(output, JSONObject().put("status", "error").put("message", "Berkas tidak ada di HP tujuan").toString(), 404)
+                    return true
+                }
+                val saved = p2p.takeFromPeer(peer, remote)
+                sendJsonResponse(
+                    output,
+                    JSONObject()
+                        .put("status", if (saved != null) "success" else "error")
+                        .put("fileName", saved?.name ?: "")
+                        .put("message", if (saved != null) "Berkas tersimpan di HP ini" else "Gagal mengambil berkas")
+                        .toString()
+                )
+                return true
+            }
+            "p2p_forget" -> {
+                p2p.forgetPeer(json.optString("peer", ""))
+                sendJsonResponse(output, JSONObject().put("status", "success").toString())
+                return true
+            }
+        }
+        return false
+    }
+
     private suspend fun handleTransferFileRoute(path: String, method: String, queryParams: Map<String, String>, body: String, output: OutputStream) {
         val transferManager = com.example.transfer.FileTransferManager.getInstance(context)
         val action = queryParams["action"] ?: path.removePrefix("/api/transfer_file").removePrefix("/")
 
         if (method == "GET") {
+            if (handleP2pGet(action, queryParams, output)) return
             when (action) {
                 "", "info" -> {
                     sendJsonResponse(output, transferInfoJson(transferManager).toString())
@@ -3725,6 +4006,7 @@ class LocalHttpServer(
                 }
             }
         } else if (method == "POST") {
+            if (handleP2pPost(action, body, output)) return
             when (action) {
                 "upload" -> {
                     try {
@@ -13637,7 +13919,7 @@ class LocalHttpServer(
                 { id: 'notes', title: "Catatan", desc: "Catatan harian, ide penting, dan dokumen teks pribadi.", icon: "bi-journal-text", color: "#43A047", badge: "Produktivitas" },
                 { id: 'jadwal', title: "Jadwal Harian", desc: "Agenda aktivitas, pengingat jadwal, dan rutinitas harian terstruktur.", icon: "bi-clock-history", color: "#FB8C00", badge: "Perencana Waktu" },
                 { id: 'share', title: "Share Cloud", desc: "Berbagi dan sinkronisasi file cloud terpusat via Google Drive terintegrasi.", icon: "bi-share", color: "#3674B5", badge: "Cloud Share" },
-                { id: 'transfer_file', title: "Transfer File", desc: "Transfer berkas cepat 100% offline antara aplikasi My Singghara dan browser PC tanpa kuota internet.", icon: "bi-arrow-left-right", color: "#0284C7", badge: "100% Offline" },
+                { id: 'transfer_file', title: "Transfer File", desc: "Transfer berkas cepat 100% offline antara aplikasi My Singghara, browser PC, dan HP lain di jaringan yang sama.", icon: "bi-arrow-left-right", color: "#0284C7", badge: "100% Offline" },
                 { id: 'profil', title: "Profil Pengguna", desc: "Kelola profil akun, keamanan & App Lock, backup data, GPS, status Membership VIP, dan informasi aplikasi.", icon: "bi-person-circle", color: "#6366F1", badge: "Profil & Akun" }
             ];
 
