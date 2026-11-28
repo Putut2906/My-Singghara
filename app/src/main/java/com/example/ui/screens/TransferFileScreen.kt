@@ -1214,7 +1214,7 @@ fun PhoneToPhoneSection(
                         modifier = Modifier.weight(1f).height(38.dp),
                         shape = RoundedCornerShape(10.dp)
                     ) {
-                        Icon(Icons.Default.Copy, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Icon(Icons.Default.ContentCopy, contentDescription = null, modifier = Modifier.size(16.dp))
                         Spacer(modifier = Modifier.width(6.dp))
                         Text("Salin", fontSize = 11.sp)
                     }
