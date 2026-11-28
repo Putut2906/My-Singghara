@@ -1937,6 +1937,76 @@ class LocalHttpServer(
         put("kunci", s.kunci)
         put("bobot", JSONArray(s.bobotOpsi))
         put("pembahasan", s.pembahasan)
+        // Path absolut di filesDir HP; browser tidak bisa membacanya langsung, jadi
+        // halaman web memuat gambarnya lewat /api/cat/image?soal=<id>.
+        put("gambar", s.gambar)
+    }
+
+    /** Cari berkas gambar soal di semua paket (id soal = UUID, tidak mungkin bentrok). */
+    private fun catFindSoalImage(soalId: String): Pair<java.io.File?, String> {
+        if (soalId.isBlank()) return null to ""
+        try {
+            CatStore.paketList(context).forEach { p ->
+                val s = CatStore.loadBank(context, p.id).firstOrNull { it.id == soalId }
+                if (s != null && s.gambar.isNotBlank()) {
+                    val dir = java.io.File(context.filesDir, "cat_img").canonicalPath
+                    val f = java.io.File(s.gambar)
+                    if (f.exists() && f.canonicalPath.startsWith(dir)) return f to (f.extension.ifBlank { "img" })
+                }
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("CatImage", "Cari gambar soal gagal", e)
+        }
+        return null to ""
+    }
+
+    private fun catServeImage(soalId: String, output: OutputStream) {
+        val (file, ext) = catFindSoalImage(soalId)
+        if (file == null) {
+            sendResponse(output, 404, "Not Found", "text/plain", "Gambar tidak ditemukan")
+            return
+        }
+        val mime = when (ext.lowercase(Locale.getDefault())) {
+            "png" -> "image/png"
+            "jpg", "jpeg" -> "image/jpeg"
+            "gif" -> "image/gif"
+            "webp" -> "image/webp"
+            "bmp" -> "image/bmp"
+            "svg" -> "image/svg+xml"
+            else -> "application/octet-stream"
+        }
+        try {
+            sendBinaryResponse(output, 200, "OK", mime, java.io.FileInputStream(file).use { it.readBytes() }, cacheable = false)
+        } catch (e: Exception) {
+            sendResponse(output, 500, "Error", "text/plain", "Gagal membaca gambar")
+        }
+    }
+
+    /**
+     * Simpan gambar yang diunggah browser ke folder yang sama dengan mobile
+     * (filesDir/cat_img) supaya SoalCat.gambar berisi path yang identik dan
+     * AsyncImage di layar Compose tetap bisa menampilkannya.
+     */
+    private fun catSaveImage(body: String, output: OutputStream) {
+        try {
+            val o = JSONObject(body)
+            val b64 = o.optString("data", "")
+            if (b64.isBlank()) {
+                sendJsonResponse(output, JSONObject().put("success", false).put("message", "Data gambar kosong").toString(), 400)
+                return
+            }
+            val bytes = android.util.Base64.decode(b64.substringAfter("base64,", b64), android.util.Base64.DEFAULT)
+            if (bytes.isEmpty()) {
+                sendJsonResponse(output, JSONObject().put("success", false).put("message", "Berkas kosong").toString(), 400)
+                return
+            }
+            val dir = java.io.File(context.filesDir, "cat_img").apply { if (!exists()) mkdirs() }
+            val target = java.io.File(dir, java.util.UUID.randomUUID().toString() + ".img")
+            java.io.FileOutputStream(target).use { it.write(bytes) }
+            sendJsonResponse(output, JSONObject().put("success", true).put("path", target.absolutePath).toString())
+        } catch (e: Exception) {
+            sendJsonResponse(output, JSONObject().put("success", false).put("message", e.message ?: "Gagal simpan gambar").toString(), 500)
+        }
     }
 
     private fun catHasilObj(h: CatHasil): JSONObject = JSONObject().apply {
@@ -1951,6 +2021,7 @@ class LocalHttpServer(
                 put("jawaban", u.jawaban); put("poin", u.poin); put("benar", u.benar)
                 put("teks", u.soal.teks); put("opsi", JSONArray(u.soal.opsi)); put("kunci", u.soal.kunci)
                 put("pembahasan", u.soal.pembahasan)
+                put("soalId", u.soal.id); put("gambar", u.soal.gambar)
             })
         }
         put("ulasan", ulasan)
@@ -1963,6 +2034,7 @@ class LocalHttpServer(
         return JSONObject().apply {
             put("active", true)
             put("selesai", s.selesai)
+            put("paketId", s.paketId)
             put("startTime", s.startTime)
             put("endTime", s.endTime)
             put("sisaMs", CatStore.sisaMs(s, now))
@@ -1977,8 +2049,16 @@ class LocalHttpServer(
 
     private fun catHasilJson(): String {
         val s = CatStore.loadSesi(context)
-        return if (s == null || !s.selesai) JSONObject().put("available", false).toString()
-        else JSONObject().put("available", true).put("hasil", catHasilObj(CatStore.hitungHasil(context, s))).toString()
+        if (s == null || !s.selesai) return JSONObject().put("available", false).toString()
+        val pid = s.paketId.ifBlank { CatStore.aktifPaketId(context) }
+        val jumlahPercobaan = CatStore.riwayatList(context).count { it.paketId == pid }
+        return JSONObject()
+            .put("available", true)
+            .put("paketId", pid)
+            .put("percobaanKe", jumlahPercobaan.coerceAtLeast(1))
+            .put("maks", CatStore.MAX_PERCOBAAN)
+            .put("hasil", catHasilObj(CatStore.hitungHasil(context, s)))
+            .toString()
     }
 
     private suspend fun handleCatRoute(path: String, method: String, queryParams: Map<String, String>, body: String, output: OutputStream) {
@@ -2003,7 +2083,8 @@ class LocalHttpServer(
                             opsi = opsi,
                             kunci = o.optInt("kunci", 0),
                             bobotOpsi = bobot,
-                            pembahasan = o.optString("pembahasan", "")
+                            pembahasan = o.optString("pembahasan", ""),
+                            gambar = o.optString("gambar", "")
                         )
                     )
                     sendJsonResponse(output, JSONObject().put("success", true).toString())
@@ -2110,6 +2191,8 @@ class LocalHttpServer(
                     imported.forEach { CatStore.addSoal(context, it) }
                     sendJsonResponse(output, JSONObject().put("success", true).put("count", imported.size).toString())
                 }
+                path == "/api/cat/image" && method == "GET" -> catServeImage(queryParams["soal"] ?: "", output)
+                path == "/api/cat/image" && method == "POST" -> catSaveImage(body, output)
                 else -> sendJsonResponse(output, JSONObject().put("success", false).put("message", "Rute CAT tidak dikenal").toString(), 404)
             }
         } catch (e: Exception) {
@@ -12127,6 +12210,14 @@ class LocalHttpServer(
                             <i class="bi bi-bar-chart-line-fill fs-5" style="color: #7C3AED;"></i>
                             <span class="nav-text">Hasil & Live Score</span>
                         </div>
+                        <div class="nav-link-item" onclick="switchTab('cat_grafik_progres', this)" data-title="Grafik Progres">
+                            <i class="bi bi-graph-up-arrow fs-5" style="color: #7C3AED;"></i>
+                            <span class="nav-text">Grafik Progres</span>
+                        </div>
+                        <div class="nav-link-item" onclick="switchTab('cat_tips', this)" data-title="Tips">
+                            <i class="bi bi-lightbulb-fill fs-5" style="color: #7C3AED;"></i>
+                            <span class="nav-text">Tips</span>
+                        </div>
                     </div>
                 </div>
 
@@ -13668,7 +13759,9 @@ class LocalHttpServer(
             }
             else if (currentTab === 'cat_input_soal') { if (window.loadCat) window.loadCat(0); }
             else if (currentTab === 'cat_simulasi_ujian') { if (window.loadCat) window.loadCat(1); }
-            else if (currentTab === 'cat_hasil') { if (window.loadCat) window.loadCat(2); }
+                else if (currentTab === 'cat_hasil') { if (window.loadCat) window.loadCat(2); }
+                else if (currentTab === 'cat_grafik_progres') { if (window.loadCat) window.loadCat(3); }
+                else if (currentTab === 'cat_tips') { if (window.loadCat) window.loadCat(4); }
             else if (currentTab === 'my_apps') loadMyApps();
             else if (currentTab === 'quran') loadQuran();
             else if (currentTab === 'pembukuan') loadPembukuan();
