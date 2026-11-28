@@ -5,8 +5,9 @@ package com.example.web
  *
  * Disamakan dengan layar mobile (SimulasiCatScreen.kt + CatTipsScreen.kt):
  * 5 sub-menu = Input Soal, Simulasi Ujian, Hasil & Live Score, Grafik Progres, Tips.
- * Semua data dibaca dari CatStore yang sama lewat /api/cat/*, jadi soal yang dibuat
- * di PC langsung muncul di HP dan sebaliknya.
+ * Semua data dibaca dari CatStore yang sama lewat endpoint api cat (bank, sesi, hasil,
+ * paket, riwayat, import, image), jadi soal yang dibuat di PC langsung muncul di HP
+ * dan sebaliknya.
  *
  * Catatan gaya penulisan: whole body ini berada di dalam raw string Kotlin, jadi
  * TIDAK boleh ada tanda dollar sama sekali dan template literal JS dihindari -
