@@ -2925,7 +2925,7 @@ fun MainAppContent(viewModel: MainViewModel, desktopMode: Boolean = false) {
             modifier = Modifier.fillMaxSize(),
             topBar = {
                 val dexColors = rememberDexWebColors()
-                if (viewModel.currentRoute != "semua_transaksi_belanja" && viewModel.currentRoute != "semua_catatan_tabungan" && viewModel.currentRoute != "preview_catatan" && viewModel.currentRoute != "immersive_file_viewer" && viewModel.currentRoute != "quran" && viewModel.currentRoute != "transfer_file" && viewModel.currentRoute != "handy_talky" && viewModel.currentRoute != "pemutar_video" && !viewModel.hideGlobalTopAppBar) {
+                if (viewModel.currentRoute != "semua_transaksi_belanja" && viewModel.currentRoute != "semua_catatan_tabungan" && viewModel.currentRoute != "preview_catatan" && viewModel.currentRoute != "immersive_file_viewer" && viewModel.currentRoute != "quran" && viewModel.currentRoute != "handy_talky" && viewModel.currentRoute != "pemutar_video" && !viewModel.hideGlobalTopAppBar) {
                     Box(
                         modifier = if (desktopMode) {
                             Modifier

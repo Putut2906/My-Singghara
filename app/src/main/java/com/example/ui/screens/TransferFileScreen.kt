@@ -76,15 +76,13 @@ private fun transferCardElevation(): Dp = if (transferIsLight()) 2.dp else 0.dp
 fun TransferFileScreen(viewModel: MainViewModel) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
-    val clipboardManager = LocalClipboardManager.current
     val transferManager = remember { FileTransferManager.getInstance(context) }
 
     val sharedFiles by transferManager.sharedFromPhone.collectAsState()
     val receivedFiles by transferManager.receivedFromPc.collectAsState()
     val activityLogs by transferManager.activityLogs.collectAsState()
 
-    var selectedTab by remember { mutableStateOf(0) } // 0: Kirim ke PC, 1: Diterima dari PC, 2: Riwayat
-    var showQrDialog by remember { mutableStateOf(false) }
+    var selectedTab by remember { mutableStateOf(0) } // 0: Kirim ke PC, 1: Diterima, 2: HP ke HP, 3: Riwayat
     var itemToDelete by remember { mutableStateOf<LocalTransferItem?>(null) }
     var isPickingFiles by remember { mutableStateOf(false) }
 
@@ -103,42 +101,9 @@ fun TransferFileScreen(viewModel: MainViewModel) {
         }
     }
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = {
-                    Column {
-                        Text(
-                            text = "Transfer File",
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 18.sp
-                        )
-                        Text(
-                            text = "Kirim & Terima Berkas (100% Offline PC & HP ke HP)",
-                            fontSize = 11.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                },
-                navigationIcon = {
-                    IconButton(onClick = { viewModel.currentRoute = "home" }) {
-                        Icon(Icons.Default.ArrowBack, contentDescription = "Kembali")
-                    }
-                },
-                actions = {
-                    IconButton(onClick = { showQrDialog = true }) {
-                        Icon(Icons.Default.QrCode, contentDescription = "Petunjuk & QR Code", tint = MaterialTheme.colorScheme.primary)
-                    }
-                    IconButton(onClick = { transferManager.refreshReceivedFiles() }) {
-                        Icon(Icons.Default.Refresh, contentDescription = "Segarkan")
-                    }
-                },
-                colors = TopAppBarDefaults.topAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface
-                )
-            )
-        }
-    ) { paddingValues ->
+    // Top action bar layar ini sengaja tidak ada: MainActivity sudah menyediakan
+    // global top bar (toggle drawer + notifikasi) untuk semua halaman.
+    Scaffold { paddingValues ->
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -146,158 +111,7 @@ fun TransferFileScreen(viewModel: MainViewModel) {
                 .padding(horizontal = 16.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            // SUB-MENU SWITCHER (Share Cloud vs Transfer File)
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .background(
-                        if (transferIsLight()) TransferSunken
-                        else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
-                        RoundedCornerShape(12.dp)
-                    )
-                    .padding(4.dp),
-                horizontalArrangement = Arrangement.spacedBy(4.dp)
-            ) {
-                Surface(
-                    onClick = { viewModel.currentRoute = "share" },
-                    modifier = Modifier.weight(1f).height(38.dp),
-                    shape = RoundedCornerShape(8.dp),
-                    color = Color.Transparent
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxSize(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.Center
-                    ) {
-                        Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text("Share (Google Drive)", fontSize = 12.sp, fontWeight = FontWeight.Medium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                }
-
-                Surface(
-                    onClick = { /* Already on Transfer File */ },
-                    modifier = Modifier.weight(1f).height(38.dp),
-                    shape = RoundedCornerShape(8.dp),
-                    color = MaterialTheme.colorScheme.primary
-                ) {
-                    Row(
-                        modifier = Modifier.fillMaxSize(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.Center
-                    ) {
-                        Icon(Icons.Default.SwapHoriz, contentDescription = null, modifier = Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onPrimary)
-                        Spacer(modifier = Modifier.width(6.dp))
-                        Text("Transfer File (Offline)", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimary)
-                    }
-                }
-            }
-
-            // KARTU STATUS KONEKSI WEB CONNECT (OFFLINE)
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(16.dp),
-                colors = CardDefaults.cardColors(
-                    containerColor = if (transferIsLight()) TransferAccentSoft
-                    else MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.25f)
-                ),
-                border = BorderStroke(
-                    1.dp,
-                    if (transferIsLight()) TransferAccentBorder
-                    else MaterialTheme.colorScheme.primary.copy(alpha = 0.3f)
-                ),
-                elevation = CardDefaults.cardElevation(defaultElevation = transferCardElevation())
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(14.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween
-                ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(12.dp),
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .size(44.dp)
-                                .clip(CircleShape)
-                                .background(
-                                    if (transferIsLight()) Color.White
-                                    else MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)
-                                )
-                                .border(
-                                    width = 1.dp,
-                                    color = if (transferIsLight()) TransferAccentBorder else Color.Transparent,
-                                    shape = CircleShape
-                                ),
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Wifi,
-                                contentDescription = null,
-                                tint = if (transferIsLight()) TransferAccentDeep else MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(24.dp)
-                            )
-                        }
-                        Column {
-                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                Text(
-                                    text = "Web Connect PC",
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 13.sp,
-                                    color = MaterialTheme.colorScheme.onSurface
-                                )
-                                Surface(
-                                    shape = RoundedCornerShape(4.dp),
-                                    color = Color(0xFF10B981).copy(alpha = 0.2f)
-                                ) {
-                                    Text(
-                                        text = "100% OFFLINE",
-                                        color = Color(0xFF047857),
-                                        fontSize = 9.sp,
-                                        fontWeight = FontWeight.Bold,
-                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
-                                    )
-                                }
-                            }
-                            Text(
-                                text = webConnectUrl,
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                color = if (transferIsLight()) TransferAccentDeep else MaterialTheme.colorScheme.primary
-                            )
-                            Text(
-                                text = "Buka alamat di atas pada browser PC",
-                                fontSize = 10.sp,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
-
-                    Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                        IconButton(
-                            onClick = {
-                                clipboardManager.setText(AnnotatedString(webConnectUrl))
-                                Toast.makeText(context, "Alamat disalin ke clipboard", Toast.LENGTH_SHORT).show()
-                            },
-                            modifier = Modifier.size(36.dp)
-                        ) {
-                            Icon(Icons.Default.ContentCopy, contentDescription = "Salin Alamat", modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.primary)
-                        }
-                        IconButton(
-                            onClick = { showQrDialog = true },
-                            modifier = Modifier.size(36.dp)
-                        ) {
-                            Icon(Icons.Default.QrCode, contentDescription = "QR Code", modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.primary)
-                        }
-                    }
-                }
-            }
-
-            // TAB ROWS (Kirim ke PC, Diterima dari PC, Riwayat)
+            // TAB ROWS (Kirim ke PC, Diterima, HP ke HP, Riwayat)
             TabRow(
                 selectedTabIndex = selectedTab,
                 containerColor = Color.Transparent,
@@ -417,14 +231,6 @@ fun TransferFileScreen(viewModel: MainViewModel) {
                     Text("Batal")
                 }
             }
-        )
-    }
-
-    // DIALOG QR CODE & PETUNJUK
-    if (showQrDialog) {
-        WebConnectQrDialog(
-            url = webConnectUrl,
-            onDismiss = { showQrDialog = false }
         )
     }
 }
@@ -937,92 +743,6 @@ fun FileItemCard(
 
             IconButton(onClick = onAction) {
                 Icon(actionIcon, contentDescription = actionDescription, tint = MaterialTheme.colorScheme.error)
-            }
-        }
-    }
-}
-
-@Composable
-fun WebConnectQrDialog(
-    url: String,
-    onDismiss: () -> Unit
-) {
-    val qrBitmap: Bitmap? = remember(url) {
-        QrCodeHelper.generateQrBitmap(url, size = 400)
-    }
-
-    Dialog(onDismissRequest = onDismiss) {
-        Card(
-            modifier = Modifier.fillMaxWidth().padding(16.dp),
-            shape = RoundedCornerShape(20.dp),
-            colors = CardDefaults.cardColors(containerColor = transferPanelColor()),
-            border = BorderStroke(
-                1.dp,
-                if (transferIsLight()) transferBorderColor() else Color.Transparent
-            ),
-            elevation = CardDefaults.cardElevation(defaultElevation = transferCardElevation())
-        ) {
-            Column(
-                modifier = Modifier.padding(20.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(14.dp)
-            ) {
-                Text(
-                    text = "Akses Web Connect Offline",
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 16.sp,
-                    textAlign = TextAlign.Center
-                )
-
-                if (qrBitmap != null) {
-                    Surface(
-                        shape = RoundedCornerShape(12.dp),
-                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-                        color = Color.White,
-                        modifier = Modifier.padding(4.dp)
-                    ) {
-                        Image(
-                            bitmap = qrBitmap.asImageBitmap(),
-                            contentDescription = "QR Code Web Connect",
-                            modifier = Modifier.size(180.dp).padding(8.dp)
-                        )
-                    }
-                }
-
-                Surface(
-                    shape = RoundedCornerShape(8.dp),
-                    color = if (transferIsLight()) TransferAccentSoft
-                    else MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f),
-                    border = if (transferIsLight()) BorderStroke(1.dp, TransferAccentBorder) else null,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text(
-                        text = url,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 13.sp,
-                        color = if (transferIsLight()) TransferAccentDeep else MaterialTheme.colorScheme.primary,
-                        textAlign = TextAlign.Center,
-                        modifier = Modifier.padding(8.dp)
-                    )
-                }
-
-                Column(
-                    verticalArrangement = Arrangement.spacedBy(4.dp),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text("Petunjuk Penggunaan:", fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                    Text("1. Pastikan PC dan HP terhubung ke Wi-Fi yang sama (atau hotspot HP).", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text("2. Buka browser di PC (Chrome/Edge/Firefox) lalu ketik alamat di atas atau domain http://mysingghara.com:8080.", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Text("3. Pilih sub menu 'Transfer File' di PC untuk kirim dan terima berkas 100% offline tanpa internet.", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-
-                Button(
-                    onClick = onDismiss,
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(10.dp)
-                ) {
-                    Text("Tutup")
-                }
             }
         }
     }
